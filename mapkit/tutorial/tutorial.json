@@ -1,0 +1,892 @@
+{
+ "map": "00_DeusEdix_Tutorial",
+ "script": "deusedix_tutorial",
+ "spacing": 1024,
+ "room": [
+  768,
+  768,
+  256
+ ],
+ "guide": {
+  "bind": "EliasHale",
+  "name": "Dr. Elias Hale",
+  "recipe": "guide.json"
+ },
+ "rooms": [
+  "Reception",
+  "Stores",
+  "Door systems",
+  "Drill hall",
+  "Lab office",
+  "Materials workshop",
+  "Film stage",
+  "Library",
+  "Interrogation room",
+  "Demolition range",
+  "Ambush yard",
+  "Code lab"
+ ],
+ "steps": [
+  {
+   "room": 0,
+   "title": "Welcome, recruit",
+   "text": "Welcome to the DeusEdix training wing. I am Dr. Elias Hale, and I watch these rooms from behind the glass. Eight rooms, a few useful skills, and several turns. The map was built a minute ago on your own PC, from a script using the assets of your installed game. First, your eyes. Hold the right mouse button and move the mouse to look around; keep it held and use W A S D to fly, Q and E to go down and up. Take a lap.",
+   "check": "fly",
+   "show": "room",
+   "complete": "Good. You can see. We are off to a fine start."
+  },
+  {
+   "room": 0,
+   "title": "Where the player begins",
+   "text": "Before we go on, give the player somewhere to arrive. In Objects, search for Player start, select it, then click the marked floor here in reception. A map needs an enabled Player start before it can be played. When you finish the editor lessons, press Play to walk through your work from this room. Even an agent needs an entrance.",
+   "check": "playerstart",
+   "show": "room",
+   "camera": {"from": [80, -180, 125], "at": [-120, -170, 4]},
+   "focus": {"bounds": [-168, -218, -72, -122, 2], "shape": "circle", "label": "Place Player start here"},
+   "complete": "Ready. The player can now enter this map."
+  },
+  {
+   "room": 1,
+   "title": "Select and move",
+   "text": "Room 1, the stores. Click the small crate to select it: it gets an outline and its Properties open on the right. Drag one of the arrows to move it. W, E and R switch between moving, turning and scaling; F brings the camera to it. Put it wherever you like. The quartermaster counts crates, not where they stand.",
+   "check": "moved:TutorialCrate",
+   "show": "select:TutorialCrate",
+   "complete": "Moved. The quartermaster will count it again anyway.",
+   "camera": {
+    "from": [
+     456,
+     -208,
+     112
+    ],
+    "at": [
+     528,
+     -24,
+     16
+    ]
+   }
+  },
+  {
+   "room": 1,
+   "title": "Stock the crate bay",
+   "text": "In Objects at the bottom, search for crate and choose a small crate. Then click the TOP of the low platform circled in the 3D view: the Crate stockpile. Put the new crate on it, not on the floor beside it. The platform is already built. Out in the field a requisition takes three weeks and two signatures. Here it takes one click. Please do not requisition another floor.",
+   "check": "added:720,-344,880,-184",
+   "show": "room",
+   "highlight": [
+    ".btab[data-tab=\"objects\"]",
+    "#search"
+   ],
+   "complete": "Requisition approved. That never happens.",
+   "focus": {
+    "bounds": [
+     720,
+     -344,
+     880,
+     -184,
+     2.5
+    ],
+    "label": "CRATE STOCKPILE - place a crate on top"
+   },
+   "camera": {
+    "from": [
+     568,
+     -312,
+     152
+    ],
+    "at": [
+     800,
+     -264,
+     2
+    ]
+   }
+  },
+  {
+   "room": 2,
+   "title": "Interactions",
+   "text": "Room 2. This door does not open by hand: engineering's idea of safety. Select the button on the wall, then in its Properties press Connect to... and click the door: choose opens. You just wrote a rule: when JC uses the button, open the door. No Tags, no Events, no code. My colleagues in the booth spent years on that door. Try to look impressed.",
+   "check": "link:TutorialButton:open:TutorialDoor",
+   "show": "select:TutorialButton",
+   "highlight": [
+    "#lkconnect"
+   ],
+   "complete": "Connected. The engineers just exchanged a look."
+  },
+  {
+   "room": 3,
+   "title": "A greeting",
+   "text": "Room 3. Our trooper stands there and breathes. Very professional, very dull. Select him. In his Properties, under Animation, set When idle to GestureRight: in the game he greets you with his hand instead of just breathing. The play button next to it shows the animation here, in the editor. Morale in this room just went up.",
+   "check": "idle:TutorialTrooper",
+   "show": "select:TutorialTrooper",
+   "highlight": [
+    "#anidle"
+   ],
+   "complete": "He waves. I may frame that."
+  },
+  {
+   "room": 4,
+   "title": "A dialogue",
+   "text": "Room 4. The scientist has nothing to say yet, a first for this facility. Select her and press Dialogues... in her Properties (or open Map > Story). A new dialogue opens for her: write her line and an answer for JC, then Save. When JC talks to her in the game, they say your lines. Keep it polite. She reads the transcripts.",
+   "check": "dialogue:TutorialScientist",
+   "show": "select:TutorialScientist",
+   "highlight": [
+    "#bstory",
+    "#st-newd"
+   ],
+   "complete": "Dialogue saved. She will have opinions."
+  },
+  {
+   "room": 5,
+   "title": "Improve on perfection",
+   "text": "Room 5, materials. Select the plain crate on the RECRUIT plinth. In Textures, press Edit beside its skin. Paint with Brush, add a label with Text, or try the colour adjustments. Under Put it in the game choose On this object only, then Apply. Rebuild puts it in the game. The smiling crate is mine. Two eyes, one mouth, no budget overruns. I doubt you will improve on it. Do try.",
+   "check": "texture:TutorialTextureCrate",
+   "show": "select:TutorialTextureCrate",
+   "complete": "Applied. Hm. Mine tested extremely well with the committee."
+  },
+  {
+   "room": 6,
+   "title": "The last cup",
+   "text": "Room 6, the film stage. Frame the mug and its security detail in the 3D view, then choose + Create > Cutscene camera. Your current view becomes its first key and Look through opens the camera view. We are filming The Last Cup. Two armed guards, one coffee. Accounting approved the guards.",
+   "check": "camera:6",
+   "show": "room",
+   "highlight": [
+    "#addcut"
+   ],
+   "complete": "Camera placed. The mug has requested a larger trailer."
+  },
+  {
+   "room": 6,
+   "title": "Make it unnecessarily dramatic",
+   "text": "In the camera timeline, click about four seconds in. With Look through on, fly closer to the mug, frame a low dramatic angle, and press K or Key to record a second key. A smaller Zoom value gives a tighter shot. Press the play triangle to preview it. Keep the camera in the room and above the floor. Four seconds of suspense over an office beverage. The director calls it restraint.",
+   "check": "cinematic:6",
+   "highlight": [
+    "#cskey",
+    "#csplay"
+   ],
+   "complete": "A dramatic improvement. I was briefly concerned for the coffee."
+  },
+  {
+   "room": 6,
+   "title": "Arrange the premiere",
+   "text": "Select the wall button marked SCREENING and press Connect to.... Click your cutscene camera and choose Play the cutscene. Rebuild will put both the camera and its rule in the map. In the field test, use that button to watch your film; JC gets control back afterwards. Attendance is mandatory. Applause remains voluntary, pending review.",
+   "check": "cutlink:TutorialFilmButton:6",
+   "show": "select:TutorialFilmButton",
+   "highlight": [
+    "#lkconnect"
+   ],
+   "complete": "Premiere scheduled. I have reserved the good chair.",
+   "camera": {
+    "from": [
+     -1192,
+     -296,
+     104
+    ],
+    "at": [
+     -1382,
+     -300,
+     80
+    ]
+   }
+  },
+  {
+   "room": 6,
+   "title": "Field test",
+   "text": "Time for the field test. Press Play in the top bar. The editor saves your work and builds a temporary game copy before starting. In the game, walk through the rooms: the door button, the trooper, the scientist, your crate and the screening button. I will be on the InfoLink the whole way. I always am.",
+   "check": "clicked:playhere",
+   "highlight": [
+    "[data-q=\"build\"]",
+    "[data-q=\"playhere\"]"
+   ],
+   "complete": "Off you go. Mind the furniture."
+  },
+  {
+   "room": 7,
+   "title": "The library",
+   "text": "Last room, the library. Its books hold the tips that did not fit in a lesson: read them in the game (they also go into the DataVault), or select one here and read What it says in its Properties. That concludes your training, agent. Help > Interactive tutorial brings you back here; Start over wipes the slate clean. I am logging you as competent. Do not make me revise it.",
+   "check": "end",
+   "show": "room"
+  },
+  {
+   "room": 8,
+   "title": "Choices",
+   "text": "Welcome to the advanced wing, agent: optional, unpaid, and far more interesting. Room 8, interrogation. Mr. Duarte from the archive knows how to open the vault behind him and has decided to be difficult. Select him and open Dialogues... Give him an opening line, then press + JC's answers and write two answers, one polite and one less so. Each answer jumps to its own label: under each label write what Duarte says back, and close each branch with End of dialogue (in + more...). Save.",
+   "check": "choice:TutorialInformant",
+   "show": "select:TutorialInformant",
+   "highlight": [
+    "#bstory",
+    "[data-addstep=\"choice\"]",
+    "#st-more",
+    "#st-save"
+   ],
+   "complete": "Two answers, two outcomes. Duarte already regrets this.",
+   "advanced": true
+  },
+  {
+   "room": 8,
+   "title": "Consequences",
+   "text": "Words should change things. In the branch where JC is persuasive, add from + more... a Change state step (call the state DuarteHelped, or anything you like) and a Trigger an event (Tag) step with the Tag TutorialVault. Save. In the game that answer marks the state and opens the vault door to the next room. The other answer can leave Duarte smug. He is good at smug.",
+   "check": "consequence:TutorialInformant:TutorialVault",
+   "show": "select:TutorialInformant",
+   "highlight": [
+    "#bstory",
+    "#st-more",
+    "#st-save"
+   ],
+   "complete": "The vault answers to conversation now. Bureaucracy, perfected.",
+   "advanced": true
+  },
+  {
+   "room": 8,
+   "title": "Memory",
+   "text": "People remember. At the top of Duarte's dialogue add, from + more..., Check a condition on your state, jumping to a new Label (jump target). Under that label write one short line: he already helped you and would rather not discuss it, then End of dialogue. The second time JC talks to him, the game jumps straight there. Save.",
+   "check": "remember:TutorialInformant",
+   "show": "select:TutorialInformant",
+   "highlight": [
+    "#bstory",
+    "#st-more",
+    "#st-save"
+   ],
+   "complete": "He remembers. Few archivists do.",
+   "advanced": true
+  },
+  {
+   "room": 9,
+   "title": "Countdown",
+   "text": "Room 9, the demolition range, through the vault you just opened. The panel on the wall arms the charge, and TutorialFuse is a timer of ten seconds: an invisible object, find it in the Hierarchy if you lose it. Select the panel, press Connect to..., click the timer and choose Start the timer.",
+   "check": "link:TutorialArmPanel:timerstart:TutorialFuse",
+   "show": "select:TutorialArmPanel",
+   "highlight": [
+    "#lkconnect"
+   ],
+   "complete": "Armed. I have stepped back from the glass. Purely procedure.",
+   "advanced": true
+  },
+  {
+   "room": 9,
+   "title": "When it runs out",
+   "text": "A timer starts nothing by itself: its end is the When of the next rule. Select TutorialFuse and, in its Interactions, add a rule When it runs out on the crate TutorialBomb: An explosion there, or an effect if you prefer fireworks to craters (sparks, smoke, fire).",
+   "check": "linkwhen:TutorialFuse:finished:explode,effect,blow:TutorialBomb",
+   "show": "select:TutorialFuse",
+   "highlight": [
+    "#lkwhen",
+    "#lkconnect"
+   ],
+   "complete": "Boom, in theory. In practice, a very satisfying line in the log.",
+   "advanced": true
+  },
+  {
+   "room": 9,
+   "title": "Defuse",
+   "text": "Every bomb in this building has an off switch. Usually. Select the keypad TutorialDefusePad: its code is 0451, naturally. Add a rule When the right code is typed: Stop the timer TutorialFuse. In the game: arm it, run to the keypad, type the code. Ten seconds, and my full confidence.",
+   "check": "link:TutorialDefusePad:timerstop:TutorialFuse",
+   "show": "select:TutorialDefusePad",
+   "highlight": [
+    "#lkconnect",
+    "#lkwhen"
+   ],
+   "complete": "Defused. My confidence was mostly sincere.",
+   "advanced": true,
+   "when": "code"
+  },
+  {
+   "room": 10,
+   "title": "Ambush",
+   "text": "Room 10, the yard. The box on the floor is a zone, TutorialAmbushZone, and two troopers wait at the far end, bored. Select the zone and add a rule When JC walks in: TutorialAmbusher0 turns hostile, or attacks. Add the second trooper to the same rule if you are feeling thorough. In Play, walking in starts the fight. Bring a medkit.",
+   "check": "linkany:TutorialAmbushZone:hostile,attack:TutorialAmbusher0",
+   "show": "select:TutorialAmbushZone",
+   "highlight": [
+    "#lkwhen",
+    "#lkconnect"
+   ],
+   "complete": "Ambush armed. The troopers have stopped being bored.",
+   "advanced": true,
+   "when": "enter"
+  },
+  {
+   "room": 11,
+   "title": "Your first script",
+   "text": "Room 11, the code lab: for what the Interactions cannot say. Tools > Scripts..., name a new script and start from When triggered. Read it, change the Say line to something of yours, press Compile (Ctrl+B). Then Place in map, inside this room, and give it a Tag in the Inspector. It is UnrealScript, the game's own language. Errors point to their line. They are not personal.",
+   "check": "scriptplaced:11",
+   "show": "room",
+   "complete": "Compiled and placed. Somewhere a programmer felt a disturbance.",
+   "advanced": true
+  },
+  {
+   "room": 11,
+   "title": "Wire it",
+   "text": "Connect the button TutorialScriptButton to your script: Connect to..., click the script, choose Switch on. Using the button runs your script's Triggered(). Anything a script can do, a button can now do.",
+   "check": "linkscript:TutorialScriptButton",
+   "show": "select:TutorialScriptButton",
+   "highlight": [
+    "#lkconnect"
+   ],
+   "complete": "Wired. You built a machine that does exactly what you wrote. Terrifying.",
+   "advanced": true
+  },
+  {
+   "room": 11,
+   "title": "Live",
+   "text": "Last one. Press Play, then open the Console: a tab next to the Browser, or Window > Console. While the game runs, type a command and press Enter: say Hello from the console, or god if room 10 is shooting at you. Your scripts' log lines show up there too.",
+   "check": "console",
+   "show": null,
+   "complete": "You can talk to the game while it runs. Use that power responsibly, or at least quietly.",
+   "advanced": true
+  },
+  {
+   "room": 11,
+   "title": "Graduation",
+   "text": "That is the advanced wing, agent: choices that change the world, countdowns, ambushes, and code of your own. Everything you built is in this map: Map > Story and each object's Interactions show it back. Help > Interactive tutorial brings you here again. I am revising my assessment to dangerous. It is a compliment.",
+   "check": "end",
+   "show": "room",
+   "advanced": true
+  }
+ ],
+ "names": {
+  "crate": "TutorialCrate",
+  "button": "TutorialButton",
+  "door": "TutorialDoor",
+  "trooper": "TutorialTrooper",
+  "scientist": "TutorialScientist",
+  "textureCrate": "TutorialTextureCrate",
+  "filmButton": "TutorialFilmButton",
+  "filmSubject": "TutorialCoffee",
+  "informant": "TutorialInformant",
+  "vault": "TutorialVault",
+  "armPanel": "TutorialArmPanel",
+  "fuse": "TutorialFuse",
+  "bomb": "TutorialBomb",
+  "defusePad": "TutorialDefusePad",
+  "ambushZone": "TutorialAmbushZone",
+  "ambusher": "TutorialAmbusher0",
+  "scriptButton": "TutorialScriptButton"
+ },
+ "layout": [
+  {
+   "origin": [
+    0,
+    0
+   ],
+   "size": [
+    496,
+    544,
+    304
+   ],
+   "cells": [
+    [
+     -248,
+     -272,
+     248,
+     272
+    ]
+   ],
+   "camera": {
+    "from": [
+     -170,
+     -190,
+     100
+    ],
+    "at": [
+     40,
+     360,
+     168
+    ]
+   },
+   "label": "Reception"
+  },
+  {
+   "origin": [
+    624,
+    -64
+   ],
+   "size": [
+    544,
+    576,
+    224
+   ],
+   "cells": [
+    [
+     -224,
+     -320,
+     64,
+     256
+    ],
+    [
+     64,
+     -320,
+     320,
+     -32
+    ]
+   ],
+   "camera": {
+    "from": [
+     456,
+     -300,
+     155
+    ],
+    "at": [
+     680,
+     -180,
+     34
+    ]
+   },
+   "label": "Stores / L-shaped loading bay"
+  },
+  {
+   "origin": [
+    800,
+    -704
+   ],
+   "size": [
+    384,
+    384,
+    272
+   ],
+   "cells": [
+    [
+     -192,
+     -192,
+     192,
+     192
+    ]
+   ],
+   "camera": {
+    "from": [
+     874,
+     -816,
+     126
+    ],
+    "at": [
+     612,
+     -652,
+     80
+    ]
+   },
+   "label": "Door systems / control room"
+  },
+  {
+   "origin": [
+    144,
+    -992
+   ],
+   "size": [
+    640,
+    608,
+    272
+   ],
+   "cells": [
+    [
+     -320,
+     -304,
+     -96,
+     304
+    ],
+    [
+     -96,
+     -304,
+     96,
+     -80
+    ],
+    [
+     96,
+     -304,
+     320,
+     304
+    ]
+   ],
+   "camera": {
+    "from": [
+     376,
+     -1176,
+     136
+    ],
+    "at": [
+     144,
+     -1184,
+     64
+    ]
+   },
+   "label": "Drill hall / horseshoe"
+  },
+  {
+   "origin": [
+    -496,
+    -752
+   ],
+   "size": [
+    384,
+    320,
+    208
+   ],
+   "cells": [
+    [
+     -192,
+     -160,
+     192,
+     160
+    ]
+   ],
+   "camera": {
+    "from": [
+     -610,
+     -836,
+     130
+    ],
+    "at": [
+     -432,
+     -736,
+     64
+    ]
+   },
+   "label": "Lab office"
+  },
+  {
+   "origin": [
+    -1104,
+    -752
+   ],
+   "size": [
+    576,
+    384,
+    240
+   ],
+   "cells": [
+    [
+     -288,
+     -192,
+     288,
+     192
+    ]
+   ],
+   "camera": {
+    "from": [
+     -1104,
+     -888,
+     116
+    ],
+    "at": [
+     -1104,
+     -632,
+     72
+    ]
+   },
+   "label": "Materials workshop / morale improvement"
+  },
+  {
+   "origin": [
+    -1104,
+    -176
+   ],
+   "size": [
+    576,
+    512,
+    288
+   ],
+   "cells": [
+    [
+     -288,
+     -256,
+     288,
+     256
+    ]
+   ],
+   "camera": {
+    "from": [
+     -1216,
+     -344,
+     80
+    ],
+    "at": [
+     -1104,
+     -32,
+     70
+    ]
+   },
+   "label": "Film stage / The Last Cup"
+  },
+  {
+   "origin": [
+    -496,
+    -208
+   ],
+   "size": [
+    448,
+    512,
+    224
+   ],
+   "cells": [
+    [
+     -224,
+     -256,
+     224,
+     256
+    ]
+   ],
+   "camera": {
+    "from": [
+     -636,
+     -378,
+     135
+    ],
+    "at": [
+     -440,
+     -100,
+     60
+    ]
+   },
+   "label": "Library / reading room"
+  },
+  {
+   "label": "Interrogation room / choices and consequences",
+   "origin": [
+    -600,
+    400
+   ],
+   "size": [
+    448,
+    384,
+    240
+   ],
+   "cells": [
+    [
+     -224,
+     -192,
+     224,
+     192
+    ]
+   ],
+   "camera": {
+    "from": [
+     -780,
+     250,
+     170
+    ],
+    "at": [
+     -570,
+     470,
+     70
+    ]
+   }
+  },
+  {
+   "label": "Demolition range / timers and keypads",
+   "origin": [
+    -640,
+    1000
+   ],
+   "size": [
+    512,
+    448,
+    272
+   ],
+   "cells": [
+    [
+     -256,
+     -224,
+     256,
+     224
+    ]
+   ],
+   "camera": {
+    "from": [
+     -860,
+     820,
+     200
+    ],
+    "at": [
+     -620,
+     1060,
+     50
+    ]
+   }
+  },
+  {
+   "label": "Ambush yard / zones and enemies",
+   "origin": [
+    -1280,
+    1000
+   ],
+   "size": [
+    512,
+    448,
+    256
+   ],
+   "cells": [
+    [
+     -256,
+     -224,
+     256,
+     224
+    ]
+   ],
+   "camera": {
+    "from": [
+     -1060,
+     820,
+     200
+    ],
+    "at": [
+     -1300,
+     1060,
+     50
+    ]
+   }
+  },
+  {
+   "label": "Code lab / scripts and the console",
+   "origin": [
+    -1280,
+    400
+   ],
+   "size": [
+    448,
+    384,
+    224
+   ],
+   "cells": [
+    [
+     -224,
+     -192,
+     224,
+     192
+    ]
+   ],
+   "camera": {
+    "from": [
+     -1120,
+     250,
+     160
+    ],
+    "at": [
+     -1300,
+     460,
+     60
+    ]
+   }
+  }
+ ],
+ "revision": 7,
+ "targetAliases": {
+  "TutorialDoor": [
+   "TutorialDoorRight"
+  ],
+  "TutorialVault": [
+   "TutorialVaultRight"
+  ]
+ },
+ "passages": [
+  {
+   "from": [
+    248,
+    -64
+   ],
+   "to": [
+    400,
+    -64
+   ]
+  },
+  {
+   "from": [
+    800,
+    -384
+   ],
+   "to": [
+    800,
+    -512
+   ]
+  },
+  {
+   "from": [
+    608,
+    -752
+   ],
+   "to": [
+    464,
+    -752
+   ]
+  },
+  {
+   "from": [
+    -176,
+    -752
+   ],
+   "to": [
+    -304,
+    -752
+   ]
+  },
+  {
+   "from": [
+    -688,
+    -752
+   ],
+   "to": [
+    -816,
+    -752
+   ]
+  },
+  {
+   "from": [
+    -1104,
+    -560
+   ],
+   "to": [
+    -1104,
+    -432
+   ]
+  },
+  {
+   "from": [
+    -816,
+    -208
+   ],
+   "to": [
+    -720,
+    -208
+   ]
+  },
+  {
+   "from": [
+    -496,
+    48
+   ],
+   "to": [
+    -496,
+    208
+   ]
+  },
+  {
+   "from": [
+    -600,
+    592
+   ],
+   "to": [
+    -600,
+    776
+   ]
+  },
+  {
+   "from": [
+    -896,
+    1000
+   ],
+   "to": [
+    -1024,
+    1000
+   ]
+  },
+  {
+   "from": [
+    -1280,
+    776
+   ],
+   "to": [
+    -1280,
+    592
+   ]
+  }
+ ],
+ "plate": [
+  720,
+  -344,
+  880,
+  -184
+ ]
+}

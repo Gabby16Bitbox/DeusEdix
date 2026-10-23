@@ -1,0 +1,52 @@
+/* Tools > Scripts (scripts.js): DESIGN.md sizes and colours */
+#scripts { position:fixed; inset:40px 60px; z-index:21; display:none; background:var(--bg); border:1px solid var(--accent-border);
+  grid-template-columns:200px minmax(0,1fr); grid-template-rows:32px minmax(0,1fr); grid-template-areas:"top top" "left main"; }
+#scripts.tool-maximized { inset:0; }
+#scripts .sc-top { grid-area:top; display:flex; align-items:center; gap:8px; padding:0 8px; background:var(--panel); border-bottom:1px solid var(--line); }
+#scripts .sc-top b { font-size:13px; color:var(--heading); }
+#scripts .sc-pkg { font-size:11px; }
+#scripts .sc-left { grid-area:left; display:flex; flex-direction:column; min-height:0; background:var(--panel); border-right:1px solid var(--line); }
+#scripts .sc-h { padding:8px 8px 4px; font-weight:600; color:var(--heading); }
+#scripts .sc-list { flex:1; overflow:auto; }
+#scripts .sc-item { height:22px; line-height:22px; padding:0 10px; cursor:pointer; font:12px Consolas, "Cascadia Mono", monospace; }
+#scripts .sc-item:hover { background:var(--hover); }
+#scripts .sc-item.on { background:var(--accent-soft); color:var(--heading); }
+#scripts .sc-empty { padding:4px 10px; }
+#scripts .sc-new { display:grid; gap:4px; padding:8px; border-top:1px solid var(--line); }
+#scripts .sc-new input, #scripts .sc-new select, #scripts .sc-new button {
+  box-sizing:border-box; height:22px; min-height:22px; width:100%; min-width:0;
+  padding:0 8px; font-size:12px; line-height:18px;
+}
+#scripts .sc-new button { display:flex; align-items:center; justify-content:center; }
+#scripts .sc-main { grid-area:main; display:grid; grid-template-rows:28px minmax(0,1fr) 120px; min-width:0; min-height:0; }
+#scripts .sc-bar { display:flex; align-items:center; gap:4px; padding:0 8px; background:var(--panel); border-bottom:1px solid var(--line); }
+#scripts .sc-bar button { height:22px; padding:0 10px; }
+#scripts .sc-title { font:12px Consolas, monospace; color:var(--heading); }
+#scripts .sc-dirty { color:var(--warn); margin-left:4px; }
+#scripts .sc-code { display:grid; grid-template-columns:44px minmax(0,1fr); min-height:0; background:var(--viewport); }
+#scripts .sc-gutter { overflow:hidden; padding:6px 0; text-align:right; color:var(--dim); opacity:.7; border-right:1px solid var(--line);
+  font:12px/18px Consolas, "Cascadia Mono", monospace; user-select:none; }
+#scripts .sc-gutter div { padding-right:8px; }
+#scripts .sc-gutter .sc-gerr { background:color-mix(in srgb, var(--bad) 35%, transparent); color:var(--text); }
+#scripts .sc-gutter .sc-gwarn { background:color-mix(in srgb, var(--warn) 30%, transparent); color:var(--text); }
+#scripts .sc-edit { position:relative; min-width:0; min-height:0; }
+#scripts .sc-hl, #scripts .sc-text { position:absolute; inset:0; margin:0; padding:6px 10px; border:0; border-radius:0; overflow:auto; white-space:pre;
+  font:12px/18px Consolas, "Cascadia Mono", monospace; tab-size:4; letter-spacing:0; }
+#scripts .sc-hl { color:var(--text); pointer-events:none; overflow:hidden; }
+#scripts .sc-text { color:transparent; caret-color:var(--text); background:transparent !important; resize:none; outline:none; }
+#scripts .sc-text::selection { background:color-mix(in srgb, var(--acc) 35%, transparent); color:transparent; }
+#scripts .sc-c { color:#6f8f6a; font-style:italic; }
+#scripts .sc-s { color:#e6b673; }
+#scripts .sc-n { color:#d79be0; }
+#scripts .sc-num { color:#9fd0ff; }
+#scripts .sc-k { color:var(--acc); font-weight:600; }
+#scripts .sc-t { color:#7fd6c2; }
+#scripts .sc-out { overflow:auto; padding:6px 10px; background:var(--panel); border-top:1px solid var(--line); font-size:12px; }
+#scripts .sc-ok { color:var(--ok); }
+#scripts .sc-bad { color:var(--bad); }
+#scripts .sc-prob { padding:1px 0; cursor:pointer; font:12px/18px Consolas, monospace; }
+#scripts .sc-prob:hover { background:var(--hover); }
+#scripts .sc-prob.sc-error { color:var(--bad); }
+#scripts .sc-prob.sc-warning { color:var(--warn); }
+#scripts .sc-help-text { line-height:1.5; color:var(--text); }
+#scripts code { font:11px Consolas, monospace; color:var(--heading); }

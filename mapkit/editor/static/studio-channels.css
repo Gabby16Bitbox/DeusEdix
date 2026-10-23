@@ -1,0 +1,125 @@
+/* A compact Dope Sheet shares the bottom editor with the optional Graph. */
+body #studio .st-props { margin:8px 0; border-block:1px solid var(--line); font-size:12px; min-width:0; }
+body #studio .st-props summary { cursor:pointer; padding:6px 0; color:var(--heading); font-weight:600; }
+body #studio .st-props summary span { color:var(--dim); margin-left:6px; font-weight:400; }
+body #studio .st-props-body { display:grid; gap:6px; padding-bottom:8px; min-width:0; }
+body #studio .st-prop-row { display:flex; align-items:center; gap:4px; min-width:0; }
+body #studio .st-prop-row > label { flex:none; color:var(--dim); }
+body #studio .st-prop-row > :is(input,select) { flex:1; width:0; min-width:0; }
+body #studio .st-props :is(input,select,button) { height:22px; min-height:22px; box-sizing:border-box; font-size:12px; }
+body #studio .st-props button { padding:0 6px; line-height:18px; white-space:nowrap; }
+body #studio .st-prop-transform { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
+body #studio .st-prop-transform > span { grid-column:1/-1; color:var(--dim); font-size:11px; }
+body #studio .st-prop-transform label { display:flex; align-items:center; gap:4px; color:var(--dim); min-width:0; }
+body #studio .st-prop-transform input { width:0; min-width:0; flex:1; font-variant-numeric:tabular-nums; }
+body #studio .st-prop-picker { display:grid; gap:4px; padding:6px; background:var(--field); border:1px solid var(--line); min-width:0; }
+body #studio .st-prop-picker[hidden] { display:none; }
+body #studio .st-prop-picker > :is(input,select,button) { width:100%; min-width:0; }
+body #studio .st-prop-picker select { height:110px; }
+body #studio .st-props .st-prop-enabled { display:flex; align-items:center; gap:4px; font-size:11px; }
+body #studio .st-props input[type=checkbox] { width:14px; height:14px; min-height:14px; margin:0; }
+body #studio { grid-template-areas:"top top top" "left view right" "time time right" "graph graph right"; }
+body #studio.tool-window { grid-template-rows:32px minmax(120px,1fr) 34px minmax(200px,32%); }
+body #studio.tool-window.has-graph { grid-template-rows:32px minmax(120px,1fr) 34px minmax(350px,46%); }
+body #studio #as-editors { grid-area:graph; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; border-top:1px solid var(--line); background:var(--panel); }
+body #studio #as-editors.graph-open { grid-template-columns:210px minmax(0,1fr); }
+body #studio #as-editors { container-type:inline-size; }
+body #studio #as-editors #as-graph { grid-area:auto; border-top:0; border-left:1px solid var(--line); }
+body #studio #as-graph[hidden] { display:none; }
+body #studio #as-channels { min-height:0; min-width:0; display:flex; flex-direction:column; font-size:12px; }
+body #studio .st-channel-tools { display:flex; align-items:center; gap:6px; padding:4px 8px; min-height:30px; box-sizing:border-box; border-bottom:1px solid var(--line); }
+body #studio .st-channel-tools strong { font-size:12px; }
+body #studio .st-channel-tools input[type=search] { width:100px; min-width:40px; flex:1; height:22px; min-height:22px; }
+body #studio .st-channel-tools label { display:flex; align-items:center; gap:3px; white-space:nowrap; color:var(--dim); font-size:11px; }
+body #studio .graph-open .st-channel-tools { flex-wrap:wrap; }
+body #studio .graph-open .st-channel-tools label { margin-left:auto; }
+body #studio #as-keys { position:relative; inset:auto; height:auto; flex:1; overflow:auto; pointer-events:auto; outline-offset:-2px; }
+body #studio .st-channel-row, body #studio .st-tl-head { display:grid; grid-template-columns:210px minmax(0,1fr); min-height:23px; padding-right:14px; }
+body #studio .st-channel-row:nth-child(even) { background:color-mix(in srgb, var(--bg) 40%, transparent); }
+body #studio .st-channel-row.selected { background:var(--accent-soft, #33415b); }
+body #studio .st-channel-label { display:flex; align-items:center; padding-left:calc(4px + var(--depth) * 10px); min-width:0; box-sizing:border-box; border-right:1px solid var(--line); }
+body #studio .st-channel-label button { height:22px; min-height:22px; padding:0 3px; border:0; border-radius:0; background:transparent; line-height:22px; }
+body #studio .st-channel-label .st-fold { width:16px; flex:none; color:var(--dim); }
+body #studio .st-fold-space { width:16px; flex:none; }
+body #studio .st-channel-name { flex:1; min-width:0; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+body #studio .st-channel-count { padding:0 6px; font-size:10px; font-variant-numeric:tabular-nums; color:var(--dim); }
+body #studio .st-channel-lane { position:relative; margin-left:10px; touch-action:none; cursor:text; }
+body #studio .st-channel-lane::after { content:''; position:absolute; left:var(--playhead,0%); top:0; bottom:0; width:1px; background:var(--st-ph); pointer-events:none; }
+body #studio .st-channel-lane .st-key { position:absolute; top:7px; width:9px; height:9px; min-width:0; min-height:0; margin-left:-4px; padding:0; border:1px solid #1119; border-radius:1px; transform:rotate(45deg); background:#bba46c; cursor:ew-resize; touch-action:none; }
+body #studio .st-channel-row.selected .st-key, body #studio .st-key.at-frame { background:#ffd25a; }
+body #studio .st-channel-lane .st-key:focus-visible { outline:2px solid white; outline-offset:2px; }
+/* The timeline's head, like a video editor's: the bone search on the left, the frame ruler over the lanes
+   (it lines up with them: same columns, and the lanes' scrollbar width kept free on the right). */
+body #studio #as-channels { --st-ph:#4c9eff; }
+body #studio .st-tl-head { flex:none; height:28px; padding-right:calc(14px + var(--sbw, 0px)); background:var(--panel); border-bottom:1px solid var(--line); }
+body #studio .st-tl-head .st-channel-tools { min-height:0; padding:3px 6px; border-bottom:0; border-right:1px solid var(--line); }
+body #studio .st-ruler { position:relative; margin-left:10px; cursor:pointer; touch-action:none; user-select:none; color:var(--dim); font-size:10px; }
+body #studio .st-tick { position:absolute; bottom:0; width:1px; height:4px; background:currentColor; opacity:.55; pointer-events:none; }
+body #studio .st-tick.major { height:8px; opacity:.9; }
+body #studio .st-tick b { position:absolute; left:3px; bottom:5px; font-weight:400; line-height:12px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+body #studio .st-ph-head { position:absolute; left:var(--playhead, 0%); top:0; bottom:0; width:0; z-index:1; pointer-events:none; }
+body #studio .st-ph-head::before { content:''; position:absolute; left:-5px; top:2px; width:11px; height:12px; background:var(--st-ph); clip-path:polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); }
+body #studio .st-ph-head::after { content:''; position:absolute; left:0; top:13px; bottom:0; width:1px; background:var(--st-ph); }
+body #studio .st-channel-empty { padding:12px; }
+body #studio .graph-open .st-channel-row, body #studio .graph-open .st-tl-head { grid-template-columns:minmax(0,1fr); padding-right:0; }
+body #studio .graph-open .st-channel-lane, body #studio .graph-open .st-ruler { display:none; }
+body #studio .graph-open .st-tl-head .st-channel-tools { border-right:0; }
+body #studio .st-channel-axis button { display:block; width:100%; height:22px; min-height:22px; border:0; border-radius:0; padding:0 8px 0 calc(25px + var(--depth) * 10px); text-align:left; background:transparent; font-size:11px; }
+body #studio .st-channel-axis .axis-x { color:#ef7a79; }
+body #studio .st-channel-axis .axis-y { color:#8bc883; }
+body #studio .st-channel-axis .axis-z { color:#88b9ef; }
+body #studio .st-channel-axis button.on { background:var(--accent-soft, #33415b); }
+body #studio #as-graph-toggle[aria-pressed=true] { border-color:var(--acc); background:var(--accent-soft); }
+/* The transport bar: the playback buttons together, the frame like a timecode, the key buttons apart */
+body #studio .st-time { gap:6px; }
+body #studio .st-time button { flex:none; white-space:nowrap; padding:2px 8px; }
+body #studio .st-transport { display:flex; gap:2px; }
+body #studio .st-transport button { width:28px; height:24px; min-height:24px; padding:0; display:grid; place-items:center; line-height:1; }
+body #studio .st-transport svg { width:13px; height:13px; fill:currentColor; }
+body #studio .st-transport #as-play { width:34px; font-size:12px; }
+body #studio #as-fno.st-timecode { min-width:64px; margin-left:6px; white-space:nowrap; font-variant-numeric:tabular-nums; font-size:13px; color:#4c9eff; }
+body #studio .st-time-gap { flex:1; }
+/* the Graph's small buttons (X Y Z, undo, redo): no vertical padding, so their 22px height centres the text */
+body #studio .st-graph :is(.stg-axes, .stg-history) button { padding-top:0; padding-bottom:0; }
+body #studio .st-graph .stg-history button { line-height:18px; }
+/* the lists: a row's own button (Copy, delete) shows on the row being pointed at or chosen */
+body #studio .st-item .st-hover { opacity:0; }
+body #studio .st-item:is(:hover, .on, :focus-within) .st-hover { opacity:1; }
+@media (max-width:1000px) {
+  body #studio #as-editors.graph-open { grid-template-columns:180px minmax(0,1fr); }
+  body #studio .st-channel-row, body #studio .st-tl-head { grid-template-columns:190px minmax(0,1fr); }
+}
+@container (max-width:620px) {
+  body #studio .stg-target { display:none; }
+  body #studio .stg-footer { display:none; }
+  body #studio .stg-heading { gap:3px; }
+}
+/* Ctrl+Space (as Blender's maximize area): the Graph editor fills the Studio below the transport bar */
+body #studio.graph-max { grid-template-areas:"top" "time" "graph" !important; grid-template-columns:minmax(0,1fr) !important; grid-template-rows:auto auto minmax(0,1fr) !important; }
+body #studio.graph-max > :is(.st-left, #as-view, .st-right) { display:none !important; }
+body #studio .stg-heading [data-action="maximize"][aria-pressed=true] { border-color:var(--acc); background:var(--accent-soft); }
+/* numbers dragged by their label (number-scrub.js), as in the map's Inspector */
+body #studio label.num-scrub { cursor:ew-resize; user-select:none; touch-action:none; }
+body #studio label.num-scrub:hover { color:var(--acc); }
+body.number-scrubbing, body.number-scrubbing * { cursor:ew-resize !important; }
+/* IK on or off for each limb (the panel), as toggle buttons */
+body #studio #as-panel .st-ik-row > button { position:relative; flex:0 0 24px; width:24px; min-width:24px; padding:0; height:24px; min-height:24px; display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; }
+body #studio .st-ik-row > button.on { border-color:var(--acc); background:var(--accent-soft); color:var(--heading); }
+body #studio .st-ik-row { flex-wrap:wrap; gap:4px; }
+body #studio .st-limb-icon { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.2; stroke-linejoin:round; stroke-linecap:round; flex:none; }
+body #studio .st-limb-icon.right { transform:scaleX(-1); }
+body #studio .st-prop-row[hidden] { display:none; }
+body #studio .st-prop-picker > select.st-prop-placement { height:22px; min-height:22px; }
+body #studio .st-prop-row > label { flex-shrink:0; }
+body #studio #as-inbetween { width:min(340px, calc(100vw - 48px)); padding:12px; border:1px solid var(--line); border-radius:var(--radius-window); background:var(--panel); color:var(--text); box-shadow:0 14px 30px #0009; }
+body #studio #as-inbetween::backdrop { background:color-mix(in srgb, var(--bg) 65%, transparent); }
+body #studio #as-inbetween h3 { margin:0 0 12px; font-size:13px; font-weight:600; line-height:18px; color:var(--heading); text-transform:none; letter-spacing:normal; }
+body #studio #as-inbetween label { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+body #studio #as-inbetween select { flex:1; min-width:0; }
+body #studio #as-inbetween .st-tween-weight { flex-wrap:wrap; }
+body #studio #as-inbetween output { margin-left:auto; font-variant-numeric:tabular-nums; }
+body #studio #as-inbetween input { flex:0 0 100%; width:100%; }
+body #studio #as-inbetween .st-tween-ends { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; }
+body #studio #as-inbetween p { font-size:11px; line-height:1.4; color:var(--dim); min-height:16px; }
+body #studio #as-inbetween footer { display:flex; justify-content:flex-end; gap:8px; }
+body #studio #as-inbetween button { height:22px; min-height:22px; padding:0 8px; line-height:18px; }

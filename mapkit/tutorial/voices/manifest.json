@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "voice": "EliasHale",
+  "lines": [
+    {
+      "text": "Recruit, Dr. Hale here. Welcome to the DeusEdix training wing.",
+      "name": "V1479691",
+      "sha256": "f766ee70b15926e994bc01bc9cc723486852d7e5cc4d21110ca0d92dae859313",
+      "seconds": 4.783900226757369
+    },
+    {
+      "text": "I'm in the booth behind the glass, up on your left. Yes, I can see you. That's rather the point.",
+      "name": "V13054006",
+      "sha256": "3e0bbd0a9a4488e17b5e9c66a32bae503bbaa8886e5efaad00f5cf5b0a4c8521",
+      "seconds": 6.509795918367347
+    },
+    {
+      "text": "Everything here was built in the editor a few minutes ago, on your own machine. Walk the rooms and inspect your work.",
+      "name": "V1143189",
+      "sha256": "70a43738fc17b207e411ed9320bb31b2b2b84b574462fbd2e301919703b316a2",
+      "seconds": 7.186530612244898
+    },
+    {
+      "text": "Room one, the stores. The crate you moved, and the one you placed on top of the crate stockpile platform.",
+      "name": "V9632280",
+      "sha256": "df5f8e60659892bcf368469522a8e55152b3114e8ecc20fda1b06fc4ab1d6094",
+      "seconds": 6.895011337868481
+    },
+    {
+      "text": "Every object of the game is one click away in the palette. The quartermaster would weep with joy.",
+      "name": "V12169210",
+      "sha256": "829537514199396682aaee583ab449e88dd70e560ff51d205fddc4882bf8d1b5",
+      "seconds": 6.33156462585034
+    },
+    {
+      "text": "Room two. Use the button.",
+      "name": "V10041377",
+      "sha256": "5d463265cdd40b37a0a1831f5e8f3c955f52615a4d982ecfbe56cdad648c09bd",
+      "seconds": 2.380498866213152
+    },
+    {
+      "text": "The door opens because you told it to: when JC uses the button, open the door. No tags, no events, no code.",
+      "name": "V3423366",
+      "sha256": "4e0fe17464eadac09824e9409fee09e2c900430322fc02f4972d45339f087062",
+      "seconds": 8.563945578231293
+    },
+    {
+      "text": "My colleagues behind the glass built doors for twenty years. They are pretending not to be impressed.",
+      "name": "V2718331",
+      "sha256": "89c382c9eca925341c599abfa9c172a94d89654a85c3500f9928b3e094c1630a",
+      "seconds": 6.529115646258504
+    },
+    {
+      "text": "Room three. The trooper greets you with the gesture you picked in his properties.",
+      "name": "V7493485",
+      "sha256": "e7cd500bbebf4efae66d8626a90e2b8bd64e0b9553febd8ecbf99b06fd087404",
+      "seconds": 4.752698412698413
+    },
+    {
+      "text": "My colleague on the sideline has her own gesture. She calls it supervising. We call it stretching.",
+      "name": "V5061307",
+      "sha256": "baa5e449568e077153be84e2fe4311d1d39f6712d0dac8cac9b9646f85cb1e87",
+      "seconds": 6.810929705215419
+    },
+    {
+      "text": "Room four. Talk to my colleague: she says what you wrote for her in the Story panel.",
+      "name": "V8933380",
+      "sha256": "c4368ca759201723cc5ae9702c2fbc61bc639679713b52f7a7b0a657aa6a9f07",
+      "seconds": 5.409070294784581
+    },
+    {
+      "text": "If she says anything you didn't write, report it to me at once. Then walk calmly to the exit.",
+      "name": "V1144708",
+      "sha256": "506faf496f9910d77ed76b9ca41b817326fdd57056255a70ee5bfe9ccb304e96",
+      "seconds": 6.549342403628118
+    },
+    {
+      "text": "Last room, the library. The books hold the tips that did not fit in a lesson.",
+      "name": "V13039965",
+      "sha256": "d5e6fd7e93ab35c95bf53913e22b8148d4265e85a3967d1e77d2d530a2f22537",
+      "seconds": 5.580725623582766
+    },
+    {
+      "text": "That concludes the training, agent. Good work.",
+      "name": "V13685381",
+      "sha256": "37f6efb7c2f426c852c57e49c912ef5b83b6e61bf3c70349c2c9772318bd67c5",
+      "seconds": 3.0687074829931973
+    },
+    {
+      "text": "I'll file the report now, before anyone asks what we spent on coffee this quarter.",
+      "name": "V3272016",
+      "sha256": "941a86843ff750259aa73438b94a348a2120b35ce164cfc7805f14213224940b",
+      "seconds": 5.018548752834467
+    },
+    {
+      "text": "Room five. My smiling crate and your response.",
+      "name": "V10166658",
+      "sha256": "075ec3d28a1d34789fba9dcab21cefc64c1081f0537b441bef7a8be382d68c61",
+      "seconds": 4.115691609977325
+    },
+    {
+      "text": "Change the plain crate's skin in the Texture Editor. I expect restraint, legibility, and very little competition.",
+      "name": "V4135268",
+      "sha256": "6d629bcbdf55c29331310419575af65953a732e1e9f2603046ab1def097caa86",
+      "seconds": 7.6197278911564625
+    },
+    {
+      "text": "The committee called mine approachable. They were referring to the crate.",
+      "name": "V9038766",
+      "sha256": "c2986cccd97ac5d568e46717409e97206b8384e4024b399838a37389314e001d",
+      "seconds": 4.5568253968253964
+    },
+    {
+      "text": "The film stage. Use the screening button to play the shot you made.",
+      "name": "V13763941",
+      "sha256": "e0dd0b68bf1faa0ddbb5374b38e6840bd51a2022e8dca8bf4e0422e3cef6d38a",
+      "seconds": 4.415963718820862
+    },
+    {
+      "text": "The last cup of coffee in this facility, under armed protection. This is a training scenario. Mostly.",
+      "name": "V5781149",
+      "sha256": "0874a3c75ac123a7290f24a2b6fe9003215f3549482040a43f93ac7fcdec1a71",
+      "seconds": 7.126802721088436
+    },
+    {
+      "text": "When the film ends, carry on to the library. Please leave the principal actor on its pedestal.",
+      "name": "V10546225",
+      "sha256": "eedd5204e5827f91cd028246547e3b8f7e2c4206978685672abb920a2bdf89ae",
+      "seconds": 5.758639455782313
+    },
+    {
+      "text": "Welcome to the DeusEdix training. I am Dr. Elias Hale; I watch the rooms from behind the glass, up on your left.",
+      "name": "V10357385",
+      "sha256": "e8f8e9f401397e7d60766162ab213e2817e6ab3ac02a88c417db71706ee2626f",
+      "seconds": 7.92625850340136
+    },
+    {
+      "text": "Everything here was built in the editor a few minutes ago, on your own machine. Walk through the rooms and see what you made.",
+      "name": "V6702622",
+      "sha256": "fc1d4228507b4e9b2811ae874c0dd50278b2349ea7f475065e1c0e29d32c84ca",
+      "seconds": 7.25047619047619
+    },
+    {
+      "text": "Room one. The crate you moved, and the one you placed on the green plate. Every object of the game is one click away in the palette.",
+      "name": "V15297897",
+      "sha256": "0d309c34a75283391dcd2626624cee9b359a818a8bb03405d80188025ecece1e",
+      "seconds": 8.466439909297053
+    },
+    {
+      "text": "Room two. Use the button. The door opens because you told it to: when JC uses the button, open the door. No tags, no events, no code.",
+      "name": "V7081724",
+      "sha256": "ae9437c267d9186441e11bbba37362f622b6523b5f27d3e20f5d57d24109c202",
+      "seconds": 11.137641723356008
+    },
+    {
+      "text": "Room three. The trooper greets you with the gesture you picked in his properties. My colleagues behind the glass have theirs too.",
+      "name": "V5132388",
+      "sha256": "9d6d9b39fe8c6aec8e5f65942c0e21f096e794d93695d90d4098491b7545c614",
+      "seconds": 7.306167800453514
+    },
+    {
+      "text": "Last room, the library. The books hold the tips that did not fit in a lesson. That is the training. Good work.",
+      "name": "V9136416",
+      "sha256": "ade4a871b1f28ca1a04f9429f3e85ad4e4209053c8ee4adcd766140d3f7f8efe",
+      "seconds": 8.174875283446712
+    }
+  ],
+  "mix": {
+    "revision": "hale-quieter-deessed-20261016",
+    "attenuation_db": 2.5,
+    "deesser": {
+      "intensity": 0.18,
+      "max_deessing": 0.2,
+      "frequency": 0.5
+    },
+    "hard_limiter_db": -3.0,
+    "resampling_safety_ceiling_db": -3.2,
+    "maximum_output_dbtp": -3.0,
+    "limiter_attack_ms": 1,
+    "limiter_release_ms": 50,
+    "oversampling_hz": 176400
+  }
+}

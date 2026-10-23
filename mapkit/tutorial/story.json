@@ -1,0 +1,313 @@
+{
+ "route": "always",
+ "dialogues": [],
+ "infolinks": [
+  {
+   "id": "i0",
+   "title": "Welcome",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Recruit, Dr. Hale here. Welcome to the DeusEdix training wing."
+    },
+    {
+     "text": "I'm in the booth behind the glass, up on your left. Yes, I can see you. That's rather the point."
+    },
+    {
+     "text": "Everything here was built in the editor a few minutes ago, on your own machine. Walk the rooms and inspect your work."
+    }
+   ]
+  },
+  {
+   "id": "i1",
+   "title": "Objects",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Room one, the stores. The crate you moved, and the one you placed on top of the crate stockpile platform."
+    },
+    {
+     "text": "Every object of the game is one click away in the palette. The quartermaster would weep with joy."
+    }
+   ]
+  },
+  {
+   "id": "i2",
+   "title": "Interactions",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Room two. Use the button."
+    },
+    {
+     "text": "The door opens because you told it to: when JC uses the button, open the door. No tags, no events, no code."
+    },
+    {
+     "text": "My colleagues behind the glass built doors for twenty years. They are pretending not to be impressed."
+    }
+   ]
+  },
+  {
+   "id": "i3",
+   "title": "Characters",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Room three. The trooper greets you with the gesture you picked in his properties."
+    },
+    {
+     "text": "My colleague on the sideline has her own gesture. She calls it supervising. We call it stretching."
+    }
+   ]
+  },
+  {
+   "id": "i4",
+   "title": "Story",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Room four. Talk to my colleague: she says what you wrote for her in the Story panel."
+    },
+    {
+     "text": "If she says anything you didn't write, report it to me at once. Then walk calmly to the exit."
+    }
+   ]
+  },
+  {
+   "id": "i5",
+   "title": "Library",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Last room, the library. The books hold the tips that did not fit in a lesson."
+    },
+    {
+     "text": "That concludes the training, agent. Good work."
+    },
+    {
+     "text": "I'll file the report now, before anyone asks what we spent on coffee this quarter."
+    }
+   ]
+  },
+  {
+   "id": "i6",
+   "title": "Materials",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "Room five. My smiling crate and your response."
+    },
+    {
+     "text": "Change the plain crate's skin in the Texture Editor. I expect restraint, legibility, and very little competition."
+    },
+    {
+     "text": "The committee called mine approachable. They were referring to the crate."
+    }
+   ]
+  },
+  {
+   "id": "i7",
+   "title": "The Last Cup",
+   "caller": "EliasHale",
+   "name": "Dr. Elias Hale",
+   "once": true,
+   "do": [],
+   "lines": [
+    {
+     "text": "The film stage. Use the screening button to play the shot you made."
+    },
+    {
+     "text": "The last cup of coffee in this facility, under armed protection. This is a training scenario. Mostly."
+    },
+    {
+     "text": "When the film ends, carry on to the library. Please leave the principal actor on its pedestal."
+    }
+   ]
+  }
+ ],
+ "events": [
+  {
+   "id": "e0",
+   "title": "Welcome",
+   "when": {
+    "type": "start"
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i0"
+    }
+   ]
+  },
+  {
+   "id": "e1",
+   "title": "Room 1",
+   "when": {
+    "type": "near",
+    "at": [
+     624,
+     -64,
+     48
+    ],
+    "radius": 200
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i1"
+    }
+   ]
+  },
+  {
+   "id": "e2",
+   "title": "Room 2",
+   "when": {
+    "type": "near",
+    "at": [
+     800,
+     -704,
+     48
+    ],
+    "radius": 160
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i2"
+    }
+   ]
+  },
+  {
+   "id": "e3",
+   "title": "Room 3",
+   "when": {
+    "type": "near",
+    "at": [
+     144,
+     -1184,
+     48
+    ],
+    "radius": 200
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i3"
+    }
+   ]
+  },
+  {
+   "id": "e4",
+   "title": "Room 4",
+   "when": {
+    "type": "near",
+    "at": [
+     -496,
+     -752,
+     48
+    ],
+    "radius": 160
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i4"
+    }
+   ]
+  },
+  {
+   "id": "e5",
+   "title": "Room 7",
+   "when": {
+    "type": "near",
+    "at": [
+     -496,
+     -208,
+     48
+    ],
+    "radius": 200
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i5"
+    }
+   ]
+  },
+  {
+   "id": "e6",
+   "title": "Room 5",
+   "when": {
+    "type": "near",
+    "at": [
+     -1104,
+     -752,
+     48
+    ],
+    "radius": 180
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i6"
+    }
+   ]
+  },
+  {
+   "id": "e7",
+   "title": "Room 6",
+   "when": {
+    "type": "near",
+    "at": [
+     -1104,
+     -176,
+     48
+    ],
+    "radius": 180
+   },
+   "requires": [],
+   "once": true,
+   "do": [
+    {
+     "type": "infolink",
+     "infolink": "i7"
+    }
+   ]
+  }
+ ]
+}

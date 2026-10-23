@@ -1,0 +1,14 @@
+.prefab-toolbar { display:flex; align-items:center; gap:8px; padding:4px 0; }
+.prefab-toolbar button { padding:5px 9px; }
+.prefab-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr)); gap:8px; }
+.prefab-card { display:flex; align-items:center; gap:12px; min-width:0; padding:10px; border:1px solid var(--line); border-radius:var(--radius-card); background:var(--field); }
+.prefab-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
+.prefab-copy b { display:block; color:var(--heading); font-size:13px; }
+.prefab-copy small { display:block; margin-top:4px; color:var(--dim); font-size:11px; }
+.prefab-card button { flex:none; padding:5px 10px; }
+.prefab-dialog { max-width:520px; }
+.prefab-dialog form { margin:0; }
+.prefab-dialog label { display:block; margin-bottom:7px; }
+.prefab-dialog #prefab-name { width:100%; box-sizing:border-box; }
+.prefab-dialog .hint { margin:12px 0 0; line-height:1.5; }
+.prefab-dialog .map-error { margin:10px 0 0; overflow-wrap:anywhere; }

@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "voice": "EliasHale",
+  "public_voice": "Daniel - Steady Broadcaster",
+  "clips": [
+    {
+      "text": "Welcome to DeusEdix. I am Doctor Elias Hale. Open a map to begin, or choose the interactive tutorial and I will guide you through the training rooms.",
+      "url": "/static/audio/doctor/hale_3cca8be59fb14c3a7cc6.mp3"
+    },
+    {
+      "text": "Welcome to the DeusEdix training wing. I am Dr. Elias Hale, and I watch these rooms from behind the glass. Eight rooms, a few useful skills, and several turns. The map was built a minute ago on your own PC, from a script using the assets of your installed game. First, your eyes. Hold the right mouse button and move the mouse to look around; keep it held and use W A S D to fly, Q and E to go down and up. Take a lap.",
+      "url": "/static/audio/doctor/hale_cb43d00664207a37347f.mp3"
+    },
+    {
+      "text": "Good. You can see. We are off to a fine start.",
+      "url": "/static/audio/doctor/hale_ebadfde3de3db52344cc.mp3"
+    },
+    {
+      "text": "Room 1, the stores. Click the small crate to select it: it gets an outline and its Properties open on the right. Drag one of the arrows to move it. W, E and R switch between moving, turning and scaling; F brings the camera to it. Put it wherever you like. The quartermaster counts crates, not where they stand.",
+      "url": "/static/audio/doctor/hale_a5bf8653d10102c187d9.mp3"
+    },
+    {
+      "text": "Moved. The quartermaster will count it again anyway.",
+      "url": "/static/audio/doctor/hale_8d6ad3faebd870a8f930.mp3"
+    },
+    {
+      "text": "In Objects at the bottom, search for crate and choose a small crate. Then click the TOP of the low platform circled in the 3D view: the Crate stockpile. Put the new crate on it, not on the floor beside it. The platform is already built. Out in the field a requisition takes three weeks and two signatures. Here it takes one click. Please do not requisition another floor.",
+      "url": "/static/audio/doctor/hale_848116277e1f63db341d.mp3"
+    },
+    {
+      "text": "Requisition approved. That never happens.",
+      "url": "/static/audio/doctor/hale_da8fc62ee29388c886f3.mp3"
+    },
+    {
+      "text": "Room 2. This door does not open by hand: engineering's idea of safety. Select the button on the wall, then in its Properties press Connect to... and click the door: choose opens. You just wrote a rule: when JC uses the button, open the door. No Tags, no Events, no code. My colleagues in the booth spent years on that door. Try to look impressed.",
+      "url": "/static/audio/doctor/hale_335c915258ea34a47bb4.mp3"
+    },
+    {
+      "text": "Connected. The engineers just exchanged a look.",
+      "url": "/static/audio/doctor/hale_dcfaba5222049b63329a.mp3"
+    },
+    {
+      "text": "Room 3. Our trooper stands there and breathes. Very professional, very dull. Select him. In his Properties, under Animation, set When idle to GestureRight: in the game he greets you with his hand instead of just breathing. The play button next to it shows the animation here, in the editor. Morale in this room just went up.",
+      "url": "/static/audio/doctor/hale_c49d126ee83e06200490.mp3"
+    },
+    {
+      "text": "He waves. I may frame that.",
+      "url": "/static/audio/doctor/hale_7df3b32da3775ba84d76.mp3"
+    },
+    {
+      "text": "Room 4. The scientist has nothing to say yet, a first for this facility. Select her and press Dialogues... in her Properties (or open Map > Story). A new dialogue opens for her: write her line and an answer for JC, then Save. When JC talks to her in the game, they say your lines. Keep it polite. She reads the transcripts.",
+      "url": "/static/audio/doctor/hale_6b51e5acfd98bffc17b0.mp3"
+    },
+    {
+      "text": "Dialogue saved. She will have opinions.",
+      "url": "/static/audio/doctor/hale_f268eb54e48059705768.mp3"
+    },
+    {
+      "text": "Room 5, materials. Select the plain crate on the RECRUIT plinth. In Textures, press Edit beside its skin. Paint with Brush, add a label with Text, or try the colour adjustments. Under Put it in the game choose On this object only, then Apply. Rebuild puts it in the game. The smiling crate is mine. Two eyes, one mouth, no budget overruns. I doubt you will improve on it. Do try.",
+      "url": "/static/audio/doctor/hale_37ed4f058dda5c6fe79e.mp3"
+    },
+    {
+      "text": "Applied. Hm. Mine tested extremely well with the committee.",
+      "url": "/static/audio/doctor/hale_7a71ce9abc7fa8584886.mp3"
+    },
+    {
+      "text": "Room 6, the film stage. Frame the mug and its security detail in the 3D view, then choose + Create > Cutscene camera. Your current view becomes its first key and Look through opens the camera view. We are filming The Last Cup. Two armed guards, one coffee. Accounting approved the guards.",
+      "url": "/static/audio/doctor/hale_9cd7d74e1923ab6c88b9.mp3"
+    },
+    {
+      "text": "Camera placed. The mug has requested a larger trailer.",
+      "url": "/static/audio/doctor/hale_8453d15b3a963378b866.mp3"
+    },
+    {
+      "text": "In the camera timeline, click about four seconds in. With Look through on, fly closer to the mug, frame a low dramatic angle, and press K or Key to record a second key. A smaller Zoom value gives a tighter shot. Press the play triangle to preview it. Keep the camera in the room and above the floor. Four seconds of suspense over an office beverage. The director calls it restraint.",
+      "url": "/static/audio/doctor/hale_832d5b250029ad0b12d8.mp3"
+    },
+    {
+      "text": "A dramatic improvement. I was briefly concerned for the coffee.",
+      "url": "/static/audio/doctor/hale_383e9e3638b1b4247d00.mp3"
+    },
+    {
+      "text": "Select the wall button marked SCREENING and press Connect to.... Click your cutscene camera and choose Play the cutscene. Rebuild will put both the camera and its rule in the map. In the field test, use that button to watch your film; JC gets control back afterwards. Attendance is mandatory. Applause remains voluntary, pending review.",
+      "url": "/static/audio/doctor/hale_7b896870ffc28b75324c.mp3"
+    },
+    {
+      "text": "Premiere scheduled. I have reserved the good chair.",
+      "url": "/static/audio/doctor/hale_3980d579afac613138b6.mp3"
+    },
+    {
+      "text": "Time for the field test. Press Play in the top bar. The editor saves your work and builds a temporary game copy before starting. In the game, walk through the rooms: the door button, the trooper, the scientist, your crate and the screening button. I will be on the InfoLink the whole way. I always am.",
+      "url": "/static/audio/doctor/hale_340ff07e9644133a287b.mp3"
+    },
+    {
+      "text": "Off you go. Mind the furniture.",
+      "url": "/static/audio/doctor/hale_197e826e84876680ad80.mp3"
+    },
+    {
+      "text": "Last room, the library. Its books hold the tips that did not fit in a lesson: read them in the game (they also go into the DataVault), or select one here and read What it says in its Properties. That concludes your training, agent. Help > Interactive tutorial brings you back here; Start over wipes the slate clean. I am logging you as competent. Do not make me revise it.",
+      "url": "/static/audio/doctor/hale_6f6360a98dbf8d9d4c11.mp3"
+    },
+    {
+      "text": "Welcome to the advanced wing, agent: optional, unpaid, and far more interesting. Room 8, interrogation. Mr. Duarte from the archive knows how to open the vault behind him and has decided to be difficult. Select him and open Dialogues... Give him an opening line, then press + JC's answers and write two answers, one polite and one less so. Each answer jumps to its own label: under each label write what Duarte says back, and close each branch with End of dialogue (in + more...). Save.",
+      "url": "/static/audio/doctor/hale_355d25eafc52f6108650.mp3"
+    },
+    {
+      "text": "Two answers, two outcomes. Duarte already regrets this.",
+      "url": "/static/audio/doctor/hale_7766bc330dd36073902f.mp3"
+    },
+    {
+      "text": "Words should change things. In the branch where JC is persuasive, add from + more... a Change state step (call the state DuarteHelped, or anything you like) and a Trigger an event (Tag) step with the Tag TutorialVault. Save. In the game that answer marks the state and opens the vault door to the next room. The other answer can leave Duarte smug. He is good at smug.",
+      "url": "/static/audio/doctor/hale_8cf4bea674f3be33b971.mp3"
+    },
+    {
+      "text": "The vault answers to conversation now. Bureaucracy, perfected.",
+      "url": "/static/audio/doctor/hale_70c7dabe223fd1b1b9fb.mp3"
+    },
+    {
+      "text": "People remember. At the top of Duarte's dialogue add, from + more..., Check a condition on your state, jumping to a new Label (jump target). Under that label write one short line: he already helped you and would rather not discuss it, then End of dialogue. The second time JC talks to him, the game jumps straight there. Save.",
+      "url": "/static/audio/doctor/hale_6312f6a35c1945403d81.mp3"
+    },
+    {
+      "text": "He remembers. Few archivists do.",
+      "url": "/static/audio/doctor/hale_2c937e7279b8b3e5ce0a.mp3"
+    },
+    {
+      "text": "Room 9, the demolition range, through the vault you just opened. The panel on the wall arms the charge, and TutorialFuse is a timer of ten seconds: an invisible object, find it in the Hierarchy if you lose it. Select the panel, press Connect to..., click the timer and choose Start the timer.",
+      "url": "/static/audio/doctor/hale_a1669b707c901c2a6bb5.mp3"
+    },
+    {
+      "text": "Armed. I have stepped back from the glass. Purely procedure.",
+      "url": "/static/audio/doctor/hale_0d96744ea59188641e4a.mp3"
+    },
+    {
+      "text": "A timer starts nothing by itself: its end is the When of the next rule. Select TutorialFuse and, in its Interactions, add a rule When it runs out on the crate TutorialBomb: An explosion there, or an effect if you prefer fireworks to craters (sparks, smoke, fire).",
+      "url": "/static/audio/doctor/hale_ee229e66012692712ac8.mp3"
+    },
+    {
+      "text": "Boom, in theory. In practice, a very satisfying line in the log.",
+      "url": "/static/audio/doctor/hale_29247467dc23c5079abb.mp3"
+    },
+    {
+      "text": "Every bomb in this building has an off switch. Usually. Select the keypad TutorialDefusePad: its code is 0451, naturally. Add a rule When the right code is typed: Stop the timer TutorialFuse. In the game: arm it, run to the keypad, type the code. Ten seconds, and my full confidence.",
+      "url": "/static/audio/doctor/hale_ad5a8527c8b8701d2d3d.mp3"
+    },
+    {
+      "text": "Defused. My confidence was mostly sincere.",
+      "url": "/static/audio/doctor/hale_b0b9b3b529e3a0671be6.mp3"
+    },
+    {
+      "text": "Room 10, the yard. The box on the floor is a zone, TutorialAmbushZone, and two troopers wait at the far end, bored. Select the zone and add a rule When JC walks in: TutorialAmbusher0 turns hostile, or attacks. Add the second trooper to the same rule if you are feeling thorough. In Play, walking in starts the fight. Bring a medkit.",
+      "url": "/static/audio/doctor/hale_3223e362d6fc7409c101.mp3"
+    },
+    {
+      "text": "Ambush armed. The troopers have stopped being bored.",
+      "url": "/static/audio/doctor/hale_dc29cdffab9ba50efd04.mp3"
+    },
+    {
+      "text": "Room 11, the code lab: for what the Interactions cannot say. Tools > Scripts..., name a new script and start from When triggered. Read it, change the Say line to something of yours, press Compile (Ctrl+B). Then Place in map, inside this room, and give it a Tag in the Inspector. It is UnrealScript, the game's own language. Errors point to their line. They are not personal.",
+      "url": "/static/audio/doctor/hale_e43ed5d904f853990e27.mp3"
+    },
+    {
+      "text": "Compiled and placed. Somewhere a programmer felt a disturbance.",
+      "url": "/static/audio/doctor/hale_603eb140d3a9f6465e81.mp3"
+    },
+    {
+      "text": "Connect the button TutorialScriptButton to your script: Connect to..., click the script, choose Switch on. Using the button runs your script's Triggered(). Anything a script can do, a button can now do.",
+      "url": "/static/audio/doctor/hale_52fa5a379b0c36968981.mp3"
+    },
+    {
+      "text": "Wired. You built a machine that does exactly what you wrote. Terrifying.",
+      "url": "/static/audio/doctor/hale_7fc8c68cd838dbbd6e87.mp3"
+    },
+    {
+      "text": "Last one. Press Play, then open the Console: a tab next to the Browser, or Window > Console. While the game runs, type a command and press Enter: say Hello from the console, or god if room 10 is shooting at you. Your scripts' log lines show up there too.",
+      "url": "/static/audio/doctor/hale_1814dbfabddbb205287a.mp3"
+    },
+    {
+      "text": "You can talk to the game while it runs. Use that power responsibly, or at least quietly.",
+      "url": "/static/audio/doctor/hale_1e0ea03799f7b65611b6.mp3"
+    },
+    {
+      "text": "That is the advanced wing, agent: choices that change the world, countdowns, ambushes, and code of your own. Everything you built is in this map: Map > Story and each object's Interactions show it back. Help > Interactive tutorial brings you here again. I am revising my assessment to dangerous. It is a compliment.",
+      "url": "/static/audio/doctor/hale_51c3fcb87df9ebd2ab96.mp3"
+    },
+    {
+      "text": "Before we go on, give the player somewhere to arrive. In Objects, search for Player start, select it, then click the marked floor here in reception. A map needs an enabled Player start before it can be played. When you finish the editor lessons, press Play to walk through your work from this room. Even an agent needs an entrance.",
+      "url": "/static/audio/doctor/hale_68f17cbf03489041e35d.mp3"
+    },
+    {
+      "text": "Ready. The player can now enter this map.",
+      "url": "/static/audio/doctor/hale_babf3018d9af869d48d6.mp3"
+    }
+  ],
+  "mix": {
+    "revision": "hale-quieter-deessed-20261016",
+    "attenuation_db": 2.5,
+    "deesser": {
+      "intensity": 0.18,
+      "max_deessing": 0.2,
+      "frequency": 0.5
+    },
+    "hard_limiter_db": -3.0,
+    "resampling_safety_ceiling_db": -3.2,
+    "maximum_output_dbtp": -3.0,
+    "limiter_attack_ms": 1,
+    "limiter_release_ms": 50,
+    "oversampling_hz": 176400
+  }
+}

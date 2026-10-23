@@ -1,0 +1,7 @@
+.texrow .texture-source { flex:none; padding:0; width:42px; height:42px; cursor:grab; border:1px solid var(--line,#445); background:transparent; overflow:hidden; }
+.texrow .texture-source:active { cursor:grabbing; }
+.texrow .texture-source img { display:block; width:40px; height:40px; object-fit:cover; pointer-events:none; }
+.texrow .texture-source:focus-visible { outline:2px solid var(--heading,#83cfff); outline-offset:2px; }
+#view.texture-drop { outline:2px solid #72cf98; outline-offset:-3px; }
+#texture-drop-hint { position:fixed; top:53px; left:50%; transform:translateX(-50%); max-width:70vw; padding:9px 14px; border:1px solid #72cf98; border-radius:5px; background:#142b24; color:#c9f9dc; z-index:10000; pointer-events:none; overflow-wrap:anywhere; }
+#texture-drop-hint[hidden] { display:none; }

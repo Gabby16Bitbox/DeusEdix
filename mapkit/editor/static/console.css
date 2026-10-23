@@ -1,0 +1,24 @@
+/* The Console panel (console.js): DESIGN.md sizes and colours */
+#console { display:flex; flex-direction:column; min-height:0; height:100%; background:var(--panel); }
+#console .cn-bar { display:flex; align-items:center; gap:6px; height:28px; padding:0 6px; border-bottom:1px solid var(--line); flex:none; min-width:0; overflow:hidden; }
+#console .cn-bar > button, #console .cn-filters { flex:none; }
+#console .cn-filters { display:flex; gap:2px; }
+#console .cn-filters button { height:22px; padding:0 8px; font-size:11px; }
+#console .cn-filters button.on { background:var(--accent-soft); border-color:var(--accent-border); color:var(--heading); }
+#console .cn-count { display:inline-block; min-width:14px; margin-left:3px; padding:0 4px; border-radius:7px; background:var(--bad); color:var(--accent-ink); font-size:10px; line-height:14px; text-align:center; }
+#console .cn-find { width:140px; min-width:60px; flex:0 1 auto; height:22px; }
+#console .cn-gap { flex:1; }
+#console .cn-state { min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:11px; color:var(--dim); white-space:nowrap; }
+#console .cn-state.on { color:var(--ok); }
+#console .cn-clear { height:22px; padding:0 8px; font-size:11px; }
+#console .cn-out { flex:1; min-height:0; overflow:auto; padding:3px 0; font:12px/17px Consolas, "Cascadia Mono", monospace; outline:none; user-select:text; }
+#console .cn-row { padding:0 8px; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--dim); }
+#console .cn-row:hover { background:var(--hover); }
+#console .cn-script { color:var(--text); }
+#console .cn-cmd { color:var(--acc); }
+#console .cn-warn { color:var(--warn); }
+#console .cn-bad { color:var(--bad); }
+#console .cn-line { display:flex; align-items:center; gap:6px; height:28px; padding:0 6px; border-top:1px solid var(--line); flex:none; }
+#console .cn-prompt { color:var(--acc); font:600 13px Consolas, monospace; }
+#console .cn-input { flex:1; height:22px; font:12px Consolas, "Cascadia Mono", monospace; }
+#console .cn-input:disabled { opacity:.55; }

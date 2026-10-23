@@ -1,0 +1,26 @@
+[
+ {
+  "title": "Getting around faster",
+  "text": "GETTING AROUND FASTER\nTraining notes, E. Hale.\nF brings the camera to what is selected; double-click a name in the Hierarchy does the same.\nShift with W A S D flies three times faster. Settings > Camera changes the speed.\nCtrl + drag in the 3D view selects several objects; they move together.\nThe search box of the Hierarchy finds any object of the map by name or class.\nEvery shortcut can be changed in Settings > Keyboard shortcuts. Mine are still the defaults. I am a creature of habit."
+ },
+ {
+  "title": "Building rooms",
+  "text": "BUILDING ROOMS\nTraining notes, E. Hale.\n+ Block makes walls, floors and platforms; R stretches them.\n+ Hole cuts a doorway in a wall or a pit in a floor.\nPieces (bottom bar) are ready-made parts of the game's own levels: a staircase, a desk corner, a whole office.\nCtrl+C and Ctrl+V copy objects and structures, even from one map to another.\nCheck map lists what is wrong before you play: links to nothing, objects inside walls, exits to no map.\nRun it every time. Engineering still remembers my corridor that led nowhere."
+ },
+ {
+  "title": "Interactions, pro tips",
+  "text": "INTERACTIONS: PRO TIPS\nTraining notes, E. Hale.\nA rule can do several things, each after its own seconds: a door opens, two seconds later the lights go out.\nOnce makes a rule fire only the first time.\nA collision box (Objects > Triggers) is the way to say: when JC enters this area.\nMap > Logic lists every rule of the map as a sentence: the place to look when something does not happen.\nA rule can also play a cutscene.\nThe lights going out two seconds after the door is the oldest trick in this facility. It still works on recruits."
+ },
+ {
+  "title": "Characters and animation",
+  "text": "CHARACTERS AND ANIMATION\nTraining notes, E. Hale.\nTools > Character Creator makes new characters from the faces, bodies and clothes of the game. Dr. Hale was made that way. He chose the glasses himself.\nOrders, faction, what a character carries: all in its Properties.\nDraw route makes a patrol: click the points, the character walks them.\nFor a real wave, make one in the Animation Studio, or import a Mixamo animation (Waving, saved as FBX) and save it: it becomes a When idle animation like the others."
+ },
+ {
+  "title": "Story and flags",
+  "text": "STORY AND FLAGS\nTraining notes, E. Hale.\nA dialogue can branch: JC's answers lead to different lines, and an answer can set a flag.\nFlags are the story's memory: Only if a flag is set, a dialogue or an event waits for it. Like this facility, a good story never forgets who did what.\nThe person button next to a flag picks what happened to a character: killed, knocked out, alive.\nInfoLinks are one-way: only the caller speaks.\nWhen something does not start, the game's log explains it: Revision/System/Revision.log, the lines that start with UCEd."
+ },
+ {
+  "title": "Sharing your map",
+  "text": "SHARING YOUR MAP\nRead this one twice. Legal reads it three times.\nA map built from scratch is yours: it uses the game's textures and objects by name, from the player's own install.\nA changed original map, or one with pieces of the game's levels, belongs partly to the game: share only your changes, never the map itself.\nInstall puts your maps in Revision/DeusEdixMaps; uninstalling DeusEdix takes that folder out of Revision.ini again.\nDeusEdix is a fan-made tool, not affiliated with the Revision team, Eidos or Square Enix."
+ }
+]

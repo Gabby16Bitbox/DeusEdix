@@ -1,0 +1,21 @@
+#game-view { position:fixed; z-index:7; box-sizing:border-box; display:flex; flex-direction:column; background:#101318; border:1px solid var(--line,#3b414c); overflow:hidden; color:var(--text,#dce1e9); }
+#game-view[hidden] { display:none; }
+.game-view-header { display:flex; flex:none; align-items:center; gap:8px; min-height:32px; padding:3px 7px; box-sizing:border-box; background:var(--panel,#20252d); border-bottom:1px solid var(--line,#3b414c); font-size:11px; }
+.game-view-header strong { font-size:12px; font-weight:600; }
+.game-view-hint { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim,#a1aab9); }
+.game-view-header button { flex:none; font-size:11px; padding:3px 8px; min-height:24px; }
+.game-view-stage { flex:1; min-height:0; position:relative; background:#080a0e; }
+/* Native child windows sit above WebView pixels. Leave a real gutter for the
+   workspace grips; raising their CSS z-index alone cannot cover that HWND. */
+#game-view { padding:0 4px 4px; }
+.game-playing #workspace { z-index:8; }
+.game-view-message { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:24px; text-align:center; font-size:12px; }
+.game-view-message[hidden], .game-view-actions[hidden] { display:none; }
+.game-view-message strong { font-size:14px; font-weight:600; }
+.game-view-message p { margin:0; max-width:440px; line-height:1.5; color:var(--dim,#a1aab9); white-space:pre-wrap; }
+.game-view-actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:6px; }
+.game-view-actions button { font-size:12px; padding:5px 9px; }
+.game-playing #left, .game-playing #right, .game-playing #bottom, .game-playing #view { pointer-events:none; }
+.game-playing #left, .game-playing #right, .game-playing #bottom { opacity:.65; }
+.game-playing #startscreen { visibility:hidden; }
+@media (max-width:850px) { .game-view-hint { display:none; } .game-view-header strong { flex:1; } }

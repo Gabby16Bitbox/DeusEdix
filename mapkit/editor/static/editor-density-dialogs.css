@@ -1,0 +1,173 @@
+/* Tool-local density. The body prefix outranks styles injected by Story and Voice
+   after startup, without changing their visibility, geometry or media previews. */
+body #story,
+body #st-fate,
+body #charbox,
+body #vrec,
+body #gamevoices,
+body #details .game-document {
+  font-family:"Segoe UI", system-ui, sans-serif;
+  font-size:12px;
+  font-weight:400;
+  line-height:1.35;
+  letter-spacing:normal;
+}
+
+body :is(#story, #st-fate, #charbox, #vrec, #gamevoices) :is(button, select, input, textarea),
+body #details .game-document :is(button, select, input, textarea) {
+  font-family:inherit;
+  font-size:12px;
+  font-weight:400;
+  letter-spacing:normal;
+  text-transform:none;
+}
+body :is(#story, #st-fate, #charbox, #vrec, #gamevoices) button,
+body #details .game-document button {
+  min-height:22px;
+  padding:2px 6px;
+  line-height:1.25;
+}
+body :is(#story, #st-fate, #charbox, #vrec, #gamevoices) :is(select, input[type=text], input[type=number], input:not([type])),
+body #details .game-document :is(select, input[type=text], input[type=number]) {
+  height:22px;
+  min-height:22px;
+  padding:1px 6px;
+  line-height:1.25;
+}
+body :is(#story, #st-fate, #charbox, #vrec, #gamevoices) :is(h2, h3),
+body #details .game-document .gd-heading > b {
+  font-size:13px;
+  font-weight:600;
+  line-height:1.3;
+  letter-spacing:normal;
+  text-transform:none;
+}
+body :is(#story, #st-fate, #charbox, #vrec, #gamevoices) :is(.hint, .tip),
+body #details .game-document .hint {
+  font-size:11px;
+  line-height:1.4;
+}
+
+/* Story, dialogue cards and the character-fate picker. */
+body #story .st-head { gap:6px; padding:6px 8px; }
+body #story .st-head > b,
+body #st-fate .fb-h > b { font-size:13px; font-weight:600; }
+body #story .st-list { padding:4px 6px; }
+body #story .st-list h4 {
+  margin:8px 2px 4px;
+  font-size:12px;
+  font-weight:600;
+  line-height:1.3;
+  text-transform:none;
+  letter-spacing:normal;
+}
+body #story .st-list .it { margin:2px 0; padding:4px 6px; line-height:1.3; }
+body #story .st-list .it small { font-size:11px; line-height:1.3; }
+body #story .st-edit { padding:6px 8px; min-width:0; }
+body #story .st-edit .f { gap:4px 6px; margin:4px 0; }
+body #story .st-edit .f > label:first-child { font-size:12px; }
+body #story .st-edit select { min-width:0; max-width:100%; flex-shrink:1; }
+/* Long actor names must not set the editor column's intrinsic width. */
+body #story .st-edit :is(#st-owner, #st-caller, select[data-k=who], select[data-k=actor], select[data-k=item], select[data-k=dialogue], select[data-k=cutscene], select[data-k=infolink]) {
+  flex:1 1 160px;
+}
+body #story .st-edit input[type=text] { min-width:120px; }
+body #story .st-edit textarea {
+  min-width:120px;
+  min-height:44px;
+  padding:4px 6px;
+  font-size:12px;
+  line-height:1.45;
+}
+body #story .card { margin:4px 0; padding:6px; }
+body #story .card .ch { gap:4px 6px; font-size:12px; line-height:1.3; }
+body #story .card .ch button { padding:1px 6px; }
+body #story .tip { margin:4px 0 6px; }
+body #story .loc,
+body #story .fate-pick { padding:1px 6px; }
+body #story .fate-say { font-size:11px; line-height:1.4; }
+body #story .st-peek { gap:6px; padding:6px 8px; }
+body #story .st-log { padding:4px 8px; font:12px/1.35 "Segoe UI", system-ui, sans-serif; }
+body #st-fate { padding:8px; }
+body #st-fate .fb-h { gap:6px; margin-bottom:4px; }
+body #st-fate .fb-r { gap:4px 6px; margin:4px 0; }
+body #st-fate .tip { margin:4px 0; font-size:11px; line-height:1.4; }
+
+/* Original conversations and the Game voices browser. Text remains multiline. */
+body #story #gc-actor { margin:4px 0 6px; }
+body #story .gc-script header { gap:6px; }
+body #story .gc-script h2 { font-size:13px; line-height:1.3; }
+body #story .gc-script > p { margin:4px 0 6px; }
+body #story .gc-badge { padding:1px 6px; font-size:11px; line-height:1.25; }
+body #story .gc-line { margin:6px 0; padding:8px; }
+body #story .gc-line > div { gap:4px 6px; }
+body #story .gc-line p { margin:6px 0 0; font-size:12px; line-height:1.5; }
+body #story .gc-line small { font-size:11px; line-height:1.35; }
+body #story .gc-event { padding:4px 0; font-size:12px; }
+body #story .gc-event dl { gap:4px 6px; margin:6px 0; }
+body #story .gc-original-actions,
+body #story .gc-copy-state { padding:6px 0; margin-bottom:6px; }
+body #story .gc-original-actions button,
+body #story .gc-copy-state button { margin:2px 4px 2px 0; }
+body #story .gc-line .vbar { gap:4px; }
+body #gamevoices .gc-filters { gap:6px 8px; margin-bottom:6px; }
+body #gamevoices .gc-filters label { gap:4px; font-size:12px; }
+body #gamevoices .gc-filters small { font-size:11px; }
+body #gamevoices .gc-results details { margin:4px 0; }
+body #gamevoices .gc-results details details { margin-left:12px; }
+body #gamevoices .gc-results summary { padding:2px 0; line-height:1.35; }
+body #gamevoices .gc-browser-line { gap:6px; margin:6px 0; font-size:12px; line-height:1.45; }
+body #gamevoices .gc-browser-line > span { min-width:0; overflow-wrap:anywhere; }
+body #gamevoices .gc-browser-line b { margin-right:4px; font-weight:600; }
+
+/* Mission flags share Story's sidebar; code/document content keeps its wrapping. */
+body #story .mission-flags { margin-top:8px; padding-top:6px; }
+body #story .mission-flags > summary { padding:2px 0; font-size:12px; line-height:1.35; }
+body #story .mission-flags input { margin:4px 0; }
+body #story .mission-flag-results { font-size:12px; line-height:1.35; }
+body #story .mission-flag-results details { padding:4px 0; }
+body #story .mission-flag-results p { margin:4px 0; font-size:11px; line-height:1.4; }
+body #details .game-document { padding:4px 0; }
+body #details .game-document .gd-heading { gap:4px; }
+body #details .game-document .gd-heading small { font-size:11px; line-height:1.35; }
+body #details .game-document .gd-preview { padding:8px; margin:6px 0; font-size:12px; line-height:1.5; }
+body #details .game-document textarea { padding:4px 6px; font-size:12px; line-height:1.45; }
+body #details .game-document .row { gap:4px 6px; margin:4px 0; }
+body #details .game-document .hint { margin:4px 0 6px; }
+body #details .game-document details > summary { padding:2px 0; line-height:1.35; }
+body #details .game-document .gd-source { margin:6px 0; font-size:11px; line-height:1.4; }
+
+/* Character appearance previews retain their original canvas and tile sizes. */
+body #charbox { padding:8px; }
+body #charbox .ch-head { gap:6px; margin-bottom:6px; }
+body #charbox .ch-head > b { font-size:13px; font-weight:600; }
+body #charbox .ch-head > .hint { min-width:0; line-height:1.4; }
+body #charbox .ch-cols { gap:8px; }
+body #charbox .ch-list .item { padding:4px 6px; line-height:1.3; }
+body #charbox .ch-form .row { gap:4px 6px; margin:4px 0; }
+body #charbox .ch-form .row > label:first-child { font-size:12px; line-height:1.3; }
+body #charbox .ch-sec {
+  gap:6px;
+  margin:8px 0 4px;
+  font-size:12px;
+  font-weight:600;
+  line-height:1.3;
+  text-transform:none;
+  letter-spacing:normal;
+}
+body #charbox .ch-sec button { padding:1px 6px; font-size:12px; }
+body #charbox .ch-group { padding:2px 0; }
+body #charbox .ch-group button { padding:1px 6px; }
+body #charbox .ch-gal { gap:4px; margin:4px 0 6px; }
+body #charbox .ch-gal button { padding:2px; }
+body #charbox .ch-from { font-size:11px; line-height:1.3; }
+body #charbox .ch-viewhint { font-size:11px; }
+
+/* Recording uses compact chrome, with room to read the line aloud. */
+body #vrec { padding:8px; }
+body #vrec .vr-head { gap:6px; margin-bottom:4px; }
+body #vrec .vr-head b { font-size:13px; font-weight:600; }
+body #vrec .vr-text { padding:6px 8px; margin:4px 0 6px; font-size:13px; line-height:1.45; }
+body #vrec .vr-mic { gap:6px; margin-bottom:6px; font-size:11px; }
+body #vrec .vr-row { gap:6px; margin-top:6px; }
+body #vrec .vr-msg { margin-top:4px; font-size:11px; line-height:1.4; }

@@ -1,0 +1,38 @@
+.state-field, .state-chooser { font:400 var(--ui-text,12px)/1.4 var(--ui-font,"Segoe UI",system-ui,sans-serif); color:var(--text,#d9dde5); }
+.state-field { display:flex; flex-wrap:wrap; align-items:center; gap:5px; min-width:0; flex:1; }
+.state-field .state-name { flex:1; min-width:100px; overflow:hidden; text-overflow:ellipsis; text-align:left; white-space:nowrap; }
+.state-field button, .state-field select, .state-field input, .state-chooser button, .state-chooser input, .state-chooser select { font:inherit; color:inherit; background:var(--field,#262a33); border:1px solid var(--line,#3a4150); border-radius:var(--radius-input,3px); padding:2px 6px; min-height:var(--ui-control,24px); box-sizing:border-box; }
+.state-field select { max-width:235px; }
+.state-field button:hover, .state-chooser button:hover { border-color:var(--acc,#81b8ff); }
+.state-field button:focus-visible, .state-field select:focus-visible, .state-field input:focus-visible, .state-chooser :focus-visible { outline:2px solid var(--acc,#81b8ff); outline-offset:1px; }
+.state-field details { flex-basis:100%; color:var(--dim,#9ca6b6); }
+.state-field summary { cursor:pointer; width:fit-content; font-size:11px; }
+.state-field .state-advanced { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-top:5px; }
+.state-field .state-advanced input[type=text] { flex:1; min-width:120px; font:11px/18px Consolas,monospace; }
+.state-field .state-advanced input[type=number] { width:60px; min-width:60px; flex:none; }
+/* Parent tool rules use IDs; contain their broad label/select sizing here. */
+body :is(#story,#playbox,#details) .state-field .state-advanced > label { width:auto; flex:none; }
+body :is(#story,#playbox,#details) .state-field > select { flex:0 1 auto; min-width:0; max-width:min(235px,100%); }
+.state-field .state-note { flex-basis:100%; font-size:11px; color:var(--dim,#9ca6b6); margin:0; }
+.state-field .state-error, .state-chooser .state-error { color:var(--warn,#ffb36b); font-size:11px; margin:4px 0; }
+.state-chooser { width:min(580px,calc(100vw - 28px)); max-height:min(680px,calc(100vh - 28px)); padding:0; background:var(--panel,#1f232b); border:1px solid var(--line,#3a4150); border-radius:var(--radius-card,5px); box-shadow:0 12px 40px #0008; }
+.state-chooser::backdrop { background:#0006; }
+.state-chooser header { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line,#3a4150); }
+.state-chooser header h2 { font-size:14px; font-weight:600; padding:0; margin:0; flex:1; border:0; }
+.state-chooser header button { min-width:28px; }
+.state-chooser main { padding:10px 12px; overflow:auto; max-height:calc(100vh - 150px); }
+.state-chooser .state-tabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:10px; }
+.state-chooser .state-tabs button { background:transparent; font-size:11px; }
+.state-chooser .state-tabs button[aria-pressed=true] { color:var(--acc,#81b8ff); border-color:var(--acc,#81b8ff); background:var(--hover,#273446); }
+.state-chooser .state-search { width:100%; margin-bottom:8px; }
+.state-chooser .state-results { display:flex; flex-direction:column; gap:3px; max-height:310px; overflow:auto; }
+.state-chooser .state-result { display:block; width:100%; height:auto; min-height:44px; flex-shrink:0; text-align:left; white-space:normal; padding:6px 8px; }
+.state-chooser .state-result b { display:block; font-weight:500; overflow-wrap:anywhere; }
+.state-chooser .state-result small { display:block; color:var(--dim,#9ca6b6); font-size:11px; }
+.state-chooser button:disabled { opacity:.55; cursor:default; }
+.state-chooser .state-form { display:grid; grid-template-columns:74px minmax(0,1fr); align-items:center; gap:8px; }
+.state-chooser .state-form input, .state-chooser .state-form select { width:100%; min-width:0; }
+.state-chooser .state-tip { color:var(--dim,#9ca6b6); margin:8px 0; font-size:11px; }
+.state-chooser .state-actions { display:flex; justify-content:flex-end; gap:6px; margin-top:10px; }
+.state-chooser .state-new { margin-top:8px; width:100%; text-align:left; }
+.state-chooser [hidden], .state-field [hidden] { display:none !important; }

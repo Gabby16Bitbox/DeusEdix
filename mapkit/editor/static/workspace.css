@@ -1,0 +1,53 @@
+/* The existing panels remain intact inside a small docking shell. */
+.has-workspace #lgrip, .has-workspace #rgrip, .has-workspace #bgrip { display:none; }
+#workspace { position:fixed; inset:var(--top-h, 44px) 0 0; pointer-events:none; z-index:4; }
+body.no-map #workspace { visibility:hidden; }
+#workspace [hidden] { display:none !important; }
+.ws-zone { position:absolute; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--panel); pointer-events:auto; border-color:var(--line); }
+.ws-left { left:0; top:0; bottom:0; width:var(--lw); border-right:1px solid var(--line); }
+.ws-right { right:0; top:0; bottom:0; width:var(--rw); border-left:1px solid var(--line); }
+.ws-bottom { left:var(--lw); right:var(--rw); bottom:0; height:var(--bh); border-top:1px solid var(--line); }
+.ws-zone-head, .ws-float-head { display:flex; align-items:center; height:26px; min-height:26px; background:var(--panel); border-bottom:1px solid var(--line); gap:1px; padding:0 4px; }
+.ws-tabs { display:flex; align-self:stretch; flex:1; min-width:0; overflow:auto hidden; scrollbar-width:none; }
+#workspace .ws-tab, #workspace .ws-title { background:transparent; border:0; border-radius:0; font:400 12px/1.2 "Segoe UI",system-ui,sans-serif; color:var(--dim); padding:0 7px; min-height:24px; white-space:nowrap; cursor:grab; touch-action:none; }
+#workspace .ws-tab[aria-selected="true"], #workspace .ws-title { color:var(--text); }
+#workspace .ws-tab[aria-selected="true"] { background:var(--field); box-shadow:inset 0 -2px var(--acc); }
+#workspace .ws-tab:hover, #workspace .ws-options:hover, #workspace .ws-hide:hover { background:var(--hover); }
+#workspace .ws-options, #workspace .ws-hide { border:0; background:transparent; padding:0; width:24px; min-width:24px; height:24px; font-size:18px; line-height:1; color:var(--dim); }
+.ws-zone-body { position:relative; flex:1; min-height:0; min-width:0; }
+.ws-panel { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:visible; background:var(--panel); pointer-events:auto; }
+.ws-panel > .ws-float-head { display:none; }
+#workspace #left, #workspace #right, #workspace #bottom { position:relative; inset:auto; width:100%; height:auto; min-width:0; min-height:0; flex:1; z-index:auto; border:0; }
+#workspace #left, #workspace #right { overflow:auto; overflow-x:hidden; }
+#workspace #left > h3:first-child, #workspace #right > h3:first-child { display:none; }
+#workspace #hsearch { margin-top:5px; }
+#workspace #bottom { display:flex; flex-direction:column; }
+#workspace #bottom .btabs { gap:5px; padding:6px; }
+#workspace #bottom .bpath { min-width:0; }
+#workspace #bottom :is(#search,#psearch,#msearch,#sndsearch,#gvsearch) { flex:1 1 110px; min-width:70px; max-width:300px; width:120px; }
+#workspace #bottom .bside { width:108px; }
+.ws-floating { inset:auto; border:1px solid var(--accent-border); border-radius:var(--radius-window,3px); box-shadow:0 10px 30px #0007; z-index:2; }
+.ws-floating > .ws-float-head { display:flex; }
+.ws-floating .ws-title { flex:1; text-align:left; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.ws-grip { position:absolute; z-index:3; touch-action:none; }
+.ws-grip-left { right:-3px; top:26px; bottom:0; width:6px; cursor:ew-resize; }
+.ws-grip-right { left:-3px; top:26px; bottom:0; width:6px; cursor:ew-resize; }
+.ws-grip-bottom { left:0; right:0; top:-3px; height:6px; cursor:ns-resize; }
+.ws-grip:hover, .ws-grip:focus-visible { background:var(--accent-border); outline:none; }
+.ws-float-grip { display:none; position:absolute; bottom:0; right:0; height:15px; width:15px; z-index:3; cursor:nwse-resize; touch-action:none; background:linear-gradient(135deg,transparent 55%,var(--line) 56%,var(--line) 65%,transparent 66%,transparent 75%,var(--line) 76%,var(--line) 85%,transparent 86%); }
+.ws-floating > .ws-float-grip { display:block; }
+.ws-menu { position:fixed; z-index:16; width:160px; padding:4px; border:1px solid var(--line); background:var(--panel); box-shadow:0 8px 24px #0007; border-radius:var(--radius-menu,2px); }
+.ws-menu button { display:block; width:100%; text-align:left; border:0; background:transparent; padding:7px 10px; }
+.ws-menu button.on { color:var(--acc); }
+.ws-restore { position:absolute; left:calc(var(--lw) + 8px); bottom:8px; display:flex; flex-wrap:wrap; gap:4px; max-width:calc(100% - var(--lw) - var(--rw) - 16px); pointer-events:auto; z-index:1; }
+.ws-restore button { padding:4px 9px; font-size:11px; background:var(--panel); border:1px solid var(--line); box-shadow:0 2px 8px #0004; }
+.ws-drop { position:absolute; inset:0; z-index:110; pointer-events:none; }
+.ws-drop-target { position:absolute; display:flex; justify-content:center; align-items:center; color:var(--text); border:1px dashed var(--accent-border); background:color-mix(in srgb,var(--accent-soft) 65%,transparent); font-size:13px; }
+.ws-drop-left { left:0; top:0; bottom:0; width:22%; }
+.ws-drop-right { right:0; top:0; bottom:0; width:22%; }
+.ws-drop-bottom { left:22%; right:22%; bottom:0; height:28%; }
+.ws-drop-target.on { border:2px solid var(--acc); background:color-mix(in srgb,var(--accent-soft) 90%,transparent); }
+.ws-drag-label { position:fixed; z-index:100; pointer-events:none; padding:7px 12px; border:1px solid var(--acc); background:var(--panel); box-shadow:0 4px 16px #0008; color:var(--text); }
+.ws-dragging, .ws-dragging * { cursor:grabbing !important; user-select:none !important; }
+.ws-resizing, .ws-resizing * { user-select:none !important; }
+.ws-live { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" color="#89b9e8">
+  <title>DeusEdix — DE monogram</title>
+  <g id="mark" fill="currentColor">
+    <path fill-rule="evenodd" d="M5 8h12l11 11v10L17 40H5V8Zm6 6v20h3.5l7.5-7.5v-5L14.5 14H11Z"/>
+    <path d="M29 8h15l-6 6h-9V8Zm2 13h11l-6 6h-5v-6Zm-2 13h15l-6 6h-9v-6Z"/>
+  </g>
+</svg>

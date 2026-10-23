@@ -1,0 +1,1569 @@
+{
+ "version": 1,
+ "map": "00_DeusEdix_Tutorial",
+ "edits": {
+  "moved": {
+   "WaterCooler0": {
+    "cls": "WaterCooler",
+    "loc": [
+     224,
+     112,
+     41.6
+    ],
+    "rot": [
+     0,
+     49152,
+     0
+    ],
+    "orig": [
+     200,
+     -210,
+     41.57
+    ]
+   },
+   "Plant21": {
+    "cls": "Plant2",
+    "loc": [
+     208,
+     240,
+     43.9
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     200,
+     204,
+     43.880001
+    ]
+   },
+   "Plant20": {
+    "cls": "Plant2",
+    "loc": [
+     -224,
+     240,
+     43.9
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -200,
+     204,
+     43.880001
+    ]
+   },
+   "TutorialButton": {
+    "cls": "Button1",
+    "loc": [
+     612,
+     -672,
+     75
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     618,
+     -652,
+     72
+    ]
+   },
+   "ComputerPersonal1": {
+    "cls": "ComputerPersonal",
+    "loc": [
+     -384,
+     -860,
+     55.4
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -384,
+     -860,
+     55.4
+    ]
+   },
+   "ComputerPersonal0": {
+    "cls": "ComputerPersonal",
+    "loc": [
+     -608,
+     -860,
+     55.4
+    ],
+    "rot": [
+     0,
+     2731,
+     0
+    ],
+    "orig": [
+     -608,
+     -860,
+     55.4
+    ]
+   },
+   "OfficeChair1": {
+    "cls": "OfficeChair",
+    "loc": [
+     -384,
+     -792,
+     25.5
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -384,
+     -792,
+     25.5
+    ]
+   },
+   "OfficeChair0": {
+    "cls": "OfficeChair",
+    "loc": [
+     -608,
+     -792,
+     25.5
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -608,
+     -792,
+     25.5
+    ]
+   },
+   "TutorialScientist": {
+    "cls": "ScientistFemale",
+    "loc": [
+     -512,
+     -736,
+     45.1
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -432,
+     -736,
+     45.130001
+    ]
+   },
+   "OfficeChair2": {
+    "cls": "OfficeChair",
+    "loc": [
+     -1248,
+     -848,
+     25.5
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -1248,
+     -828,
+     25.549999
+    ]
+   },
+   "TutorialTextureCrate": {
+    "cls": "CrateUnbreakableMed",
+    "loc": [
+     -963,
+     -632,
+     56
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -992,
+     -632,
+     56
+    ]
+   },
+   "CrateUnbreakableSmall0": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     476,
+     166,
+     94
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     476,
+     166,
+     94
+    ]
+   },
+   "CrateUnbreakableSmall1": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     596,
+     166,
+     94
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     596,
+     166,
+     94
+    ]
+   },
+   "CrateUnbreakableSmall2": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     476,
+     166,
+     158
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     476,
+     166,
+     158
+    ]
+   },
+   "CrateUnbreakableSmall3": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     596,
+     166,
+     158
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     596,
+     166,
+     158
+    ]
+   },
+   "CrateUnbreakableSmall4": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     426,
+     -276,
+     94
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     426,
+     -276,
+     94
+    ]
+   },
+   "CrateUnbreakableSmall5": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     426,
+     -188,
+     94
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     426,
+     -188,
+     94
+    ]
+   },
+   "CrateUnbreakableSmall6": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     426,
+     -276,
+     158
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     426,
+     -276,
+     158
+    ]
+   },
+   "CrateUnbreakableSmall7": {
+    "cls": "CrateUnbreakableSmall",
+    "loc": [
+     426,
+     -188,
+     158
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     426,
+     -188,
+     158
+    ]
+   },
+   "CrateUnbreakableMed0": {
+    "cls": "CrateUnbreakableMed",
+    "loc": [
+     892,
+     -140,
+     40
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     892,
+     -140,
+     40
+    ]
+   },
+   "TrainingCoffeeMemo": {
+    "cls": "DataCube",
+    "loc": [
+     540,
+     164,
+     144
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     540,
+     164,
+     144
+    ]
+   },
+   "TutorialFilmButton": {
+    "cls": "Button1",
+    "loc": [
+     -1391.5,
+     -300,
+     72
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -1382,
+     -300,
+     72
+    ],
+    "scale": 5.45
+   },
+   "ChairLeather0": {
+    "cls": "ChairLeather",
+    "loc": [
+     -656,
+     -336,
+     23.3
+    ],
+    "rot": [
+     0,
+     5461,
+     0
+    ],
+    "orig": [
+     -680,
+     -292,
+     23.25
+    ]
+   },
+   "ChairLeather1": {
+    "cls": "ChairLeather",
+    "loc": [
+     -512,
+     -336,
+     23.3
+    ],
+    "rot": [
+     0,
+     57344,
+     0
+    ],
+    "orig": [
+     -500,
+     -292,
+     23.25
+    ]
+   },
+   "Plant22": {
+    "cls": "Plant2",
+    "loc": [
+     -310,
+     -416,
+     43.9
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -310,
+     -400,
+     43.880001
+    ]
+   },
+   "WHDeskLibrarySmall0": {
+    "cls": "WHDeskLibrarySmall",
+    "loc": [
+     -304,
+     -224,
+     27
+    ],
+    "rot": [
+     0,
+     49152,
+     0
+    ],
+    "orig": [
+     -376,
+     -100,
+     27
+    ]
+   },
+   "Lamp10": {
+    "cls": "Lamp1",
+    "loc": [
+     -304,
+     -208,
+     78.4
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -352,
+     -100,
+     78.389999
+    ]
+   },
+   "TutorialBook1": {
+    "cls": "BookClosed",
+    "loc": [
+     -304,
+     -247.5,
+     55.7
+    ],
+    "rot": [
+     0,
+     9000,
+     0
+    ],
+    "orig": [
+     -400,
+     -100,
+     55.700001
+    ]
+   },
+   "TutorialBook0": {
+    "cls": "BookOpen",
+    "loc": [
+     -320,
+     16,
+     56.5
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -632,
+     -110,
+     55.419998
+    ]
+   },
+   "TutorialBook2": {
+    "cls": "BookClosed",
+    "loc": [
+     -368,
+     24,
+     55.7
+    ],
+    "rot": [
+     0,
+     18000,
+     0
+    ],
+    "orig": [
+     -376,
+     24,
+     55.700001
+    ]
+   },
+   "OfficeChair3": {
+    "cls": "OfficeChair",
+    "loc": [
+     -660,
+     375,
+     25.5
+    ],
+    "rot": [
+     0,
+     13653,
+     0
+    ],
+    "orig": [
+     -600,
+     350,
+     25.549999
+    ]
+   },
+   "TutorialArmPanel": {
+    "cls": "Button1",
+    "loc": [
+     -392.5,
+     940,
+     72
+    ],
+    "rot": [
+     0,
+     32768,
+     0
+    ],
+    "orig": [
+     -394,
+     940,
+     72
+    ]
+   },
+   "OfficeChair5": {
+    "cls": "OfficeChair",
+    "loc": [
+     -1120,
+     312,
+     25.5
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -1344,
+     312,
+     25.549999
+    ]
+   },
+   "OfficeChair4": {
+    "cls": "OfficeChair",
+    "loc": [
+     -1440,
+     312,
+     25.5
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -1440,
+     312,
+     25.549999
+    ]
+   },
+   "ComputerPersonal3": {
+    "cls": "ComputerPersonal",
+    "loc": [
+     -1104,
+     244,
+     55.4
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -1344,
+     244,
+     55.400002
+    ]
+   },
+   "ComputerPersonal2": {
+    "cls": "ComputerPersonal",
+    "loc": [
+     -1440,
+     244,
+     55.4
+    ],
+    "rot": [
+     0,
+     0,
+     0
+    ],
+    "orig": [
+     -1440,
+     244,
+     55.400002
+    ]
+   },
+   "TutorialScriptButton": {
+    "cls": "Button1",
+    "loc": [
+     -1280,
+     208,
+     64
+    ],
+    "rot": [
+     0,
+     16384,
+     0
+    ],
+    "orig": [
+     -1066,
+     440,
+     72
+    ],
+    "scale": 2.55
+   }
+  },
+  "deleted": {
+   "WHBookstandLibrary0": {
+    "cls": "WHBookstandLibrary",
+    "orig": [
+     -632,
+     -110,
+     27
+    ]
+   }
+  },
+  "added": [
+   {
+    "name": "UCEdit0",
+    "cls": "Plant2",
+    "loc": [
+     208,
+     -240,
+     48
+    ],
+    "rot": [
+     0,
+     33470,
+     0
+    ],
+    "radius": 23.26,
+    "height": 43.88,
+    "props": {}
+   },
+   {
+    "name": "UCEdit1",
+    "cls": "Plant2",
+    "loc": [
+     -224,
+     -240,
+     44.4
+    ],
+    "rot": [
+     0,
+     64252,
+     0
+    ],
+    "radius": 23.26,
+    "height": 43.88,
+    "props": {}
+   },
+   {
+    "name": "UCEdit2",
+    "cls": "ComputerSecurity",
+    "loc": [
+     -496,
+     -896,
+     87.5
+    ],
+    "rot": [
+     0,
+     16384,
+     0
+    ],
+    "radius": 11.59,
+    "height": 10.1,
+    "props": {}
+   },
+   {
+    "name": "UCEdit3",
+    "cls": "NewspaperOpen",
+    "loc": [
+     -560,
+     440,
+     36.1
+    ],
+    "rot": [
+     0,
+     52846,
+     0
+    ],
+    "radius": 26,
+    "height": 1.63,
+    "props": {}
+   }
+  ],
+  "groups": {
+   "room0/o7": {
+    "offset": [
+     0,
+     124,
+     0
+    ],
+    "yaw": 0
+   },
+   "reception/o2": {
+    "offset": [
+     0,
+     370,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "reception/o1": {
+    "offset": [
+     72,
+     278,
+     0
+    ],
+    "yaw": 16384,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "reception/o3": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "room0/o4": {
+    "offset": [
+     -28,
+     0,
+     0
+    ],
+    "yaw": 0
+   },
+   "room0/o3": {
+    "offset": [
+     -28,
+     0,
+     0
+    ],
+    "yaw": 0
+   },
+   "room0/o5": {
+    "offset": [
+     -28,
+     0,
+     0
+    ],
+    "yaw": 0
+   },
+   "button_panel/o0": {
+    "offset": [
+     -1.5,
+     -20,
+     28
+    ],
+    "yaw": 0,
+    "scale": [
+     0.65,
+     0.3,
+     0.2
+    ]
+   },
+   "drill_hall/o4": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "drill_hall/o3": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "drill_hall/o6": {
+    "offset": [
+     23.5,
+     -103,
+     0
+    ],
+    "yaw": 0
+   },
+   "drill_hall/o1": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "drill_hall/o2": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "drill_hall/o5": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "lab/o2": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "lab/o3": {
+    "offset": [
+     -80,
+     0,
+     -45
+    ],
+    "yaw": 0
+   },
+   "materials/o6": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "materials/o5": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "materials/o4": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "materials/o2": {
+    "offset": [
+     29.5,
+     0,
+     0
+    ],
+    "yaw": 0
+   },
+   "materials/o3": {
+    "offset": [
+     29,
+     0,
+     0
+    ],
+    "yaw": 0
+   },
+   "materials/o8": {
+    "offset": [
+     -429,
+     -288,
+     4
+    ],
+    "yaw": 49152
+   },
+   "stores/o17": {
+    "offset": [
+     0,
+     0,
+     -1
+    ],
+    "yaw": 0
+   },
+   "film_set/o7": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "film_set/o8": {
+    "offset": [
+     0,
+     0,
+     0
+    ],
+    "yaw": 0,
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "stretch": false,
+    "deleted": true
+   },
+   "library_furniture/o12": {
+    "offset": [
+     224,
+     -269,
+     -47
+    ],
+    "yaw": 49152
+   },
+   "interrogation/o7": {
+    "offset": [
+     439,
+     -133,
+     -70
+    ],
+    "yaw": 0
+   },
+   "interrogation/o6": {
+    "offset": [
+     0,
+     108,
+     0
+    ],
+    "yaw": 0
+   },
+   "interrogation/o5": {
+    "offset": [
+     0,
+     -12,
+     0
+    ],
+    "yaw": 0
+   },
+   "codelab/o2": {
+    "offset": [
+     -223,
+     -92,
+     -58
+    ],
+    "yaw": 49152
+   },
+   "codelab/o1": {
+    "offset": [
+     240,
+     0,
+     0
+    ],
+    "yaw": 0
+   }
+  },
+  "prefabs": [
+   {
+    "pid": "p1",
+    "prefab": "20261016-223655-drill_hallo6",
+    "label": "Horseshoe drill hall: enter the right lane, turn around... (7)",
+    "source": "00_DeusEdix_Tutorial",
+    "pivot": [
+     459.5,
+     -1059,
+     0
+    ],
+    "rotatable": true,
+    "offset": [
+     -215,
+     223,
+     0
+    ],
+    "yaw": 0
+   },
+   {
+    "pid": "p2",
+    "prefab": "20261016-223655-drill_hallo6",
+    "label": "Horseshoe drill hall: enter the right lane, turn around... (7)",
+    "source": "00_DeusEdix_Tutorial",
+    "pivot": [
+     459.5,
+     -1059,
+     0
+    ],
+    "rotatable": true,
+    "offset": [
+     -630.5,
+     -0.5,
+     0
+    ],
+    "yaw": 0
+   },
+   {
+    "pid": "p3",
+    "prefab": "20261016-223655-drill_hallo6",
+    "label": "Horseshoe drill hall: enter the right lane, turn around... (7)",
+    "source": "00_DeusEdix_Tutorial",
+    "pivot": [
+     459.5,
+     -1059,
+     0
+    ],
+    "rotatable": true,
+    "offset": [
+     -395.5,
+     -232,
+     0
+    ],
+    "yaw": 49152
+   },
+   {
+    "pid": "p4",
+    "prefab": "20261016-223655-drill_hallo6",
+    "label": "Horseshoe drill hall: enter the right lane, turn around... (7)",
+    "source": "00_DeusEdix_Tutorial",
+    "pivot": [
+     459.5,
+     -1059,
+     0
+    ],
+    "rotatable": true,
+    "offset": [
+     84.5,
+     -232,
+     0
+    ],
+    "yaw": 16384
+   },
+   {
+    "pid": "p5",
+    "prefab": "obj_02_NYC_Hotel_269_0469cace772bb1bf",
+    "label": "Un woodfloor a",
+    "source": "02_NYC_Hotel",
+    "pivot": [
+     511.5,
+     -2936,
+     128
+    ],
+    "rotatable": true,
+    "offset": [
+     -1749,
+     2000,
+     -48
+    ],
+    "yaw": 49152
+   },
+   {
+    "pid": "p7",
+    "prefab": "obj_02_NYC_Bar_380_8e82f185a574f048",
+    "label": "Un woodfloor a",
+    "source": "02_NYC_Bar",
+    "pivot": [
+     -656,
+     192.7,
+     158.4
+    ],
+    "rotatable": true,
+    "offset": [
+     -664,
+     -1129,
+     -78.4
+    ],
+    "yaw": 0,
+    "scale": [
+     1.85,
+     1.85,
+     1.85
+    ]
+   },
+   {
+    "pid": "p6",
+    "prefab": "obj_02_NYC_Bar_381_8e82f185a574f048",
+    "label": "Un woodfloor a",
+    "source": "02_NYC_Bar",
+    "pivot": [
+     -656,
+     192.7,
+     94.4
+    ],
+    "rotatable": true,
+    "offset": [
+     -504.5,
+     -1129,
+     -14.4
+    ],
+    "yaw": 0,
+    "scale": [
+     1.6,
+     1.6,
+     1.6
+    ]
+   },
+   {
+    "pid": "p8",
+    "prefab": "obj_03_NYC_747_205_1f1087e42c6ec0ff",
+    "label": "TVMonitor A",
+    "source": "03_NYC_747",
+    "pivot": [
+     -156,
+     -600.3,
+     348
+    ],
+    "rotatable": true,
+    "offset": [
+     -668,
+     1013,
+     -282
+    ],
+    "yaw": 0
+   }
+  ],
+  "unnest": [
+   "room0/o0",
+   "room0/o1",
+   "room0/o2",
+   "room0/o3",
+   "room0/o4",
+   "room0/o5",
+   "room0/o6",
+   "room0/o7",
+   "room0/o8",
+   "room0/o9",
+   "room0/o10",
+   "room0/o11",
+   "room0/o12",
+   "room0/o13",
+   "room0/o14",
+   "room0/o15",
+   "room0/o16",
+   "room0/o17",
+   "room0/o18",
+   "room0/o19",
+   "room0/o20",
+   "room0/o21",
+   "room0/o22",
+   "room0/o23",
+   "room0/o24",
+   "room0/o25",
+   "room0/o26",
+   "room0/o27",
+   "room0/o28",
+   "room0/o29",
+   "room0/o30",
+   "room0/o31",
+   "room0/o32",
+   "room0/o33",
+   "a:Spotlight0",
+   "a:Spotlight1",
+   "a:Spotlight2",
+   "reception/o0",
+   "reception/o1",
+   "reception/o2",
+   "reception/o3",
+   "a:WaterCooler0",
+   "a:Plant20",
+   "a:Plant21",
+   "a:Light42",
+   "stores/o0",
+   "stores/o1",
+   "stores/o2",
+   "stores/o3",
+   "stores/o4",
+   "stores/o5",
+   "stores/o6",
+   "stores/o7",
+   "stores/o8",
+   "stores/o9",
+   "stores/o10",
+   "stores/o11",
+   "stores/o12",
+   "stores/o13",
+   "stores/o14",
+   "stores/o15",
+   "stores/o16",
+   "stores/o17",
+   "a:CrateUnbreakableSmall0",
+   "a:CrateUnbreakableSmall1",
+   "a:CrateUnbreakableSmall2",
+   "a:CrateUnbreakableSmall3",
+   "a:CrateUnbreakableSmall4",
+   "a:CrateUnbreakableSmall5",
+   "a:CrateUnbreakableSmall6",
+   "a:CrateUnbreakableSmall7",
+   "a:CrateUnbreakableMed0",
+   "a:TrainingCoffeeMemo",
+   "button_panel/o0",
+   "button_panel/o1",
+   "a:Light44",
+   "drill_hall/o0",
+   "drill_hall/o1",
+   "drill_hall/o2",
+   "drill_hall/o3",
+   "drill_hall/o4",
+   "drill_hall/o5",
+   "drill_hall/o6",
+   "drill_hall/o7",
+   "drill_hall/o8",
+   "lab/o0",
+   "lab/o1",
+   "lab/o2",
+   "lab/o3",
+   "a:ComputerPersonal0",
+   "a:OfficeChair0",
+   "a:ComputerPersonal1",
+   "a:OfficeChair1",
+   "materials/o0",
+   "materials/o1",
+   "materials/o2",
+   "materials/o3",
+   "materials/o4",
+   "materials/o5",
+   "materials/o6",
+   "materials/o7",
+   "materials/o8",
+   "a:OfficeChair2",
+   "film_set/o0",
+   "film_set/o1",
+   "film_set/o2",
+   "film_set/o3",
+   "film_set/o4",
+   "film_set/o5",
+   "film_set/o6",
+   "film_set/o7",
+   "film_set/o8",
+   "a:Light45",
+   "a:Light46",
+   "a:Light47",
+   "a:Light48",
+   "doorframe7/o0",
+   "doorframe7/o1",
+   "doorframe7/o2",
+   "doorframe7/o3",
+   "doorframe7/o4",
+   "doorframe7/o5",
+   "doorframe7/o6",
+   "doorframe7/o7",
+   "a:Light38",
+   "a:PathNode14",
+   "a:PathNode15",
+   "library_furniture/o0",
+   "library_furniture/o1",
+   "library_furniture/o2",
+   "library_furniture/o3",
+   "library_furniture/o4",
+   "library_furniture/o5",
+   "library_furniture/o6",
+   "library_furniture/o7",
+   "library_furniture/o8",
+   "library_furniture/o9",
+   "library_furniture/o10",
+   "library_furniture/o11",
+   "library_furniture/o12",
+   "a:BookClosed0",
+   "a:BookClosed1",
+   "a:BookClosed2",
+   "a:BookClosed3",
+   "a:BookClosed4",
+   "a:BookClosed5",
+   "a:Light49",
+   "a:Light50",
+   "interrogation/o0",
+   "interrogation/o1",
+   "interrogation/o2",
+   "interrogation/o3",
+   "interrogation/o4",
+   "interrogation/o5",
+   "interrogation/o6",
+   "interrogation/o7",
+   "codelab/o0",
+   "codelab/o1",
+   "codelab/o2"
+  ],
+  "anims": {
+   "TutorialObserver2": {
+    "idle": "Dance",
+    "rate": 1,
+    "loc": [
+     -64,
+     -1152,
+     45.1
+    ]
+   }
+  }
+ },
+ "prefabSources": {
+  "20261016-223655-drill_hallo6": {
+   "label": "Horseshoe drill hall: enter the right lane, turn around... (7)",
+   "source": "00_DeusEdix_Tutorial",
+   "pivot": [
+    459.5,
+    -1059.0,
+    0.0
+   ],
+   "packages": [
+    "CoreTexMisc"
+   ],
+   "facing": null,
+   "kind": "authored-stripe",
+   "structure": "drill_hall/o6",
+   "lo": [
+    455.5,
+    -1303.0,
+    0.0
+   ],
+   "hi": [
+    463.5,
+    -815.0,
+    1.0
+   ],
+   "width": 8
+  },
+  "obj_02_NYC_Hotel_269_0469cace772bb1bf": {
+   "label": "Un woodfloor a",
+   "source": "02_NYC_Hotel",
+   "pivot": [
+    511.5,
+    -2936.0,
+    128.0
+   ],
+   "packages": [
+    "CoreTexWood",
+    "NewYorkCity",
+    "UNATCO"
+   ],
+   "facing": 32768,
+   "kind": "installed-game-brush",
+   "actor": "Brush321",
+   "size": [
+    1.0000059999999849,
+    64.00000799999998,
+    64.00000799999998
+   ],
+   "textures": [
+    "clenmedmwalnt_a",
+    "jcpaint2",
+    "un_woodfloor_a"
+   ]
+  },
+  "obj_02_NYC_Bar_380_8e82f185a574f048": {
+   "label": "Un woodfloor a",
+   "source": "02_NYC_Bar",
+   "pivot": [
+    -656.0,
+    192.7,
+    158.4
+   ],
+   "packages": [
+    "CoreTexMisc",
+    "UNATCO"
+   ],
+   "facing": 16384,
+   "kind": "installed-game-brush",
+   "actor": "Brush50",
+   "size": [
+    34.664061999999944,
+    1.3865969999999948,
+    35.26739599999999
+   ],
+   "textures": [
+    "art_a",
+    "marker",
+    "un_woodfloor_a"
+   ]
+  },
+  "obj_02_NYC_Bar_381_8e82f185a574f048": {
+   "label": "Un woodfloor a",
+   "source": "02_NYC_Bar",
+   "pivot": [
+    -656.0,
+    192.7,
+    94.4
+   ],
+   "packages": [
+    "CoreTexMisc",
+    "UNATCO"
+   ],
+   "facing": 16384,
+   "kind": "installed-game-brush",
+   "actor": "Brush49",
+   "size": [
+    34.664061999999944,
+    1.3865969999999948,
+    35.26739599999999
+   ],
+   "textures": [
+    "marker",
+    "un_woodfloor_a",
+    "western_c"
+   ]
+  },
+  "obj_03_NYC_747_205_1f1087e42c6ec0ff": {
+   "label": "TVMonitor A",
+   "source": "03_NYC_747",
+   "pivot": [
+    -156.0,
+    -600.3,
+    348.0
+   ],
+   "packages": [
+    "Airfield",
+    "CoreTexMisc"
+   ],
+   "facing": 0,
+   "kind": "installed-game-brush",
+   "actor": "Brush480",
+   "size": [
+    8.000005999999985,
+    64.0,
+    64.0
+   ],
+   "textures": [
+    "h_noise_a00",
+    "tvmonitor_a1"
+   ]
+  }
+ }
+}

@@ -1,0 +1,32 @@
+/* Import a mod (mod-import.js): a tool window as the Mission graph, DESIGN.md sizes */
+#modimport { position:fixed; z-index:22; inset:50% auto auto 50%; transform:translate(-50%,-50%); width:min(760px,calc(100vw - 24px));
+  height:min(620px,calc(100vh - 48px)); box-sizing:border-box; display:none; grid-template-rows:28px minmax(0,1fr) 36px; overflow:hidden;
+  border:1px solid var(--accent-border); border-radius:var(--radius-window); background:var(--panel); color:var(--text);
+  box-shadow:0 14px 30px #0009; font:400 12px/1.35 "Segoe UI",sans-serif; outline:none; }
+#modimport .mi-top, #modimport .mi-foot { display:flex; align-items:center; gap:6px; padding:0 8px; }
+#modimport .mi-top { border-bottom:1px solid var(--line); }
+#modimport .mi-top b { font-size:13px; font-weight:600; color:var(--heading); }
+#modimport .mi-foot { border-top:1px solid var(--line); }
+#modimport .mi-sp { flex:1; }
+#modimport button { height:22px; padding:0 8px; line-height:20px; white-space:nowrap; }
+#modimport input:not([type=checkbox]) { height:22px; padding:0 6px; box-sizing:border-box; }
+#modimport .mi-body { overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px; background:var(--bg); }
+#modimport .mi-drop { display:flex; flex-direction:column; align-items:center; gap:6px; padding:14px; border:1px dashed var(--line); color:var(--dim); }
+#modimport .mi-drop.on { border-color:var(--accent-border); background:var(--accent-soft); color:var(--text); }
+#modimport .mi-pick { display:flex; gap:6px; }
+#modimport .mi-h { padding:6px 0 2px; font-size:13px; font-weight:600; color:var(--heading); }
+#modimport .mi-h.bad, #modimport .mi-done.bad { color:var(--bad); }
+#modimport .mi-row { display:flex; align-items:center; gap:6px; min-height:22px; }
+#modimport .mi-row.bad .mi-label { color:var(--bad); }
+#modimport .mi-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:55%; }
+#modimport .mi-name { width:220px; }
+#modimport .mi-dim, #modimport .mi-note { color:var(--dim); font-size:11px; }
+#modimport .mi-note { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#modimport .mi-empty { color:var(--dim); }
+#modimport .mi-readme pre { white-space:pre-wrap; max-height:180px; overflow:auto; font:11px/1.4 Consolas,monospace; color:var(--dim); }
+#modimport .mi-done { margin:0; padding-left:18px; }
+#modimport .mi-help-text p { margin:4px 0; color:var(--text); }
+#modimport .mi-msg { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-size:11px; color:var(--dim); }
+#modimport .mi-msg.ok { color:var(--ok); }
+#modimport .mi-msg.warn { color:var(--warn); }
+#modimport .mi-msg.bad { color:var(--bad); }

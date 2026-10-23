@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piece Library</title>
+<style>
+  :root { --bg:#14161b; --panel:#1d2027; --line:#2c313b; --text:#d9dde5; --dim:#8b93a3; --acc:#5aa2ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 "Segoe UI", system-ui, sans-serif; }
+  header { position:sticky; top:0; display:flex; gap:8px; align-items:center; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); z-index:2; }
+  input, button { font:inherit; color:var(--text); background:#262a33; border:1px solid var(--line); border-radius:5px; padding:5px 9px; }
+  #q { width:340px; } #maps { width:300px; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; padding:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .card canvas { width:100%; display:block; background:#0b0d12; }
+  .card div { padding:5px 8px; font-size:12px; }
+  .card .id { color:var(--dim); font-family:Consolas, monospace; font-size:11px; }
+  .card button { margin:0 8px 8px; padding:3px 8px; }
+  #status { color:var(--dim); margin-left:auto; }
+</style>
+<link rel="stylesheet" href="/static/editor-density.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body class="piece-library">
+<header>
+  <b>Piece Library</b>
+  <input id="q" placeholder="words (e.g. vent tank pipe sign rail)">
+  <input id="maps" placeholder="maps (empty = all)">
+  <button id="go">Search</button>
+  <span id="status"></span>
+</header>
+<div id="grid"></div>
+<script type="module" src="/static/pieces.js"></script>
+</body>
+</html>

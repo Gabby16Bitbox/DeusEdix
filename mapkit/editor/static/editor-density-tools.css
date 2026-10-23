@@ -1,0 +1,126 @@
+/* Compact tool chrome. Load after the base theme and editor density styles.
+   Timeline tracks/rulers/keys, plot coordinates, preview canvases and the texture
+   document's text settings keep their existing geometry and data values. */
+
+body :is(#studio, #texedit, #cutbox, #animbox) {
+  font-family:"Segoe UI", system-ui, sans-serif;
+  font-size:12px;
+  line-height:16px;
+  font-weight:400;
+  letter-spacing:0;
+  text-transform:none;
+}
+
+body :is(#studio, #texedit, #cutbox, #animbox) :is(button, input, select, textarea) {
+  font-family:inherit;
+  font-size:12px;
+  font-weight:400;
+  letter-spacing:0;
+  text-transform:none;
+}
+
+body :is(#studio, #texedit, #cutbox, #animbox) button:not(.st-key),
+body :is(#studio, #texedit, #cutbox, #animbox) select,
+body :is(#studio, #texedit, #cutbox, #animbox) input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]) {
+  box-sizing:border-box;
+  height:22px;
+  min-height:22px;
+  padding:1px 6px;
+  line-height:18px;
+}
+
+body :is(#studio, #texedit, #cutbox, #animbox) :is(input[type=checkbox], input[type=radio]) {
+  width:13px;
+  height:13px;
+  margin:0 3px 0 0;
+  padding:0;
+  vertical-align:middle;
+}
+
+body :is(#studio, #texedit, #cutbox, #animbox) :is(.hint, small) {
+  font-size:11px;
+  line-height:15px;
+  font-weight:400;
+  letter-spacing:0;
+  text-transform:none;
+}
+
+body :is(#studio, #texedit, #cutbox, #animbox) :is(b, strong) { font-weight:600; }
+
+/* Studio: only the top chrome changes height. Keep the 46px playback row:
+   its pose-key strip is positioned above the frame slider. */
+/* Leave room for the Windows thin scrollbar when a toolbar must scroll. */
+body #studio { grid-template-rows:36px minmax(160px, 1fr) 46px minmax(280px, 36vh); }
+body #studio .st-top { gap:6px; padding:0 8px; }
+body #studio .st-top > b { font-size:13px; line-height:18px; }
+body #studio .st-top label { gap:4px; }
+body #studio #as-status { margin:0; line-height:15px; }
+body #studio .st-left { padding:4px 0; }
+body #studio .st-right { padding:4px 8px; }
+body #studio .st-h { margin:8px 8px 3px; font-size:13px; line-height:18px; font-weight:600; }
+body #studio .st-h small { display:block; margin-top:1px; }
+body #studio .st-right .st-h { margin:8px 0 3px; }
+body #studio .st-row { gap:4px; margin:3px 8px; }
+body #studio .st-right .st-row { margin:3px 0; }
+body #studio .st-row label { font-size:12px; line-height:16px; }
+body #studio .st-item { gap:4px; min-height:22px; padding:1px 8px; line-height:16px; }
+body #studio .st-item small { white-space:nowrap; }
+body #studio .st-item button { height:22px; min-height:22px; padding:1px 5px; }
+body #studio #as-name { flex:1; width:0; min-width:80px; }
+/* The pose-key strip has fixed horizontal anchors over the frame slider. Keep
+   its surrounding spacing and the playback glyph's original horizontal padding. */
+body #studio .st-time { gap:8px; padding:0 10px; }
+body #studio #as-play { padding-left:9px; padding-right:9px; font-size:13px; }
+body #studio #as-fno { font-size:12px; }
+
+/* Graph controls use the same font as the Studio. The canvas and the plot's
+   internal ruler, axis and key sizes remain owned by studio-graph.js. */
+body #studio .st-graph { font-size:12px; line-height:16px; }
+body #studio :is(.stg-heading, .stg-edit) { gap:4px; padding:3px 8px; }
+body #studio .stg-heading > strong { font-size:12px; font-weight:600; }
+body #studio .stg-label { margin-right:3px; }
+body #studio :is(.stg-target, .stg-axes, .stg-history) { gap:2px; }
+body #studio .stg-axes { margin:0 3px; }
+body #studio .stg-axes button { width:24px; padding:2px; font-weight:600; }
+body #studio .stg-notice { gap:6px; padding:4px 8px; font-size:11px; line-height:15px; }
+body #studio .stg-edit > label { gap:4px; }
+body #studio .stg-history button { width:24px; padding:1px; font-size:16px; line-height:20px; }
+body #studio .stg-footer { gap:8px; min-height:20px; padding:1px 8px 2px; font-size:11px; line-height:15px; }
+
+/* Texture editor: layout bars resize, but the drawing and preview canvas pixel
+   dimensions, zoom calculation and the text tool's selected font are untouched. */
+body #texedit { grid-template-rows:36px 36px minmax(0, 1fr) 24px; }
+body #texedit :is(.te-top, .te-opts) { gap:6px; padding:0 8px; }
+body #texedit .te-top { overflow-x:auto; white-space:nowrap; }
+body #texedit .te-top > * { flex-shrink:0; }
+body #texedit .te-top > b { font-size:13px; line-height:18px; }
+body #texedit #te-name { min-width:0; max-width:24vw; overflow:hidden; text-overflow:ellipsis; margin:0; }
+body #texedit .te-opts label { gap:4px; }
+body #texedit .te-opts > b { max-width:240px; overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+body #texedit .te-tools { gap:3px; padding:4px 0; }
+body #texedit .te-tools button { width:30px; height:28px; min-height:28px; padding:4px; }
+body #texedit .te-tools button svg { display:block; margin:auto; }
+body #texedit .te-swatch input { width:30px; height:22px; padding:1px; }
+body #texedit .te-right { padding:4px 8px; }
+body #texedit .te-h { margin:8px 0 3px; font-size:13px; line-height:18px; font-weight:600; }
+body #texedit .te-row { gap:4px; margin:3px 0; }
+body #texedit .te-sl { gap:4px; min-height:22px; margin:1px 0; }
+body #texedit .te-opt { line-height:16px; }
+body #texedit .te-opt > input { margin-top:2px; }
+body #texedit .te-status { padding:3px 8px; line-height:16px; }
+body #texedit .te-lib { top:40px; padding:6px 8px; }
+body #texedit .te-libitem { gap:6px; padding:3px; font-size:12px; line-height:16px; }
+
+/* Cinematic and object-animation editors: compact control rows only. Preserve
+   28px timeline tracks/labels, 18px rulers and all absolute key/clip positions. */
+body :is(#cutbox, #animbox) { padding:6px 8px; }
+body :is(#cutbox, #animbox) > .row { gap:4px; margin:3px 0; min-height:28px; }
+body :is(#cutbox, #animbox) .row > label { font-size:12px; line-height:16px; }
+body :is(#cutbox, #animbox) :is(.cs-grid, .an-grid) { gap:6px; }
+body #cutbox .cs-sel { margin:4px 0; padding:3px 6px; }
+body #cutbox :is(.cs-left, .cs-shot, .cs-line, .cs-ev) { letter-spacing:0; font-weight:400; }
+body #cutbox .cs-left { font-size:12px; line-height:16px; }
+body #cutbox .cs-left button { padding:1px 5px; }
+body #cutbox :is(.cs-shot, .cs-line, .cs-ev) { font-size:11px; line-height:16px; }
+body #animbox .an-name { font-size:12px; line-height:16px; }
+body :is(#cutbox, #animbox) :is(.cs-ticks, .an-ticks) { font-size:11px; line-height:16px; }

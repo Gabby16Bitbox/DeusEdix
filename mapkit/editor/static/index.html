@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en" data-theme="classic" data-shape="square">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeusEdix · Map Editor</title>
+<link rel="icon" type="image/svg+xml" href="/static/deusedix-mark.svg">
+<link rel="stylesheet" href="/static/studio-graph.css">
+<link rel="stylesheet" href="/static/texture-transfer.css">
+<link rel="stylesheet" href="/static/player-profiles.css">
+<script>
+  try {
+    const theme = localStorage.getItem('ucmap.theme');
+    if (['classic', 'mankind', 'classic-rounded', 'mankind-rounded'].includes(theme)) {
+      document.documentElement.dataset.theme = theme.split('-')[0];
+      document.documentElement.dataset.shape = theme.endsWith('-rounded') ? 'rounded' : 'square';
+    }
+  } catch (e) { /* no storage */ }
+</script>
+<style>
+  :root { --lw:250px; --rw:280px; --bh:230px; --bg:#14161b; --panel:#1d2027; --line:#2c313b; --text:#d9dde5; --dim:#8b93a3; --acc:#5aa2ff; --warn:#ffb347; --bad:#ff6b6b; --ok:#6bd68a; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 "Segoe UI", system-ui, sans-serif; overflow:hidden; }
+  #top { position:fixed; left:0; right:0; top:0; height:44px; display:flex; gap:6px; align-items:center; padding:0 10px; background:var(--panel); border-bottom:1px solid var(--line); z-index:5; }
+  #top .title { font-weight:600; margin-right:8px; }
+  button, select, input { font:inherit; color:var(--text); background:#262a33; border:1px solid var(--line); border-radius:5px; padding:5px 9px; }
+  button:hover { border-color:var(--acc); cursor:pointer; }
+  button.primary { background:#1f3b63; border-color:#2f5c9a; }
+  button:disabled { opacity:.45; cursor:default; }
+  #pathsbtn.on { border-color:#6bd68a; background:#1d3a2a; }
+  /* the top bar keeps every button on one line (the status takes what is left, the bar scrolls if too narrow) */
+  #top { overflow-x:auto; scrollbar-width:thin; }
+  #top > button, #top > select, #top > .title { flex-shrink:0; white-space:nowrap; }
+  #top > #status { flex:1 1 120px; min-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* cutscene cameras (cutscene.js): the timeline at the bottom, what the game draws over the picture */
+  #cutbox { position:fixed; left:calc(var(--lw) + 8px); right:calc(var(--rw) + 8px); bottom:8px; max-height:52%; overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:none; z-index:9; box-shadow:0 8px 30px #0008; }
+  #cutbox .row { gap:5px; } #cutbox label { width:auto; }
+  #cutbox .cs-sel { margin:6px 0 4px; min-height:26px; flex-wrap:wrap; row-gap:4px; padding:4px 6px; background:#ffffff08; border-radius:6px; }
+  #cutbox .cs-grid { display:flex; gap:8px; align-items:flex-start; }
+  #cutbox .cs-lefts { flex:0 0 auto; width:96px; } #cutbox .cs-pad { height:18px; }
+  #cutbox .cs-left { height:28px; display:flex; align-items:center; gap:4px; font-size:12px; opacity:.85; }
+  #cutbox .cs-left button { padding:0 6px; line-height:18px; }
+  #cutbox .cs-tl { position:relative; flex:1; min-width:240px; cursor:pointer; user-select:none; }
+  #cutbox .cs-ticks { position:relative; height:18px; border-bottom:1px solid var(--line); font-size:10px; opacity:.6; }
+  #cutbox .cs-ticks span { position:absolute; transform:translateX(-50%); }
+  #cutbox .cs-track { position:relative; height:28px; border-bottom:1px solid #ffffff10; }
+  #cutbox .cs-key { position:absolute; top:8px; width:11px; height:11px; margin-left:-6px; transform:rotate(45deg); cursor:ew-resize; border:1px solid #0009; }
+  #cutbox .cs-key.on { box-shadow:0 0 0 3px #ffffffaa; }
+  #cutbox .cs-shot { position:absolute; top:5px; height:18px; border:1px solid; border-radius:4px; font-size:11px; padding:0 4px; overflow:hidden; white-space:nowrap; pointer-events:none; }
+  #cutbox .cs-line { position:absolute; top:4px; height:20px; background:#2c3a52; border:1px solid #5aa2ff; border-radius:4px; font-size:11px; padding:1px 4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:ew-resize; box-sizing:border-box; }
+  #cutbox .cs-line.on, #cutbox .cs-ev.on { border-color:#fff; box-shadow:0 0 0 2px #ffffff55; }
+  #cutbox .cs-ev { position:absolute; top:4px; height:20px; max-width:180px; background:#203a28; border:1px solid #6fdc8c; border-left-width:3px; border-radius:3px; font-size:11px; padding:1px 5px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:ew-resize; box-sizing:border-box; }
+  #cutbox .cs-ph { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:#ff5a5a; pointer-events:none; }
+  #cutfilm { position:fixed; display:none; pointer-events:none; z-index:3; overflow:hidden; outline:1px solid #ffffff40; box-shadow:0 0 0 4000px #000000b0; }
+  #cutfilm .cf-bar { position:absolute; left:0; right:0; background:#000; }
+  #cutfilm .cf-top { top:0; } #cutfilm .cf-bot { bottom:0; }
+  #cutfilm .cf-fade { position:absolute; inset:0; background:#000; opacity:0; }
+  #cutfilm .cf-sub { position:absolute; left:10%; right:10%; text-align:center; color:#fff; font-size:1em; padding:2px 6px; border-radius:4px; }
+  #cutfilm .cf-sub b { display:block; color:#ffc83c; font-size:.85em; letter-spacing:.04em; }
+  #cutfilm .cf-tag { position:absolute; left:8px; top:6px; color:#ff5a5a; font-size:10px; letter-spacing:.12em; opacity:.8; }
+  /* links to far or unseen objects (app.js updateLinkEdges) */
+  .lk-edge { position:fixed; display:none; align-items:center; gap:6px; padding:3px 9px; background:#16301fe6; border:1px solid #6fdc8c;
+             border-radius:12px; color:#d8f5df; font-size:12px; white-space:nowrap; pointer-events:auto; cursor:pointer; box-shadow:0 2px 10px #0008; }
+  .lk-edge-arrow { color:#6fdc8c; display:inline-block; }
+  /* Animation Studio (studio.js) */
+  #studio { position:fixed; inset:0; z-index:20; background:var(--bg); display:none;
+    grid-template-columns:245px minmax(240px,1fr) 285px; grid-template-rows:44px minmax(160px,1fr) 46px minmax(280px,36vh); grid-template-areas:"top top top" "left view right" "left time right" "graph graph right"; }
+  #studio #as-graph { grid-area:graph; min-width:0; min-height:0; border-top:1px solid var(--line); }
+  #studio .st-top { overflow-x:auto; white-space:nowrap; }
+  #studio .st-top > * { flex-shrink:0; }
+  #studio .st-key { padding:0; border:0; border-radius:0; }
+  @media (max-width:1050px) { #studio { grid-template-columns:190px minmax(180px,1fr) 250px; } }
+  #studio .st-top { grid-area:top; display:flex; gap:10px; align-items:center; padding:0 10px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #studio .st-top label { display:flex; gap:6px; align-items:center; color:var(--dim); }
+  #studio #as-cls { max-width:180px; } #studio #as-model { max-width:280px; }
+  #studio #as-status { flex:1; min-width:90px; overflow:hidden; text-overflow:ellipsis; }
+  #studio .st-left { grid-area:left; overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:6px 0; }
+  #studio .st-right { grid-area:right; overflow:auto; background:var(--panel); border-left:1px solid var(--line); padding:6px 10px; }
+  #studio #as-view { grid-area:view; width:100%; height:100%; display:block; min-width:0; min-height:0; }
+  #studio .st-time { grid-area:time; position:relative; display:flex; gap:8px; align-items:center; padding:0 10px; background:var(--panel); border-top:1px solid var(--line); }
+  #studio .st-time input[type=range] { flex:1; padding:0; }
+  #studio #as-keys { position:absolute; left:58px; right:118px; top:4px; height:8px; pointer-events:none; }
+  #studio .st-key { position:absolute; width:9px; height:9px; margin-left:-4px; background:#ffd25a; transform:rotate(45deg); pointer-events:auto; cursor:pointer; }
+  #studio .st-h { font-weight:600; margin:10px 10px 4px; }
+  #studio .st-right .st-h { margin:10px 0 4px; }
+  #studio .st-row { display:flex; gap:6px; align-items:center; margin:4px 10px; flex-wrap:wrap; }
+  #studio .st-right .st-row { margin:4px 0; }
+  #studio .st-row label { width:62px; color:var(--dim); }
+  #studio .st-row input:not([type=checkbox]), #studio .st-row select { min-width:0; }
+  #studio .st-item { display:flex; gap:6px; align-items:center; padding:3px 10px; cursor:pointer; }
+  #studio .st-item:hover { background:#262a33; }
+  #studio .st-item.on { background:#22314a; }
+  #studio .st-item span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  #studio .st-item small { color:var(--dim); }
+  #studio .st-item button { padding:1px 6px; font-size:12px; }
+  /* Texture Editor (texedit.js) */
+  #texedit { position:fixed; inset:0; z-index:21; background:var(--bg); display:none;
+    grid-template-columns:46px 1fr 290px; grid-template-rows:44px 40px 1fr 26px; grid-template-areas:"top top top" "tools opts right" "tools view right" "tools status right"; }
+  #texedit .te-top { grid-area:top; display:flex; gap:8px; align-items:center; padding:0 10px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #texedit .te-tools { grid-area:tools; display:flex; flex-direction:column; gap:4px; align-items:center; padding:6px 0; background:var(--panel); border-right:1px solid var(--line); overflow:auto; }
+  #texedit .te-tools button { padding:5px; width:36px; height:34px; }
+  #texedit .te-tools button.on { border-color:var(--acc); background:#22314a; }
+  #texedit .te-swatch input { width:36px; height:30px; padding:1px; }
+  #texedit #te-recent { display:flex; flex-wrap:wrap; gap:3px; width:36px; justify-content:center; }
+  #texedit .te-chip { width:15px; height:15px; border-radius:3px; border:1px solid #0008; cursor:pointer; }
+  #texedit .te-opts { grid-area:opts; display:flex; gap:12px; align-items:center; padding:0 10px; background:var(--panel); border-bottom:1px solid var(--line); white-space:nowrap; overflow:auto; }
+  #texedit .te-opts label { display:flex; gap:5px; align-items:center; color:var(--dim); }
+  #texedit .te-opts input[type=range] { width:110px; padding:0; }
+  #texedit #te-view { grid-area:view; width:100%; height:100%; display:block; min-width:0; min-height:0; cursor:crosshair; }
+  #texedit .te-status { grid-area:status; margin:0; padding:4px 10px; border-top:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #texedit .te-right { grid-area:right; overflow:auto; background:var(--panel); border-left:1px solid var(--line); padding:6px 10px; }
+  #texedit .te-h { font-weight:600; margin:10px 0 4px; }
+  #texedit .te-row { display:flex; gap:5px; align-items:center; margin:4px 0; flex-wrap:wrap; }
+  #texedit .te-row button { padding:3px 7px; }
+  #texedit .te-opt { flex-wrap:nowrap; align-items:flex-start; cursor:pointer; } #texedit .te-opt span { flex:1; }
+  #texedit .te-sl { display:flex; gap:6px; align-items:center; margin:2px 0; } #texedit .te-sl label { width:70px; color:var(--dim); } #texedit .te-sl input { flex:1; padding:0; }
+  #texedit .te-prev { display:flex; gap:6px; flex-wrap:wrap; } #texedit .te-prev canvas { width:120px; height:120px; border:1px solid var(--line); border-radius:4px; background:#0d1016; }
+  #texedit .te-lib { position:fixed; top:52px; right:300px; width:340px; max-height:70vh; overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:none; z-index:22; }
+  #texedit .te-libitem { display:flex; gap:8px; align-items:center; padding:4px; border-radius:5px; cursor:pointer; } #texedit .te-libitem:hover { background:#262a33; }
+  #texedit .te-libitem img { width:48px; height:48px; object-fit:cover; border:1px solid var(--line); } #texedit .te-libitem span { flex:1; }
+  #texedit .hint.ok { color:var(--ok); } #texedit .hint.bad { color:var(--bad); } #texedit .hint.warn { color:var(--warn); }
+  #studio .hint.ok { color:var(--ok); } #studio .hint.bad { color:var(--bad); } #studio .hint.warn { color:var(--warn); }
+  #status { margin-left:auto; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:38vw; }
+  #left, #right { position:fixed; top:44px; bottom:0; width:var(--lw); background:var(--panel); overflow:auto; overflow-x:hidden; z-index:4; }
+  #left { left:0; border-right:1px solid var(--line); }
+  #right { right:0; border-left:1px solid var(--line); width:var(--rw); container-type:inline-size; }
+  #view { position:fixed; top:44px; left:var(--lw); right:var(--rw); bottom:var(--bh); width:calc(100% - var(--lw) - var(--rw)); height:calc(100% - 44px - var(--bh)); display:block; }
+  /* the side panels get wider by dragging their inner edge */
+  .grip { position:fixed; top:44px; bottom:0; width:6px; cursor:ew-resize; z-index:6; }
+  .grip:hover, .grip.on { background:#5aa2ff55; }
+  #lgrip { left:calc(var(--lw) - 3px); } #rgrip { right:calc(var(--rw) - 3px); }
+  #bgrip { position:fixed; left:var(--lw); right:var(--rw); bottom:calc(var(--bh) - 3px); height:6px; cursor:ns-resize; z-index:6; }
+  #bgrip:hover, #bgrip.on { background:#5aa2ff55; }
+  /* Hierarchy (left): every object of the level, like Unity */
+  #hsearch { margin:0 12px 6px; width:calc(100% - 24px); }
+  #hier { padding:0 4px 12px 8px; font-size:12px; }
+  /* its + (a folder, a cube, a wedge, a cylinder) before the search, as in Unity */
+  #left .hier-top { display:flex; align-items:center; gap:4px; margin:5px 8px 5px; }
+  #left .hier-top #hsearch { margin:0; width:auto; flex:1; min-width:0; }
+  #left .hier-add { flex:none; width:24px; height:24px; padding:0; display:inline-flex; align-items:center; justify-content:center; }
+  #left .hier-add svg { width:13px; height:13px; }
+  #hier .hrename { height:20px; padding:0 4px; margin:0; font-size:12px; min-width:0; flex:1; width:calc(100% - 60px); }
+  #hier details { margin:1px 0; } #hier details details { margin-left:12px; }
+  #hier summary { cursor:pointer; color:var(--dim); padding:2px 4px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #hier summary small, #hier .hrow small { color:var(--dim); margin-left:4px; }
+  #hier summary .hl { color:var(--text); }
+  #hier .hrow { display:flex; align-items:center; gap:5px; padding:2px 4px 2px 16px; border-radius:4px; cursor:pointer; white-space:nowrap; min-width:0; }
+  #hier .hrow .hl { overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  #hier .hrow small { overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; }
+  #hier .hrow:hover, #hier summary:hover { background:#262a33; }
+  #hier .on, #hier summary.on { background:#22314a !important; outline:1px solid #2f5c9a; }
+  #hier .hb { display:none; padding:0 4px; border:0; background:none; color:var(--dim); line-height:1; }
+  #hier .hb svg { width:13px; height:13px; }
+  #hier .hrow:hover .hb, #hier summary:hover .hb, #hier .on .hb { display:inline-flex; }
+  #hier .hb:hover { color:var(--text); } #hier .hb.del:hover { color:var(--bad); }
+  /* the browser (bottom): the objects of the game and the structures of the map, with 3D previews */
+  #bottom { position:fixed; left:var(--lw); right:var(--rw); bottom:0; height:var(--bh); background:var(--panel); border-top:1px solid var(--line); display:flex; flex-direction:column; z-index:4; min-width:0; }
+  #bottom .btabs { display:flex; gap:6px; align-items:center; padding:5px 8px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  #bottom .btab.on { border-color:var(--acc); background:#22314a; }
+  #bottom #search, #bottom #psearch { margin:0; width:min(300px, 32vw); }
+  #bottom .bpane { flex:1; overflow:auto; padding:4px 8px 8px; min-height:0; }
+  #bottom details { margin:2px 0; }
+  #bottom details[open] { display:flex; flex-wrap:wrap; gap:4px; align-items:flex-start; }
+  #bottom summary { flex-basis:100%; margin:4px 0 2px; color:var(--dim); font-size:12px; cursor:pointer; }
+  #bottom summary small { margin-left:6px; }
+  #bottom .cat { flex-basis:100%; margin:4px 0 0; font-style:italic; }
+  #bottom .item { width:100px; height:122px; margin:0; padding:4px; display:inline-flex; flex-direction:column; align-items:center; gap:3px; text-align:center; font-size:11px; line-height:1.15; overflow:hidden; }
+  #bottom .item small { display:none; }
+  #bottom .th { width:88px; height:84px; flex:none; border-radius:4px; background:#15171c; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:22px; overflow:hidden; }
+  #bottom .th img { width:100%; height:100%; object-fit:contain; display:block; }
+  #bottom .tl { max-height:2.35em; overflow:hidden; word-break:break-word; }
+  /* the media browser: sections on the left, the section's toolbar on top */
+  #bottom .bpath { color:var(--heading, var(--text)); font-size:12px; letter-spacing:.06em; text-transform:uppercase; min-width:86px; }
+  #bottom .bgrow { flex:1; }
+  #bottom .bbody { flex:1; display:flex; min-height:0; }
+  #bottom .bbody .bpane { min-width:0; }
+  #bottom .bside { width:122px; flex:none; overflow:auto; padding:4px 6px; border-right:1px solid var(--line); }
+  #bottom .bside .btab { display:block; width:100%; text-align:left; margin:1px 0; padding:4px 8px; }
+  #bottom .bs-h { color:var(--dim); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:8px 2px 3px; }
+  #bottom .bs-h:first-child { margin-top:2px; }
+  #bottom .bcreate { position:relative; }
+  #bottom .bcreate > button { padding:5px 8px; font-size:11px; }
+  #bottom #sndsearch { min-width:90px; max-width:220px; margin:0; padding:5px 8px; font-size:11px; }
+  #bottom .bmenu { display:none; position:absolute; right:0; bottom:calc(100% + 4px); z-index:12; min-width:170px; padding:4px; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--radius-window, 6px); box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  #bottom .bmenu.open { display:block; }
+  #bottom .bmenu button { display:flex; justify-content:space-between; width:100%; margin:1px 0; text-align:left; }
+  #bottom .bmenu small { color:var(--dim); }
+  #bottom.filedrop { outline:2px dashed var(--acc); outline-offset:-3px; }
+  #bottom .srow { display:flex; align-items:center; gap:6px; width:250px; padding:2px 6px; border-radius:var(--radius-row, 4px); font-size:12px; cursor:grab; }
+  #bottom .srow:hover { background:var(--field); }
+  #bottom .srow .sn { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #bottom .srow small { display:inline; color:var(--dim); }
+  #bottom .srow button { padding:1px 7px; }
+  #bottom .sintro { flex-basis:100%; margin:4px 2px 6px; }
+  #details .sounddrop { outline:2px dashed var(--acc); outline-offset:1px; border-radius:4px; }
+  h3 { margin:12px 12px 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); }
+  #search, #ssearch { margin:0 12px 8px; width:calc(100% - 24px); }
+  #structs details, #palette details { margin:2px 0; }
+  #structs summary, #palette summary { margin:4px 12px 2px; color:var(--dim); font-size:12px; cursor:pointer; }
+  #structs summary small, #palette summary small { float:right; }
+  #palette .cat { margin:6px 12px 2px 22px; font-style:italic; }
+  .cat { margin:8px 12px 2px; color:var(--dim); font-size:12px; }
+  .item { display:block; width:calc(100% - 24px); margin:2px 12px; text-align:left; padding:5px 8px; }
+  .item small { color:var(--dim); float:right; }
+  .item.active { border-color:var(--acc); background:#22314a; }
+  .box { margin:6px 12px; padding:8px; border:1px solid var(--line); border-radius:6px; }
+  .row { display:flex; gap:6px; align-items:center; margin:5px 0; min-width:0; }
+  .row.actions, .row.texrow { flex-wrap:wrap; }
+  .box { min-width:0; overflow-wrap:break-word; }
+  .box input[type=text], .box select { min-width:0; max-width:100%; }
+  /* buttons with an icon; in a narrow panel only the icon (the name is in the tooltip) */
+  .ib { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .ib svg { width:15px; height:15px; flex:none; }
+  .ib span:empty { display:none; }
+  .ib.danger:hover { border-color:var(--bad); color:var(--bad); }
+  a.ib { padding:4px 8px; border:1px solid var(--line); border-radius:5px; color:inherit; text-decoration:none; background:#262a33; }
+  @container (max-width: 330px) { .actions .ib span, .texrow .ib span { display:none; } .actions .ib, .texrow .ib { padding:5px 8px; } }
+  .row label { width:46px; color:var(--dim); }
+  .row label.scrub { cursor:ew-resize; user-select:none; touch-action:none; flex-shrink:0; }
+  .row label.scrub:hover { color:var(--acc); }
+  body.inspector-scrubbing, body.inspector-scrubbing * { cursor:ew-resize !important; user-select:none !important; }
+  .row input[type=number] { width:100%; }
+  .warn { color:var(--warn); }
+  .bad { color:var(--bad); }
+  .ok { color:var(--ok); }
+  #log { margin:6px 12px 12px; white-space:pre-wrap; font:12px/1.35 Consolas, monospace; color:var(--dim); max-height:260px; overflow:auto; }
+  #shot { position:fixed; right:calc(var(--rw) + 10px); bottom:calc(var(--bh) + 10px); width:420px; border:1px solid var(--line); border-radius:6px; background:#000; display:none; z-index:6; }
+  #shot img { width:100%; display:block; border-radius:6px 6px 0 0; cursor:zoom-in; }
+  #shot.big { width:min(1200px, calc(100% - var(--rw) - 40px)); }
+  #shot div { padding:5px 8px; color:var(--dim); font-size:12px; display:flex; justify-content:space-between; }
+  #help { position:fixed; inset:60px calc(var(--rw) + 20px) auto calc(var(--lw) + 20px); max-height:calc(100% - 80px); overflow:auto; background:#1d2027f2; border:1px solid var(--line); border-radius:8px; padding:14px 18px; display:none; z-index:7; }
+  #help td { padding:2px 14px 2px 0; } #help td:first-child { color:var(--acc); white-space:nowrap; }
+  #playbox { position:fixed; top:60px; left:50%; transform:translateX(-50%); width:min(520px, calc(100% - 24px)); background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:14px 16px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #playbox .row label:first-child { width:110px; flex:none; }
+  #playbox select, #playbox input[type=text] { flex:1; min-width:0; }
+  #facbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); right:calc(var(--rw) + 12px); max-height:calc(100% - 70px); overflow:auto; background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #facbox .ftab { border-collapse:collapse; width:100%; margin:4px 0; }
+  #facbox .ftab th, #facbox .ftab td { border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
+  #facbox .ftab th { color:var(--dim); font-weight:600; }
+  #facbox a { color:var(--acc); } #facbox .fmem a { margin-right:8px; font-size:12px; }
+  #facbox select { max-width:180px; }
+  #charbox { position:fixed; top:52px; left:12px; right:12px; bottom:12px; background:#1d2027fa; border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:none; flex-direction:column; z-index:8; box-shadow:0 8px 30px #0008; }
+  #charbox .ch-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  #charbox .ch-cols { flex:1; display:flex; gap:12px; min-height:0; }
+  #charbox .ch-list { width:220px; flex:none; overflow:auto; }
+  #charbox .ch-list .item { width:100%; margin:2px 0; }
+  #charbox .ch-view { flex:1; position:relative; min-width:200px; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  #charbox .ch-view canvas { width:100%; height:100%; display:block; cursor:grab; }
+  #charbox .ch-viewhint { position:absolute; left:8px; bottom:4px; margin:0; }
+  #charbox .ch-form { width:400px; flex:none; overflow:auto; padding-right:4px; }
+  #charbox .ch-form .row > label:first-child { width:86px; flex:none; color:var(--dim); }
+  #charbox .ch-sec { margin:12px 0 4px; color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.05em; display:flex; gap:6px; align-items:center; }
+  #charbox .ch-sec button { text-transform:none; letter-spacing:0; font-size:12px; padding:2px 7px; }
+  #charbox .ch-group { border-bottom:1px solid var(--line); padding:2px 0; }
+  #charbox .ch-glabel { width:86px; flex:none; }
+  #charbox .ch-group img, #charbox .ch-group .none { width:34px; height:34px; border-radius:4px; object-fit:cover; background:#111; display:inline-flex; align-items:center; justify-content:center; font-size:10px; color:var(--dim); }
+  #charbox .ch-group button { padding:3px 7px; }
+  #charbox .ch-group button.active { border-color:var(--acc); }
+  #charbox .ch-from { margin:0; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  #charbox .ch-gal { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0 8px; max-height:260px; overflow:auto; }
+  #charbox .ch-gal button { padding:2px; } #charbox .ch-gal button.on { border-color:var(--acc); background:#22314a; }
+  #charbox .ch-gal img.big, #charbox .ch-gal .none { width:56px; height:56px; }
+  @media (max-width: 900px) { #charbox .ch-cols { flex-direction:column; overflow:auto; } #charbox .ch-list, #charbox .ch-form { width:auto; } #charbox .ch-view { min-height:260px; } }
+  #newbox { position:fixed; top:60px; left:50%; transform:translateX(-50%); width:min(560px, calc(100% - 24px)); max-height:calc(100% - 80px); overflow:auto; background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:14px 16px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #newbox .row > label:first-child { width:110px; flex:none; color:var(--dim); }
+  #newbox select, #newbox input[type=text] { flex:1; min-width:0; }
+  #newbox input[type=number] { width:80px; }
+  #linkbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); right:calc(var(--rw) + 12px); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #linkbox table { border-collapse:collapse; width:100%; margin:4px 0 10px; }
+  #linkbox th, #linkbox td { border-bottom:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+  #linkbox th { color:var(--dim); font-weight:600; }
+  #linkbox a { color:var(--acc); }
+  #mapbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); width:min(640px, calc(100% - var(--lw) - var(--rw) - 24px)); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #soundbox { position:fixed; top:56px; right:calc(var(--rw) + 12px); width:min(520px, calc(100% - var(--lw) - var(--rw) - 24px)); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:none; z-index:9; box-shadow:0 8px 30px #0008; }
+  #soundbox .sb-g { color:var(--dim); font-weight:600; margin:8px 0 2px; } #soundbox .sb-g small { font-weight:400; color:var(--ok); }
+  #soundbox .sb-i { display:flex; gap:6px; align-items:center; padding:2px 4px; border-radius:4px; } #soundbox .sb-i:hover { background:#262a33; } #soundbox .sb-i.on { background:#22314a; }
+  #soundbox .sb-i span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; } #soundbox .sb-i button { padding:1px 7px; }
+  #checkbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); width:min(680px, calc(100% - var(--lw) - var(--rw) - 24px)); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #logicbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); width:min(620px, calc(100% - var(--lw) - var(--rw) - 24px)); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #pkgbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); width:min(560px, calc(100% - var(--lw) - var(--rw) - 24px)); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #mimportbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); width:min(460px, calc(100% - var(--lw) - var(--rw) - 24px)); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
+  #animbox { position:fixed; left:calc(var(--lw) + 8px); right:calc(var(--rw) + 8px); bottom:8px; max-height:46%; overflow:auto; background:#1d2027f8; border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:none; z-index:9; box-shadow:0 8px 30px #0008; }
+  #animbox .an-grid { display:flex; gap:8px; align-items:flex-start; }
+  #animbox .an-lefts { flex:0 0 auto; } #animbox .an-ticks-pad { height:18px; }
+  #animbox .an-left { display:flex; gap:4px; align-items:center; height:28px; } #animbox .an-left.off { opacity:.4; }
+  #animbox .an-name { width:62px; font-size:12px; opacity:.85; }
+  #animbox .an-tl { position:relative; flex:1; min-width:200px; cursor:pointer; user-select:none; }
+  #animbox .an-ticks { position:relative; height:18px; border-bottom:1px solid var(--line); font-size:10px; opacity:.6; }
+  #animbox .an-ticks span { position:absolute; transform:translateX(-50%); }
+  #animbox .an-track { position:relative; height:28px; border-bottom:1px solid #ffffff10; } #animbox .an-track.off { opacity:.3; }
+  #animbox .an-key { position:absolute; top:8px; width:11px; height:11px; margin-left:-6px; background:#ffd25a; transform:rotate(45deg); cursor:ew-resize; border:1px solid #0008; }
+  #animbox .an-key.on { background:#5aa2ff; box-shadow:0 0 0 2px #5aa2ff66; }
+  #animbox .an-ph { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:#ff5a5a; pointer-events:none; }
+  .lk-tl summary { font-size:11px; opacity:.75; cursor:pointer; } .lk-tlbox { position:relative; margin:4px 0 0; }
+  .lk-tlruler { position:relative; height:14px; font-size:9px; opacity:.55; margin-left:40%; } .lk-tlruler span { position:absolute; transform:translateX(-50%); }
+  .lk-tlrow { display:flex; align-items:center; height:20px; } .lk-tlname { width:40%; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.8; padding-right:4px; }
+  .lk-tltrack { position:relative; flex:1; height:12px; background:#ffffff0a; border-radius:3px; }
+  .lk-tlbar { position:absolute; top:1px; height:10px; background:#6fdc8c; border-radius:3px; cursor:ew-resize; min-width:6px; } .lk-tlbar.anim { background:#5ad1ff; }
+  #mimportbox canvas { max-width:100%; border-radius:6px; }
+  #pkgbox .pk-i { display:flex; gap:6px; align-items:baseline; padding:3px 2px; border-bottom:1px solid var(--line); width:auto; }
+  #logicbox .lg-head { font-weight:600; margin:12px 0 2px; } #logicbox .lg-head a { color:var(--acc); }
+  .lk-rule { border-left:3px solid #6fdc8c; background:#6fdc8c0d; border-radius:4px; padding:4px 4px 4px 8px; margin:6px 0; }
+  .lk-rule a { color:var(--acc); } .lk-rule .row { flex-wrap:wrap; row-gap:3px; } .lk-act { border-top:1px dashed var(--line); margin-top:3px; padding-top:3px; }
+  .lk-say { font-size:11px; font-style:italic; opacity:.75; margin:3px 0 1px; }
+  .lk-in a { color:#6fdc8c; font-size:12px; }
+  #checkbox .ck-i { display:flex; gap:8px; align-items:baseline; padding:4px 2px; border-bottom:1px solid var(--line); } #checkbox .ck-i span:nth-child(2) { flex:1; } #checkbox a { color:var(--acc); white-space:nowrap; }
+  #mapbox table { border-collapse:collapse; width:100%; margin:4px 0 10px; } #mapbox td { padding:2px 6px; } #mapbox b { display:inline-block; margin-top:8px; }
+  #busy { position:fixed; inset:0; background:#0008; display:none; z-index:9; align-items:center; justify-content:center; font-size:15px; }
+  .hint { color:var(--dim); margin:6px 12px; }
+  kbd { background:#262a33; border:1px solid var(--line); border-radius:3px; padding:0 4px; font-size:11px; }
+</style>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/menubar.css">
+<link rel="stylesheet" href="/static/workspace.css">
+<link rel="stylesheet" href="/static/sound-browser.css">
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@recast-navigation/core": "/static/recast-navigation-core.js",
+    "@recast-navigation/generators": "/static/recast-navigation-generators.js",
+    "@recast-navigation/wasm": "/static/recast-navigation-wasm.js" } }
+</script>
+</head>
+<body>
+<script src="/static/tutorial-loading.js"></script>
+<div id="top">
+  <div class="workspacebar">
+  <div class="editor-brand" aria-label="DeusEdix map editor">
+    <svg class="editor-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="/static/deusedix-mark.svg#mark"/></svg>
+    <span><span class="editor-wordmark">Deus<span>Edix</span></span><small>MAP EDITOR</small></span>
+  </div>
+  <div class="map-picker"><label for="map">Map</label><select id="map" aria-label="Current map"></select></div>
+  <button id="newmap" title="A new map: an empty room to build in, or a copy of any map; it belongs to a mission of the campaign">New map</button>
+  <span id="status" role="status">loading...</span>
+  <label class="theme-picker" for="uitheme"><span class="theme-swatch" aria-hidden="true"></span><span>Theme</span>
+    <select id="uitheme" aria-label="Interface theme"><option value="classic">Deus Ex · Classic</option><option value="classic-rounded">Deus Ex · Classic Rounded</option><option value="mankind">Mankind Divided</option><option value="mankind-rounded">Mankind Divided · Rounded</option></select>
+  </label>
+  </div>
+  <div class="commandbar" role="toolbar" aria-label="Map tools">
+  <div class="command-group">
+  <button id="save" title="Save changes (Ctrl+S)">Save</button>
+  <button id="build" title="Save and rebuild the map (about 45 seconds)">Rebuild</button>
+  </div>
+  <div class="command-group">
+  <button id="playhere" class="primary" title="Open the game in this map and play, with JC where you are looking"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3l8 5-8 5z"/></svg>Play from here</button>
+  <details class="tool-menu"><summary>Game</summary><div class="menu-items">
+    <button id="play" title="Screenshot from the real game, from where you are (the first time, the game starts up)">View in game<span>Screenshot</span></button>
+    <button id="stopgame" title="Close the game started by the editor">Close game</button>
+    <button id="install" title="Install the rebuilt map into the game">Install</button>
+  </div></details>
+  </div>
+  <div class="command-group">
+  <button id="storybtn" title="Mission dialogues and events in this map">Story</button>
+  <details class="tool-menu"><summary>Tools</summary><div class="menu-items">
+    <button id="paste" title="Paste what you copied with Ctrl+C, even from another map (Ctrl+V)">Paste<span>Ctrl+V</span></button>
+    <button id="checkbtn" title="Check map: what is wrong or missing (links to nothing, patrols without a route, exits to no map, objects inside walls...)">Check map</button>
+    <button id="mapsetbtn" title="Map settings: the music, the name of the place and the opening lines, the ambient light">Map settings</button>
+    <button id="linksbtn" title="Links: the ways in and out of this map, and the maps that lead here (how to put a map in the campaign)">Map links</button>
+    <button id="factionsbtn" title="The factions of this map: who is friend or enemy of JC and of each other">Factions</button>
+    <button id="logicbtn" title="Logic: every interaction of the map (when this happens, do that), as sentences">Logic</button>
+    <button id="charbtn" title="Character Creator: make your own characters from the faces, bodies and clothes of the game">Characters</button>
+    <button id="studiobtn" title="Animation Studio: the characters' animations; make new ones, change the game's, import motion capture or Mixamo files">Animations</button>
+  </div></details>
+  </div>
+  <div class="view-options">
+  <select id="lightmode" title="Lighting of the 3D view (L): Lit = the game's lights and shadows of the last rebuild">
+    <option value="shaded">Shaded</option><option value="lit">Lit</option><option value="unlit">Unlit</option></select>
+  <input type="range" id="lightgain" min="0.5" max="2.5" step="0.05" value="1" title="Brightness of the Lit view (the game itself is unchanged)" style="width:80px;padding:0;display:none">
+  <button id="pathsbtn" title="AI paths (P): the network the characters walk on, as the last rebuild made it">AI paths</button>
+  <button id="routebtn" title="Test a route: click where a character starts, then where it must go; the way the game's AI would take (on the AI paths) and, with the walkable area shown, the straight way on it" style="display:none">Test route</button>
+  <button id="navbtn" title="Walkable area: where a man can walk (a Recast navigation mesh of the map). Green: near the AI paths; amber: far from any path node; red: no path node reaches it. With Test route, also the straight way on the walkable area">Walkable area</button>
+  <button id="helpbtn">Help</button>
+  </div>
+  </div>
+</div>
+<div id="left">
+  <h3>Hierarchy</h3>
+  <div class="hier-top"><button id="hieradd" class="hier-add" title="Create: a folder, a cube, a wedge or a cylinder" aria-label="Create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><input id="hsearch" placeholder="Search objects" aria-label="Search hierarchy"></div>
+  <div id="hier"></div>
+</div>
+<canvas id="view"></canvas>
+<div id="console" aria-label="Console"></div>
+<div id="bottom">
+  <!-- the media browser: its sections on the left (the game's, then what you imported), the toolbar of the
+       section shown on top; drag anything onto the 3D view (sounds also onto an object or the Inspector) -->
+  <div class="btabs">
+    <b class="bpath" id="bpath">Objects</b>
+    <input id="search" placeholder="Search objects" aria-label="Search game objects">
+    <input id="msearch" placeholder="Search models" aria-label="Search models" style="display:none">
+    <input id="psearch" placeholder="Search pieces" aria-label="Search pieces" style="display:none">
+    <input id="pfsearch" placeholder="Search prefabs" aria-label="Search saved prefabs" style="display:none">
+    <input id="sndsearch" placeholder="Search sounds" aria-label="Search sounds" style="display:none">
+    <input id="gvsearch" placeholder="Search voices or lines" aria-label="Search game voices" style="display:none">
+    <span class="bgrow"></span>
+    <button id="bimportany" title="Import your own 3D models (glTF/GLB, FBX, OBJ, DAE) or sounds (WAV, MP3, OGG, FLAC): or drop the files on the browser">Import...</button>
+    <input type="file" id="bimportfile" multiple accept=".glb,.gltf,.fbx,.obj,.mtl,.dae,.bin,.png,.jpg,.jpeg,.tga,.bmp,.webp,.wav,.mp3,.ogg,.oga,.flac,.m4a,.aac,.opus,.webm" style="display:none">
+    <button id="bimport" style="display:none" title="Import a 3D model (glTF/GLB, FBX, OBJ, DAE) made in Blender, 3ds Max, Maya...">Import model...</button>
+    <div class="bcreate">
+      <button id="bcreate" title="Add a block, a hole, water, a zone portal, a sign or a cutscene camera">+ Create ▾</button>
+      <div class="bmenu" id="bcreatemenu">
+        <button id="addbox" title="A block: wall, platform... (B)">Block <small>B</small></button>
+        <button id="addhole" title="A hole: a doorway through a wall, a pit in a floor, an opening in a ceiling (cuts through at Rebuild)">Hole</button>
+        <button data-draw="wall" title="Draw a wall: click points on the floor, Enter or double-click to end, the first point to close a room">Wall</button>
+        <button data-draw="road" title="Draw a road with sidewalks: click points along its middle, Enter or double-click to end">Road</button>
+        <button data-draw="floor" title="Draw a floor: click its corners, then the first one again">Floor</button>
+        <button data-draw="ceiling" title="Draw a ceiling: click the corners of the room on its floor, then the first one again; it sits on walls of its Height">Ceiling</button>
+        <button data-draw="stairs" title="Draw stairs: click where they start, then where they arrive (straight, curved or a spiral: Inspector)">Stairs</button>
+        <button data-draw="roof" title="Draw a sloping roof: click the eave, then the ridge">Roof</button>
+        <button id="addwater" title="Water: click a floor for a pool, a zone of its own (JC swims): clean, dirty, toxic or burning">Water</button>
+        <button id="addportal" title="Zone portal: click the floor in a doorway; an invisible sheet fills it and closes the room into a zone of its own (for a Zone of Objects &gt; Zones: its light, fog, sound, damage, gravity)">Zone portal</button>
+        <button id="addsign" title="A sign with your own text: click a wall (or a floor, for a sign standing on it)">Sign</button>
+        <button id="addcut" title="A cutscene: a camera you fly along keys on a timeline (from the view you have now); a collision box or the Story plays it">Cutscene camera</button>
+      </div>
+    </div>
+    <button id="bchars" title="Character Creator: your own characters (they are listed first under Objects)">Characters...</button>
+    <button id="bpkgs" title="Packages of other mods (.u): their objects in the palette, with their 3D models and Properties">Packages...</button>
+  </div>
+  <div class="bbody">
+    <nav class="bside" aria-label="Sections of the browser">
+      <div class="bs-h">Game</div>
+      <button class="btab on" data-tab="objects" title="Every object of the game: click one, then click a floor or a wall of the map (or drag it there)">Objects</button>
+      <button class="btab" data-tab="models" title="Every 3D model of the game, of HDTP, of other mods' packages and yours: place any of them as an object">Models</button>
+      <button class="btab" data-tab="pieces" title="Every object of the original levels made of brushes, whole: fences, railings, grates, pipes, signs, lamps, ladders...">Pieces</button>
+      <button class="btab" data-tab="sounds" title="Every sound of the game: listen, then drag one onto the 3D view, an object or a sound in the Inspector">Sounds</button>
+      <button class="btab" data-tab="gamevoices" title="Original conversations and voices from your game install">Game voices</button>
+      <div class="bs-h">Imported</div>
+      <button class="btab" data-tab="prefabs" title="Saved structures and nested groups, reusable in every level of this project">Prefabs</button>
+      <button class="btab" data-tab="mymodels" title="Your 3D models (Import...): made into a package of the map editor that the game draws like its own">My models</button>
+      <button class="btab" data-tab="mysounds" title="Your sounds (Import...): made into a package of the map editor that the game plays like its own">My sounds</button>
+    </nav>
+    <div class="bpane" id="palette"></div>
+    <div class="bpane" id="pieces" style="display:none"></div>
+    <div class="bpane" id="prefabs" style="display:none"></div>
+    <div class="bpane" id="models" style="display:none"></div>
+    <div class="bpane" id="sounds" style="display:none"></div>
+    <div class="bpane" id="gamevoices" style="display:none"></div>
+  </div>
+</div>
+<div id="bgrip" title="Drag to resize the panel"></div>
+<div class="grip" id="lgrip" title="Drag to resize the panel"></div>
+<div class="grip" id="rgrip" title="Drag to resize the panel"></div>
+<div id="right">
+  <h3>Inspector</h3>
+  <div id="details"><div class="hint">Click an object to select it.<br>Right mouse + WASD to fly around.</div></div>
+  <details class="inspector-section inspector-footer"><summary>Changes</summary><div id="changes" class="hint"></div></details>
+  <details class="inspector-section inspector-footer"><summary>Messages</summary><div id="log"></div></details>
+</div>
+<div id="shot"><img id="shotimg" alt=""><div><span id="shotinfo"></span><a href="#" id="shotclose">close</a></div></div>
+<div id="help">
+  <p style="margin:0 0 10px"><a href="/guide" target="_blank" style="color:var(--acc);font-weight:600">Open the full guide</a>
+  <span class="hint" style="margin:0">: how every part of the editor works, step by step</span></p>
+  <b>Controls</b> (like Unreal Engine 5)
+  <table>
+    <tr><td>Hold right mouse + move mouse</td><td>look around</td></tr>
+    <tr><td>Right mouse + W A S D, Q E</td><td>fly around (Shift = faster)</td></tr>
+    <tr><td>Mouse wheel</td><td>move forward and back</td></tr>
+    <tr><td>Middle mouse drag</td><td>pan the view</td></tr>
+    <tr><td>Left click</td><td>select an object, or a structure by clicking its walls</td></tr>
+    <tr><td>Hierarchy (left panel)</td><td>every object of the level, inside its structure or by kind: click to select, double click (or <kbd>F</kbd>) to go to it, the bin to delete it</td></tr>
+    <tr><td>Browser (bottom panel)</td><td>Objects: every object of the game with a 3D preview (your characters first). Pieces: every object of the original levels made of brushes (fences, railings, grates, pipes, signs, lamps, ladders...). Click one, then a floor or a wall</td></tr>
+    <tr><td><kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>gizmo (also in the 3D view's toolbar): move; rotate (objects every way: pitch and roll too; structures and groups round the vertical); scale (the middle square: evenly, by how far the mouse goes; structures and blocks: one axis at a time too)</td></tr>
+    <tr><td>3D view's toolbar</td><td>Move / Rotate / Scale, grid snap with its grid step and rotation step (type a number or pick one with the arrow), and the bulb that shows or hides the icons of lights, AI paths and logic points</td></tr>
+    <tr><td>Tools &gt; Draw wall / road / floor / ceiling</td><td>click points on the ground (Shift: 45°), Enter or double-click to finish, Backspace takes the last point back, Esc stops</td></tr>
+    <tr><td>Map &gt; Sky &amp; time of day</td><td>day, sunset or night: a sky of your own (or a picture, or a game sky) and a sun through the holes open to the sky</td></tr>
+    <tr><td>Inspector: drag X, Y or Z</td><td>move by 1 unit per pixel dragged left or right, even with grid snap on; Shift = finer (0.1 unit), Esc = cancel, Ctrl+Z = undo the whole drag. Click the number to type it</td></tr>
+    <tr><td>Theme (top right)</td><td>Deus Ex Classic (blue) or Mankind Divided (black and gold), each with an optional Rounded variant for menus, buttons and windows. The browser remembers your choice</td></tr>
+    <tr><td>Hierarchy icons</td><td>Bulbs for lights, people for NPCs, cubes for objects, doors for movers and routes for AI paths. NPCs are green (ally), grey (neutral) or red (enemy) towards JC at map start, including your unsaved relation changes. Hover over an icon for its meaning</td></tr>
+    <tr><td>Textures (right panel)</td><td><b>Edit texture</b> opens the Texture Editor (brush, eraser, fill, clone, blur, lighten/darken, text, adjustments, seamless tiling, 256-colour preview); then on this object, on every object (or face) with that texture, or kept in My textures. <b>Import</b> opens a picture of yours there. Drag a texture's small picture onto a built face to put it there. In the Texture Editor: <kbd>F</kbd> focuses on the selection, <b>Crop…</b> previews a crop (Enter crops, Esc leaves it), Ctrl+C / Ctrl+X / Ctrl+V copy and paste a part (drag it, Enter puts it down), Ctrl+T free transform (move, scale, turn), right click for a menu, X swaps the colours</td></tr>
+    <tr><td>Ctrl+click or Shift+click / Ctrl+drag or Shift+drag</td><td>several objects at once (in the Hierarchy: Ctrl+click one more, Shift+click the rows in between): move and turn them together, Delete, Ctrl+D, Ctrl+C / Ctrl+V, End</td></tr>
+    <tr><td>+ Hole (bottom bar)</td><td>cuts through what it touches at Rebuild: a doorway in a wall, a pit in a floor, an opening in a ceiling, a new room. The 3D view previews the cut at once; the sides of the hole come with the rebuild</td></tr>
+    <tr><td>Texture fields (the small picture)</td><td>click it: the textures of this map and of the whole game, with pictures and search; a click tries one, a double click keeps it</td></tr>
+    <tr><td>Animate... (selection panel)</td><td>keys of position, rotation and scale on a timeline (like Premiere's Motion): move the playhead, move the object with the gizmo or type values; ▶ plays it. Doors, elevators, moving blocks too. Interactions play it</td></tr>
+    <tr><td>Objects &gt; Triggers &gt; Collision box</td><td>a box: JC walks in / walks out (Interactions); Solid: an invisible wall</td></tr>
+    <tr><td>Models (browser tab)</td><td>every 3D model of the game, HDTP, other mods and your own: click one, then a floor or a wall. Import model...: a glTF/GLB, FBX, OBJ or DAE file becomes a model of your own</td></tr>
+    <tr><td>+ Water / + Portal</td><td>a pool (a zone of its own: JC swims; clean, dirty, toxic, burning) / an invisible sheet in a doorway that closes a room into a zone. Objects &gt; Zones: the zone's light, sound, damage, gravity; rain, snow. A hole open to the sky shows the sky</td></tr>
+    <tr><td>Properties &gt; Interactions</td><td>when this happens (JC uses it, it has opened, the right code, JC walks in, killed...), then what happens (open a door, a guard attacks, a light goes off, a sound, a message, a goal...), each after its seconds. 🔗 Connect to...: click another object, the rule is made for you</td></tr>
+    <tr><td>Green labels on the edge of the view</td><td>the other end of a rule is out of the view or far away: the label points to it, with its distance; click it to go there. <b>both</b> (in the rule) shows the two objects together</td></tr>
+    <tr><td>Logic</td><td>every interaction of the map as sentences, editable; + When the map starts</td></tr>
+    <tr><td>Packages... (bottom bar)</td><td>packages (.u) of other mods: their objects in the palette, with Properties and Interactions</td></tr>
+    <tr><td>Map / Check</td><td>Map: the music, the place's name and opening lines, the ambient light. Check: what is wrong or missing in the map, with "go to"</td></tr>
+    <tr><td>Objects &gt; Sounds</td><td>an ambient sound (over and over), a sound effect when JC walks in, a sound effect when triggered (put its Tag in the Event of a door, a button, a keypad, a Trigger); choose and listen to the sound. Doors have their sounds in their Properties</td></tr>
+    <tr><td>Animations</td><td>the Animation Studio: play the game's animations, copy and change them, make new ones by posing the skeleton, import BVH / FBX (Mixamo) / glTF; Save puts them in the game. A character uses one from its Properties (Animation)</td></tr>
+    <tr><td>Story</td><td>character dialogues and mission events; "Apply in game" compiles them and puts them in the game</td></tr>
+    <tr><td>+ Cutscene (bottom bar)</td><td>a cutscene camera from the view you have: fly the camera (right mouse + WASD), move the playhead and press <b>K</b> for each key (place, direction, roll, zoom); the camera flies smoothly through the keys (or stops at one, holds, goes straight); 🎥 Look through shows its picture with the black bars; ▶ / Space plays it; ✂ New shot cuts; subtitles and events (a door at 3 s) on the timeline. A collision box plays it: 🔗 Connect to... → the camera</td></tr>
+    <tr><td>Scripting tag (Inspector)</td><td>Auto follows character attitude or light colour. Typing a tag makes it Custom until Auto is chosen again. Use Interactions &gt; + Then... &gt; objects with a tag, or a radius group's Tag filter. Native Engine tag / Event are separate. <a href="/guide#scripting-tags" target="_blank">Tag guide</a></td></tr>
+    <tr><td>Mission graph (top of Inspector)</td><td>Read-only dependencies for the active Original, Revision or UNATCO project: characters, maps, flags, conversations and scripts. Details shows source evidence; Findings and Coverage show problems and unverified references. Save changes, then Refresh; analysis does not rebuild or repair maps. <a href="/guide#mission-graph-read-only" target="_blank">Mission graph guide</a></td></tr>
+    <tr><td>Story &gt; Flags &amp; conditions</td><td>One catalog for story flags, character outcomes and original game references. Click a condition's name to choose its state; all conditions in a list must match. Advanced shows its technical ID.</td></tr>
+    <tr><td>Change state &gt; Character state</td><td>Changes the recorded outcome only. It does not kill, knock out or revive the character. Use a character action to change what they physically do.</td></tr>
+    <tr><td>Story &gt; dialogue &gt; Priority ▲▼</td><td>a character with more than one dialogue: the first from the top whose conditions hold plays</td></tr>
+    <tr><td>Factions</td><td>who is friend or enemy of JC and of each other; change a whole faction at once (a character's own relations are in its Properties)</td></tr>
+    <tr><td>New map</td><td>an empty room to build in, or a copy of any map under a new name; it belongs to a mission of the campaign</td></tr>
+    <tr><td>Links</td><td>the ways in and out of this map (map exits, arrival points) and the maps that lead here; how to put a new map in the campaign</td></tr>
+    <tr><td>Characters</td><td>make your own characters from the faces, bodies and clothes of the game; then place them from Add &gt; Custom characters</td></tr>
+    <tr><td>Play from here</td><td>opens the game on this map with JC where you are looking, after a mission state and flags; then you play</td></tr>
+    <tr><td><kbd>End</kbd></td><td>drop the object onto whatever is below it</td></tr>
+    <tr><td><kbd>G</kbd></td><td>grid snap on/off; its steps are in the 3D view's toolbar (and Settings &gt; Editing)</td></tr>
+    <tr><td><kbd>L</kbd> (or the list in the top bar)</td><td>lighting of the view: Shaded (the editor's soft light), Lit (the game's lights and shadows, from the last rebuild), Unlit (textures only)</td></tr>
+    <tr><td><kbd>P</kbd> (AI paths in the top bar)</td><td>the network the characters walk on, as the last rebuild made it (green both ways, yellow one way). Add path nodes from Objects &gt; AI where they must be able to walk</td></tr>
+    <tr><td>Walkable area (View, or the Navigation menu of the 3D view)</td><td>where a man can walk, made with Recast from the map: green near the AI paths, amber walkable but far from any path node (add one there), red where no path node reaches. With Test route it also draws the straight way on the walkable area next to the AI's node-to-node one</td></tr>
+    <tr><td>Map &gt; Fill AI paths</td><td>path nodes wherever JC can walk and no node is near, and along the way to the network for groups of points apart; Ctrl+Z takes them away, Rebuild links them. Run it again after the rebuild</td></tr>
+    <tr><td>Patrol route (a character's Properties)</td><td>"Draw route", then click the floor point after point (Enter or Esc when done): they walk it in a loop, waiting the seconds you give each point</td></tr>
+    <tr><td><kbd>F</kbd></td><td>focus the selected object</td></tr>
+    <tr><td><kbd>Delete</kbd> / <kbd>Ctrl+D</kbd> / <kbd>Ctrl+Z</kbd></td><td>delete / duplicate / undo</td></tr>
+    <tr><td><kbd>Ctrl+G</kbd> / <kbd>Ctrl+Shift+G</kbd></td><td>nest the selection (one thing, moved as one) / un-nest it, or take a structure apart; drag things in and out of nests in the Hierarchy, right click for more</td></tr>
+    <tr><td><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></td><td>copy an object or a structure and paste it where you are looking, even into another map (open that map, copy, go back to yours, paste)</td></tr>
+    <tr><td><kbd>Ctrl+S</kbd></td><td>save</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>cancel placing</td></tr>
+  </table>
+  <p class="hint">Changes are saved next to the map script and are applied on every rebuild.
+  "View in game" uses the last rebuilt map: rebuild to see your changes in the game.</p>
+</div>
+<section id="startscreen" aria-label="DeusEdix start screen"></section>
+<link rel="stylesheet" href="/static/start-screen.css">
+<div id="playbox"></div>
+<div id="newbox"></div>
+<div id="linkbox"></div>
+<div id="mapbox"></div>
+<div id="soundbox"></div>
+<div id="checkbox"></div>
+<div id="logicbox"></div>
+<div id="pkgbox"></div>
+<div id="mimportbox"></div>
+<div id="animbox"></div>
+<div id="busy"><span id="busytext">...</span></div>
+<script type="module" src="/static/menubar.js"></script>
+<script type="module" src="/static/app.js"></script>
+<script type="module" src="/static/console.js"></script>
+<script type="module" src="/static/scripts.js"></script>
+<script type="module" src="/static/weapon-editor.js"></script>
+<script type="module" src="/static/mod-import.js"></script>
+<script type="module" src="/static/workspace.js"></script>
+<script type="module" src="/static/theme.js"></script>
+<script type="module" src="/static/voice.js"></script>
+<link rel="stylesheet" href="/static/game-conversations.css">
+<script type="module" src="/static/game-conversations.js"></script>
+<script type="module" src="/static/game-documents.js"></script>
+<script type="module" src="/static/mission-flags.js"></script>
+<link rel="stylesheet" href="/static/mission-graph.css">
+<script type="module" src="/static/mission-graph.js"></script>
+<script type="module" src="/static/story.js"></script>
+<script type="module" src="/static/characters.js"></script>
+<script type="module" src="/static/tutorial.js"></script>
+<script type="module" src="/static/studio.js"></script>
+<script type="module" src="/static/texedit.js"></script>
+<script type="module" src="/static/cutscene.js"></script>
+<link rel="stylesheet" href="/static/editor-density.css">
+<link rel="stylesheet" href="/static/editor-density-dialogs.css">
+<link rel="stylesheet" href="/static/editor-density-tools.css">
+<link rel="stylesheet" href="/static/desktop-windows.css">
+<link rel="stylesheet" href="/static/texture-painter.css">
+<link rel="stylesheet" href="/static/game-view.css">
+</body>
+</html>

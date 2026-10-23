@@ -1,0 +1,48 @@
+/* Scoped to the animation curves; the Studio owns the surrounding layout. */
+.st-graph { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; border-top:1px solid var(--line); background:var(--panel); color:var(--text); font-size:11px; }
+.st-graph button, .st-graph input, .st-graph select { box-sizing:border-box; font:inherit; height:24px; min-width:0; margin:0; padding:2px 6px; border:1px solid var(--line); border-radius:var(--radius-control); color:var(--text); background:var(--surface); }
+.st-graph button { cursor:pointer; white-space:nowrap; }
+.st-graph button:disabled { cursor:default; }
+.st-graph button:hover:not(:disabled) { background:var(--hover); border-color:var(--accent-border); }
+.st-graph button.on { background:var(--accent-soft); border-color:var(--accent-border); color:var(--heading); }
+.st-graph :is(button,input,select,canvas):focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+.stg-heading, .stg-edit { display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding:4px 7px; }
+.stg-heading { border-bottom:1px solid var(--line); }
+.stg-heading > strong { font-size:11px; font-weight:600; color:var(--heading); }
+.stg-label { color:var(--dim); flex:1; min-width:42px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:5px; }
+.stg-target, .stg-axes, .stg-history { display:flex; gap:3px; }
+.stg-axes { margin:0 3px; gap:5px; }
+.stg-axis-pair { display:flex; align-items:center; gap:0; }
+.stg-axes button { width:23px; padding:2px; font-weight:600; }
+.stg-axis-pair [data-axis] { border-top-right-radius:0; border-bottom-right-radius:0; }
+.stg-axis-pair .stg-eye { width:22px; display:grid; place-items:center; margin-left:-1px; border-top-left-radius:0; border-bottom-left-radius:0; color:var(--dim); }
+.stg-eye svg { width:14px; height:14px; display:block; fill:none; stroke:currentColor; stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
+.stg-eye-slash { display:none; }
+.stg-hidden-axis { opacity:.55; }
+.stg-hidden-axis .stg-eye-slash { display:block; }
+.stg-axes [data-axis=x] { color:#e69a95; }
+.stg-axes [data-axis=y] { color:#96cca7; }
+.stg-axes [data-axis=z] { color:#96b9ed; }
+.stg-axes button.on { border-color:currentColor; }
+.stg-notice { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; padding:7px 10px; color:var(--dim); background:var(--field); border-bottom:1px solid var(--line); }
+.stg-notice[hidden] { display:none; }
+.stg-notice button { color:var(--heading); border-color:var(--accent-border); }
+.stg-plot { flex:1; min-height:70px; position:relative; overflow:hidden; }
+.stg-plot canvas { display:block; width:100%; height:100%; touch-action:none; cursor:crosshair; }
+.stg-plot canvas.stg-grabbing { cursor:grabbing; }
+.stg-edit { border-top:1px solid var(--line); }
+.stg-edit > label { display:flex; align-items:center; gap:5px; color:var(--dim); white-space:nowrap; }
+.stg-edit input { width:66px; background:var(--field); font-variant-numeric:tabular-nums; }
+.stg-edit .stg-key-value { width:78px; }
+.stg-interpolation { margin-right:4px; }
+.stg-interpolation select { width:80px; }
+.stg-history { margin-left:auto; }
+.stg-history button { width:27px; font-size:17px; line-height:17px; padding:2px; }
+.stg-footer { display:flex; align-items:center; gap:12px; justify-content:space-between; min-height:22px; padding:0 10px 3px; color:var(--dim); font-size:10px; }
+.stg-status { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stg-status.stg-error { color:var(--warn); }
+.stg-help { text-align:right; white-space:nowrap; opacity:.8; }
+@media(max-width:900px) { .stg-help { display:none; } .stg-label { flex-basis:90px; } }
+/* the Maximize button (Ctrl+Space): an icon, like the eyes */
+.st-graph .stg-icon { width:24px; min-width:24px; padding:0; display:inline-grid; place-items:center; }
+.st-graph .stg-icon svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }

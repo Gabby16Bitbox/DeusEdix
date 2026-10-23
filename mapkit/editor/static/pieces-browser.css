@@ -1,0 +1,12 @@
+.pieces-scan-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 0; }
+.pieces-scan-toolbar button { flex:none; padding:0 8px; }
+.pieces-scan-toolbar .hint { margin:0; }
+.pieces-scan-progress { display:grid; gap:5px; margin:6px 0 10px; color:var(--text); }
+.pieces-scan-progress progress { width:min(520px,100%); height:9px; accent-color:var(--acc); }
+.pieces-scan-progress small, .pieces-scan-message { color:var(--dim); overflow-wrap:anywhere; }
+.pieces-scan-errors { margin:6px 0 10px; color:var(--warn); }
+.pieces-scan-errors summary { cursor:pointer; }
+.pieces-scan-errors ul { margin:6px 0; padding-left:22px; overflow-wrap:anywhere; }
+.pieces-placement-error { overflow-wrap:anywhere; }
+.pieces-placement-error:empty { display:none; }
+.pieces-empty { line-height:1.5; }

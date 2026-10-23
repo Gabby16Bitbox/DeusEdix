@@ -1,0 +1,31 @@
+{
+ "id": "elias-hale",
+ "name": "Dr. Elias Hale",
+ "unfamiliar": "Scientist",
+ "bind": "EliasHale",
+ "faction": "UNATCO",
+ "toJC": "1",
+ "fixed": true,
+ "health": 100,
+ "orders": "Standing",
+ "body": "GM_Trench",
+ "mesh": "DeusExCharacters.GM_Trench",
+ "radius": 19.0,
+ "height": 45.13,
+ "skins": [
+  "DeusExCharacters.Skins.FordSchickTex0",
+  "DeusExCharacters.Skins.LabCoatTex1",
+  "DeusExCharacters.Skins.PantsTex1",
+  "DeusExCharacters.Skins.FordSchickTex0",
+  "DeusExCharacters.Skins.TrenchShirtTex3",
+  "DeusExCharacters.Skins.LabCoatTex1",
+  "DeusExCharacters.Skins.FramesTex1",
+  "DeusExCharacters.Skins.LensesTex2"
+ ],
+ "texture": "Engine.S_Pawn",
+ "lookBody": "ScientistMale",
+ "lookPkg": "DeusEx",
+ "behaviour": "civilian",
+ "inventory": [],
+ "about": "The guide of the DeusEdix training: a UNATCO scientist who runs the training rooms from behind the glass. A character of DeusEdix's own, made with the Character Creator's recipe (the game's body, face and clothes by name)."
+}

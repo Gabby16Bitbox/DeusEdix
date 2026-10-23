@@ -1,0 +1,558 @@
+"""Brush geometry for UE1 T3D: convex brushes with world-aligned, correctly scaled textures.
+
+Conventions (checked against working T3D from this project):
+- polygon vertices are ordered so that (v1-v0) x (v2-v0) is the outward normal of the brush;
+- the texture Origin always lies on the face plane (the old SDK builds wrong planes otherwise);
+- UV: u = (P - Origin) . TextureU, in texels. A texture whose base tile is 128 units with
+  |TextureU| = 1 repeats every 128 world units.
+- `inside=True` (subtracted rooms): faces are seen from inside, so U is mirrored to keep
+  textures (and text) readable.
+"""
+import math
+import re
+from pathlib import Path
+
+CATALOG = Path(__file__).resolve().parent / 'catalog'
+_SIZES = None
+
+
+def tex_size(name):
+    """Base tile size in world units (USize * DrawScale) of a texture, from the catalog."""
+    global _SIZES
+    if _SIZES is None:
+        _SIZES = {}
+        for path in CATALOG.glob('*.txt'):
+            for line in path.read_text(encoding='utf-8').splitlines():
+                m = re.match(r'\s*\d+\s+\S*?\.?([^.\s]+)\s+(\d+)x(\d+)(?:\s+scale=([0-9.]+))?', line)
+                if m:
+                    s = float(m.group(4)) if m.group(4) else 1.0
+                    _SIZES.setdefault(m.group(1).lower(), (int(m.group(2)) * s, int(m.group(3)) * s))
+    return _SIZES.get(name.lower(), (128.0, 128.0))
+
+
+_GAME = None
+
+
+def game_scale(name, kind=None):
+    """World units per texel the original maps use for this texture (catalog/texusage.json):
+    the dominant scale on that kind of surface (floor / wall / ceiling) when the game uses it
+    there, else the overall one when it clearly dominates; 1.0 for textures the game never uses."""
+    global _GAME
+    if _GAME is None:
+        import json
+        try:
+            _GAME = json.loads((CATALOG / 'texusage.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            _GAME = {}
+    d = _GAME.get(name.lower())
+    if not d or d['faces'] < 8:
+        return 1.0
+    by_kind = d.get('scale_by_kind', {})
+    if kind in by_kind:
+        return float(by_kind[kind])
+    if d['scale_share'] >= 0.4:
+        return float(d['scale'])
+    return 1.0
+
+
+def face_kind(n, inside=False):
+    nz = -n[2] if inside else n[2]
+    return 'floor' if nz > 0.7 else ('ceiling' if nz < -0.7 else 'wall')
+
+
+def register(name, w, h):
+    """Base tile size of a texture created for the map (generated textures)."""
+    tex_size('x')
+    _SIZES[name.lower()] = (float(w), float(h))
+
+
+def sub(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def add(a, b):
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+
+def mul(a, k):
+    return (a[0] * k, a[1] * k, a[2] * k)
+
+
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def norm(a):
+    length = math.sqrt(dot(a, a))
+    return (a[0] / length, a[1] / length, a[2] / length) if length > 1e-9 else (0.0, 0.0, 0.0)
+
+
+def fmt(v):
+    def f(x):
+        x = round(x, 5)
+        if x == 0:
+            x = 0.0
+        s = ('%.5f' % x).rstrip('0').rstrip('.')
+        return s if s not in ('', '-0') else '0'
+    return ','.join(f(c) for c in v)
+
+
+class Mat:
+    """A surface material: texture + scale (world units per tile) + flags + mapping options."""
+
+    def __init__(self, tex, tile=None, flags=0, offset=(0.0, 0.0), rot=0, planar=None, align=(0.0, 0.0, 0.0)):
+        self.tex = tex
+        self.tile = tile  # None: native size; number or (u, v) in world units
+        self.flags = flags
+        self.offset = offset  # pan in world units along U and V
+        self.rot = rot  # 0/90/180/270 degrees
+        self.planar = planar  # force 'x','y','z' projection
+        self.align = align  # world point the texture grid is anchored to
+
+    def with_(self, **kw):
+        m = Mat(self.tex, self.tile, self.flags, self.offset, self.rot, self.planar, self.align)
+        for k, v in kw.items():
+            setattr(m, k, v)
+        return m
+
+
+def as_mat(m):
+    if m is None:
+        return None
+    return m if isinstance(m, Mat) else Mat(m)
+
+
+class Face:
+    def __init__(self, verts, mat, normal=None, u=None, v=None, origin=None):
+        self.verts = verts
+        self.mat = as_mat(mat)
+        self.normal = normal or norm(cross(sub(verts[1], verts[0]), sub(verts[2], verts[0])))
+        self.u, self.v, self.origin = u, v, origin
+
+
+def mapping(face, inside):
+    """World-aligned texture axes for a face (TextureU, TextureV, Origin)."""
+    m = face.mat
+    n = face.normal
+    ax = m.planar
+    if ax is None:
+        a = [abs(n[0]), abs(n[1]), abs(n[2])]
+        ax = 'z' if a[2] >= max(a[0], a[1]) - 1e-6 else ('x' if a[0] >= a[1] else 'y')
+    up = (0.0, 0.0, 1.0)
+    if ax == 'z':
+        # U x V points toward the viewer (no mirrored text): +Y on floors, -Y on ceilings
+        seen_up = (n[2] > 0) != bool(inside)
+        u = (1.0, 0.0, 0.0)
+        v = (0.0, 1.0, 0.0) if seen_up else (0.0, -1.0, 0.0)
+    else:
+        # walls: U to the right of a viewer facing the surface, V downwards
+        horiz = norm((n[0], n[1], 0.0)) if ax is None or abs(n[2]) < 0.999 else (1.0, 0.0, 0.0)
+        if horiz == (0.0, 0.0, 0.0):
+            horiz = (1.0, 0.0, 0.0) if ax == 'x' else (0.0, 1.0, 0.0)
+        u = norm(cross(horiz, up))
+        if inside:
+            u = mul(u, -1)
+        v = (0.0, 0.0, -1.0)
+        # slanted faces (roofs of ramps): project V on the face
+        if abs(n[2]) > 1e-6 and abs(n[2]) < 0.999:
+            v = norm(cross(n, u)) if not inside else norm(cross(u, n))
+            if v[2] > 0:
+                v = mul(v, -1)
+    for _ in range(m.rot // 90 % 4):
+        u, v = v, mul(u, -1)
+    tu, tv = tex_size(m.tex)
+    if m.tile is None:
+        g = game_scale(m.tex, face_kind(n, inside))
+        su, sv = tu * g, tv * g
+    elif isinstance(m.tile, (int, float)):
+        su = sv = float(m.tile)
+        if tv != tu:
+            sv = float(m.tile) * tv / tu
+    else:
+        su, sv = float(m.tile[0]), float(m.tile[1])
+    U = mul(u, tu / su)
+    V = mul(v, tv / sv)
+    # origin: the world anchor projected on the plane, shifted by the pan offset
+    p0 = face.verts[0]
+    anchor = add(m.align, add(mul(u, -m.offset[0]), mul(v, -m.offset[1])))
+    origin = sub(anchor, mul(n, dot(sub(anchor, p0), n)))
+    return U, V, origin
+
+
+def _scales(m, kind=None):
+    tu, tv = tex_size(m.tex)
+    if m.tile is None:
+        g = game_scale(m.tex, kind)
+        return tu, tv, tu * g, tv * g
+    if isinstance(m.tile, (int, float)):
+        return tu, tv, float(m.tile), float(m.tile) * tv / tu
+    return tu, tv, float(m.tile[0]), float(m.tile[1])
+
+
+def wrap_vertical(faces, inside=False):
+    """Side faces of a vertical prism or box: U runs continuously around the outline (no seam
+    at every edge), V downwards from the material's align height. Sets f.u, f.v, f.origin."""
+    sides = [f for f in faces if abs(f.normal[2]) < 1e-3 and f.u is None]
+    if not sides:
+        return
+    info = []
+    for f in sides:
+        n = f.normal
+        u = norm(cross(norm((n[0], n[1], 0.0)), (0.0, 0.0, 1.0)))
+        if inside:
+            u = mul(u, -1)
+        lo = min(f.verts, key=lambda q: dot(q, u))
+        hi = max(f.verts, key=lambda q: dot(q, u))
+        info.append((f, u, (lo[0], lo[1]), dot(hi, u) - dot(lo, u)))
+    # chain the faces: each one starts where the previous one ends
+    start = {(round(s[0], 1), round(s[1], 1)): i for i, (_, _, s, _) in enumerate(info)}
+    order, i, seen = [], 0, set()
+    while i is not None and i not in seen:
+        seen.add(i)
+        order.append(i)
+        f, u, s, w = info[i]
+        end = (s[0] + u[0] * w, s[1] + u[1] * w)
+        i = start.get((round(end[0], 1), round(end[1], 1)))
+    order += [k for k in range(len(info)) if k not in seen]
+    cum = 0.0
+    for k in order:
+        f, u, s, w = info[k]
+        m = f.mat
+        tu, tv, su, sv = _scales(m, "wall")
+        f.u = mul(u, tu / su)
+        f.v = (0.0, 0.0, -tv / sv)
+        f.origin = (s[0] - u[0] * (cum - m.offset[0]), s[1] - u[1] * (cum - m.offset[0]), m.align[2] - m.offset[1])
+        cum += w
+
+
+def rotation_matrix(rot):
+    """UE1 local axes in world space (Pitch, Yaw, Roll; 65536 units/turn)."""
+    p, y, r = (float(v) * 2 * math.pi / 65536 for v in rot)
+    cp, sp, cy, sy, cr, sr = math.cos(p), math.sin(p), math.cos(y), math.sin(y), math.cos(r), math.sin(r)
+    return ((cp*cy, sr*sp*cy-cr*sy, -cr*sp*cy-sr*sy),
+            (cp*sy, sr*sp*sy+cr*cy, -cr*sp*sy+sr*cy), (sp, -sr*cp, cr*cp))
+
+
+def compose_rotation(left, right):
+    a, b = rotation_matrix(left), rotation_matrix(right)
+    m = [[sum(a[i][k]*b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    return matrix_rotation(m)
+
+
+def matrix_rotation(m):
+    p = math.asin(max(-1, min(1, m[2][0])))
+    if abs(math.cos(p)) > 1e-7:
+        y, r = math.atan2(m[1][0], m[0][0]), math.atan2(-m[2][1], m[2][2])
+    else:
+        y, r = math.atan2(-m[0][1], m[1][1]), 0
+    return tuple(round(v * 65536 / (2*math.pi)) % 65536 for v in (p, y, r))
+
+
+def rotation_between(old, new):
+    a, b = rotation_matrix(new), rotation_matrix(old)
+    return matrix_rotation([[sum(a[i][k]*b[j][k] for k in range(3)) for j in range(3)] for i in range(3)])
+
+
+class XForm:
+    """Placement of a group of brushes and actors (a structure moved in the map editor): stretch by
+    scale along the structure's own axes, turn by yaw (Unreal units, 65536 = a full turn, same sense as
+    an actor's Yaw) around pivot, then move by offset. Textures keep their size on stretched faces (they
+    repeat more) unless stretch is True (they grow with the faces, like a picture)."""
+
+    def __init__(self, pivot, offset=(0.0, 0.0, 0.0), yaw=0, scale=(1.0, 1.0, 1.0), stretch=False, pitch=0, roll=0):
+        self.pivot = tuple(float(c) for c in pivot)
+        self.offset = tuple(float(c) for c in offset)
+        self.yaw = int(yaw) % 65536
+        self.pitch, self.roll = int(pitch) % 65536, int(roll) % 65536
+        self.rotation = (self.pitch, self.yaw, self.roll)
+        self.matrix = rotation_matrix(self.rotation)
+        self.scale = tuple(float(c) for c in (scale or (1.0, 1.0, 1.0)))
+        self.stretch = bool(stretch)
+        a = self.yaw * 2 * math.pi / 65536
+        self.c, self.s = math.cos(a), math.sin(a)
+        if self.yaw % 16384 == 0:          # quarter turns stay exact
+            self.c, self.s = float(round(self.c)), float(round(self.s))
+
+    @property
+    def rotated(self):
+        return any(self.rotation)
+
+    def rot(self, value):
+        return compose_rotation(self.rotation, value)
+
+    @property
+    def scaled(self):
+        return any(abs(k - 1.0) > 1e-6 for k in self.scale)
+
+    def vec(self, v):
+        """A direction: turned only (where a sign faces, a snap direction)."""
+        if not self.pitch and not self.roll:
+            return (v[0] * self.c - v[1] * self.s, v[0] * self.s + v[1] * self.c, v[2])
+        return tuple(sum(self.matrix[i][k] * v[k] for k in range(3)) for i in range(3))
+
+    def normal(self, n):
+        """A face normal: it bends the other way of the stretch."""
+        if not self.scaled:
+            return self.vec(n)
+        return norm(self.vec(tuple(n[k] / self.scale[k] for k in range(3))))
+
+    def tex(self, v):
+        """A texture axis (TextureU/V): turned; also stretched when the textures grow with the faces."""
+        if self.stretch and self.scaled:
+            return self.vec(tuple(v[k] / self.scale[k] for k in range(3)))
+        return self.vec(v)
+
+    def point(self, p):
+        q = self.vec(tuple((p[k] - self.pivot[k]) * self.scale[k] for k in range(3)))
+        return (q[0] + self.pivot[0] + self.offset[0], q[1] + self.pivot[1] + self.offset[1],
+                q[2] + self.pivot[2] + self.offset[2])
+
+
+class Brush:
+    def __init__(self, faces, name='B', wrap=False):
+        self.faces = faces
+        self.name = name
+        self.wrap = wrap
+
+    def t3d(self, inside=False, xf=None):
+        """xf (XForm): the brush placed elsewhere; the texture mapping moves and turns with it."""
+        lines = ['Begin Brush Name=%s' % self.name, 'Begin PolyList']
+        if self.wrap:
+            wrap_vertical(self.faces, inside)
+        for f in self.faces:
+            if f.u is not None:
+                U, V, O = f.u, f.v, f.origin
+            else:
+                U, V, O = mapping(f, inside)
+            verts, N = f.verts, f.normal
+            if xf is not None:
+                verts, N = [xf.point(p) for p in verts], xf.normal(N)
+                U, V, O = xf.tex(U), xf.tex(V), xf.point(O)
+            lines += ['Begin Polygon Texture=%s Flags=%d' % (f.mat.tex, f.mat.flags),
+                      'Origin   ' + fmt(O), 'Normal   ' + fmt(N),
+                      'TextureU ' + fmt(U), 'TextureV ' + fmt(V)]
+            lines += ['Vertex   ' + fmt(p) for p in verts]
+            lines.append('End Polygon')
+        lines += ['End PolyList', 'End Brush']
+        return '\n'.join(lines) + '\n'
+
+    def bounds(self):
+        pts = [p for f in self.faces for p in f.verts]
+        return (tuple(min(p[i] for p in pts) for i in range(3)), tuple(max(p[i] for p in pts) for i in range(3)))
+
+    def transformed(self, xf, inside=False):
+        """Bake a rigid/scale placement into geometry, preserving texture coordinates."""
+        if self.wrap:
+            wrap_vertical(self.faces, inside)
+        faces = []
+        for f in self.faces:
+            u, v, origin = (f.u, f.v, f.origin) if f.u is not None else mapping(f, inside)
+            faces.append(Face([xf.point(p) for p in f.verts], f.mat, xf.normal(f.normal),
+                              xf.tex(u), xf.tex(v), xf.point(origin)))
+        return Brush(faces, self.name)
+
+
+def rotate_brush(brush, pivot, rot, inside=False):
+    if not rot or not any(rot):
+        return brush
+    return brush.transformed(XForm(pivot, yaw=rot[1], pitch=rot[0], roll=rot[2]), inside)
+
+
+# ----------------------------------------------------------------------------------- shapes
+FACE_KEYS = ('-x', '+x', '-y', '+y', '-z', '+z')
+
+
+def _pick(mats, key):
+    """mats: a material for all faces, or a dict with keys -x +x -y +y -z +z / sides / top / bottom / all."""
+    if not isinstance(mats, dict):
+        return as_mat(mats)
+    if key in mats:
+        return as_mat(mats[key])
+    if key == '+z' and 'top' in mats:
+        return as_mat(mats['top'])
+    if key == '-z' and 'bottom' in mats:
+        return as_mat(mats['bottom'])
+    if key[1] in 'xy' and 'sides' in mats:
+        return as_mat(mats['sides'])
+    return as_mat(mats.get('all', 'Marker'))
+
+
+def box(lo, hi, mats, name='Box', wrap=False):
+    x, y, z = lo
+    X, Y, Z = hi
+    assert X > x and Y > y and Z > z, (lo, hi)
+    faces = [
+        ('-x', (-1, 0, 0), [(x, y, z), (x, y, Z), (x, Y, Z), (x, Y, z)]),
+        ('+x', (1, 0, 0), [(X, y, z), (X, Y, z), (X, Y, Z), (X, y, Z)]),
+        ('-y', (0, -1, 0), [(x, y, z), (X, y, z), (X, y, Z), (x, y, Z)]),
+        ('+y', (0, 1, 0), [(x, Y, z), (x, Y, Z), (X, Y, Z), (X, Y, z)]),
+        ('-z', (0, 0, -1), [(x, y, z), (x, Y, z), (X, Y, z), (X, y, z)]),
+        ('+z', (0, 0, 1), [(x, y, Z), (X, y, Z), (X, Y, Z), (x, Y, Z)]),
+    ]
+    out = []
+    for key, n, vs in faces:
+        m = _pick(mats, key)
+        if m is None:
+            continue
+        out.append(Face(vs, m, tuple(float(c) for c in n)))
+    return Brush(out, name, wrap)
+
+
+def hull(points, mats, name='Hull'):
+    """Convex brush from a point set (brute force: every plane through 3 points with all others behind)."""
+    pts = [tuple(float(c) for c in p) for p in points]
+    faces = []
+    seen = []
+    nps = len(pts)
+    for i in range(nps):
+        for j in range(i + 1, nps):
+            for k in range(j + 1, nps):
+                n = cross(sub(pts[j], pts[i]), sub(pts[k], pts[i]))
+                if dot(n, n) < 1e-6:
+                    continue
+                n = norm(n)
+                d = dot(n, pts[i])
+                side = [dot(n, p) - d for p in pts]
+                if all(s <= 1e-3 for s in side):
+                    pass
+                elif all(s >= -1e-3 for s in side):
+                    n = mul(n, -1)
+                    d = -d
+                else:
+                    continue
+                key = tuple(round(c, 4) for c in n) + (round(d, 2),)
+                if key in seen:
+                    continue
+                seen.append(key)
+                on = [p for p in pts if abs(dot(n, p) - d) < 1e-3]
+                on = list(dict.fromkeys(on))
+                # order counter-clockwise around the normal, then make (v1-v0)x(v2-v0) == n
+                c = mul(tuple(sum(p[a] for p in on) for a in range(3)), 1.0 / len(on))
+                ref = norm(sub(on[0], c))
+                other = cross(n, ref)
+                on.sort(key=lambda p: math.atan2(dot(sub(p, c), other), dot(sub(p, c), ref)))
+                if dot(cross(sub(on[1], on[0]), sub(on[2], on[0])), n) < 0:
+                    on.reverse()
+                faces.append((n, on))
+    out = []
+    for n, vs in faces:
+        key = ('+' if max(n, key=abs) > 0 else '-') + 'xyz'[[abs(c) for c in n].index(max(abs(c) for c in n))]
+        m = _pick(mats, key)
+        if m is None:
+            continue
+        out.append(Face(vs, m, n))
+    return Brush(out, name)
+
+
+def prism(center, radius, z0, z1, mats, sides=12, phase=0.0, name='Prism', ry=None):
+    """Vertical n-gon prism (cylinders, tanks, columns). ry: elliptic radius on Y."""
+    cx, cy = center
+    ry = radius if ry is None else ry
+    ring = [(cx + radius * math.cos(phase + 2 * math.pi * i / sides), cy + ry * math.sin(phase + 2 * math.pi * i / sides))
+            for i in range(sides)]
+    faces = []
+    bottom = [(x, y, z0) for x, y in reversed(ring)]
+    top = [(x, y, z1) for x, y in ring]
+    faces.append(Face(bottom, _pick(mats, '-z'), (0.0, 0.0, -1.0)))
+    faces.append(Face(top, _pick(mats, '+z'), (0.0, 0.0, 1.0)))
+    for i in range(sides):
+        a, b = ring[i], ring[(i + 1) % sides]
+        vs = [(a[0], a[1], z0), (b[0], b[1], z0), (b[0], b[1], z1), (a[0], a[1], z1)]
+        f = Face(vs, _pick(mats, 'sides'))
+        faces.append(f)
+    return Brush([f for f in faces if f.mat is not None], name, wrap=True)
+
+
+def hprism(axis, center, radius, a0, a1, mats, sides=12, name='HPrism'):
+    """Horizontal cylinder (pipes): axis 'x' or 'y', center = the other two coordinates (c, z).
+    The texture runs along the pipe (U) and continuously around it (V): no seam per facet."""
+    c, cz = center
+    ring = [(c + radius * math.cos(2 * math.pi * i / sides), cz + radius * math.sin(2 * math.pi * i / sides))
+            for i in range(sides)]
+
+    def P(a, p, z):
+        return (float(a), p, z) if axis == 'x' else (p, float(a), z)
+    hb = hull([P(a, p, z) for p, z in ring for a in (a0, a1)], mats, name)
+    ax = (1.0, 0.0, 0.0) if axis == 'x' else (0.0, 1.0, 0.0)
+    arc = 2 * radius * math.sin(math.pi / sides)
+    for f in hb.faces:
+        n = f.normal
+        if abs(dot(n, ax)) > 0.5:
+            continue                      # end caps keep the default mapping
+        # position of this facet around the axis (angle of its normal in the ring plane)
+        ang = math.atan2(n[2], n[1] if axis == 'x' else n[0]) % (2 * math.pi)
+        k = int(round(ang / (2 * math.pi / sides) - 0.5)) % sides
+        p0 = ring[k]
+        start = P(a0, p0[0], p0[1])
+        around = norm(sub(P(a0, ring[(k + 1) % sides][0], ring[(k + 1) % sides][1]), start))
+        m = f.mat
+        tu, tv, su, sv = _scales(m, "wall")
+        f.u = mul(ax, tu / su)
+        f.v = mul(around, tv / sv)
+        f.origin = sub(start, mul(around, k * arc))
+    return hb
+
+
+def wedge(lo, hi, rise_dir, mats, name='Wedge'):
+    """Ramp: a box whose top slopes up toward rise_dir ('+x','-x','+y','-y')."""
+    x, y, z = lo
+    X, Y, Z = hi
+    low = {'+x': [(x, y), (x, Y)], '-x': [(X, y), (X, Y)], '+y': [(x, y), (X, y)], '-y': [(x, Y), (X, Y)]}[rise_dir]
+    # the low edge has no height: bottom quad + the two high top corners
+    top = [(px, py, Z) for px, py in [(x, y), (X, y), (x, Y), (X, Y)] if (px, py) not in low]
+    return hull([(x, y, z), (X, y, z), (x, Y, z), (X, Y, z)] + top, mats, name)
+
+
+def stairs(lo, hi, steps, direction, mats, name='Stairs'):
+    """Solid stairs rising toward direction; returns a list of boxes (one per step)."""
+    x, y, z = lo
+    X, Y, Z = hi
+    out = []
+    h = (Z - z) / steps
+    for i in range(steps):
+        if direction == '+x':
+            d = (X - x) / steps
+            b = box((x + i * d, y, z), (X, Y, z + (i + 1) * h), mats, '%s%d' % (name, i))
+        elif direction == '-x':
+            d = (X - x) / steps
+            b = box((x, y, z), (X - i * d, Y, z + (i + 1) * h), mats, '%s%d' % (name, i))
+        elif direction == '+y':
+            d = (Y - y) / steps
+            b = box((x, y + i * d, z), (X, Y, z + (i + 1) * h), mats, '%s%d' % (name, i))
+        else:
+            d = (Y - y) / steps
+            b = box((x, y, z), (X, Y - i * d, z + (i + 1) * h), mats, '%s%d' % (name, i))
+        out.append(b)
+    return out
+
+
+def sign_box(lo, hi, face, sign_tex, frame_mat, name='Sign', flags=0):
+    """A thin box with a texture fitted exactly once on one face (posters, signs, labels)."""
+    b = box(lo, hi, {k: (frame_mat if k != face else Mat(sign_tex, flags=flags)) for k in FACE_KEYS}, name)
+    x, y, z = lo
+    X, Y, Z = hi
+    tu, tv = tex_size(sign_tex)
+    for f in b.faces:
+        if f.mat.tex != sign_tex:
+            continue
+        n = f.normal
+        # right = normal x up (what a viewer facing the sign sees as "right")
+        if face in ('-x', '+x'):
+            width = Y - y
+            right = (0.0, -1.0, 0.0) if face == '+x' else (0.0, 1.0, 0.0)
+            start = (f.verts[0][0], Y if face == '+x' else y, Z)
+        elif face in ('-y', '+y'):
+            width = X - x
+            right = (1.0, 0.0, 0.0) if face == '+y' else (-1.0, 0.0, 0.0)
+            start = (x if face == '+y' else X, f.verts[0][1], Z)
+        else:
+            raise ValueError('sign faces are vertical')
+        height = Z - z
+        f.u = mul(right, tu / width)
+        f.v = (0.0, 0.0, -tv / height)
+        f.origin = start
+    return b

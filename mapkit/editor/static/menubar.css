@@ -1,0 +1,98 @@
+/* The menu bar (menubar.js): one row at the top, like a Windows program. The two rows of buttons it
+   replaces stay in the page, hidden (the menus press them). Colours and corners come from the theme. */
+:root.has-menubar { --top-h:30px; }
+.has-menubar #top { overflow:visible !important; }
+.has-menubar #top > .workspacebar, .has-menubar #top > .commandbar { display:none !important; }
+
+#menubar { display:flex; align-items:center; gap:2px; height:30px; min-height:30px; padding:0 8px 0 6px;
+  background:linear-gradient(var(--chrome-top), var(--chrome-bottom)); border-bottom:1px solid var(--line);
+  font-size:12px; user-select:none; position:relative; z-index:50; }
+#menubar .mb-brand { display:flex; align-items:center; gap:6px; padding:0 8px 0 2px; color:var(--acc); }
+#menubar .mb-brand svg { width:20px; height:20px; fill:currentColor; }
+#menubar .mb-brand b { color:var(--heading); font-weight:600; letter-spacing:.04em; font-size:13px; }
+#menubar .mb-brand b span { color:var(--acc); }
+.mb-menu { position:relative; }
+.mb-title { background:transparent !important; border:1px solid transparent !important; border-radius:var(--radius-control);
+  color:var(--text); padding:4px 9px; font:inherit; cursor:default; }
+.mb-title u { text-decoration:none; }
+.mb-alt .mb-title u { text-decoration:underline; }
+.mb-title:hover, .mb-menu.open > .mb-title { background:var(--accent-soft) !important; border-color:var(--accent-border) !important; color:var(--heading); }
+.mb-list { display:none; position:absolute; left:0; top:calc(100% + 3px); min-width:250px; padding:4px; z-index:1000;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-menu); box-shadow:0 10px 28px rgba(0,0,0,.45); }
+.mb-menu.open > .mb-list { display:block; }
+.mb-item { display:flex; align-items:center; gap:10px; width:100%; padding:6px 10px 6px 26px; border:0 !important; border-radius:var(--radius-row);
+  background:transparent !important; color:var(--text); font:inherit; text-align:left; cursor:default; position:relative; white-space:nowrap; }
+.mb-item:hover:not(:disabled), .mb-item:focus-visible { background:var(--hover) !important; color:var(--heading); outline:none; }
+.mb-item:disabled { opacity:.45; }
+.mb-item .mb-key { margin-left:auto; padding-left:24px; color:var(--dim); font-size:12px; white-space:nowrap; }
+.mb-item.checked::before { content:""; position:absolute; left:10px; top:50%; width:5px; height:9px; margin-top:-6px;
+  border-right:2px solid var(--acc); border-bottom:2px solid var(--acc); transform:rotate(45deg); }
+.mb-sep { height:1px; margin:4px 6px; background:var(--line); }
+.mb-spacer { flex:1; }
+#menubar .mb-map { display:flex; align-items:center; gap:6px; margin-left:10px; min-width:0; }
+#menubar .mb-map select { max-width:300px; height:24px; padding:0 6px; font-size:12px; }
+#menubar #status { flex:0 1 auto; min-width:0; max-width:40vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:11px; color:var(--dim); margin:0 8px; }
+#menubar #lightgain { width:80px; }
+.mb-quick { display:flex; gap:4px; }
+.mb-quick button { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px; font-size:12px; }
+.mb-quick button svg { width:12px; height:12px; fill:currentColor; }
+.mb-quick .mb-split { display:flex; position:relative; gap:0; }
+.mb-quick .mb-split > button { border-radius:0; }
+.mb-quick .mb-split > button:first-child { border-radius:var(--radius-button, 2px) 0 0 var(--radius-button, 2px); }
+.mb-quick .mb-split > button:nth-child(2) { border-left:0; border-radius:0 var(--radius-button, 2px) var(--radius-button, 2px) 0; }
+.mb-quick .mb-options { padding:0 5px; min-width:24px; }
+/* Rebuild | arrow | Play: one button split in half, the arrow a thin hinge between the halves */
+.mb-quick .mb-pair > button:nth-child(2), #menubar .mb-quick .mb-pair > .mb-options { border-radius:0; padding:0 2px; min-width:18px; }
+.mb-quick .mb-pair > button:nth-child(3) { border-left:0; border-radius:0 var(--radius-button, 2px) var(--radius-button, 2px) 0; }
+.mb-quick .mb-pair > button:nth-child(2) svg { width:10px; height:10px; }
+.mb-list .mb-head { padding:7px 12px 3px; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); }
+.mb-list .mb-head:not(:first-child) { margin-top:4px; border-top:1px solid var(--line); }
+.mb-quick .mb-list { left:auto; right:0; min-width:250px; }
+.mb-quick .mb-list button { width:100%; height:auto; min-height:27px; padding:5px 12px; }
+.native-menubar #menubar > .mb-menu { display:none; }
+.native-menubar #menubar .mb-map { margin-left:8px; }
+.native-menubar #menubar .mb-map select { max-width:380px; }
+#menubar .mb-brand, #menubar .mb-menu, #menubar .mb-quick { flex-shrink:0; }
+#menubar .mb-map { flex:0 1 240px; }
+#menubar .mb-map select { min-width:70px; width:100%; }
+@media (max-width:1350px) {
+  html:not(.native-menubar) #menubar .mb-brand b { display:none; }
+  html:not(.native-menubar) #menubar .mb-map { flex-basis:170px; margin-left:3px; }
+  html:not(.native-menubar) #menubar .mb-title { padding:4px 7px; }
+}
+@media (max-width:1150px) {
+  html:not(.native-menubar) #menubar #lightgain { display:none; }
+  html:not(.native-menubar) #menubar #status { max-width:100px; }
+  html:not(.native-menubar) #menubar .mb-title { padding:4px 5px; }
+  html:not(.native-menubar) #menubar .mb-map { flex-basis:130px; }
+}
+
+/* the Settings and About windows */
+#mb-dialog { position:fixed; inset:0; z-index:2000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); }
+#mb-dialog.open { display:flex; }
+#mb-dialog .mb-win { width:min(760px, 94vw); max-height:86vh; display:flex; flex-direction:column; background:var(--panel);
+  border:1px solid var(--line); border-radius:var(--radius-window); box-shadow:0 20px 60px rgba(0,0,0,.6); }
+#mb-dialog .mb-head { display:flex; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); color:var(--heading); font-weight:600; }
+#mb-dialog .mb-head .mb-close { margin-left:auto; }
+#mb-dialog .mb-body { display:flex; min-height:0; flex:1; }
+#mb-dialog nav { width:160px; flex:none; padding:10px 6px; border-right:1px solid var(--line); }
+#mb-dialog nav button { display:block; width:100%; text-align:left; margin:0 0 2px; padding:6px 10px; border:0; background:transparent; }
+#mb-dialog nav button.on { background:var(--accent-soft); color:var(--heading); }
+#mb-dialog .mb-page { flex:1; overflow:auto; padding:14px 18px 18px; }
+#mb-dialog h3 { margin:2px 0 12px; font-size:14px; color:var(--heading); }
+#mb-dialog .mb-row { display:flex; align-items:center; gap:12px; margin:0 0 12px; }
+#mb-dialog .mb-row > label:first-child { width:170px; flex:none; color:var(--dim); }
+#mb-dialog .mb-row input[type=range] { flex:1; }
+#mb-dialog .mb-row output { width:56px; text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
+#mb-dialog .mb-hint { color:var(--dim); font-size:12px; margin:-4px 0 12px 182px; }
+#mb-dialog table { width:100%; border-collapse:collapse; }
+#mb-dialog td { padding:4px 6px; border-bottom:1px solid var(--line); }
+#mb-dialog td.mb-group { padding-top:12px; color:var(--heading); font-weight:600; border-bottom:0; }
+#mb-dialog td button.mb-bind { min-width:120px; }
+#mb-dialog td button.mb-bind.custom { border-color:var(--accent-border); color:var(--heading); }
+#mb-dialog td button.mb-bind.wait { background:var(--accent-soft); }
+#mb-dialog .mb-warn { color:var(--warn); font-size:12px; min-height:16px; margin:6px 0; }
+#mb-dialog .mb-foot { display:flex; gap:8px; justify-content:flex-end; padding:10px 16px; border-top:1px solid var(--line); }
+#mb-dialog .mb-about p { margin:0 0 10px; line-height:1.5; }
+#mb-dialog .mb-about .mb-red { color:var(--bad); font-weight:600; }

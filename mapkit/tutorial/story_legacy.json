@@ -1,0 +1,27 @@
+{
+ "route": "always",
+ "dialogues": [],
+ "infolinks": [
+  {"id": "i0", "title": "Welcome", "caller": "EliasHale", "name": "Dr. Elias Hale", "once": true, "do": [],
+   "lines": [{"text": "Welcome to the DeusEdix training. I am Dr. Elias Hale; I watch the rooms from behind the glass, up on your left."},
+             {"text": "Everything here was built in the editor a few minutes ago, on your own machine. Walk through the rooms and see what you made."}]},
+  {"id": "i1", "title": "Objects", "caller": "EliasHale", "name": "Dr. Elias Hale", "once": true, "do": [],
+   "lines": [{"text": "Room one. The crate you moved, and the one you placed on the green plate. Every object of the game is one click away in the palette."}]},
+  {"id": "i2", "title": "Interactions", "caller": "EliasHale", "name": "Dr. Elias Hale", "once": true, "do": [],
+   "lines": [{"text": "Room two. Use the button. The door opens because you told it to: when JC uses the button, open the door. No tags, no events, no code."}]},
+  {"id": "i3", "title": "Characters", "caller": "EliasHale", "name": "Dr. Elias Hale", "once": true, "do": [],
+   "lines": [{"text": "Room three. The trooper greets you with the gesture you picked in his properties. My colleagues behind the glass have theirs too."}]},
+  {"id": "i4", "title": "Story", "caller": "EliasHale", "name": "Dr. Elias Hale", "once": true, "do": [],
+   "lines": [{"text": "Room four. Talk to my colleague: she says what you wrote for her in the Story panel."}]},
+  {"id": "i5", "title": "Library", "caller": "EliasHale", "name": "Dr. Elias Hale", "once": true, "do": [],
+   "lines": [{"text": "Last room, the library. The books hold the tips that did not fit in a lesson. That is the training. Good work."}]}
+ ],
+ "events": [
+  {"id": "e0", "title": "Welcome", "when": {"type": "start"}, "requires": [], "once": true, "do": [{"type": "infolink", "infolink": "i0"}]},
+  {"id": "e1", "title": "Room 1", "when": {"type": "near", "at": [1024, 0, 48], "radius": 300}, "requires": [], "once": true, "do": [{"type": "infolink", "infolink": "i1"}]},
+  {"id": "e2", "title": "Room 2", "when": {"type": "near", "at": [2048, 0, 48], "radius": 300}, "requires": [], "once": true, "do": [{"type": "infolink", "infolink": "i2"}]},
+  {"id": "e3", "title": "Room 3", "when": {"type": "near", "at": [3072, 0, 48], "radius": 300}, "requires": [], "once": true, "do": [{"type": "infolink", "infolink": "i3"}]},
+  {"id": "e4", "title": "Room 4", "when": {"type": "near", "at": [4096, 0, 48], "radius": 300}, "requires": [], "once": true, "do": [{"type": "infolink", "infolink": "i4"}]},
+  {"id": "e5", "title": "Room 5", "when": {"type": "near", "at": [5120, 0, 48], "radius": 300}, "requires": [], "once": true, "do": [{"type": "infolink", "infolink": "i5"}]}
+ ]
+}

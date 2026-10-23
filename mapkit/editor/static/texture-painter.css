@@ -1,0 +1,52 @@
+/* Texture painter shares the compact desktop controls and window sizing. */
+body #texedit.tool-window { grid-template-rows:minmax(32px,auto) minmax(32px,auto) minmax(0,1fr) 22px; }
+body #texedit #te-view { height:calc(100% - 27px); }
+body #texedit .te-stage { grid-area:view; position:relative; min-width:0; min-height:0; overflow:hidden; background:#171c24; }
+body #texedit .te-pane { position:absolute; display:flex; flex-direction:column; min-width:0; min-height:0; background:#171c24; }
+body #texedit .te-pane[hidden] { display:none; }
+body #texedit .te-main { inset:0; }
+body #texedit .te-mini { right:10px; bottom:10px; width:200px; height:170px; z-index:2; border:1px solid var(--line,#465365); box-shadow:0 3px 16px #0008; }
+body #texedit .te-pane header { display:flex; align-items:center; gap:5px; height:27px; min-height:27px; padding:2px 6px; box-sizing:border-box; background:var(--panel,#202734); border-bottom:1px solid var(--line,#465365); }
+body #texedit .te-pane header b { flex:1; white-space:nowrap; font-size:11px; font-weight:500; }
+body #texedit .te-pane header button { min-height:20px; height:20px; padding:1px 5px; font-size:10px; }
+body #texedit .te-pane header button[hidden] { display:none; }
+body #texedit .te-pane > canvas { display:block; width:100%; height:calc(100% - 27px); flex:1; min-height:0; touch-action:none; }
+body #texedit .te-model-hint { position:absolute; left:8px; bottom:6px; max-width:calc(100% - 220px); pointer-events:none; font-size:10px; color:#bdc7d6; padding:3px 5px; background:#111b; }
+body #texedit .te-mini .te-model-hint { display:none; }
+body #texedit .te-section { border-top:1px solid var(--line,#37414e); padding:4px 0; }
+body #texedit .te-section summary { padding:4px 1px; cursor:pointer; font-size:11px; font-weight:600; }
+body #texedit .te-opts { flex-wrap:wrap; min-height:30px; padding:4px 8px; gap:5px 9px; }
+body #texedit .te-opts label { white-space:nowrap; }
+body #texedit .te-opts input[type=range] { width:60px; }
+body #texedit .te-top { flex-wrap:wrap; min-height:32px; }
+body #texedit .te-right { padding:8px; overflow-y:auto; }
+body #texedit .te-layer-heading { display:flex; align-items:center; justify-content:space-between; padding-bottom:5px; }
+body #texedit .te-layer-actions { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+body #texedit .te-layer-actions button { font-size:10px; padding:2px 6px; }
+body #texedit .te-layer-list { max-height:198px; overflow-y:auto; border:1px solid var(--line,#37414e); margin:6px 0; }
+body #texedit .te-layer-row { display:flex; align-items:center; gap:4px; padding:3px 4px; min-height:36px; border-bottom:1px solid var(--line,#37414e); }
+body #texedit .te-layer-row:last-child { border-bottom:0; }
+body #texedit .te-layer-row.active { background:var(--selected,#34475e); box-shadow:inset 2px 0 var(--accent,#d8bf72); }
+body #texedit .te-layer-row.is-hidden .te-layer-select { opacity:.45; }
+body #texedit .te-layer-select { display:flex; align-items:center; flex:1; min-width:0; gap:6px; padding:0; border:0; background:transparent; text-align:left; }
+body #texedit .te-layer-thumb { width:32px; height:32px; flex:none; background:repeating-conic-gradient(#303a48 0% 25%,#202833 0% 50%) 0/8px 8px; }
+body #texedit .te-layer-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+body #texedit .te-layer-lock { width:39px; min-width:39px; padding:2px; font-size:9px; }
+body #texedit .te-layer-lock[aria-pressed=true] { color:var(--accent,#d8bf72); }
+body #texedit .te-layer-visible { margin:0; width:13px; height:13px; }
+body #texedit .te-layer-rename { flex:1; min-width:0; width:80px; }
+body #texedit .te-layer-property { display:flex; align-items:center; gap:6px; margin:5px 0; font-size:11px; }
+body #texedit .te-layer-property > span { width:43px; }
+body #texedit .te-layer-property input[type=range], body #texedit .te-layer-property select { flex:1; min-width:0; }
+body #texedit .te-layer-property output { min-width:32px; text-align:right; }
+body #texedit .te-layer-footnote { font-size:10px; line-height:1.35; margin:6px 0 10px; }
+body #texedit .te-status { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+@media(max-width:900px) { body #texedit .te-mini { width:156px; height:140px; } body #texedit .te-model-hint { max-width:calc(100% - 175px); } }
+
+/* the Text tool's options (texedit.js) */
+#texedit #te-ttext { width:180px; min-height:22px; resize:none; font:12px/16px inherit; padding:2px 6px; background:var(--field); color:var(--text);
+  border:1px solid var(--line); border-radius:var(--radius-control); vertical-align:middle; }
+#texedit #te-fface { max-width:150px; }
+#texedit .te-tg { width:24px; padding:0; }
+#texedit .te-tg.on { background:var(--accent-soft); border-color:var(--accent-border); color:var(--heading); }
+#texedit #te-foutc { width:24px; height:20px; padding:0; vertical-align:middle; }

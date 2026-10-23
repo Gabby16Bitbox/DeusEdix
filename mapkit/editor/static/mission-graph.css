@@ -1,0 +1,139 @@
+/* DESIGN.md: rule cards and grouped connections, with progressive details. */
+#mission-graph { position:fixed; z-index:22; inset:50% auto auto 50%; transform:translate(-50%,-50%); width:min(1180px,calc(100vw - 24px)); height:min(720px,calc(100vh - 48px)); box-sizing:border-box; display:grid; grid-template-rows:28px auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--accent-border); border-radius:var(--radius-window); background:var(--panel); color:var(--text); box-shadow:0 14px 30px #0009; font:400 12px/1.35 "Segoe UI",sans-serif; }
+#mission-graph.tool-maximized { inset:0; transform:none; width:100%; height:100%; border-radius:0; }
+#mission-graph * { box-sizing:border-box; }
+#mission-graph [hidden] { display:none !important; }
+#mission-graph details:not([open])>:not(summary) { display:none !important; }
+#mission-graph button,#mission-graph input,#mission-graph select { font:inherit; min-height:22px; height:22px; padding:0 6px; line-height:18px; border:1px solid var(--line); border-radius:var(--radius-control); color:var(--text); background:var(--field); }
+#mission-graph button { display:inline-flex; align-items:center; justify-content:center; gap:4px; cursor:pointer; white-space:nowrap; background:var(--surface); }
+#mission-graph button:hover,#mission-graph summary:hover { background:var(--hover); border-color:var(--accent-border); }
+#mission-graph button[aria-pressed=true],#mission-graph button[aria-expanded=true] { background:var(--accent-soft); border-color:var(--accent-border); }
+#mission-graph button:disabled { opacity:.5; cursor:default; }
+#mission-graph :focus-visible { outline:1px solid var(--acc); outline-offset:-1px; }
+#mission-graph small { font-size:11px; color:var(--dim); }
+#mission-graph .mg-head { height:28px; display:flex; align-items:center; gap:8px; padding:0 4px 0 8px; border-bottom:1px solid var(--line); }
+#mission-graph .mg-head b { font-size:13px; font-weight:600; color:var(--heading); white-space:nowrap; }
+#mission-graph [data-mg-project] { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+#mission-graph .mg-readonly { font-size:11px; color:var(--dim); white-space:nowrap; }
+#mission-graph .mg-head button { width:24px; min-width:24px; height:24px; min-height:24px; padding:0; }
+#mission-graph .tool-window-size svg { width:13px; height:13px; }
+#mission-graph .mg-tools { display:flex; align-items:center; gap:4px; flex-wrap:wrap; padding:3px 8px; min-height:28px; border-bottom:1px solid var(--line); }
+#mission-graph [data-mg-home] { max-width:min(260px,60vw); overflow:hidden; text-overflow:ellipsis; display:block; }
+#mission-graph .mg-spacer { flex:1; }
+#mission-graph .mg-options { position:relative; }
+#mission-graph .mg-options summary { height:22px; padding:0 6px; display:flex; align-items:center; border:1px solid var(--line); border-radius:var(--radius-control); background:var(--surface); }
+#mission-graph .mg-options[open] summary { border-color:var(--accent-border); }
+#mission-graph .mg-options summary::after { content:''; width:4px; height:4px; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(45deg); margin-left:6px; }
+#mission-graph .mg-options>div { position:absolute; right:0; top:26px; z-index:3; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); padding:4px; display:grid; gap:4px; min-width:156px; }
+#mission-graph .mg-body { position:relative; display:grid; grid-template-columns:minmax(0,1fr) 300px; min-height:0; overflow:hidden; }
+#mission-graph .mg-browser { position:absolute; inset:0 auto 0 0; z-index:2; width:min(320px,100%); display:flex; flex-direction:column; gap:4px; padding:8px; border-right:1px solid var(--accent-border); background:var(--panel); min-width:0; min-height:0; }
+#mission-graph .mg-browser input,#mission-graph .mg-browser select { width:100%; min-width:0; }
+#mission-graph .mg-list { overflow:auto; min-height:0; flex:1; }
+#mission-graph .mg-row { width:100%; border:0; border-radius:var(--radius-row); justify-content:flex-start; text-align:left; background:transparent; }
+#mission-graph .mg-row span { flex:1; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+#mission-graph .mg-row small { max-width:45%; overflow:hidden; text-overflow:ellipsis; }
+#mission-graph .mg-main { display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; min-width:0; min-height:0; background:var(--viewport); container-type:inline-size; }
+#mission-graph .mg-canvas { overflow:auto; min-width:0; min-height:0; padding:12px; }
+#mission-graph .mg-overview { display:grid; grid-template-columns:minmax(0,1fr) minmax(160px,1fr) minmax(0,1fr); grid-template-rows:1fr 1fr; gap:12px; align-items:center; margin:12px 0; }
+#mission-graph .mg-subject { grid-column:2; grid-row:1 / 3; border:1px solid var(--accent-border); border-radius:var(--radius-card); background:var(--panel); padding:12px 8px; text-align:center; min-width:0; position:relative; }
+#mission-graph .mg-subject::before,#mission-graph .mg-subject::after { content:''; position:absolute; top:50%; width:12px; border-top:1px solid var(--line); }
+#mission-graph .mg-subject::before { right:100%; } #mission-graph .mg-subject::after { left:100%; }
+#mission-graph .mg-subject small { display:block; overflow-wrap:anywhere; }
+#mission-graph .mg-group { border:1px solid var(--line); border-radius:var(--radius-card); background:var(--panel); padding:8px; min-width:0; }
+#mission-graph .mg-group[data-category=dialogue] { grid-column:1; grid-row:1; }
+#mission-graph .mg-group[data-category=behaviour] { grid-column:1; grid-row:2; }
+#mission-graph .mg-group[data-category=states] { grid-column:3; grid-row:1; }
+#mission-graph .mg-group[data-category=appearances] { grid-column:3; grid-row:2; }
+#mission-graph .mg-group>small { display:block; margin-bottom:4px; }
+#mission-graph .mg-group button { width:100%; justify-content:space-between; }
+#mission-graph .mg-group button span:first-child { overflow:hidden; text-overflow:ellipsis; }
+#mission-graph .mg-count { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
+#mission-graph .mg-muted { opacity:.6; }
+#mission-graph .mg-muted:hover,#mission-graph .mg-muted:focus-within { opacity:1; }
+#mission-graph .mg-section-head { display:flex; align-items:center; gap:8px; min-height:28px; padding:0 0 4px; border-bottom:1px solid var(--line); margin-bottom:4px; }
+#mission-graph .mg-section-head h3 { flex:1; margin:0; }
+#mission-graph [data-group-search] { width:min(45%,200px); min-width:0; }
+#mission-graph .mg-group-content,#mission-graph .mg-path { margin-top:12px; }
+#mission-graph .mg-path { border:1px solid var(--accent-border); border-radius:var(--radius-card); padding:8px; background:var(--panel); }
+#mission-graph .mg-path ol { list-style:none; margin:0; padding:0; }
+#mission-graph .mg-path li { display:flex; flex-direction:column; align-items:flex-start; min-width:0; }
+#mission-graph .mg-path-node { max-width:100%; width:100%; justify-content:flex-start; }
+#mission-graph .mg-path-node span { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; }
+#mission-graph .mg-path-node small { max-width:55%; text-overflow:ellipsis; overflow:hidden; }
+#mission-graph .mg-path-link { border:0; background:transparent; color:var(--acc); max-width:100%; justify-content:flex-start; height:auto; min-height:22px; white-space:normal; text-align:left; }
+#mission-graph .mg-path-link span:last-child { overflow-wrap:anywhere; }
+#mission-graph .mg-canvas-status { padding:4px 8px; min-height:22px; color:var(--dim); font-size:11px; border-top:1px solid var(--line); }
+#mission-graph .mg-details { min-height:0; overflow:hidden; display:grid; grid-template-rows:28px minmax(0,1fr); border-left:1px solid var(--line); }
+#mission-graph .mg-details nav { display:flex; align-items:center; gap:4px; padding:0 8px; border-bottom:1px solid var(--line); }
+#mission-graph [data-mg-detail] { overflow:auto; min-width:0; padding:8px; }
+#mission-graph h3 { margin:0 0 8px; font-size:13px; font-weight:600; line-height:18px; overflow-wrap:anywhere; color:var(--heading); }
+#mission-graph p { margin:0 0 8px; overflow-wrap:anywhere; }
+#mission-graph .mg-scope,#mission-graph .mg-metadata { font-size:11px; color:var(--dim); }
+#mission-graph dl { display:grid; grid-template-columns:60px minmax(0,1fr); gap:4px; margin:0 0 12px; }
+#mission-graph dt { color:var(--dim); } #mission-graph dd { margin:0; overflow-wrap:anywhere; }
+#mission-graph .mg-evidence { font-size:11px; margin:4px 0 8px; color:var(--dim); overflow-wrap:anywhere; }
+#mission-graph pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--field); border:1px solid var(--line); padding:6px; margin:4px 0; font-size:11px; }
+#mission-graph .mg-connections button { height:auto; min-height:22px; width:100%; padding:4px; flex-direction:column; align-items:flex-start; white-space:normal; text-align:left; border:0; border-bottom:1px solid var(--line); border-radius:0; }
+#mission-graph .mg-connections button small { overflow-wrap:anywhere; max-width:100%; }
+#mission-graph .mg-technical { margin-top:8px; border-top:1px solid var(--line); }
+#mission-graph .mg-finding { border-left:2px solid var(--dim); padding:4px 6px; margin:0 0 8px; }
+#mission-graph .mg-finding[data-level=error] { border-color:var(--bad); }
+#mission-graph .mg-finding[data-level=review] { border-color:var(--warn); }
+#mission-graph .mg-finding b { display:block; margin-bottom:4px; font-weight:600; }
+#mission-graph .mg-error,#mission-graph [data-level=error] { color:var(--bad); }
+#mission-graph .mg-unknown { color:var(--dim); }
+#mission-graph .mg-all-findings { border-top:1px solid var(--line); padding-top:8px; }
+#mission-graph summary { min-height:22px; line-height:22px; cursor:pointer; }
+#mission-graph .mg-empty { padding:8px; color:var(--dim); font-size:11px; }
+#mission-graph .mg-rule-heading { margin-bottom:8px; }
+#mission-graph .mg-rule-heading h3 { margin:0 0 2px; }
+#mission-graph .mg-rule-filters { display:grid; grid-template-columns:minmax(100px,1fr) minmax(120px,2fr) minmax(100px,1fr); gap:8px; }
+#mission-graph .mg-rule-filters label { display:flex; flex-direction:column; gap:2px; color:var(--dim); font-size:11px; min-width:0; }
+#mission-graph .mg-rule-filters input,#mission-graph .mg-rule-filters select { width:100%; min-width:0; font-size:12px; }
+#mission-graph .mg-rule-count { color:var(--dim); font-size:11px; margin:8px 0; }
+#mission-graph .mg-rule-map { margin:0 0 12px; min-width:0; }
+#mission-graph .mg-rule-map>h3 { font-size:11px; font-weight:600; color:var(--dim); overflow-wrap:anywhere; margin:8px 0 4px; }
+#mission-graph .mg-rule-card { border:1px solid var(--line); border-radius:var(--radius-card); margin:4px 0; background:var(--panel); min-width:0; }
+#mission-graph .mg-rule-card>summary { height:28px; line-height:26px; padding:0 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--heading); }
+#mission-graph .mg-rule-card[open]>summary { border-bottom:1px solid var(--line); background:var(--surface); }
+#mission-graph .mg-rule-content { padding:8px; overflow-wrap:anywhere; }
+#mission-graph .mg-rule-content dl { grid-template-columns:88px minmax(0,1fr); gap:6px 8px; margin:8px 0; }
+#mission-graph .mg-rule-content dd { min-width:0; }
+#mission-graph .mg-rule-content ul { padding-left:16px; margin:0; }
+#mission-graph .mg-rule-content li { margin:0 0 4px; }
+#mission-graph .mg-rule-flags { display:flex; gap:4px; flex-wrap:wrap; }
+#mission-graph .mg-rule-flags button { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+#mission-graph .mg-rule-source { display:block; overflow-wrap:anywhere; }
+#mission-graph .mg-flag-access { border-top:1px solid var(--line); margin-top:12px; padding-top:8px; }
+#mission-graph .mg-flag-access>div { margin:0 0 6px; }
+#mission-graph .mg-flag-access>div>small { display:block; padding:0 6px; overflow-wrap:anywhere; }
+#mission-graph footer { display:flex; align-items:center; min-height:28px; gap:8px; padding:3px 8px; border-top:1px solid var(--line); }
+#mission-graph footer span { flex:1; min-width:0; font-size:11px; overflow-wrap:anywhere; color:var(--dim); }
+.inspector-pin-toolbar #missiongraph-open { display:inline-flex; align-items:center; justify-content:center; flex:none; width:24px; height:24px; min-height:24px; padding:0; border:0; background:transparent; color:var(--dim); }
+.inspector-pin-toolbar #missiongraph-open:hover:not(:disabled),.inspector-pin-toolbar #missiongraph-open:focus-visible { color:var(--text); background:var(--hover); }
+.inspector-pin-toolbar #missiongraph-open:disabled { opacity:.35; }
+.inspector-pin-toolbar #missiongraph-open svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+@container(max-width:640px) {
+  #mission-graph .mg-rule-filters { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  #mission-graph .mg-rule-filters label:last-child { grid-column:1 / -1; }
+  #mission-graph .mg-rule-content dl { grid-template-columns:minmax(0,1fr); gap:2px; }
+  #mission-graph .mg-rule-content dd { margin-bottom:6px; }
+  #mission-graph .mg-overview { grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-rows:auto auto auto; gap:8px; }
+  #mission-graph .mg-subject { grid-column:1 / -1; grid-row:2; }
+  #mission-graph .mg-subject::before,#mission-graph .mg-subject::after { display:none; }
+  #mission-graph .mg-group[data-category=dialogue] { grid-column:1; grid-row:1; }
+  #mission-graph .mg-group[data-category=states] { grid-column:2; grid-row:1; }
+  #mission-graph .mg-group[data-category=behaviour] { grid-column:1; grid-row:3; }
+  #mission-graph .mg-group[data-category=appearances] { grid-column:2; grid-row:3; }
+}
+@media(max-width:950px) {
+  #mission-graph .mg-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,1fr) minmax(140px,30%); }
+  #mission-graph .mg-details { border-left:0; border-top:1px solid var(--line); }
+}
+@media(max-width:520px) {
+  #mission-graph { width:calc(100vw - 8px); height:calc(100vh - 8px); }
+  #mission-graph [data-mg-project] { display:none; }
+  #mission-graph .mg-readonly { flex:1; }
+  #mission-graph .mg-canvas { padding:8px; }
+  #mission-graph .mg-path-node small { max-width:45%; }
+}

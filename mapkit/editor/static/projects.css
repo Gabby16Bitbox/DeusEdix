@@ -1,0 +1,62 @@
+#projecthub { position:fixed; inset:var(--top-h,34px) 0 0; z-index:90; overflow:auto; padding:32px 24px; background:var(--bg); color:var(--text); font:400 12px/1.4 "Segoe UI",system-ui,sans-serif; }
+#projecthub[hidden], #projecthub [hidden] { display:none !important; }
+#projecthub .projects-inner { max-width:1040px; margin:0 auto; }
+#projecthub .projects-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
+#projecthub .projects-brand { display:flex; align-items:center; gap:12px; }
+#projecthub .projects-brand > svg { width:44px; height:44px; color:var(--acc); }
+#projecthub .projects-brand span { color:var(--dim); }
+#projecthub h1 { margin:0; font-size:24px; line-height:1.3; font-weight:600; }
+#projecthub h2 { margin:18px 0 8px; padding:0; border:0; font-size:13px; font-weight:600; letter-spacing:0; }
+#projecthub .projects-toolbar { display:flex; gap:8px; align-items:center; margin-bottom:16px; }
+#projecthub .projects-search { flex:1; min-width:100px; }
+#projecthub .projects-search input { width:100%; }
+#projecthub input, #projecthub button, body #project-dialog input, body #project-dialog button { font:400 12px/18px "Segoe UI",system-ui,sans-serif; }
+#projecthub .projects-toolbar button, #projecthub .projects-heading button, #projecthub .projects-foot button { min-height:28px; padding:4px 10px; white-space:nowrap; }
+#projecthub input { box-sizing:border-box; height:28px; padding:4px 8px; background:var(--field); color:var(--text); border:1px solid var(--line); border-radius:var(--radius-input); }
+#projecthub .projects-featured { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+#projecthub #projects-builtins { display:contents; }
+#projecthub .project-training { min-width:0; box-sizing:border-box; }
+#projecthub .projects-training-controls { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+#projecthub .projects-training-controls select { flex:1 1 100%; min-width:0; width:100%; }
+#projecthub .project-training select, #projecthub .project-training button { box-sizing:border-box; height:22px; min-height:22px; padding:0 6px; font:400 12px/18px "Segoe UI",system-ui,sans-serif; border:1px solid var(--line); border-radius:var(--radius-control); color:var(--text); background:var(--surface); white-space:nowrap; }
+#projecthub .project-training select { background:var(--field); }
+#projecthub .project-training button:hover:not(:disabled) { border-color:var(--accent-border); background:var(--hover); }
+#projecthub .project-training :is(button,select):focus-visible { outline:1px solid var(--acc); outline-offset:2px; }
+#projecthub .projects-doctor-audio { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+#projecthub #projects-doctor-status:empty { display:none; }
+#projecthub .project-row { display:flex; box-sizing:border-box; min-width:0; align-items:center; gap:12px; width:100%; height:auto; padding:12px; margin:0 0 6px; text-align:left; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); }
+#projecthub .project-row:hover { border-color:var(--acc); background:var(--hover); }
+#projecthub .project-row > svg { width:28px; height:28px; flex:none; fill:none; stroke:var(--acc); stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+#projecthub .project-builtin { align-items:flex-start; margin:0; }
+#projecthub .project-copy { min-width:0; flex:1; }
+#projecthub .project-copy b { display:block; margin-bottom:3px; font-size:13px; font-weight:600; }
+#projecthub .project-copy > span { display:block; color:var(--dim); }
+#projecthub .project-copy > span.project-game { margin-top:2px; font-size:11px; color:var(--acc); }
+#projecthub .project-row[data-unavailable] { opacity:.55; cursor:default; }
+#projecthub .project-row[data-unavailable] .project-game { color:var(--dim); }
+#projecthub .project-pair:hover, #projecthub .project-training:hover { border-color:var(--line); background:var(--panel); }
+#projecthub .project-copy > span.project-halves { display:flex; margin-top:9px; border:1px solid var(--line); border-radius:var(--radius-button, 2px); overflow:hidden; color:var(--text); }
+#projecthub .project-half { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:0; min-height:22px; height:auto; margin:0; padding:0 8px; text-align:center; color:var(--text); background:transparent; border:0; border-radius:0; }
+#projecthub .project-half + .project-half { border-left:1px solid var(--line); }
+#projecthub .project-half:hover:not(:disabled) { background:var(--hover); color:var(--acc); }
+#projecthub .project-half b { display:block; margin:0; line-height:18px; font-size:12px; font-weight:600; }
+#projecthub .project-half span { display:block; font-size:11px; color:var(--dim); }
+#projecthub .project-half[data-unavailable] { opacity:.5; cursor:default; }
+#projecthub .project-half:focus-visible { outline-offset:-2px; }
+#projecthub .project-copy small { display:block; color:var(--dim); margin-top:4px; font-size:11px; overflow-wrap:anywhere; }
+#projecthub .project-current { color:var(--acc); font-size:11px; flex:none; }
+#projecthub .projects-empty { margin:0; padding:20px 12px; border:1px dashed var(--line); color:var(--dim); }
+#projecthub .projects-foot { display:flex; align-items:center; gap:12px; margin-top:20px; color:var(--dim); font-size:11px; }
+#projecthub .projects-foot > span { flex:1; overflow-wrap:anywhere; }
+#projecthub #projects-error, body #project-dialog .project-error { color:var(--warn); white-space:pre-wrap; }
+#projecthub #projects-error:empty, body #project-dialog .project-error:empty { display:none; }
+#projecthub .sr-project { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+body #project-dialog { width:min(580px,calc(100vw - 32px)); }
+body #project-dialog form { margin:0; }
+body #project-dialog main > label { display:block; margin:8px 0 4px; }
+body #project-dialog main > input { box-sizing:border-box; width:100%; min-height:28px; height:28px; }
+body #project-dialog .project-note { color:var(--dim); font-size:11px; margin:10px 0; }
+body #project-dialog button { min-height:26px; height:auto; padding:3px 8px; }
+body #menubar #project-menu-button { min-width:0; max-width:170px; margin-left:8px; padding:2px 7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+body.project-hub-open #menubar .mb-map, body.project-hub-open #menubar .mb-quick { visibility:hidden; }
+@media(max-width:760px) { #projecthub { padding:20px 14px; } #projecthub .projects-featured { grid-template-columns:1fr; } #projecthub .projects-toolbar { flex-wrap:wrap; } #projecthub .projects-search { flex-basis:100%; } #projecthub .projects-heading { align-items:flex-start; } #projecthub .projects-heading > button { max-width:50%; overflow:hidden; text-overflow:ellipsis; } body #menubar #project-menu-button { max-width:110px; } }

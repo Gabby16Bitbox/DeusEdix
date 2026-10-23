@@ -1,0 +1,73 @@
+/* Tools > Weapons (weapon-editor.js): DESIGN.md tokens, sizes and spacing (a tool window, as Scripts) */
+#weapons { position:fixed; inset:40px 60px; z-index:21; display:none; background:var(--bg); border:1px solid var(--accent-border);
+  grid-template-columns:260px minmax(0,1fr); grid-template-rows:28px minmax(0,1fr); grid-template-areas:"top top" "left main"; outline:none; }
+#weapons.tool-maximized { inset:0; }
+#weapons .we-top { grid-area:top; display:flex; align-items:center; gap:8px; padding:0 8px; background:var(--panel); border-bottom:1px solid var(--line); }
+#weapons .we-top b { font-size:13px; font-weight:600; color:var(--heading); }
+
+/* the left column: lists and fields, 22px rows */
+#weapons .we-left { grid-area:left; display:flex; flex-direction:column; gap:4px; min-height:0; overflow:auto; padding:0 8px 8px;
+  background:var(--panel); border-right:1px solid var(--line); }
+#weapons .we-h { padding:8px 0 2px; font-size:13px; font-weight:600; color:var(--heading); }
+#weapons .we-list { max-height:132px; overflow:auto; }
+#weapons .we-item { height:22px; line-height:22px; padding:0 8px; cursor:pointer; border-radius:var(--radius-row, 1px); }
+#weapons .we-item:hover { background:var(--hover); }
+#weapons .we-item.on { background:var(--accent-soft); color:var(--heading); }
+#weapons .we-row { display:flex; align-items:center; gap:4px; min-height:22px; color:var(--dim); }
+#weapons .we-row > input:not([type=checkbox]), #weapons .we-row > select { flex:1; min-width:0; height:22px; box-sizing:border-box; color:var(--text); }
+#weapons .we-row > input[type=file] { height:auto; font-size:11px; }
+#weapons .we-row button, #weapons .we-place button, #weapons .we-left > button { height:22px; padding:0 8px; line-height:20px; }
+#weapons .we-row.we-col { flex-direction:column; align-items:stretch; }
+#weapons .we-row textarea { resize:vertical; min-height:44px; color:var(--text); }
+#weapons .we-row.we-end { justify-content:flex-end; margin-top:4px; }
+#weapons .we-stats { display:flex; flex-direction:column; gap:2px; }
+#weapons .we-stats input[type=number], #weapons .we-ammo-form input[type=number] { flex:0 0 90px; margin-left:auto; }
+#weapons .we-ammo-form { display:flex; flex-direction:column; gap:4px; padding:6px; border:1px solid var(--line); background:var(--bg); }
+#weapons .we-ammo-form[hidden] { display:none; }
+
+/* the view: toolbar (28px), the 3D view, the placement row, the status line */
+#weapons .we-main { grid-area:main; display:grid; grid-template-rows:28px minmax(0,1fr) auto auto; min-width:0; min-height:0; }
+#weapons .we-bar { display:flex; align-items:center; gap:4px; padding:0 8px; background:var(--panel); border-bottom:1px solid var(--line); min-width:0; }
+#weapons .we-bar select { height:22px; box-sizing:border-box; }
+#weapons .we-bar .we-seq { width:120px; }
+#weapons .we-bar label { display:flex; align-items:center; gap:4px; color:var(--dim); white-space:nowrap; }
+#weapons .we-transport { display:flex; gap:2px; padding-right:4px; margin-right:4px; border-right:1px solid var(--line); }
+#weapons .we-transport button { width:24px; height:24px; padding:0; display:flex; align-items:center; justify-content:center; }
+#weapons .we-transport svg { width:13px; height:13px; fill:currentColor; }
+#weapons .we-transport button.on { background:var(--accent-soft); }
+#weapons .we-fno { color:#4c9eff; font-variant-numeric:tabular-nums; min-width:44px; }
+/* the ruler: one tick a frame, the playhead flag and line (as the Studio's timeline) */
+#weapons .we-ruler { position:relative; flex:1; min-width:80px; height:22px; cursor:pointer; touch-action:none; user-select:none;
+  border-bottom:1px solid var(--line);
+  background:repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px calc(100% / var(--ticks, 10))) bottom / 100% 7px no-repeat; }
+#weapons .we-ph { position:absolute; left:var(--playhead, 0%); top:0; bottom:0; width:0; pointer-events:none; }
+#weapons .we-ph::before { content:''; position:absolute; left:-5px; top:1px; width:11px; height:10px; background:#4c9eff;
+  clip-path:polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); }
+#weapons .we-ph::after { content:''; position:absolute; left:0; top:10px; bottom:0; width:1px; background:#4c9eff; }
+#weapons .we-view { position:relative; min-height:0; background:var(--viewport); }
+#weapons .we-view canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+#weapons .we-place { display:flex; align-items:center; gap:4px 8px; padding:4px 8px; background:var(--panel); border-top:1px solid var(--line); flex-wrap:wrap; }
+#weapons .we-place label { display:flex; align-items:center; gap:4px; color:var(--dim); }
+#weapons .we-place input { width:64px; height:22px; box-sizing:border-box; color:var(--text); }
+#weapons .we-msg { padding:4px 8px 6px; min-height:16px; font-size:11px; }
+#weapons .we-msg.bad { color:var(--bad); }
+#weapons .we-msg.ok { color:var(--ok); }
+#weapons .we-fname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--dim); }
+/* fixed-height fields: no vertical padding (DESIGN.md), or their text is cut at the bottom */
+#weapons select, #weapons input:not([type=checkbox]):not([type=range]):not([type=file]) { height:22px; padding:0 6px; line-height:20px; box-sizing:border-box; }
+#weapons .we-bar { flex-wrap:nowrap; overflow:hidden; }
+#weapons .we-bar .we-mode, #weapons .we-bar .we-gizmo { min-width:0; max-width:150px; flex:0 1 auto; }
+/* the icon as the game draws it (1:1, top left), over a checker for the transparent part */
+#weapons .we-icon { flex:0 0 auto; height:44px; width:auto; image-rendering:pixelated; border:1px solid var(--line);
+  background:repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+#weapons .we-icon + button { margin-left:auto; }
+#weapons .we-row button { white-space:nowrap; }
+/* Arms from another model: what each of its texture slots is, and the eye (PlayerViewOffset) */
+#weapons .we-slots { display:flex; flex-direction:column; gap:2px; padding-left:8px; border-left:1px solid var(--line); }
+#weapons .we-slots[hidden] { display:none; }
+#weapons .we-slots select { flex:0 0 130px; margin-left:auto; }
+/* the column scrolls as a whole: its parts (the list too, which scrolls itself) keep their height */
+#weapons .we-left > * { flex-shrink:0; }
+/* the scope's sight, small, on black as in the game */
+#weapons .we-sight { flex:0 0 auto; width:44px; height:44px; border:1px solid var(--line); }
+#weapons .we-sight + button { margin-left:auto; }
