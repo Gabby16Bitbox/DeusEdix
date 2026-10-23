@@ -22,7 +22,8 @@ Revision team (Caustic Creative), Eidos, Square Enix or Ion Storm.** Use it at y
   ElevenLabs (https://elevenlabs.io) on a paid plan, with a public voice of its Voice Library. It is
   not the voice of anyone in Deus Ex or Revision, nor a clone of a real person.
 - **Third-party libraries** keep their own licences: three.js (MIT, loaded by the page), Pillow
-  (MIT-CMU), the MCP Python SDK (MIT).
+  (MIT-CMU), the MCP Python SDK (MIT), nlohmann/json 3.11.3 (MIT, `mapkit/host/third_party/nlohmann`, with its
+  `LICENSE.MIT`; compiled into the headless host).
 - **Recast & Detour**, for the walkable area, Fill AI paths and the walkable area in the game:
   - The files: `mapkit/editor/static/recast-navigation-core.js`, `-generators.js` and `-wasm.js` are
     recast-navigation-js 0.43.1 (https://github.com/isaac-mason/recast-navigation-js), unchanged.

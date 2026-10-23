@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include <float.h>
+// JSON for the dumps the editor reads: nlohmann/json 3.11.3 (MIT, third_party/nlohmann/LICENSE.MIT). Included
+// before the engine's headers, whose macros (check, ...) would otherwise reach into its code.
+#include "nlohmann/json.hpp"
 #define EDITOR_API __declspec(dllimport)
 // The engine is built with 4-byte packing: without it every class member after a DOUBLE (UBitmap's
 // LastUpdateTime: a texture's Scale, its Mips...) is read 4 bytes too far.
@@ -33,11 +36,44 @@
 #include "ConEventRandomLabel.h"
 #pragma pack(pop)
 
+// A JSON row keeps its keys in the order they are written.
+typedef nlohmann::ordered_json Json;
+
+// Text between the engine (UTF-16, TCHAR) and the rest (UTF-8: commands, files, the console). Most strings are
+// short: they are converted into a buffer on the stack, and only a longer one is given room on the heap.
+static int toUtf8(const TCHAR* text, char* out, int size) {
+    return WideCharToMultiByte(CP_UTF8, 0, (LPCWSTR)text, -1, out, size, NULL, NULL);
+}
+static int toWide(const char* text, TCHAR* out, int size) {
+    return MultiByteToWideChar(CP_UTF8, 0, text, -1, (LPWSTR)out, size);
+}
+template <class From, class To, int Convert(const From*, To*, int)>
+class Text {
+public:
+    explicit Text(const From* text) : data(local) {
+        if (Convert(text, local, ARRAY_COUNT(local))) return;
+        int size = Convert(text, NULL, 0);
+        data = size > 0 ? (To*)malloc(size * sizeof(To)) : NULL;
+        if (!data || !Convert(text, data, size)) { free(data); data = local; local[0] = 0; }
+    }
+    ~Text() { if (data != local) free(data); }
+    operator const To*() const { return data; }
+private:
+    To local[1024];
+    To* data;
+    Text(const Text&);                  // not copied (nor passed to printf's "...")
+    Text& operator=(const Text&);
+};
+typedef Text<TCHAR, char, toUtf8> Utf8;
+typedef Text<char, TCHAR, toWide> Wide;
+
+// a name into a fixed buffer of the caller (cut when longer: names are short)
+static void wtext(const TCHAR* s, char* out, int size) {
+    if (!toUtf8(s, out, size) && size) out[size - 1] = 0;
+}
+
 static void printUtf8(const TCHAR* text, FILE* stream) {
-    char buffer[16384];
-    int count = WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)text, -1,
-        buffer, sizeof(buffer), NULL, NULL);
-    if (count) fwrite(buffer, 1, count - 1, stream);
+    fputs(Utf8(text), stream);
     fputc('\n', stream); fflush(stream);
 }
 class Utf8Log : public FOutputDevice {
@@ -86,27 +122,32 @@ static int patchExport(const char* module, const char* symbol, const unsigned ch
     return 1;
 }
 
-// Revision's WinDrvLite rejects the temporary viewport LIGHT APPLY needs. The development
-// workspace already has this fix (tools/patch-windrvlite.ps1); installed DeusEdix reads the
-// original DLL. Apply only the known, byte-checked fix in this process, never to a game file.
+// Revision's WinDrvLite.dll (its window and input driver) stops LIGHT APPLY: the temporary viewport the lighting
+// build opens fails the check(!IsTemporary) of UWindowsViewportLite::OpenWindow. The fix turns the conditional
+// jump over that assertion into an unconditional one, so a temporary viewport opens like any other. It is made in
+// this process's memory only, never in the game's file, and only when the bytes around it are the known build's:
+//   +0x1647E  39 7D 0C            cmp  [ebp+0Ch], edi      the IsTemporary argument
+//   +0x16481  74 18  ->  EB 18    je   -> jmp  +18h        over the assertion
+//   +0x16483  68 E6 00 00 00      push 0E6h                the assertion's failure call begins
+// With another build of the DLL nothing is changed and LIGHT APPLY is refused (runCommand).
+static const DWORD WinDrvLiteCheck = 0x1647E;               // the cmp, from the DLL's base
 static int temporaryViewportReady = 1;
 static int patchTemporaryViewport() {
-    unsigned char* base = (unsigned char*)GetModuleHandleA("WinDrvLite.dll");
-    if (!base) return 1; // another viewport manager
-    IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
-    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
-    if (nt->OptionalHeader.SizeOfImage < 0x16490) return 0;
-    unsigned char* code = base + 0x1647e;
-    const unsigned char prefix[] = {0x39, 0x7d, 0x0c};
-    const unsigned char suffix[] = {0x18, 0x68, 0xe6, 0x00, 0x00, 0x00};
-    if (memcmp(code, prefix, sizeof(prefix)) || memcmp(code + 4, suffix, sizeof(suffix))) return 0;
-    if (code[3] == 0xeb) return 1;
-    if (code[3] != 0x74) return 0;
+    BYTE* base = (BYTE*)GetModuleHandleA("WinDrvLite.dll");
+    if (!base) return 1;                                     // the original game's WinDrv.dll: nothing to fix
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    static const BYTE before[] = { 0x39, 0x7D, 0x0C }, after[] = { 0x18, 0x68, 0xE6, 0x00, 0x00, 0x00 };
+    const BYTE je = 0x74, jmp = 0xEB;
+    if (nt->OptionalHeader.SizeOfImage < WinDrvLiteCheck + sizeof(before) + 1 + sizeof(after)) return 0;
+    BYTE* jump = base + WinDrvLiteCheck + sizeof(before);
+    if (memcmp(jump - sizeof(before), before, sizeof(before)) || memcmp(jump + 1, after, sizeof(after))) return 0;
+    if (*jump == jmp) return 1;                              // a copy of the DLL fixed on disk (UnrealEd's)
+    if (*jump != je) return 0;
     DWORD old;
-    if (!VirtualProtect(code + 3, 1, PAGE_EXECUTE_READWRITE, &old)) return 0;
-    code[3] = 0xeb;
-    VirtualProtect(code + 3, 1, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), code + 3, 1);
+    if (!VirtualProtect(jump, 1, PAGE_EXECUTE_READWRITE, &old)) return 0;
+    *jump = jmp;
+    VirtualProtect(jump, 1, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), jump, 1);
     puts("UCMapKit|patched|WinDrvLite.dll|temporary lighting viewport (memory only)");
     return 1;
 }
@@ -183,8 +224,8 @@ static int checkActors() {
         if (region.iLeaf != INDEX_NONE) continue;
         buried++;
         char cls[128], name[128];
-        WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)actor->GetClass()->GetName(), -1, cls, sizeof(cls), NULL, NULL);
-        WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)actor->GetName(), -1, name, sizeof(name), NULL, NULL);
+        wtext(actor->GetClass()->GetName(), cls, sizeof(cls));
+        wtext(actor->GetName(), name, sizeof(name));
         printf("UCMapKit|in solid|%s|%s|%.0f %.0f %.0f\n", cls, name, actor->Location.X, actor->Location.Y, actor->Location.Z);
     }
     printf("UCMapKit|actors|%d checked|%d in solid\n", checked, buried);
@@ -199,7 +240,7 @@ static int probePoint(const char* line) {
     FPointRegion region = GEditor->Level->Model->PointRegion(GEditor->Level->GetLevelInfo(), FVector(x, y, z));
     char zone[128] = "none";
     if (region.Zone)
-        WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)region.Zone->GetName(), -1, zone, sizeof(zone), NULL, NULL);
+        wtext(region.Zone->GetName(), zone, sizeof(zone));
     printf("UCMapKit|point|%.0f %.0f %.0f|leaf %d|zone %d|%s\n", x, y, z, region.iLeaf, region.ZoneNumber, zone);
     return 1;
 }
@@ -254,7 +295,7 @@ static int dumpBsp(const char* line) {
         char tex[256] = "none";
         float tw = 128, th = 128;
         if (s.Texture) {
-            WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)s.Texture->GetPathName(), -1, tex, sizeof(tex), NULL, NULL);
+            wtext(s.Texture->GetPathName(), tex, sizeof(tex));
             float sc = s.Texture->Scale > 0 ? s.Texture->Scale : 1.f;
             tw = s.Texture->USize * sc;
             th = s.Texture->VSize * sc;
@@ -288,7 +329,6 @@ static int dumpBsp(const char* line) {
 //       its zone's ambient (+ what the floor under it adds, when its centre sees no light) and the lights
 //       that see its centre (the engine lights meshes per vertex, each light all or nothing)
 //   C <mapping check: surfaces whose polygons fall inside their lightmap> <surfaces>
-static void wtext(const TCHAR* s, char* out, int size);
 
 static FVector lightColour(BYTE H, BYTE S, BYTE V) {
     FVector hue = H < 86 ? FVector((85 - H) / 85.f, H / 85.f, 0)
@@ -497,9 +537,6 @@ static int dumpLights(const char* line) {
 // actor, then one line per triangle with texture, flags and normalised UVs:
 // A <name> <class> <mesh|mover> <style> <triangles>
 // T <texture path> <flags> x y z u v  x y z u v  x y z u v
-static void wtext(const TCHAR* s, char* out, int size) {
-    WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)s, -1, out, size, NULL, NULL);
-}
 
 // SEH helpers (no C++ objects to unwind in these frames)
 static int safeFrame(UMesh* mesh, ULodMesh* lod, FVector* out, AActor* a) {
@@ -627,32 +664,39 @@ static int dumpMeshes(const char* line) {
 // UC_TEXDUMP <texture path> <file>: a texture as raw RGBA (the largest mip up to 256 pixels), also
 // for the compressed (DXT1) and true-colour textures of Revision that OBJ EXPORT writes as empty files.
 // File: "UCTEX <w> <h>\n" then w*h*4 bytes.
-static void dxt1Block(const BYTE* b, BYTE out[16][4]) {
-    WORD c0 = b[0] | (b[1] << 8), c1 = b[2] | (b[3] << 8);
-    BYTE col[4][4];
-    for (int i = 0; i < 2; i++) {
-        WORD c = i ? c1 : c0;
-        col[i][0] = (BYTE)(((c >> 11) & 31) * 255 / 31);
-        col[i][1] = (BYTE)(((c >> 5) & 63) * 255 / 63);
-        col[i][2] = (BYTE)((c & 31) * 255 / 31);
-        col[i][3] = 255;
+// The pixel layouts UC_TEXDUMP reads, and the one it writes. A DXT1 block is 4x4 pixels drawn from two RGB565
+// colours (5 bits red, 6 green, 5 blue) and two in between, 2 bits a pixel; when Color0 <= Color1 there is one
+// colour in between and the fourth is transparent black.
+struct Rgba { BYTE R, G, B, A; };                           // the dump file
+struct Bgra { BYTE B, G, R, A; };                           // TEXF_RGBA8
+struct Bgr { BYTE B, G, R; };                               // TEXF_RGB8
+struct Dxt1Block { WORD Color0, Color1; DWORD Indices; };   // TEXF_DXT1
+static_assert(sizeof(Bgr) == 3 && sizeof(Dxt1Block) == 8, "texture layouts");
+
+static Rgba rgb565(WORD c) {
+    Rgba out = { (BYTE)(((c >> 11) & 31) * 255 / 31), (BYTE)(((c >> 5) & 63) * 255 / 63), (BYTE)((c & 31) * 255 / 31), 255 };
+    return out;
+}
+
+// a and b mixed wa:wb, as the format makes its colours in between
+static Rgba blend(const Rgba& a, int wa, const Rgba& b, int wb) {
+    int sum = wa + wb;
+    Rgba out = { (BYTE)((wa * a.R + wb * b.R) / sum), (BYTE)((wa * a.G + wb * b.G) / sum),
+                 (BYTE)((wa * a.B + wb * b.B) / sum), 255 };
+    return out;
+}
+
+static void dxt1Block(const Dxt1Block& block, Rgba out[16]) {
+    Rgba colours[4] = { rgb565(block.Color0), rgb565(block.Color1) };
+    if (block.Color0 > block.Color1) {
+        colours[2] = blend(colours[0], 2, colours[1], 1);
+        colours[3] = blend(colours[0], 1, colours[1], 2);
+    } else {
+        colours[2] = blend(colours[0], 1, colours[1], 1);
+        Rgba clear = { 0, 0, 0, 0 };
+        colours[3] = clear;
     }
-    for (int k = 0; k < 3; k++) {
-        if (c0 > c1) {
-            col[2][k] = (BYTE)((2 * col[0][k] + col[1][k]) / 3);
-            col[3][k] = (BYTE)((col[0][k] + 2 * col[1][k]) / 3);
-        } else {
-            col[2][k] = (BYTE)((col[0][k] + col[1][k]) / 2);
-            col[3][k] = 0;
-        }
-    }
-    col[2][3] = 255;
-    col[3][3] = c0 > c1 ? 255 : 0;
-    DWORD bits = b[4] | (b[5] << 8) | (b[6] << 16) | ((DWORD)b[7] << 24);
-    for (int i = 0; i < 16; i++) {
-        int idx = (bits >> (2 * i)) & 3;
-        for (int k = 0; k < 4; k++) out[i][k] = col[idx][k];
-    }
+    for (int i = 0; i < 16; i++) out[i] = colours[(block.Indices >> (2 * i)) & 3];
 }
 
 // The mips of a loaded texture: UTexture::Mips, a TArray<FMipmap> (FMipmapBase's sizes, then the pixels in a
@@ -670,12 +714,8 @@ static int loadMip(FMipmap* m) {
 static int loadPackage(const char* line) {
     const char* path = line + 10;
     while (*path == ' ') path++;
-    int n = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
-    if (n <= 1) return 0;
-    TCHAR* wide = (TCHAR*)malloc(n * sizeof(TCHAR));
-    MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)wide, n);
-    UObject* package = UObject::LoadPackage(NULL, wide, LOAD_NoWarn);
-    free(wide);
+    if (!*path) return 0;
+    UObject* package = UObject::LoadPackage(NULL, Wide(path), LOAD_NoWarn);
     printf("UCMapKit|loadpkg|%s|%s\n", package ? "ok" : "failed", path);
     return package != NULL;
 }
@@ -707,9 +747,7 @@ static int dumpTexture(const char* line) {
     char name[256], path[512];
     int maxSize = 256;                              // UC_TEXDUMP <tex> <file> [largest side]: 256 by default
     if (sscanf(line, "UC_TEXDUMP %255s %511s %d", name, path, &maxSize) < 2) return 0;
-    TCHAR wname[256];
-    MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 256);
-    UTexture* t = (UTexture*)UObject::StaticLoadObject(UTexture::StaticClass(), NULL, wname, NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
+    UTexture* t = (UTexture*)UObject::StaticLoadObject(UTexture::StaticClass(), NULL, Wide(name), NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
     if (!t) { printf("UCMapKit|texdump|missing|%s\n", name); return 1; }
     printf("UCMapKit|texdump|info|%s|%dx%d|scale %g|format %d\n", name, t->USize, t->VSize, t->Scale, (int)t->Format);
     // the largest mip up to maxSize pixels (the first one if all are larger); only that one is loaded
@@ -718,42 +756,36 @@ static int dumpTexture(const char* line) {
     FMipmap* mip = t->Mips.Num() ? &t->Mips(at) : NULL;
     if (!mip || mip->USize <= 0 || mip->VSize <= 0 || !loadMip(mip)) { printf("UCMapKit|texdump|nodata|%s\n", name); return 1; }
     int w = mip->USize, h = mip->VSize;
-    BYTE* rgba = (BYTE*)calloc(w * h, 4);
-    BYTE* d = &mip->DataArray(0);
+    Rgba* rgba = (Rgba*)calloc(w * h, sizeof(Rgba));
+    const BYTE* d = &mip->DataArray(0);
     int n = mip->DataArray.Num(), ok = 1;
     if (t->Format == TEXF_P8 && t->Palette && n >= w * h) {
         int masked = (t->PolyFlags & PF_Masked) != 0;          // colour 0 of a masked texture is see-through
         for (int i = 0; i < w * h; i++) {
             FColor c = t->Palette->Colors(d[i]);
-            rgba[i * 4 + 0] = c.R; rgba[i * 4 + 1] = c.G; rgba[i * 4 + 2] = c.B;
-            rgba[i * 4 + 3] = (masked && d[i] == 0) ? 0 : 255;
+            Rgba pixel = { c.R, c.G, c.B, (BYTE)((masked && d[i] == 0) ? 0 : 255) };
+            rgba[i] = pixel;
         }
-    } else if (t->Format == TEXF_DXT1 && w >= 4 && h >= 4 && n >= (w / 4) * (h / 4) * 8) {
-        BYTE block[16][4];
+    } else if (t->Format == TEXF_DXT1 && w >= 4 && h >= 4 && n >= (w / 4) * (h / 4) * (int)sizeof(Dxt1Block)) {
+        const Dxt1Block* blocks = (const Dxt1Block*)d;
+        Rgba block[16];
         for (int by = 0; by < h / 4; by++)
             for (int bx = 0; bx < w / 4; bx++) {
-                dxt1Block(d + (by * (w / 4) + bx) * 8, block);
-                for (int i = 0; i < 16; i++) {
-                    int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
-                    memcpy(rgba + (y * w + x) * 4, block[i], 4);
-                }
+                dxt1Block(blocks[by * (w / 4) + bx], block);
+                for (int i = 0; i < 16; i++) rgba[(by * 4 + (i >> 2)) * w + bx * 4 + (i & 3)] = block[i];
             }
-    } else if (t->Format == TEXF_RGBA8 && n >= w * h * 4) {
-        for (int i = 0; i < w * h; i++) {          // stored B, G, R, A
-            rgba[i * 4 + 0] = d[i * 4 + 2]; rgba[i * 4 + 1] = d[i * 4 + 1]; rgba[i * 4 + 2] = d[i * 4 + 0];
-            rgba[i * 4 + 3] = d[i * 4 + 3];
-        }
-    } else if (t->Format == TEXF_RGB8 && n >= w * h * 3) {
-        for (int i = 0; i < w * h; i++) {
-            rgba[i * 4 + 0] = d[i * 3 + 2]; rgba[i * 4 + 1] = d[i * 3 + 1]; rgba[i * 4 + 2] = d[i * 3 + 0];
-            rgba[i * 4 + 3] = 255;
-        }
+    } else if (t->Format == TEXF_RGBA8 && n >= w * h * (int)sizeof(Bgra)) {
+        const Bgra* p = (const Bgra*)d;
+        for (int i = 0; i < w * h; i++) { Rgba pixel = { p[i].R, p[i].G, p[i].B, p[i].A }; rgba[i] = pixel; }
+    } else if (t->Format == TEXF_RGB8 && n >= w * h * (int)sizeof(Bgr)) {
+        const Bgr* p = (const Bgr*)d;
+        for (int i = 0; i < w * h; i++) { Rgba pixel = { p[i].R, p[i].G, p[i].B, 255 }; rgba[i] = pixel; }
     } else ok = 0;
     if (ok) {
         FILE* f = fopen(path, "wb");
         if (f) {
             fprintf(f, "UCTEX %d %d\n", w, h);
-            fwrite(rgba, 4, w * h, f);
+            fwrite(rgba, sizeof(Rgba), w * h, f);
             fclose(f);
         }
         printf("UCMapKit|texdump|ok|%s|%d %d|format %d\n", name, w, h, (int)t->Format);
@@ -810,6 +842,13 @@ static int listClasses(const char* line) {
     return 1;
 }
 
+// A property named at run time (the Properties panel, a story's settings): the engine's own description of it,
+// UProperty, gives its place in the object (Offset) and the size of one element - the address ImportText and
+// ExportText use. Members known when compiling are read through the SDK's structs instead.
+static BYTE* propertyData(UObject* obj, UProperty* p, INT index) {
+    return (BYTE*)obj + p->Offset + index * p->ElementSize;
+}
+
 // UC_DEFAULTS <file> <prop,prop,...>: the class defaults of those properties for every actor class (the
 // map editor's Properties panel: a map's T3D only has what differs from the class). Lines:
 //   C <class> <parents a/b/c/>          P <class> <prop> <index> <property type> <value>
@@ -822,20 +861,15 @@ static int safeExport(UProperty* p, INT index, BYTE* obj, TCHAR* out) {
     return 1;
 }
 
-// Conversation data stays in a local cache. Export reflected properties, including zero/default
-// values and full object paths, so Python can follow the native linked lists without guessing layouts.
-static void conJsonText(FILE* f, const TCHAR* value) {
-    int n = WideCharToMultiByte(CP_UTF8, 0, (LPCWSTR)value, -1, NULL, 0, NULL, NULL);
-    char* text = (char*)malloc(n > 0 ? n : 1);
-    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, (LPCWSTR)value, -1, text, n, NULL, NULL);
-    else text[0] = 0;
-    fputc('"', f);
-    for (unsigned char* p = (unsigned char*)text; *p; ++p) {
-        if (*p == '"' || *p == '\\') { fputc('\\', f); fputc(*p, f); }
-        else if (*p < 32) fprintf(f, "\\u%04x", *p);
-        else fputc(*p, f);
-    }
-    fputc('"', f); free(text);
+static std::string utf8(const TCHAR* text) {
+    return std::string(Utf8(text));
+}
+
+// One JSON line of a dump. Text that is not valid UTF-8 is replaced, never refused.
+static void writeRow(FILE* f, const Json& row) {
+    std::string text = row.dump(-1, ' ', false, Json::error_handler_t::replace);
+    text += '\n';
+    fwrite(text.data(), 1, text.size(), f);
 }
 
 // A native class of the game found by name (its StaticClass() would make the host depend on that package's
@@ -844,9 +878,7 @@ static void conJsonText(FILE* f, const TCHAR* value) {
 static UClass* nativeClass(const TCHAR* path, INT size) {
     UClass* cls = FindObject<UClass>(ANY_PACKAGE, path);
     if (cls && (cls->GetFlags() & RF_Native) && cls->GetPropertiesSize() == size) return cls;
-    printf("UCMapKit|failed|class ");
-    printUtf8(path, stdout);
-    printf(cls ? " is not the one of the SDK headers\n" : " is not loaded\n");
+    printf("UCMapKit|failed|class %s %s\n", (const char*)Utf8(path), cls ? "is not the one of the SDK headers" : "is not loaded");
     return NULL;
 }
 
@@ -855,16 +887,17 @@ static UClass* nativeClass(const TCHAR* path, INT size) {
 static FILE* openContentDump(const char* line, UPackage** package) {
     char name[128], path[512];
     if (sscanf(line, "%*s %127s %511s", name, path) != 2) return NULL;
-    TCHAR wide[128]; MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wide, 128);
-    *package = FindObject<UPackage>(NULL, wide);
+    *package = FindObject<UPackage>(NULL, Wide(name));
     return *package ? fopen(path, "wb") : NULL;
 }
 
 // parent: a copy, as GetPathName() hands every caller the same buffer
 static void contentRow(FILE* f, UObject* obj, const FString& parent, const TCHAR* text) {
-    fputs("{\"path\":", f); conJsonText(f, obj->GetPathName());
-    fputs(",\"parent\":", f); conJsonText(f, *parent);
-    fputs(",\"text\":", f); conJsonText(f, text); fputs("}\n", f);
+    Json row;
+    row["path"] = utf8(obj->GetPathName());
+    row["parent"] = utf8(*parent);
+    row["text"] = utf8(text);
+    writeRow(f, row);
 }
 
 static int dumpScripts(const char* line) {
@@ -897,6 +930,8 @@ static int dumpTexts(const char* line) {
     return count > 0;
 }
 
+// UC_CONDUMP <file>: every conversation object loaded, for the editor's local cache: all their reflected
+// properties, zero and default values too, objects as full paths, so Python follows the native linked lists.
 static int dumpConversations(const char* line) {
     char path[512];
     if (sscanf(line, "UC_CONDUMP %511s", path) != 1) return 0;
@@ -905,46 +940,39 @@ static int dumpConversations(const char* line) {
     if (!base || !randomLabel) return 0;
     FILE* f = fopen(path, "wb");
     if (!f) return 0;
+    // ExportText writes into the caller's buffer and is given no size: one large buffer for every value
     static TCHAR value[65536];
     int count = 0, errors = 0;
     for (TObjectIterator<UObject> it; it; ++it) {
         UObject* obj = *it;
         if (!obj->IsA(base)) continue;
-        fputs("{\"class\":", f); conJsonText(f, obj->GetClass()->GetName());
-        fputs(",\"path\":", f); conJsonText(f, obj->GetPathName());
-        fputs(",\"properties\":{", f);
-        int first = 1;
+        Json row;
+        row["class"] = utf8(obj->GetClass()->GetName());
+        row["path"] = utf8(obj->GetPathName());
+        Json& properties = row["properties"] = Json::object();
         for (TFieldIterator<UProperty> p(obj->GetClass()); p; ++p) {
             for (INT i = 0; i < p->ArrayDim; ++i) {
-                if (!first) fputc(',', f); first = 0;
                 TCHAR key[256];
                 if (p->ArrayDim > 1) appSprintf(key, TEXT("%s(%d)"), p->GetName(), i);
                 else appStrcpy(key, p->GetName());
-                conJsonText(f, key); fputc(':', f);
+                Json& out = properties[utf8(key)];          // null unless exported
                 // Some original camera transitions contain an out-of-range enum byte. Export the
                 // stored number in that case; ExportText would index past the enum's names.
                 UByteProperty* byte = Cast<UByteProperty>(*p);
-                INT raw = byte ? *((BYTE*)obj + p->Offset + i * p->ElementSize) : 0;
-                if (byte && byte->Enum && raw >= byte->Enum->Names.Num()) {
-                    appSprintf(value, TEXT("%d"), raw); conJsonText(f, value);
-                }
-                else if (safeExport(*p, i, (BYTE*)obj, value)) conJsonText(f, value);
-                else { fputs("null", f); ++errors; }
+                BYTE raw = byte ? *propertyData(obj, *p, i) : 0;
+                if (byte && byte->Enum && raw >= byte->Enum->Names.Num()) out = std::to_string(raw);
+                else if (safeExport(*p, i, (BYTE*)obj, value)) out = utf8(value);
+                else ++errors;
             }
         }
-        fputc('}', f);
         if (obj->IsA(randomLabel)) {
             // the random/cyclic jump targets: a TArray<FString> in C++, which the script property list
             // only shows as an opaque array header
-            TArray<FString>& labels = ((DConEventRandomLabel*)obj)->labels;
-            fputs(",\"labels\":[", f);
-            for (INT i = 0; i < labels.Num(); ++i) {
-                if (i) fputc(',', f);
-                conJsonText(f, *labels(i));
-            }
-            fputc(']', f);
+            Json& labels = row["labels"] = Json::array();
+            TArray<FString>& names = ((DConEventRandomLabel*)obj)->labels;
+            for (INT i = 0; i < names.Num(); ++i) labels.push_back(utf8(*names(i)));
         }
-        fputs("}\n", f); ++count;
+        writeRow(f, row); ++count;
     }
     fclose(f);
     printf("UCMapKit|condump|%d|property errors %d\n", count, errors);
@@ -955,19 +983,18 @@ static int dumpConversations(const char* line) {
 static int conversationSound(const char* line) {
     char name[512], path[512]; INT id;
     if (sscanf(line, "UC_CONSOUND %511s %d %511s", name, &id, path) != 3 || id < 0) return 0;
-    TCHAR wname[512];
-    MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 512);
+    Wide wname(name);
     UClass* conversation = nativeClass(TEXT("ConSys.Conversation"), sizeof(DConversation));
     UObject* obj = FindObject<UObject>(ANY_PACKAGE, wname);
     if (!conversation || !obj || !obj->IsA(conversation)) return 0;
     USound* sound = ((DConversation*)obj)->GetSpeechAudio(id);
+    Json row;
+    row["conversation"] = name;
+    row["id"] = id;
+    row["sound"] = sound && sound->IsA(USound::StaticClass()) ? Json(utf8(sound->GetPathName())) : Json();
     FILE* f = fopen(path, "ab");
     if (!f) return 0;
-    fputs("{\"conversation\":", f); conJsonText(f, wname);
-    fprintf(f, ",\"id\":%d,\"sound\":", id);
-    if (sound && sound->IsA(USound::StaticClass())) conJsonText(f, sound->GetPathName());
-    else fputs("null", f);
-    fputs("}\n", f); fclose(f);
+    writeRow(f, row); fclose(f);
     printf("UCMapKit|consound|%s|%d|%s\n", name, id, sound ? "found" : "missing");
     return 1;
 }
@@ -999,9 +1026,7 @@ static int dumpDefaults(const char* line) {
         }
         fprintf(f, "C\t%s\t%s\n", name, parents);
         for (int k = 0; k < np; k++) {
-            unsigned short wprop[64];
-            MultiByteToWideChar(CP_UTF8, 0, props[k], -1, (LPWSTR)wprop, 64);
-            UProperty* p = FindField<UProperty>(c, (const TCHAR*)wprop);
+            UProperty* p = FindField<UProperty>(c, Wide(props[k]));
             if (!p) continue;
             char type[64];
             wtext(p->GetClass()->GetName(), type, sizeof(type));
@@ -1039,9 +1064,7 @@ static int dumpDefaults(const char* line) {
 static int dumpClassProps(const char* line) {
     char path[512], cname[128];
     if (sscanf(line, "UC_CLASSPROPS %511s %127s", path, cname) != 2) return 0;
-    unsigned short wname[128];
-    MultiByteToWideChar(CP_UTF8, 0, cname, -1, (LPWSTR)wname, 128);
-    UClass* c = FindObject<UClass>(ANY_PACKAGE, (const TCHAR*)wname);
+    UClass* c = FindObject<UClass>(ANY_PACKAGE, Wide(cname));
     if (!c || !c->IsChildOf(AActor::StaticClass())) { printf("UCMapKit|classprops|missing|%s\n", cname); return 1; }
     BYTE* d = (BYTE*)c->GetDefaultObject();
     FILE* f = fopen(path, "wt");
@@ -1177,13 +1200,10 @@ static int setPropOn(AActor* a, const char* name, char* prop, const char* value)
     int index = 0;
     char* paren = strchr(prop, '(');
     if (paren) { index = atoi(paren + 1); *paren = 0; }
-    // a value can be long: the text of a book or a datacube (the command line is up to 8 KB)
-    unsigned short wprop[128], wvalue[8192];
-    MultiByteToWideChar(CP_UTF8, 0, prop, -1, (LPWSTR)wprop, 128);
-    MultiByteToWideChar(CP_UTF8, 0, value, -1, (LPWSTR)wvalue, 8192);
-    UProperty* p = FindField<UProperty>(a->GetClass(), (const TCHAR*)wprop);
+    UProperty* p = FindField<UProperty>(a->GetClass(), Wide(prop));
     if (!p || index < 0 || index >= p->ArrayDim) { printf("UCMapKit|prop|noprop|%s|%s\n", name, prop); return 1; }
-    if (!safeImport(p, (const TCHAR*)wvalue, (BYTE*)a + p->Offset + index * p->ElementSize)) {
+    // a value can be long (the text of a book or a datacube): Wide takes the heap for it
+    if (!safeImport(p, Wide(value), propertyData(a, p, index))) {
         printf("UCMapKit|prop|failed|%s|%s\n", name, prop);
         return 1;
     }
@@ -1214,15 +1234,11 @@ static int setObjProp(const char* line) {
     char name[256], prop[128];
     int used = 0;
     if (sscanf(line, "UC_OBJPROP %255s %127s %n", name, prop, &used) < 2 || !used) return 0;
-    unsigned short wname[256], wprop[128], wvalue[1024];
-    MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 256);
-    MultiByteToWideChar(CP_UTF8, 0, prop, -1, (LPWSTR)wprop, 128);
-    MultiByteToWideChar(CP_UTF8, 0, line + used, -1, (LPWSTR)wvalue, 1024);
-    UObject* o = UObject::StaticFindObject(UObject::StaticClass(), ANY_PACKAGE, (const TCHAR*)wname);
+    UObject* o = UObject::StaticFindObject(UObject::StaticClass(), ANY_PACKAGE, Wide(name));
     if (!o) { printf("UCMapKit|objprop|missing|%s\n", name); return 1; }
-    UProperty* p = FindField<UProperty>(o->GetClass(), (const TCHAR*)wprop);
+    UProperty* p = FindField<UProperty>(o->GetClass(), Wide(prop));
     if (!p) { printf("UCMapKit|objprop|noprop|%s|%s\n", name, prop); return 1; }
-    if (!safeImport(p, (const TCHAR*)wvalue, (BYTE*)o + p->Offset)) { printf("UCMapKit|objprop|failed|%s|%s\n", name, prop); return 1; }
+    if (!safeImport(p, Wide(line + used), propertyData(o, p, 0))) { printf("UCMapKit|objprop|failed|%s|%s\n", name, prop); return 1; }
     printf("UCMapKit|objprop|ok|%s|%s\n", name, prop);
     return 1;
 }
@@ -1271,9 +1287,7 @@ static int setSurfTexture(const char* line) {
     char name[128], oldt[128], newt[256];
     if (sscanf(line, "UC_SURFTEX %127s %127s %255s", name, oldt, newt) != 3) return 0;
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    unsigned short wnew[256];
-    MultiByteToWideChar(CP_UTF8, 0, newt, -1, (LPWSTR)wnew, 256);
-    UTexture* tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, (const TCHAR*)wnew);
+    UTexture* tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, Wide(newt));
     if (!tex) { printf("UCMapKit|surftex|notexture|%s\n", newt); return 1; }
     int n = 0;
     if (!strcmp(name, "*")) {                  // every brush of the map (and every mover)
@@ -1433,8 +1447,7 @@ static int editSurface(const char* line) {
     if (shadow && strcmp(arg, "low") && strcmp(arg, "normal") && strcmp(arg, "high")) return surfaceError("Invalid shadow detail");
     UTexture* tex = NULL;
     if (texture) {
-        unsigned short w[256]; MultiByteToWideChar(CP_UTF8, 0, arg, -1, (LPWSTR)w, 256);
-        tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, (const TCHAR*)w);
+        tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, Wide(arg));
         if (!tex) return surfaceError("Texture is not loaded");
     }
     int changed = 0;
@@ -1544,9 +1557,7 @@ static int dumpPaths(const char* line) {
 //   special SpecialFaces x (uint16 v0, v1, v2, material)
 //   verts   Verts x (int16 x, y, z): raw mesh units, frame after frame (FrameVerts each)
 static UMesh* loadMesh(const char* path) {
-    TCHAR w[256];
-    MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)w, 256);
-    return (UMesh*)UObject::StaticLoadObject(UMesh::StaticClass(), NULL, w, NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
+    return (UMesh*)UObject::StaticLoadObject(UMesh::StaticClass(), NULL, Wide(path), NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
 }
 static int dumpAnims(const char* line) {
     char mpath[256], path[512];
@@ -1649,15 +1660,15 @@ static int newAnimMesh(const char* line) {
         NewSeq& s = seqs[nseq];
         if (sscanf(l, "seq %63s %63s %d %f", s.name, s.group, &s.frames, &s.rate) == 4 && s.frames > 0) { total += s.frames; nseq++; }
     }
+    // after the "data" line, the new frames' vertices as editor/anims.py writes them: x y z, 16-bit each
+    struct FrameVert { short X, Y, Z; };
     int fv = from->FrameVerts;
-    short* v = (short*)malloc((size_t)total * fv * 6);
+    FrameVert* v = (FrameVert*)malloc(sizeof(FrameVert) * (size_t)total * fv);
     fseek(f, dataAt, SEEK_SET);
-    size_t read = fread(v, 6, (size_t)total * fv, f);
+    size_t read = fread(v, sizeof(FrameVert), (size_t)total * fv, f);
     fclose(f);
     if ((int)read != total * fv) { free(v); printf("UCMapKit|animnew|frames missing|%d of %d\n", (int)read, total * fv); return 0; }
-    TCHAR wpkg[128], wname[128];
-    MultiByteToWideChar(CP_UTF8, 0, pkg, -1, (LPWSTR)wpkg, 128);
-    MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 128);
+    Wide wpkg(pkg), wname(name);
     if (!AnimPackage) AnimPackage = UObject::CreatePackage(NULL, wpkg);
     ULodMesh* m = (ULodMesh*)UObject::StaticConstructObject(ULodMesh::StaticClass(), AnimPackage, FName(wname),
         RF_Public | RF_Standalone, NULL, GWarn);
@@ -1706,7 +1717,7 @@ static int newAnimMesh(const char* line) {
     for (int i = 0; i < total * fv; i++) {
         FMeshVert& mv = m->Verts(at + i);
         mv.D1 = mv.D2 = 0;
-        mv.X = v[3 * i]; mv.Y = v[3 * i + 1]; mv.Z = v[3 * i + 2];
+        mv.X = v[i].X; mv.Y = v[i].Y; mv.Z = v[i].Z;
     }
     FVector* pts = (FVector*)malloc(sizeof(FVector) * fv);
     for (int k = 0; k < total; k++) {
@@ -1718,9 +1729,7 @@ static int newAnimMesh(const char* line) {
     m->AnimFrames += total;
     int start = first;
     for (int s = 0; s < nseq; s++) {
-        TCHAR wseq[64], wgroup[64];
-        MultiByteToWideChar(CP_UTF8, 0, seqs[s].name, -1, (LPWSTR)wseq, 64);
-        MultiByteToWideChar(CP_UTF8, 0, seqs[s].group, -1, (LPWSTR)wgroup, 64);
+        Wide wseq(seqs[s].name), wgroup(seqs[s].group);
         FMeshAnimSeq* q = new(m->AnimSeqs) FMeshAnimSeq;
         q->Name = FName(wseq);
         q->Group = FName(wgroup);
@@ -1750,13 +1759,9 @@ static int saveAnimPackage(const char* line) {
         strncpy(name, base ? base + 1 : path, 127);
         name[127] = 0;
         if (char* dot = strrchr(name, '.')) *dot = 0;
-        TCHAR wname[128];
-        MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 128);
-        AnimPackage = UObject::CreatePackage(NULL, wname);
+        AnimPackage = UObject::CreatePackage(NULL, Wide(name));
     }
-    TCHAR wpath[512];
-    MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)wpath, 512);
-    UBOOL ok = UObject::SavePackage(AnimPackage, NULL, RF_Standalone, wpath, GWarn);
+    UBOOL ok = UObject::SavePackage(AnimPackage, NULL, RF_Standalone, Wide(path), GWarn);
     printf("UCMapKit|animsave|%s|%d\n", path, ok ? 1 : 0);
     AnimPackage = NULL;
     return ok;
@@ -1804,11 +1809,7 @@ static int importMesh(const char* line) {
     char pkg[128], name[128], aniv[512], data[512];
     int old = 0, lodFlag = 1;
     if (sscanf(line, "UC_MESHIMPORT %127s %127s %511s %511s %d %d", pkg, name, aniv, data, &old, &lodFlag) < 4) return 0;
-    TCHAR wpkg[128], wname[128], waniv[512], wdata[512];
-    MultiByteToWideChar(CP_UTF8, 0, pkg, -1, (LPWSTR)wpkg, 128);
-    MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 128);
-    MultiByteToWideChar(CP_UTF8, 0, aniv, -1, (LPWSTR)waniv, 512);
-    MultiByteToWideChar(CP_UTF8, 0, data, -1, (LPWSTR)wdata, 512);
+    Wide wpkg(pkg), wname(name), waniv(aniv), wdata(data);
     UPackage* p = UObject::CreatePackage(NULL, wpkg);
     ULODProcessInfo info;
     info.LevelOfDetail = lodFlag;
@@ -1831,9 +1832,7 @@ static int importMesh(const char* line) {
 static int savePackage(const char* line) {
     char pkg[128], path[512];
     if (sscanf(line, "UC_SAVEPKG %127s %511s", pkg, path) != 2) return 0;
-    TCHAR wpkg[128], wpath[512];
-    MultiByteToWideChar(CP_UTF8, 0, pkg, -1, (LPWSTR)wpkg, 128);
-    MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)wpath, 512);
+    Wide wpkg(pkg), wpath(path);
     UPackage* p = UObject::CreatePackage(NULL, wpkg);
     UBOOL ok = UObject::SavePackage(p, NULL, RF_Standalone, wpath, GWarn);
     printf("UCMapKit|savepkg|%s|%d\n", path, ok ? 1 : 0);
@@ -2060,7 +2059,7 @@ static int listSizes() {
         AActor* actor = GEditor->Level->Actors(i);
         if (!actor || actor->IsA(ABrush::StaticClass()) || actor->IsA(ALevelInfo::StaticClass())) continue;
         char cls[128];
-        WideCharToMultiByte(CP_UTF8, 0, (const WCHAR*)actor->GetClass()->GetName(), -1, cls, sizeof(cls), NULL, NULL);
+        wtext(actor->GetClass()->GetName(), cls, sizeof(cls));
         printf("UCMapKit|size|%s|%.2f|%.2f\n", cls, actor->CollisionRadius, actor->CollisionHeight);
     }
     return 1;
@@ -2269,7 +2268,9 @@ int main(int argc, char** argv) {
     GEditor = ConstructObject<UEditorEngine>(UEditorEngine::StaticClass());
     GEditor->Init();
     temporaryViewportReady = patchTemporaryViewport();
-    // void __thiscall UEditorEngine::Draw(UViewport*, int, unsigned char*, int*) -> ret 16
+    // Headless, the editor engine's Draw would paint its viewports through UnrealEd's front-end, which is not
+    // there (it crashed on the toolbar buttons of LIGHT APPLY's viewport): Draw returns at once.
+    // void __thiscall UEditorEngine::Draw(UViewport*, int, unsigned char*, int*): ret 16, its four arguments
     static const unsigned char ret16[3] = { 0xC2, 0x10, 0x00 };
     patchExport("Editor.dll", "?Draw@UEditorEngine@@UAEXPAVUViewport@@HPAEPAH@Z", ret16, 3);
     puts("UCMapKit|ready"); fflush(stdout);

@@ -20,6 +20,7 @@ $arguments = @('/EHsc', '/Zc:forScope-', '/D_UNICODE', '/DUNICODE', '/Zc:wchar_t
     ('/I' + (Join-Path $lab 'headers\Window\Inc')),
     ('/I' + (Join-Path $lab 'headers\Extension\Inc')),
     ('/I' + (Join-Path $lab 'headers\ConSys\Inc')),
+    ('/I' + (Join-Path $PSScriptRoot 'third_party')),      # nlohmann/json
     '/nologo', '/O2', '/MT', '/D_CRT_SECURE_NO_WARNINGS',
     ('/I' + (Join-Path $msvc.FullName 'include')),
     ('/I' + (Join-Path $kit.FullName 'ucrt')),
