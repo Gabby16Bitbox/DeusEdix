@@ -154,7 +154,9 @@ def _run(game, target, label, extra_paths=(), packages=()):
         for f in packages:
             (system / Path(f).name).unlink(missing_ok=True)
             _link(Path(f), system / Path(f).name)
-        shutil.copy2(HOST, system / HOST.name)
+        for f in (HOST, HOST.with_name('UCEngineBridge.dll')):     # the host and its engine bridge
+            if f.is_file():
+                shutil.copy2(f, system / f.name)
         ini = _ini((system_src / profile['ini']).read_text(encoding='latin1'), system_src, system, extra_paths)
         for name in dict.fromkeys(('Default.ini', 'DeusEx.ini', profile['ini'])):
             (system / name).write_text(ini, encoding='latin1', newline='')

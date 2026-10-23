@@ -147,6 +147,7 @@ def main():
     shutil.rmtree(kit / 'host', ignore_errors=True)               # the source of the host is not needed to run
     (kit / 'bin').mkdir(parents=True, exist_ok=True)
     shutil.copy2(a.host, kit / 'bin' / 'UCMapKitHost.exe')
+    shutil.copy2(Path(a.host).with_name('UCEngineBridge.dll'), kit / 'bin' / 'UCEngineBridge.dll')   # its engine bridge
     shutil.copy2(HERE / 'ue1pkg.py', out / 'tools' / 'ue1pkg.py')
     copy_runtime(out)
     for name in ('README.md', 'NOTICE.md'):

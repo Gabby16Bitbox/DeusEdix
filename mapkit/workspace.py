@@ -67,7 +67,8 @@ def runtime_fingerprint():
     """Content, not timestamps: an installer may restore an older file date."""
     digest = hashlib.sha256()
     files = sorted((p for p in SRC.rglob('*') if p.is_file()), key=lambda p: str(p.relative_to(SRC)))
-    for path in files + [HOST, STAMP]:
+    bridge = HOST.with_name('UCEngineBridge.dll')       # the host's engine bridge (host/README.md)
+    for path in files + [HOST] + ([bridge] if bridge.is_file() else []) + [STAMP]:
         name = str(path.relative_to(SRC)) if path in files else path.name
         digest.update(name.encode('utf-8') + b'\0')
         digest.update(hashlib.sha256(path.read_bytes()).digest())
@@ -292,7 +293,10 @@ def build(log=None):
             time.sleep(5)
         target.unlink(missing_ok=True)
         host = SYS / HOST.name
+        bridge = HOST.with_name('UCEngineBridge.dll')   # the host's engine bridge (host/README.md)
         shutil.copy2(HOST, host)
+        if bridge.is_file():
+            shutil.copy2(bridge, SYS / bridge.name)
         t0 = time.time()
         try:
             r = subprocess.run([str(host), '--make', 'DeusEx.ini'], cwd=str(SYS), capture_output=True, text=True,
@@ -300,6 +304,7 @@ def build(log=None):
                                creationflags=subprocess.CREATE_NO_WINDOW)
         finally:
             host.unlink(missing_ok=True)
+            (SYS / bridge.name).unlink(missing_ok=True)
         text = (r.stdout or '') + (r.stderr or '')
         with COMPILE_LOG.open('w' if not attempt else 'a', encoding='utf-8') as f:
             f.write('==== %s, attempt %d, exit code %s, %.1f s\n%s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), attempt + 1,

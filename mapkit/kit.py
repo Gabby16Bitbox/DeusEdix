@@ -94,6 +94,12 @@ def prune(keep=20):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def host_files():
+    """The host and its engine bridge next to it (host/README.md); a host without one (an older build) runs alone."""
+    bridge = HOST.with_name('UCEngineBridge.dll')
+    return [HOST] + ([bridge] if bridge.is_file() else [])
+
+
 def new_run(inputs=(), label='run'):
     """Create a private run. inputs: paths of maps (or other files) copied into Input\\."""
     if not HOST.exists():
@@ -114,7 +120,8 @@ def new_run(inputs=(), label='run'):
         source = PROJECT / 'dist' / name
         if source.exists():
             os.link(source, system / name)      # a link, not a copy: the voices alone are 37 MB
-    shutil.copy2(HOST, system / HOST.name)
+    for f in host_files():
+        shutil.copy2(f, system / f.name)
     for p in extra_packages():                  # a package of another mod kept outside the game's folders
         source = Path(p.get('path') or '')
         if p.get('path') and source.is_file() and not (system / source.name).exists():

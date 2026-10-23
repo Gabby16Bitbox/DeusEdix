@@ -38,6 +38,21 @@ def extract_headers(archive_path, out):
     text = template.read_text(encoding='latin1')
     text = re.sub(r'(?<!typename )TTypeInfo<([^>]+)>::ConstInitType', r'typename TTypeInfo<\1>::ConstInitType', text)
     template.write_text(text, encoding='latin1')
+    # the three loops that use their variable after the loop (old for-scope rules): the variable is declared
+    # before, so code including the headers builds without the deprecated /Zc:forScope-
+    for name, old, new in FOR_SCOPE:
+        path = root / name
+        path.write_text(path.read_text(encoding='latin1').replace(old, new), encoding='latin1', newline='')
+
+
+FOR_SCOPE = [
+    ('Engine/Inc/UnActor.h', '\tfor( AActor* Top=this; Top->Owner; Top=Top->Owner );\n',
+     '\tAActor* Top;\n\tfor( Top=this; Top->Owner; Top=Top->Owner );\n'),
+    ('Core/Inc/FFileManagerGeneric.h', '\t\tfor( INT i=0; i<List.Num(); i++ )\n\t\t\tif( !Delete(',
+     '\t\tINT i;\n\t\tfor( i=0; i<List.Num(); i++ )\n\t\t\tif( !Delete('),
+    ('Core/Inc/FOutputDeviceFile.h', '\t\t\t\t\tfor( INT i=0; Ch[i]; i++ )\n',
+     '\t\t\t\t\tINT i;\n\t\t\t\t\tfor( i=0; Ch[i]; i++ )\n'),
+]
 
 
 def exports(dll):

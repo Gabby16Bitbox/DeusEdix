@@ -216,13 +216,17 @@ def compile(log=None):
     target = SYS / (PACKAGE + '.u')
     target.unlink(missing_ok=True)
     host = SYS / HOST.name
+    bridge = HOST.with_name('UCEngineBridge.dll')       # the host's engine bridge (host/README.md)
     shutil.copy2(HOST, host)
+    if bridge.is_file():
+        shutil.copy2(bridge, SYS / bridge.name)
     t0 = time.time()
     try:
         r = subprocess.run([str(host), '--make', MAKE_INI], cwd=str(SYS), capture_output=True, text=True, encoding='utf-8',
                            errors='replace', timeout=600, stdin=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
     finally:
         host.unlink(missing_ok=True)
+        (SYS / bridge.name).unlink(missing_ok=True)
         (SYS / MAKE_INI).unlink(missing_ok=True)
     text = (r.stdout or '') + (r.stderr or '')
     (SYS.parent / 'scripts-compile.log').write_text(text, encoding='utf-8')
