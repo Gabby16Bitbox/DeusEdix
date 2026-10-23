@@ -34,7 +34,7 @@ def exported(package, kind):
         command = 'UC_TEXTDUMP' if kind == 'texts' else 'UC_SCRIPTDUMP'
         session.batch(['OBJ LOAD FILE="%s.u"' % package,
                        command + ' ' + package + r' ..\Output\content.jsonl'])
-        rows = [json.loads(line) for line in (session.folder / 'Output/content.jsonl').read_text(encoding='utf-8').splitlines()]
+        rows = kit.rows(session.folder / 'Output' / 'content.jsonl')
     finally:
         session.close()
     gamecons._write(file, dict(version=VERSION, signature=signature, rows=rows))

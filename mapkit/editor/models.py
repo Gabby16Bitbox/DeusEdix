@@ -111,19 +111,12 @@ def listing(log=print):
                 loaded.append(n)
             except RuntimeError as e:
                 log('models: %s not loaded (%s)' % (n, str(e)[:120]))
-        s.batch([r'UC_MESHLIST ..\Output\meshlist.txt'])
-        text = (s.folder / 'Output' / 'meshlist.txt').read_text(encoding='utf-8', errors='replace')
+        s.batch([r'UC_MESHLIST ..\Output\meshlist.jsonl'])
+        rows = kit.rows(s.folder / 'Output' / 'meshlist.jsonl')
     finally:
         s.close()
-    meshes = []
-    for line in text.splitlines():
-        p = line.split(' ')
-        if len(p) < 7 or p[0] != 'M' or p[1] not in files:
-            continue
-        tris = int(p[4])
-        if tris <= 0:
-            continue
-        meshes.append(dict(mesh=p[2], pkg=p[1], cls=p[3], tris=tris, frames=int(p[5]), seqs=int(p[6])))
+    meshes = [dict(mesh=r['mesh'], pkg=r['package'], cls=r['class'], tris=r['triangles'], frames=r['frames'], seqs=r['sequences'])
+              for r in rows if r['package'] in files and r['triangles'] > 0]
     # the object of the game that uses it: its name, and the size it has there (its class's DrawScale)
     by_mesh = {}
     for c in data.catalog(log=lambda *a: None):
@@ -192,14 +185,14 @@ def package_models(pkg, log=print):
                            % (k + i, (i % 8) * 800 - 3200, (i // 8) * 800 - 3200, m['cls'], m['mesh']) for i, m in enumerate(chunk))
             (s.folder / 'T3D' / 'models.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='latin1')
             try:
-                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\models.t3d"', r'UC_MESHES ..\Output\meshes.txt'])
+                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\models.t3d"', r'UC_MESHES ..\Output\meshes.jsonl'])
             except RuntimeError as e:
                 log('models of %s, chunk %d: %s' % (pkg, k, str(e)[:160]))
                 s.close()
                 s = kit.Session([], 'editor-models-' + _safe(pkg)[:20])
                 s.batch(start)
                 continue
-            for name, m in data.parse_meshes(s.folder / 'Output' / 'meshes.txt').items():
+            for name, m in data.parse_meshes(s.folder / 'Output' / 'meshes.jsonl').items():
                 if name.startswith('UCM') and name[3:].isdigit():
                     found[meshes[int(name[3:])]['mesh']] = m
         textures = {p['tex']: (0, 0) for m in found.values() for p in m['parts']}

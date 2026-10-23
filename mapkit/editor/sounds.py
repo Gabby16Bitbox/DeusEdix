@@ -41,16 +41,11 @@ def catalog(log=print):
     log('reading the sounds of the game (once)...')
     s = kit.Session([], 'editor-sounds')
     try:
-        s.batch(['OBJ LOAD FILE="%s"' % p for p in PACKAGES] + [r'UC_SOUNDS ..\Output\sounds.txt'])
-        text = (s.folder / 'Output' / 'sounds.txt').read_text(encoding='utf-8', errors='replace')
+        s.batch(['OBJ LOAD FILE="%s"' % p for p in PACKAGES] + [r'UC_SOUNDS ..\Output\sounds.jsonl'])
+        rows = kit.rows(s.folder / 'Output' / 'sounds.jsonl')
     finally:
         s.close()
-    out = []
-    for line in text.splitlines():
-        f = line.split(' ')
-        if len(f) >= 2 and f[0].count('.') >= 1:
-            group = f[0].rsplit('.', 1)[0]
-            out.append(dict(name=f[0], group=group, size=int(f[1]) if f[1].isdigit() else 0))
+    out = [dict(name=r['sound'], group=r['sound'].rsplit('.', 1)[0], size=max(r['bytes'], 0)) for r in rows if '.' in r['sound']]
     out.sort(key=lambda x: (x['group'] not in AMBIENT, x['group'].lower(), x['name'].lower()))
     path.write_text(json.dumps(out), encoding='utf-8')
     return out

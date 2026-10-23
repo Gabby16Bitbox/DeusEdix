@@ -31,10 +31,10 @@ def query(classes, packages=(settings.PACKAGE + '.u',) + settings.GAME_LOADS):
                        for i, c in enumerate(todo))
         (folder / 'T3D' / 'sizes.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='ascii')
         cmds = ['MAP NEW'] + ['OBJ LOAD FILE="%s"' % p for p in packages]
-        cmds += ['MAP IMPORTADD FILE="..\\T3D\\sizes.t3d"', 'UC_SIZES']
-        text, _ = kit.execute(folder, cmds, 'sizes.log', timeout=600)
-        for m in re.finditer(r'UCMapKit\|size\|(\w+)\|([\d.]+)\|([\d.]+)', text):
-            cache[m[1]] = [float(m[2]), float(m[3])]
+        cmds += ['MAP IMPORTADD FILE="..\\T3D\\sizes.t3d"', r'UC_SIZES ..\Output\sizes.jsonl']
+        kit.execute(folder, cmds, 'sizes.log', timeout=600)
+        for row in kit.rows(folder / 'Output' / 'sizes.jsonl'):
+            cache[row['class']] = [float(row['radius']), float(row['height'])]
         CACHE.write_text(json.dumps(cache, indent=1, sort_keys=True))
     short = {c.split('.')[-1]: c for c in classes}
     return {c: cache.get(c.split('.')[-1], cache.get(c)) for c in short.values()}

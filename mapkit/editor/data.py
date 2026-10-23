@@ -128,24 +128,21 @@ def _dump(map_name, src, folder, log, lite=False):
     s = kit.Session([src], 'editor-' + map_name)
     try:
         s.cmd(r'MAP LOAD FILE="..\Input\%s"' % src.name)
-        dump = s.folder / 'Output' / 'bsp.txt'
-        s.cmd(r'UC_BSPDUMP ..\Output\bsp.txt')     # relative: the project path has spaces
-        s.cmd(r'UC_BRUSHES ..\Output\brushes.txt')
+        dump = s.folder / 'Output' / 'bsp.jsonl'
+        s.cmd(r'UC_BSPDUMP ..\Output\bsp.jsonl')     # relative: the project path has spaces
+        s.cmd(r'UC_BRUSHES ..\Output\brushes.jsonl')
         if not lite:
-            s.cmd(r'UC_MESHES ..\Output\meshes.txt')   # the real 3D models of the objects and the doors
-            s.cmd(r'UC_LIGHTDUMP ..\Output\lights.txt')  # the game's lighting, for the "Lit" view
-        s.cmd(r'UC_PATHS ..\Output\paths.txt')      # the AI's path network, for the "AI paths" view
-        s.cmd(r'UC_TEXFLAGS ..\Output\texflags.txt')  # Only packages already needed by this map.
-        scene_flags = {}
-        for line in (s.folder / 'Output/texflags.txt').read_text(encoding='utf-8').splitlines():
-            name, flags = line.rsplit(' ', 1)
-            scene_flags[name] = int(flags)
+            s.cmd(r'UC_MESHES ..\Output\meshes.jsonl')   # the real 3D models of the objects and the doors
+            s.cmd(r'UC_LIGHTDUMP ..\Output\lights.jsonl')  # the game's lighting, for the "Lit" view
+        s.cmd(r'UC_PATHS ..\Output\paths.jsonl')      # the AI's path network, for the "AI paths" view
+        s.cmd(r'UC_TEXFLAGS ..\Output\texflags.jsonl')  # Only packages already needed by this map.
+        scene_flags = {row['texture']: row['flags'] for row in kit.rows(s.folder / 'Output' / 'texflags.jsonl')}
         (folder / 'texflags.json').write_text(json.dumps(scene_flags), encoding='utf-8')
-        write_paths(s.folder / 'Output' / 'paths.txt', folder)
+        write_paths(s.folder / 'Output' / 'paths.jsonl', folder)
         s.cmd(r'MAP EXPORT FILE="..\Output\scene.t3d"')
         shutil.copy2(s.folder / 'Output' / 'scene.t3d', folder / 'scene.t3d')
-        brushes = parse_brushes(s.folder / 'Output' / 'brushes.txt')
-        meshes = parse_meshes(s.folder / 'Output' / 'meshes.txt')     # {} when lite (no file)
+        brushes = parse_brushes(s.folder / 'Output' / 'brushes.jsonl')
+        meshes = parse_meshes(s.folder / 'Output' / 'meshes.jsonl')     # {} when lite (no file)
         saved = activation.load(src)
         for name, mesh in saved.get('meshes', {}).items():
             meshes.setdefault(name, mesh)
@@ -156,17 +153,14 @@ def _dump(map_name, src, folder, log, lite=False):
         psurf = []                                  # the BSP surface of each polygon (its lightmap)
         pface = []                                  # the source brush polygon (survives BSP rebuilds)
         textures = {}
-        for line in dump.read_text(encoding='utf-8', errors='replace').splitlines():
-            f = line.split(' ')
-            if f[0] != 'P':
-                continue
-            tex, flags = f[1], int(f[2])
-            nums = [float(x) for x in f[3:16]]     # base 3, U 3, V 3, pan 2, tile w h
-            n = int(f[16])
-            verts = [float(x) for x in f[17:17 + 3 * n]]
-            brush = int(f[17 + 3 * n]) if len(f) > 17 + 3 * n else -1   # build order of its brush
-            psurf.append(int(f[18 + 3 * n]) if len(f) > 18 + 3 * n else -1)
-            pface.append(int(f[19 + 3 * n]) if len(f) > 19 + 3 * n else -1)
+        for row in kit.rows(dump):
+            tex, flags = row['texture'], row['flags']
+            # base 3, U 3, V 3, pan 2, tile w h
+            nums = [float(x) for x in row['base'] + row['textureU'] + row['textureV'] + row['pan'] + row['size']]
+            verts = [float(x) for x in row['vertices']]
+            brush = row['brush']                    # build order of its brush
+            psurf.append(row['surface'])
+            pface.append(row['brushPoly'])
             polys.append((tex, flags, nums, verts, brush))
             textures.setdefault(tex, (nums[11], nums[12]))
         for m in meshes.values():
@@ -174,7 +168,7 @@ def _dump(map_name, src, folder, log, lite=False):
                 textures.setdefault(part['tex'], (0, 0))
         log('%d polygons, %d objects, %d textures' % (len(polys), len(meshes), len(textures)))
         tex_info = export_textures(s, textures, folder, log)
-        lights = s.folder / 'Output' / 'lights.txt'
+        lights = s.folder / 'Output' / 'lights.jsonl'
         if lights.exists():
             lightmap_atlas(lights, folder, log)
     finally:
@@ -201,19 +195,15 @@ def _dump(map_name, src, folder, log, lite=False):
     (folder / 'brushes.json').write_text(json.dumps(brushes), encoding='utf-8')
 
 
-def write_paths(txt, folder):
+def write_paths(dump, folder):
     """UC_PATHS -> paths.json: {points: {name: [class, x, y, z]}, links: [[start, end, flags, radius, height,
     distance], ...]} (the reach spec's room: the AI paths view draws each link as wide as that)."""
     points, links = {}, []
-    if txt.exists():
-        for line in txt.read_text(encoding='utf-8', errors='replace').splitlines():
-            f = line.split(' ')
-            if f[0] == 'N' and len(f) >= 6:
-                points[f[1]] = [f[2]] + [float(x) for x in f[3:6]]
-            elif f[0] == 'R' and len(f) >= 7:
-                links.append([f[1], f[2], int(f[4]), int(f[5]), int(f[6]), int(f[3])])
-            elif f[0] == 'R' and len(f) >= 5:
-                links.append([f[1], f[2], int(f[4])])
+    for row in kit.rows(dump):
+        if row['kind'] == 'point':
+            points[row['name']] = [row['class']] + [float(x) for x in row['location']]
+        elif row['kind'] == 'link':
+            links.append([row['start'], row['end'], row['flags'], row['radius'], row['height'], row['distance']])
     (folder / 'paths.json').write_text(json.dumps(dict(points=points, links=links)), encoding='utf-8')
 
 
@@ -221,8 +211,8 @@ def _dump_paths(map_name, src, folder):
     s = kit.Session([src], 'editor-paths-' + map_name)
     try:
         s.cmd(r'MAP LOAD FILE="..\Input\%s"' % src.name)
-        s.cmd(r'UC_PATHS ..\Output\paths.txt')
-        write_paths(s.folder / 'Output' / 'paths.txt', folder)
+        s.cmd(r'UC_PATHS ..\Output\paths.jsonl')
+        write_paths(s.folder / 'Output' / 'paths.jsonl', folder)
     finally:
         s.close()
 
@@ -298,18 +288,17 @@ def lightmap_atlas(path, folder, log=print):
     its mapping, the light on each object: one colour, and the lights that reach it for per-vertex light)."""
     from PIL import Image
     surfs, actors, lights, objects = [], {}, [], {}
-    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
-        f = line.split(' ')
-        if f[0] == 'S' and len(f) >= 9:
-            s, w, h = int(f[1]), int(f[2]), int(f[3])
-            if len(f[8]) == w * h * 6:
-                surfs.append((s, w, h, [float(x) for x in f[4:8]], f[8]))
-        elif f[0] == 'A' and len(f) >= 5:
-            actors[f[1]] = [round(float(x), 3) for x in f[2:5]]
-        elif f[0] == 'L' and len(f) >= 13:      # x y z r g b radius effect dir(3) cone
-            lights.append([float(x) for x in f[1:13]])
-        elif f[0] == 'V' and len(f) >= 6:       # ambient, the lights that see the object
-            objects[f[1]] = [round(float(x), 3) for x in f[2:5]] + [[int(x) for x in f[5].split(',')] if f[5] != '-' else []]
+    for row in kit.rows(path):
+        if row['kind'] == 'surface':
+            (w, h), rgb = row['size'], row['rgb']
+            if len(rgb) == w * h * 3:
+                surfs.append((row['surface'], w, h, [float(x) for x in row['pan'] + row['scale']], bytes(rgb)))
+        elif row['kind'] == 'light':          # x y z r g b radius effect dir(3) cone
+            lights.append([float(x) for x in row['location'] + row['colour'] + [row['radius'], row['effect']]
+                           + row['direction'] + [row['cone']]])
+        elif row['kind'] == 'actor':          # its light; its ambient and the lights that see it
+            actors[row['actor']] = [round(float(x), 3) for x in row['light']]
+            objects[row['actor']] = [round(float(x), 3) for x in row['ambient']] + [row['lights']]
     width = 1024
     total = sum((w + 2) * (h + 2) for _, w, h, _, _ in surfs)
     while width < 8192 and total > width * width * 0.6:
@@ -329,7 +318,7 @@ def lightmap_atlas(path, folder, log=print):
     rects = {}
     for s, w, h, m, data in surfs:
         x0, y0 = place[s]
-        img = Image.frombytes('RGB', (w, h), bytes.fromhex(data))
+        img = Image.frombytes('RGB', (w, h), data)
         for dx, dy in ((0, 1), (2, 1), (1, 0), (1, 2), (0, 0), (2, 0), (0, 2), (2, 2), (1, 1)):
             atlas.paste(img, (x0 + dx, y0 + dy))
         rects[str(s)] = [x0, y0, w, h] + m
@@ -362,7 +351,7 @@ def texture_flags(log=print):
     try:
         for pkg in packages:
             try:
-                s.batch(['OBJ LOAD FILE="%s.utx"' % pkg, r'UC_TEXFLAGS ..\Output\texflags.txt'], timeout=600)
+                s.batch(['OBJ LOAD FILE="%s.utx"' % pkg, r'UC_TEXFLAGS ..\Output\texflags.jsonl'], timeout=600)
             except (RuntimeError, OSError) as e:   # a package that crashes the editor: skipped, a new session
                 log('texture package %s skipped: %s' % (pkg, str(e)[:120]))
                 try:
@@ -371,10 +360,8 @@ def texture_flags(log=print):
                     pass
                 s = kit.Session([], 'editor-texflags')
                 continue
-            for line in (s.folder / 'Output' / 'texflags.txt').read_text(encoding='utf-8', errors='replace').splitlines():
-                f = line.rsplit(' ', 1)
-                if len(f) == 2 and f[1].isdigit():
-                    out[f[0]] = int(f[1])
+            for row in kit.rows(s.folder / 'Output' / 'texflags.jsonl'):
+                out[row['texture']] = row['flags']
     finally:
         s.close()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -412,10 +399,13 @@ def export_textures(session, textures, folder, log=print):
         png = None
         if rawf.exists():
             data_ = rawf.read_bytes()
-            head, _, pix = data_.partition(b'\n')
-            parts = head.split()
-            if len(parts) == 3 and parts[0] == b'UCTEX':
-                rw, rh = int(parts[1]), int(parts[2])
+            head, _, pix = data_.partition(b'\n')    # a JSON line {width, height}, then the RGBA pixels
+            try:
+                size = json.loads(head)
+                rw, rh = int(size['width']), int(size['height'])
+            except (ValueError, KeyError, TypeError):
+                rw = rh = 0
+            if rw and rh:
                 if len(pix) >= rw * rh * 4:
                     im = Image.frombytes('RGBA', (rw, rh), pix[:rw * rh * 4])
                     if max(im.size) > 256:
@@ -443,17 +433,9 @@ def export_textures(session, textures, folder, log=print):
 
 def parse_brushes(path):
     """UC_BRUSHES output -> [{ord, name, csg (1 add, 2 subtract), flags, group, loc, rot, prepivot}]."""
-    out = []
-    if not Path(path).exists():
-        return out
-    for line in Path(path).read_text(encoding='utf-8', errors='replace').splitlines():
-        f = line.split(' ')
-        if f[0] != 'B' or len(f) < 15:
-            continue
-        out.append(dict(ord=int(f[1]), name=f[2], csg=int(f[3]), flags=int(f[4]), group=f[5],
-                        loc=[float(x) for x in f[6:9]], rot=[int(x) for x in f[9:12]],
-                        prepivot=[float(x) for x in f[12:15]]))
-    return out
+    return [dict(ord=r['ord'], name=r['name'], csg=r['csg'], flags=r['flags'], group=r['group'],
+                 loc=[float(x) for x in r['location']], rot=r['rotation'], prepivot=[float(x) for x in r['prePivot']])
+            for r in kit.rows(path)]
 
 
 STY = {2: PF['masked'], 3: PF['translucent'], 4: PF['modulated']}
@@ -464,29 +446,21 @@ def parse_meshes(path):
     """UC_MESHES output -> {actor: {cls, kind, parts: [{tex, flags, pos, uv}]}} (coordinates relative
     to the actor, unrotated, Unreal axes)."""
     out = {}
-    cur = None
-    if not Path(path).exists():
-        return out
-    for line in Path(path).read_text(encoding='utf-8', errors='replace').splitlines():
-        f = line.split(' ')
-        if f[0] == 'A' and len(f) >= 6:
-            cur = dict(cls=f[2], kind=f[3], parts={})
-            cur['style'] = STY.get(int(f[4]), 0)
-            out[f[1]] = cur
-        elif f[0] == 'T' and cur is not None and len(f) >= 18:
-            tex, flags = f[1], int(f[2]) | cur['style']
+    for row in kit.rows(path):
+        style = STY.get(row['style'], 0)
+        parts = {}
+        for tri in row['triangles']:
+            tex, flags = tri['texture'], tri['flags'] | style
             if flags & 1 or tex.split('.')[-1].lower() in HIDDEN_TEX:
                 continue
-            slot = int(f[18]) if len(f) > 18 else -1          # MultiSkins index of the face
+            slot = tri.get('slot', -1)          # MultiSkins index of the face (a mover's have none)
             key = '%s|%d|%d' % (tex, flags & (PF['masked'] | PF['translucent'] | PF['modulated'] | PF['unlit']), slot)
-            part = cur['parts'].setdefault(key, dict(tex=tex, flags=flags, slot=slot, pos=[], uv=[]))
-            nums = [float(x) for x in f[3:18]]
+            part = parts.setdefault(key, dict(tex=tex, flags=flags, slot=slot, pos=[], uv=[]))
+            nums = [float(x) for x in tri['corners']]
             for k in range(3):
                 part['pos'] += nums[k * 5:k * 5 + 3]
                 part['uv'] += nums[k * 5 + 3:k * 5 + 5]
-    for m in out.values():
-        m['parts'] = list(m['parts'].values())
-        m.pop('style')
+        out[row['actor']] = dict(cls=row['class'], kind=row['kind'], parts=list(parts.values()))
     return out
 
 
@@ -518,14 +492,14 @@ def palette_meshes(log=print):
                            % (c, k, i, (i % 8) * 600 - 2400, (i // 8) * 600 - 2400) for i, c in enumerate(chunk))
             (s.folder / 'T3D' / 'palette.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='ascii')
             try:
-                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\palette.t3d"', r'UC_MESHES ..\Output\meshes.txt'])
+                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\palette.t3d"', r'UC_MESHES ..\Output\meshes.jsonl'])
             except RuntimeError as e:
                 log('palette chunk %d: %s' % (k, str(e)[:160]))
                 s.close()                # a crashed editor stays broken: start a new one
                 s = kit.Session([], 'editor-palette')
                 s.batch(['MAP NEW', 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + _game_loads())
                 continue
-            for name, m in parse_meshes(s.folder / 'Output' / 'meshes.txt').items():
+            for name, m in parse_meshes(s.folder / 'Output' / 'meshes.jsonl').items():
                 meshes.setdefault(m['cls'], m)
         textures = {p['tex']: (0, 0) for m in meshes.values() if m for p in m['parts'] if p['tex'] not in tex_info}
         if textures:
@@ -694,18 +668,16 @@ def catalog(log=print):
     s = kit.Session([], 'editor-classes')
     try:
         s.batch(['OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + _game_loads() +
-                [r'UC_CLASSES ..\Output\classes.txt'])
-        text = (s.folder / 'Output' / 'classes.txt').read_text(encoding='utf-8', errors='replace')
+                [r'UC_CLASSES ..\Output\classes.jsonl'])
+        classes = kit.rows(s.folder / 'Output' / 'classes.jsonl')
     finally:
         s.close()
     out = []
     extra = {p['name'] for p in kit.extra_packages()}       # packages of other mods (the Packages panel)
-    for line in text.splitlines():
-        f = line.split('\t')
-        if len(f) < 11 or f[0] != 'C':
-            continue
-        name, pkg, flags, draw, mesh = f[1], f[2], int(f[3]), int(f[4]), f[5]
-        parents = [x for x in f[8].split('/') if x]
+    for c in classes:
+        name, pkg, flags, draw, mesh = c['class'], c['package'], c['flags'], c['drawType'], c['mesh']
+        parents = c['parents']
+        label = (c['itemName'] or c['familiarName']).strip().strip('"').strip()
         if name in PALETTE_SKIP or name.startswith('WeaponNPC'):
             continue                     # crash the editor when placed (flock spawner, NPC-only weapons)
         chain = '/'.join(parents)
@@ -714,9 +686,8 @@ def catalog(log=print):
         top = next((p for p in parents if p in CATEGORY), None)
         if pkg in extra and (top is None or mesh == 'None' or draw != 2):
             # another mod's triggers, zones, logic...: under the package's name, placed as a marker
-            label = (f[9] or f[10]).strip().strip('"').strip()
             out.append(dict(cls=name, pkg=pkg, cat=pkg, sub=parents[0] if parents else '', name=label,
-                            radius=float(f[6]), height=float(f[7]), nomodel=True))
+                            radius=float(c['radius']), height=float(c['height']), nomodel=True))
             continue
         if mesh == 'None' or draw != 2:
             continue                     # no 3D model
@@ -724,10 +695,8 @@ def catalog(log=print):
             continue
         below = [p for p in parents[:parents.index(top)] if p not in HOOKS]
         sub = below[-1] if below else ''
-        label = (f[9] or f[10]).strip().strip('"').strip()
         out.append(dict(cls=name, pkg=pkg, cat=CATEGORY[top], sub=SUB.get(sub, sub), name=label,
-                        radius=float(f[6]), height=float(f[7]), mesh=mesh,
-                        scale=float(f[11]) if len(f) > 11 else 1.0))
+                        radius=float(c['radius']), height=float(c['height']), mesh=mesh, scale=float(c['drawScale'])))
     out.sort(key=lambda c: (c['cat'], c['sub'], c['name'] or c['cls']))
     path.write_text(json.dumps(out, indent=0), encoding='utf-8')
     # collision sizes for drop / snap in the map scripts too

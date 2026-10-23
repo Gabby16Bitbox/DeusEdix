@@ -182,11 +182,12 @@ def generate(target, donor):
         # the old one-frame placeholder. The build redirects it to these frames.
         replacement = name in target.seqs
         packed_name = 'UCP_' + name if replacement else name
-        head.append('seq %s %s %d %g' % (packed_name, sequence['group'], count, sequence['rate']))
+        head.append(dict(name=packed_name, group=sequence['group'], frames=count, rate=float(sequence['rate'])))
         motion = max(math.dist(a, b) for a, b in zip(all_frames[0], all_frames[-1]))
         report.append(dict(name=name, frames=count, motion=motion, source=base,
                            packed_name=packed_name, replacement=replacement))
-    return ('\n'.join(head)+'\ndata\n').encode()+binary, report
+    import anims
+    return anims.anim_input(head, bytes(binary)), report
 
 
 def preserve_shape(points, reference, edges):

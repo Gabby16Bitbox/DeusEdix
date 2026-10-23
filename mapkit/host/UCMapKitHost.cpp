@@ -16,6 +16,8 @@
 #include <float.h>
 // JSON for the dumps the editor reads: nlohmann/json 3.11.3 (MIT, third_party/nlohmann/LICENSE.MIT). Included
 // before the engine's headers, whose macros (check, ...) would otherwise reach into its code.
+#include <string>
+#include <vector>
 #include "nlohmann/json.hpp"
 #define EDITOR_API __declspec(dllimport)
 // The engine is built with 4-byte packing: without it every class member after a DOUBLE (UBitmap's
@@ -67,10 +69,101 @@ private:
 typedef Text<TCHAR, char, toUtf8> Utf8;
 typedef Text<char, TCHAR, toWide> Wide;
 
-// a name into a fixed buffer of the caller (cut when longer: names are short)
-static void wtext(const TCHAR* s, char* out, int size) {
-    if (!toUtf8(s, out, size) && size) out[size - 1] = 0;
+static int readFile(const char* path, std::string& out) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return 0;
+    char chunk[65536];
+    size_t got;
+    out.clear();
+    while ((got = fread(chunk, 1, sizeof(chunk), f)) > 0) out.append(chunk, got);
+    fclose(f);
+    return 1;
 }
+
+// A file of one JSON value a line, the format of every file the host writes (README.md). Rows are written as they
+// come (a big map's polygons never all wait in memory); text that is not valid UTF-8 is replaced, never refused.
+class JsonLines {
+public:
+    explicit JsonLines(const char* path, bool append = false) : file(fopen(path, append ? "ab" : "wb")) {}
+    ~JsonLines() { if (file) fclose(file); }
+    bool ok() const { return file != NULL; }
+    void write(const Json& row) {
+        std::string text = row.dump(-1, ' ', false, Json::error_handler_t::replace);
+        text += '\n';
+        fwrite(text.data(), 1, text.size(), file);
+    }
+private:
+    FILE* file;
+    JsonLines(const JsonLines&);
+    JsonLines& operator=(const JsonLines&);
+};
+
+static std::string utf8(const TCHAR* text) {
+    return std::string(Utf8(text));
+}
+
+// Numbers kept to the precision the dumps have always had: %g's 6 significant digits, or a number of decimals. The
+// editor reads the values it always read, and the files stay small. printf rounds correctly; strtod reads it back.
+static double digits(double v) {
+    char text[32];
+    snprintf(text, sizeof(text), "%g", v);
+    return strtod(text, NULL);
+}
+static double decimals(double v, int places) {
+    char text[64];
+    snprintf(text, sizeof(text), "%.*f", places, v);
+    return strtod(text, NULL);
+}
+static Json xyz(const FVector& v) {
+    return Json::array({ digits(v.X), digits(v.Y), digits(v.Z) });
+}
+static Json xyz(const FVector& v, int places) {
+    return Json::array({ decimals(v.X, places), decimals(v.Y, places), decimals(v.Z, places) });
+}
+
+// The words of a command line. Word 0 is the command; a word ends at a space or a tab. rest(i) is the line from
+// word i to its end as it was written (a property's value, a path with spaces).
+class Args {
+public:
+    explicit Args(const char* line) : line(line) {
+        const char* p = line;
+        for (;;) {
+            while (*p == ' ' || *p == '\t') p++;
+            if (!*p) break;
+            const char* start = p;
+            while (*p && *p != ' ' && *p != '\t') p++;
+            Word word = { std::string(start, p), (size_t)(start - line) };
+            words.push_back(word);
+        }
+    }
+    size_t count() const { return words.size(); }
+    const char* operator[](size_t i) const { return i < words.size() ? words[i].text.c_str() : ""; }
+    const char* rest(size_t i) const { return i < words.size() ? line + words[i].at : ""; }
+    bool is(size_t i, const char* text) const { return i < words.size() && words[i].text == text; }
+    // a number that is the whole word, finite
+    bool number(size_t i, float& out) const {
+        const char* text = (*this)[i];
+        char* end;
+        out = (float)strtod(text, &end);
+        return *text && !*end && _finite(out);
+    }
+    bool number(size_t i, int& out) const {
+        const char* text = (*this)[i];
+        char* end;
+        out = (int)strtol(text, &end, 10);
+        return *text && !*end;
+    }
+    bool number(size_t i, DWORD& out) const {
+        const char* text = (*this)[i];
+        char* end;
+        out = strtoul(text, &end, 10);
+        return *text && *text != '-' && !*end;
+    }
+private:
+    struct Word { std::string text; size_t at; };
+    const char* line;
+    std::vector<Word> words;
+};
 
 static void printUtf8(const TCHAR* text, FILE* stream) {
     fputs(Utf8(text), stream);
@@ -152,40 +245,57 @@ static int patchTemporaryViewport() {
     return 1;
 }
 
-static int editMover(const char* line) {
-    char operation[32], name[128], trailing;
-    float x, y, z;
-    if (sscanf(line, "UC_MOVER %31s %127s %f %f %f %c", operation, name, &x, &y, &z, &trailing) != 5)
-        return 0;
-    if (!_finite(x) || !_finite(y) || !_finite(z) || !GEditor->Level) return 0;
-    unsigned short wide[128];
-    int i;
-    for (i=0; name[i]; i++) wide[i] = (unsigned char)name[i];
-    wide[i] = 0;
-    AMover* mover = NULL;
-    for (i=0; i<GEditor->Level->Actors.Num(); i++) {
-        AActor* actor = GEditor->Level->Actors(i);
-        if (actor && !appStricmp(actor->GetName(), (const TCHAR*)wide)) {
-            if (!actor->IsA(AMover::StaticClass())) return 0;
-            mover = (AMover*)actor;
-            break;
+// a class or one of its parents has this name
+static int classIs(AActor* a, const TCHAR* name) {
+    for (UClass* c = a->GetClass(); c; c = c->GetSuperClass())
+        if (!appStricmp(c->GetName(), name)) return 1;
+    return 0;
+}
+
+// Editing existing maps (the map editor on any .dx): actors and brushes are found by name.
+// by name, or "@<Class>": the first actor of that class (or a subclass); "@LevelInfo" is the map's own
+// (after MAP NEW the level's actors are not named as in the saved map)
+static AActor* findActor(const TCHAR* name) {
+    if (name[0] == '@') {
+        if (!appStricmp(name + 1, TEXT("LevelInfo"))) return GEditor->Level->GetLevelInfo();
+        for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
+            AActor* a = GEditor->Level->Actors(i);
+            if (a && classIs(a, name + 1)) return a;
         }
+        return NULL;
     }
-    if (!mover || !mover->Brush || !mover->Brush->Polys) return 0;
-    if (!strcmp(operation, "bounds")) {
+    for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
+        AActor* a = GEditor->Level->Actors(i);
+        if (a && !appStricmp(a->GetName(), name)) return a;
+    }
+    return NULL;
+}
+static AActor* findActor(const char* name) {
+    return findActor(Wide(name));
+}
+
+// UC_MOVER <bounds|prep> <name> x y z
+static int editMover(const Args& args) {
+    float x, y, z;
+    if (args.count() != 6 || !args.number(3, x) || !args.number(4, y) || !args.number(5, z) || !GEditor->Level) return 0;
+    AActor* actor = findActor(args[2]);
+    if (!actor || !actor->IsA(AMover::StaticClass())) return 0;
+    AMover* mover = (AMover*)actor;
+    if (!mover->Brush || !mover->Brush->Polys) return 0;
+    if (args.is(1, "bounds")) {
         GEditor->bspBuildBounds(mover->Brush);
         mover->Brush->BuildBound();
-    } else if (!strcmp(operation, "prep")) {
+    } else if (args.is(1, "prep")) {
         GEditor->csgPrepMovingBrush(mover);
         mover->Brush->BuildBound();
     } else return 0;
-    printf("UCMapKit|mover|%s|%s|%d\n", name, operation, mover->Brush->Polys->Element.Num());
+    printf("UCMapKit|mover|%s|%s|%d\n", args[2], args[1], mover->Brush->Polys->Element.Num());
     return 1;
 }
 
 // Zones, visibility and collision bounds for the whole level, after CSG.
-static int finishWorld() {
-    if (!GEditor->Level || !GEditor->Level->Model) return 0;
+static int finishWorld(const Args& args) {
+    if (args.count() != 2 || !args.is(1, "finish") || !GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* model = GEditor->Level->Model;
     GEditor->bspRefresh(model, 1);
     GEditor->TestVisibility(GEditor->Level, model, 0, 0);
@@ -195,8 +305,8 @@ static int finishWorld() {
 }
 
 // The lighting build spawns a view actor (Camera) for its temporary viewport: never save it.
-static int clearCameras() {
-    if (!GEditor->Level) return 0;
+static int clearCameras(const Args& args) {
+    if (args.count() != 2 || !args.is(1, "clear") || !GEditor->Level) return 0;
     int removed = 0;
     for (int i=0; i<GEditor->Level->Actors.Num(); i++) {
         AActor* actor = GEditor->Level->Actors(i);
@@ -211,8 +321,8 @@ static int clearCameras() {
 
 // Every non-brush actor whose origin lies inside solid geometry: a light there lights
 // nothing, a pawn or pickup there is stuck. Printed as UCMapKit|in solid|Class|Name|x y z.
-static int checkActors() {
-    if (!GEditor->Level || !GEditor->Level->Model) return 0;
+static int checkActors(const Args& args) {
+    if (args.count() != 2 || !args.is(1, "check") || !GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* model = GEditor->Level->Model;
     int checked = 0, buried = 0;
     for (int i=0; i<GEditor->Level->Actors.Num(); i++) {
@@ -223,33 +333,30 @@ static int checkActors() {
         FPointRegion region = model->PointRegion(GEditor->Level->GetLevelInfo(), actor->Location);
         if (region.iLeaf != INDEX_NONE) continue;
         buried++;
-        char cls[128], name[128];
-        wtext(actor->GetClass()->GetName(), cls, sizeof(cls));
-        wtext(actor->GetName(), name, sizeof(name));
-        printf("UCMapKit|in solid|%s|%s|%.0f %.0f %.0f\n", cls, name, actor->Location.X, actor->Location.Y, actor->Location.Z);
+        printf("UCMapKit|in solid|%s|%s|%.0f %.0f %.0f\n", (const char*)Utf8(actor->GetClass()->GetName()),
+               (const char*)Utf8(actor->GetName()), actor->Location.X, actor->Location.Y, actor->Location.Z);
     }
     printf("UCMapKit|actors|%d checked|%d in solid\n", checked, buried);
     return 1;
 }
 
 // UC_POINT x y z: which BSP leaf and zone a point falls in (leaf -1 = inside solid).
-static int probePoint(const char* line) {
+static int probePoint(const Args& args) {
     float x, y, z;
-    if (sscanf(line, "UC_POINT %f %f %f", &x, &y, &z) != 3) return 0;
+    if (args.count() != 4 || !args.number(1, x) || !args.number(2, y) || !args.number(3, z)) return 0;
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     FPointRegion region = GEditor->Level->Model->PointRegion(GEditor->Level->GetLevelInfo(), FVector(x, y, z));
-    char zone[128] = "none";
-    if (region.Zone)
-        wtext(region.Zone->GetName(), zone, sizeof(zone));
-    printf("UCMapKit|point|%.0f %.0f %.0f|leaf %d|zone %d|%s\n", x, y, z, region.iLeaf, region.ZoneNumber, zone);
+    printf("UCMapKit|point|%.0f %.0f %.0f|leaf %d|zone %d|%s\n", x, y, z, region.iLeaf, region.ZoneNumber,
+           region.Zone ? (const char*)Utf8(region.Zone->GetName()) : "none");
     return 1;
 }
 
 // UC_TRACE x0 y0 z0 x1 y1 z1: first level-geometry hit on the segment (like dropping or pushing an
 // object until it touches something, as in the modern editors). Prints the hit point and normal.
-static int traceLine(const char* line) {
+static int traceLine(const Args& args) {
     float a[6];
-    if (sscanf(line, "UC_TRACE %f %f %f %f %f %f", &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]) != 6) return 0;
+    if (args.count() != 7) return 0;
+    for (int i = 0; i < 6; i++) if (!args.number(i + 1, a[i])) return 0;
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     FCheckResult hit(1.f);
     FVector start(a[0], a[1], a[2]), end(a[3], a[4], a[5]);
@@ -262,18 +369,16 @@ static int traceLine(const char* line) {
     return 1;
 }
 
-// UC_BSPDUMP <file>: the final world geometry (every visible BSP polygon) with its texture and
-// mapping, for the 3D view of the map editor (tools\mapkit\editor). One line per polygon:
-// P <texture path> <flags> <base xyz> <U xyz> <V xyz> <panU> <panV> <tile w> <tile h> <n> <vertices xyz...> <brush>
-static int dumpBsp(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_BSPDUMP %511s", path) != 1) return 0;
-    if (!GEditor->Level || !GEditor->Level->Model) return 0;
+// UC_BSPDUMP <file>: the final world geometry (every visible BSP polygon) with its texture and mapping, for the
+// 3D view of the map editor. A row a polygon: {texture, flags, base, textureU, textureV, pan [u, v], size [the
+// texture's width and height in world units], vertices [x, y, z, ...], brush, surface, brushPoly}. brush: the
+// build order of the static brush that made it (-1 unknown); brushPoly: its source polygon in that brush.
+static int dumpBsp(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* m = GEditor->Level->Model;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
-    // static brushes in creation order (= the order of the map script's operations), builder excluded:
-    // each polygon ends with the ordinal of the brush that made it (-1 when unknown)
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
+    // static brushes in creation order (= the order of the map script's operations), builder excluded
     TArray<ABrush*> brushes;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
@@ -292,25 +397,32 @@ static int dumpBsp(const char* line) {
         if (n.NumVertices < 3 || n.iSurf < 0) continue;
         FBspSurf& s = m->Surfs(n.iSurf);
         if (s.PolyFlags & (PF_Invisible | PF_Portal)) continue;
-        char tex[256] = "none";
         float tw = 128, th = 128;
         if (s.Texture) {
-            wtext(s.Texture->GetPathName(), tex, sizeof(tex));
             float sc = s.Texture->Scale > 0 ? s.Texture->Scale : 1.f;
             tw = s.Texture->USize * sc;
             th = s.Texture->VSize * sc;
         }
-        FVector b = m->Points(s.pBase), u = m->Vectors(s.vTextureU), v = m->Vectors(s.vTextureV);
-        fprintf(f, "P %s %lu %g %g %g %g %g %g %g %g %g %d %d %g %g %d", tex, (unsigned long)s.PolyFlags,
-                b.X, b.Y, b.Z, u.X, u.Y, u.Z, v.X, v.Y, v.Z, (int)s.PanU, (int)s.PanV, tw, th, (int)n.NumVertices);
+        Json vertices = Json::array();
         for (int k = 0; k < n.NumVertices; k++) {
             FVector& p = m->Points(m->Verts(n.iVertPool + k).pVertex);
-            fprintf(f, " %g %g %g", p.X, p.Y, p.Z);
+            vertices.push_back(digits(p.X)); vertices.push_back(digits(p.Y)); vertices.push_back(digits(p.Z));
         }
-        fprintf(f, " %d %d %d\n", surfBrush(n.iSurf), n.iSurf, s.iBrushPoly); // stable source face, not a transient BSP index
+        Json row;
+        row["texture"] = s.Texture ? utf8(s.Texture->GetPathName()) : "none";
+        row["flags"] = s.PolyFlags;
+        row["base"] = xyz(m->Points(s.pBase));
+        row["textureU"] = xyz(m->Vectors(s.vTextureU));
+        row["textureV"] = xyz(m->Vectors(s.vTextureV));
+        row["pan"] = Json::array({ (int)s.PanU, (int)s.PanV });
+        row["size"] = Json::array({ digits(tw), digits(th) });
+        row["vertices"] = vertices;
+        row["brush"] = surfBrush(n.iSurf);
+        row["surface"] = n.iSurf;
+        row["brushPoly"] = s.iBrushPoly;               // the stable source face, not a transient BSP index
+        out.write(row);
         count++;
     }
-    fclose(f);
     printf("UCMapKit|bsp|%d polygons\n", count);
     return 1;
 }
@@ -318,17 +430,18 @@ static int dumpBsp(const char* line) {
 // UC_LIGHTDUMP <file>: the lighting of the map as the game draws it, for the map editor's "Lit" view.
 // The SDK keeps, per lit surface, the shadow bits of every light that reaches it (LightBits, built by
 // LIGHT APPLY); the game adds the lights up while drawing. Here: the same sum (light colour and
-// brightness, radius falloff, angle of incidence, spotlight cone, shadow bits) plus the zone ambient.
-//   S <surf> <w> <h> <pan u> <pan v> <uscale> <vscale> <hex RGB texels>   lattice point (i,j) where the
-//       surface's texture coordinates are (pan u + i*uscale, pan v + j*vscale); RGB: lighting 0..2 as 0..255
-//   A <actor> <r> <g> <b>   light on a mesh actor or mover: the brighter of the lights that see its centre
-//       and the light of the floor under it (from the lightmap, so with the real shadows), + ambient
-//   L <x> <y> <z> <r> <g> <b> <radius> <effect> <dir x> <dir y> <dir z> <cone>   every light (colour with the
-//       brightness curve), numbered from 0 in order, for the editor's own per-vertex lighting of the objects
-//   V <actor> <ambient r g b> <light numbers, comma separated, or ->   what the game lights an object with:
-//       its zone's ambient (+ what the floor under it adds, when its centre sees no light) and the lights
-//       that see its centre (the engine lights meshes per vertex, each light all or nothing)
-//   C <mapping check: surfaces whose polygons fall inside their lightmap> <surfaces>
+// brightness, radius falloff, angle of incidence, spotlight cone, shadow bits) plus the zone ambient. Rows:
+//   {kind: surface, surface, size [w, h], pan [u, v], scale [u, v], rgb [r, g, b, ...]}   the lattice point (i, j) is
+//       where the surface's texture coordinates are (pan u + i * scale u, pan v + j * scale v); rgb: lighting 0..2
+//       as 0..255, row after row
+//   {kind: light, location, colour, radius, effect, direction, cone}   every light (colour with the brightness curve),
+//       in order, numbered from 0, for the editor's own per-vertex lighting of the objects
+//   {kind: actor, actor, light [r, g, b], ambient [r, g, b], lights [numbers]}   a mesh actor or mover: light is the
+//       brighter of the lights that see its centre and the light of the floor under it (from the lightmap, so with
+//       the real shadows), + ambient; ambient and lights are what the game lights it with (the engine lights meshes
+//       per vertex, each light all or nothing): its zone's ambient, + what the floor adds when its centre sees no
+//       light, and the lights that see its centre
+//   {kind: mapping, fit, checked}   surfaces whose polygons fall inside their lightmap, of those checked
 
 static FVector lightColour(BYTE H, BYTE S, BYTE V) {
     FVector hue = H < 86 ? FVector((85 - H) / 85.f, H / 85.f, 0)
@@ -378,26 +491,24 @@ static int insideXY(UModel* m, FBspNode& n, float x, float y) {
     return n.NumVertices >= 3 && !(pos && neg);
 }
 
-static int dumpLights(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_LIGHTDUMP %511s", path) != 1) return 0;
-    if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    UModel* m = GEditor->Level->Model;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
-    int surfs = 0, fit = 0, checked = 0;
-    static char hex[] = "0123456789abcdef";
+// The lighting of every lattice point of the surfaces (ambient apart, lights not doubled), kept for the floors
+// under the objects
+struct SurfaceLight {
+    TArray<INT> texelAt;                    // per surface: where its texels start, INDEX_NONE without a lightmap
+    TArray<FVector> texels, ambients;
+};
+
+// the surfaces' lightmaps as the game draws them; returns the surfaces written
+static int lightSurfaces(UModel* m, JsonLines& out, SurfaceLight& lit, int& fit, int& checked) {
     TArray<INT> firstNode;
     firstNode.Add(m->Surfs.Num());
     for (int i = 0; i < m->Surfs.Num(); i++) firstNode(i) = INDEX_NONE;
     for (int i = 0; i < m->Nodes.Num(); i++)
         if (m->Nodes(i).iSurf >= 0 && firstNode(m->Nodes(i).iSurf) == INDEX_NONE) firstNode(m->Nodes(i).iSurf) = i;
-    // the lighting of every lattice point (ambient, lights not doubled) kept for the floors under the objects
-    TArray<INT> texelAt;
-    TArray<FVector> texels, ambients;
-    texelAt.Add(m->Surfs.Num());
-    ambients.AddZeroed(m->Surfs.Num());
-    for (int s = 0; s < m->Surfs.Num(); s++) texelAt(s) = INDEX_NONE;
+    lit.texelAt.Add(m->Surfs.Num());
+    lit.ambients.AddZeroed(m->Surfs.Num());
+    for (int s = 0; s < m->Surfs.Num(); s++) lit.texelAt(s) = INDEX_NONE;
+    int surfs = 0;
     for (int s = 0; s < m->Surfs.Num(); s++) {
         FBspSurf& surf = m->Surfs(s);
         if (surf.iLightMap == INDEX_NONE || surf.iLightMap >= m->LightMap.Num()) continue;
@@ -431,112 +542,150 @@ static int dumpLights(const char* line) {
         if (lm.iLightActors != INDEX_NONE)
             for (int k = lm.iLightActors; k < m->Lights.Num() && m->Lights(k); k++) lights.AddItem(m->Lights(k));
         int stride = (w + 7) / 8;
-        texelAt(s) = texels.Num();
-        ambients(s) = ambient;
-        texels.AddZeroed(w * h);
-        fprintf(f, "S %d %d %d %g %g %g %g ", s, w, h, lm.Pan.X, lm.Pan.Y, lm.UScale, lm.VScale);
+        lit.texelAt(s) = lit.texels.Num();
+        lit.ambients(s) = ambient;
+        lit.texels.AddZeroed(w * h);
+        Json rgb = Json::array();
         for (int j = 0; j < h; j++) {
             for (int i = 0; i < w; i++) {
                 float r1 = lm.Pan.X + i * lm.UScale, r2 = lm.Pan.Y + j * lm.VScale;
                 FVector p = base + (bxc * r1 + cxa * r2) / det + normal * 2.f;
-                FVector lit(0, 0, 0);
+                FVector light(0, 0, 0);
                 for (int k = 0; k < lights.Num(); k++) {
                     int byte = lm.DataOffset + k * stride * h + j * stride + (i >> 3);
                     if (byte < 0 || byte >= m->LightBits.Num()) continue;
                     if (!(m->LightBits(byte) & (1 << (i & 7)))) continue;     // in shadow
-                    lit += lightAt(lights(k), p, &normal);
+                    light += lightAt(lights(k), p, &normal);
                 }
-                texels(texelAt(s) + j * w + i) = lit;
-                FVector c = ambient + lit * 2.f;     // the lights are overbright on the surfaces (ambient is not)
-                BYTE rgb[3] = { (BYTE)Clamp(appFloor(c.X * 127.5f), 0, 255), (BYTE)Clamp(appFloor(c.Y * 127.5f), 0, 255),
-                                (BYTE)Clamp(appFloor(c.Z * 127.5f), 0, 255) };
-                for (int q = 0; q < 3; q++) { fputc(hex[rgb[q] >> 4], f); fputc(hex[rgb[q] & 15], f); }
+                lit.texels(lit.texelAt(s) + j * w + i) = light;
+                FVector c = ambient + light * 2.f;     // the lights are overbright on the surfaces (ambient is not)
+                rgb.push_back(Clamp(appFloor(c.X * 127.5f), 0, 255));
+                rgb.push_back(Clamp(appFloor(c.Y * 127.5f), 0, 255));
+                rgb.push_back(Clamp(appFloor(c.Z * 127.5f), 0, 255));
             }
         }
-        fputc('\n', f);
+        Json row;
+        row["kind"] = "surface";
+        row["surface"] = s;
+        row["size"] = Json::array({ w, h });
+        row["pan"] = Json::array({ digits(lm.Pan.X), digits(lm.Pan.Y) });
+        row["scale"] = Json::array({ digits(lm.UScale), digits(lm.VScale) });
+        row["rgb"] = rgb;
+        out.write(row);
         surfs++;
     }
-    // every light, numbered, for the V lines
-    TArray<AActor*> allLights;
+    return surfs;
+}
+
+// every light, in order (the actor rows number them from 0)
+static void lightList(JsonLines& out, TArray<AActor*>& lights) {
     for (int k = 0; k < GEditor->Level->Actors.Num(); k++) {
         AActor* l = GEditor->Level->Actors(k);
         if (!l || !l->LightType || !l->LightBrightness) continue;
-        FVector col = lightColour(l->LightHue, l->LightSaturation, l->LightBrightness), dir = l->Rotation.Vector();
-        fprintf(f, "L %.1f %.1f %.1f %.4f %.4f %.4f %.1f %d %.4f %.4f %.4f %d\n", l->Location.X, l->Location.Y,
-                l->Location.Z, col.X, col.Y, col.Z, 25.f * (l->LightRadius + 1), (int)l->LightEffect, dir.X, dir.Y, dir.Z,
-                (int)l->LightCone);
-        allLights.AddItem(l);
+        Json row;
+        row["kind"] = "light";
+        row["location"] = xyz(l->Location, 1);
+        row["colour"] = xyz(lightColour(l->LightHue, l->LightSaturation, l->LightBrightness), 4);
+        row["radius"] = decimals(25.f * (l->LightRadius + 1), 1);
+        row["effect"] = (int)l->LightEffect;
+        row["direction"] = xyz(l->Rotation.Vector(), 4);
+        row["cone"] = (int)l->LightCone;
+        out.write(row);
+        lights.AddItem(l);
     }
-    // objects and doors: the lights that see their centre (walls cast shadows; x2 overbright, x0.5 the
-    // average angle on a body) plus the ambient of their zone. A centre that is inside or behind something
-    // (a barrel against a grille, a lamp inside its fitting) would leave it black: the light of the floor
-    // under it (the lightmap: the real shadows, lights not doubled) is the lower bound.
+}
+
+// The light of the floor under an actor: the highest upward polygon with a lightmap between its centre and a little
+// under its feet, read from the lightmap (the real shadows, lights not doubled). (-1, -1, -1) when there is none.
+static FVector floorLight(UModel* m, AActor* a, const SurfaceLight& lit) {
+    float x = a->Location.X, y = a->Location.Y, top = a->Location.Z + 4.f;
+    float low = a->Location.Z - Max(a->CollisionHeight, 16.f) - 48.f, best = -1e9f;
+    int bestNode = INDEX_NONE;
+    for (int n = 0; n < m->Nodes.Num(); n++) {
+        FBspNode& node = m->Nodes(n);
+        if (node.iSurf < 0 || lit.texelAt(node.iSurf) == INDEX_NONE || Abs(node.Plane.Z) < 0.5f) continue;
+        if (m->Vectors(m->Surfs(node.iSurf).vNormal).Z < 0.5f) continue;
+        float z = (node.Plane.W - node.Plane.X * x - node.Plane.Y * y) / node.Plane.Z;
+        if (z > top || z < low || z <= best || !insideXY(m, node, x, y)) continue;
+        best = z;
+        bestNode = n;
+    }
+    if (bestNode == INDEX_NONE) return FVector(-1, -1, -1);
+    int s = m->Nodes(bestNode).iSurf;
+    FBspSurf& surf = m->Surfs(s);
+    FLightMapIndex& lm = m->LightMap(surf.iLightMap);
+    int w = lm.UClamp, h = lm.VClamp;
+    FVector d = FVector(x, y, best) - m->Points(surf.pBase);
+    float u = Clamp(((d | m->Vectors(surf.vTextureU)) - lm.Pan.X) / lm.UScale, 0.f, (float)(w - 1));
+    float v = Clamp(((d | m->Vectors(surf.vTextureV)) - lm.Pan.Y) / lm.VScale, 0.f, (float)(h - 1));
+    int i0 = Min(appFloor(u), w - 1), j0 = Min(appFloor(v), h - 1), i1 = Min(i0 + 1, w - 1), j1 = Min(j0 + 1, h - 1);
+    float fu = u - i0, fv = v - j0;
+    const FVector* t = &lit.texels(lit.texelAt(s));
+    FVector light = t[j0 * w + i0] * ((1 - fu) * (1 - fv)) + t[j0 * w + i1] * (fu * (1 - fv))
+                  + t[j1 * w + i0] * ((1 - fu) * fv) + t[j1 * w + i1] * (fu * fv);
+    return lit.ambients(s) + light;
+}
+
+// Objects and doors: the lights that see their centre (walls cast shadows; x2 overbright, x0.5 the average angle on
+// a body) plus the ambient of their zone. A centre that is inside or behind something (a barrel against a grille, a
+// lamp inside its fitting) would leave it black: the light of the floor under it is the lower bound.
+// Returns how many took their floor's light.
+static int lightActors(UModel* m, JsonLines& out, const TArray<AActor*>& lights, const SurfaceLight& lit) {
     int floors = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !((a->DrawType == DT_Mesh && a->Mesh) || a->IsMovingBrush())) continue;
         FVector c = ambientOf(a->Region.Zone), zoneAmbient = c;
-        char seen[4096];
-        int used = 0;
-        seen[0] = 0;
-        for (int k = 0; k < allLights.Num(); k++) {
-            AActor* l = allLights(k);
+        Json seen = Json::array();
+        for (int k = 0; k < lights.Num(); k++) {
+            AActor* l = lights(k);
             if (l != a && (l->Location - a->Location).SizeSquared() < Square(25.f * (l->LightRadius + 1))
                 && m->FastLineCheck(a->Location, l->Location)) {
                 c += lightAt(l, a->Location, NULL);
-                if (used < (int)sizeof(seen) - 16) used += sprintf(seen + used, used ? ",%d" : "%d", k);
+                seen.push_back(k);
             }
         }
-        // the floor: the highest upward polygon with a lightmap between the centre and a little under the feet
-        float x = a->Location.X, y = a->Location.Y, top = a->Location.Z + 4.f;
-        float low = a->Location.Z - Max(a->CollisionHeight, 16.f) - 48.f, best = -1e9f;
-        int bestNode = INDEX_NONE;
-        for (int n = 0; n < m->Nodes.Num(); n++) {
-            FBspNode& node = m->Nodes(n);
-            if (node.iSurf < 0 || texelAt(node.iSurf) == INDEX_NONE || Abs(node.Plane.Z) < 0.5f) continue;
-            if (m->Vectors(m->Surfs(node.iSurf).vNormal).Z < 0.5f) continue;
-            float z = (node.Plane.W - node.Plane.X * x - node.Plane.Y * y) / node.Plane.Z;
-            if (z > top || z < low || z <= best || !insideXY(m, node, x, y)) continue;
-            best = z;
-            bestNode = n;
-        }
-        FVector occl = c, fl(-1, -1, -1);
-        if (bestNode != INDEX_NONE) {
-            int s = m->Nodes(bestNode).iSurf;
-            FBspSurf& surf = m->Surfs(s);
-            FLightMapIndex& lm = m->LightMap(surf.iLightMap);
-            int w = lm.UClamp, h = lm.VClamp;
-            FVector d = FVector(x, y, best) - m->Points(surf.pBase);
-            float u = Clamp(((d | m->Vectors(surf.vTextureU)) - lm.Pan.X) / lm.UScale, 0.f, (float)(w - 1));
-            float v = Clamp(((d | m->Vectors(surf.vTextureV)) - lm.Pan.Y) / lm.VScale, 0.f, (float)(h - 1));
-            int i0 = Min(appFloor(u), w - 1), j0 = Min(appFloor(v), h - 1), i1 = Min(i0 + 1, w - 1), j1 = Min(j0 + 1, h - 1);
-            float fu = u - i0, fv = v - j0;
-            FVector* t = &texels(texelAt(s));
-            FVector lit = t[j0 * w + i0] * ((1 - fu) * (1 - fv)) + t[j0 * w + i1] * (fu * (1 - fv))
-                        + t[j1 * w + i0] * ((1 - fu) * fv) + t[j1 * w + i1] * (fu * fv);
-            fl = ambients(s) + lit;
-            if (fl.X + fl.Y + fl.Z > c.X + c.Y + c.Z) { c = fl; floors++; }
-        }
+        FVector occl = c, fl = floorLight(m, a, lit);
+        if (fl != FVector(-1, -1, -1) && fl.X + fl.Y + fl.Z > c.X + c.Y + c.Z) { c = fl; floors++; }
         // the floor's extra light (when it is brighter than the lights the centre sees) as flat light
         FVector extra = c - occl;
-        FVector amb = zoneAmbient + FVector(Max(extra.X, 0.f), Max(extra.Y, 0.f), Max(extra.Z, 0.f));
-        char name[128];
-        wtext(a->GetName(), name, sizeof(name));
-        fprintf(f, "A %s %.3f %.3f %.3f\n", name, c.X, c.Y, c.Z);
-        fprintf(f, "V %s %.3f %.3f %.3f %s\n", name, amb.X, amb.Y, amb.Z, used ? seen : "-");
+        FVector ambient = zoneAmbient + FVector(Max(extra.X, 0.f), Max(extra.Y, 0.f), Max(extra.Z, 0.f));
+        Json row;
+        row["kind"] = "actor";
+        row["actor"] = utf8(a->GetName());
+        row["light"] = xyz(c, 3);
+        row["ambient"] = xyz(ambient, 3);
+        row["lights"] = seen;
+        out.write(row);
     }
-    fprintf(f, "C %d %d\n", fit, checked);
-    fclose(f);
+    return floors;
+}
+
+static int dumpLights(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level || !GEditor->Level->Model) return 0;
+    UModel* m = GEditor->Level->Model;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
+    SurfaceLight lit;
+    TArray<AActor*> lights;
+    int fit = 0, checked = 0;
+    int surfs = lightSurfaces(m, out, lit, fit, checked);
+    lightList(out, lights);
+    int floors = lightActors(m, out, lights, lit);
+    Json mapping;
+    mapping["kind"] = "mapping";
+    mapping["fit"] = fit;
+    mapping["checked"] = checked;
+    out.write(mapping);
     printf("UCMapKit|lights|%d surfaces|mapping %d/%d|%d objects lit by their floor\n", surfs, fit, checked, floors);
     return 1;
 }
 
-// UC_MESHES <file>: the real look of every mesh actor (crates, barrels, people, the helicopter) and of
-// every mover (doors), for the 3D view of the map editor. Coordinates relative to the actor's
-// Location, unrotated, with its DrawScale, skins and current animation frame. One header line per
-// actor, then one line per triangle with texture, flags and normalised UVs:
-// A <name> <class> <mesh|mover> <style> <triangles>
-// T <texture path> <flags> x y z u v  x y z u v  x y z u v
+// UC_MESHES <file>: the real look of every mesh actor (crates, barrels, people, the helicopter) and of every mover
+// (doors), for the 3D view of the map editor. Coordinates relative to the actor's Location, unrotated, with its
+// DrawScale, skins and current animation frame. A row an actor: {actor, class, kind (mesh or mover), style,
+// triangles [{texture, flags, corners [x y z u v of each corner: 15 numbers], slot}]} (slot: the MultiSkins
+// index of a mesh's face; a mover's faces have none)
 
 // SEH helpers (no C++ objects to unwind in these frames)
 static int safeFrame(UMesh* mesh, ULodMesh* lod, FVector* out, AActor* a) {
@@ -556,114 +705,130 @@ static UTexture* safeTexture(UMesh* mesh, int index, AActor* a) {
     __try { return mesh->GetTexture(index, a); } __except (EXCEPTION_EXECUTE_HANDLER) { return NULL; }
 }
 
-static int dumpMeshes(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_MESHES %511s", path) != 1) return 0;
-    if (!GEditor->Level) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+// a mesh actor's triangles in its current frame, at the origin; NULL when the engine cannot pose it
+static int meshTriangles(AActor* a, Json& triangles) {
+    UMesh* mesh = a->Mesh;
+    FVector loc = a->Location;
+    FRotator rot = a->Rotation;
+    a->Location = FVector(0, 0, 0);
+    a->Rotation = FRotator(0, 0, 0);
+    ULodMesh* lod = mesh->IsA(ULodMesh::StaticClass()) ? (ULodMesh*)mesh : NULL;
+    int count = mesh->FrameVerts + (lod ? lod->ModelVerts + lod->SpecialVerts : 0) + 64;
+    std::vector<FVector> verts(count, FVector(0, 0, 0));
+    int ok = safeFrame(mesh, lod, &verts[0], a);
+    a->Location = loc;
+    a->Rotation = rot;
+    if (!ok) return 0;
+    int n = lod ? lod->Faces.Num() : mesh->Tris.Num();
+    for (int k = 0; k < n; k++) {
+        int iv[3], material;
+        float uv[3][2];
+        DWORD flags;
+        if (lod) {
+            FMeshFace& face = lod->Faces(k);
+            for (int j = 0; j < 3; j++) {
+                FMeshWedge& w = lod->Wedges(face.iWedge[j]);
+                // GetFrame puts the special verts (weapon attach triangles of the characters)
+                // first; the wedges count the regular verts after them
+                iv[j] = w.iVertex + lod->SpecialVerts;
+                uv[j][0] = w.TexUV.U / 256.f;
+                uv[j][1] = w.TexUV.V / 256.f;
+            }
+            FMeshMaterial& m = lod->Materials(face.MaterialIndex);
+            material = m.TextureIndex;
+            flags = m.PolyFlags;
+        } else {
+            FMeshTri& t = mesh->Tris(k);
+            for (int j = 0; j < 3; j++) {
+                iv[j] = t.iVertex[j];
+                uv[j][0] = t.Tex[j].U / 256.f;
+                uv[j][1] = t.Tex[j].V / 256.f;
+            }
+            material = t.TextureIndex;
+            flags = t.PolyFlags;
+        }
+        UTexture* texture = safeTexture(mesh, material, a);
+        Json corners = Json::array();
+        for (int j = 0; j < 3; j++) {
+            FVector p = (iv[j] >= 0 && iv[j] < count) ? verts[iv[j]] : FVector(0, 0, 0);
+            corners.push_back(decimals(p.X, 2)); corners.push_back(decimals(p.Y, 2)); corners.push_back(decimals(p.Z, 2));
+            corners.push_back(decimals(uv[j][0], 4)); corners.push_back(decimals(uv[j][1], 4));
+        }
+        Json triangle;
+        triangle["texture"] = texture ? utf8(texture->GetPathName()) : "none";
+        triangle["flags"] = flags;
+        triangle["corners"] = corners;
+        triangle["slot"] = material;
+        triangles.push_back(triangle);
+    }
+    return 1;
+}
+
+// a mover's brush as triangles (fans of its polygons), relative to its pivot
+static void moverTriangles(AActor* a, Json& triangles) {
+    TTransArray<FPoly>& polys = a->Brush->Polys->Element;
+    for (int k = 0; k < polys.Num(); k++) {
+        FPoly& p = polys(k);
+        float tw = 128, th = 128;
+        if (p.Texture) {
+            float sc = p.Texture->Scale > 0 ? p.Texture->Scale : 1.f;
+            tw = p.Texture->USize * sc;
+            th = p.Texture->VSize * sc;
+        }
+        for (int j = 1; j + 1 < p.NumVertices; j++) {
+            int idx[3] = {0, j, j + 1};
+            Json corners = Json::array();
+            for (int q = 0; q < 3; q++) {
+                FVector v = p.Vertex[idx[q]];
+                FVector d = v - p.Base;
+                float u = ((d | p.TextureU) + p.PanU) / tw, w = ((d | p.TextureV) + p.PanV) / th;
+                FVector l = v - a->PrePivot;
+                corners.push_back(decimals(l.X, 2)); corners.push_back(decimals(l.Y, 2)); corners.push_back(decimals(l.Z, 2));
+                corners.push_back(decimals(u, 4)); corners.push_back(decimals(w, 4));
+            }
+            Json triangle;
+            triangle["texture"] = p.Texture ? utf8(p.Texture->GetPathName()) : "none";
+            triangle["flags"] = p.PolyFlags;
+            triangle["corners"] = corners;
+            triangles.push_back(triangle);
+        }
+    }
+}
+
+static int dumpMeshes(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int actors = 0, tris = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a) continue;
-        char name[128], cls[128];
-        wtext(a->GetName(), name, sizeof(name));
-        wtext(a->GetClass()->GetName(), cls, sizeof(cls));
+        Json triangles = Json::array();
+        const char* kind;
         if (a->DrawType == DT_Mesh && a->Mesh) {
-            UMesh* mesh = a->Mesh;
-            FVector loc = a->Location;
-            FRotator rot = a->Rotation;
-            a->Location = FVector(0, 0, 0);
-            a->Rotation = FRotator(0, 0, 0);
-            ULodMesh* lod = mesh->IsA(ULodMesh::StaticClass()) ? (ULodMesh*)mesh : NULL;
-            int count = mesh->FrameVerts + (lod ? lod->ModelVerts + lod->SpecialVerts : 0) + 64;
-            FVector* verts = (FVector*)calloc(count, sizeof(FVector));
-            int ok = safeFrame(mesh, lod, verts, a);
-            a->Location = loc;
-            a->Rotation = rot;
-            if (!ok) { free(verts); printf("UCMapKit|mesh fault|%s\n", name); continue; }
-            int n = lod ? lod->Faces.Num() : mesh->Tris.Num();
-            fprintf(f, "A %s %s mesh %d %d\n", name, cls, (int)a->Style, n);
-            for (int k = 0; k < n; k++) {
-                int iv[3], material;
-                float uv[3][2];
-                DWORD flags;
-                if (lod) {
-                    FMeshFace& face = lod->Faces(k);
-                    for (int j = 0; j < 3; j++) {
-                        FMeshWedge& w = lod->Wedges(face.iWedge[j]);
-                        // GetFrame puts the special verts (weapon attach triangles of the characters)
-                        // first; the wedges count the regular verts after them
-                        iv[j] = w.iVertex + lod->SpecialVerts;
-                        uv[j][0] = w.TexUV.U / 256.f;
-                        uv[j][1] = w.TexUV.V / 256.f;
-                    }
-                    FMeshMaterial& m = lod->Materials(face.MaterialIndex);
-                    material = m.TextureIndex;
-                    flags = m.PolyFlags;
-                } else {
-                    FMeshTri& t = mesh->Tris(k);
-                    for (int j = 0; j < 3; j++) {
-                        iv[j] = t.iVertex[j];
-                        uv[j][0] = t.Tex[j].U / 256.f;
-                        uv[j][1] = t.Tex[j].V / 256.f;
-                    }
-                    material = t.TextureIndex;
-                    flags = t.PolyFlags;
-                }
-                char tex[256] = "none";
-                UTexture* texture = safeTexture(mesh, material, a);
-                if (texture) wtext(texture->GetPathName(), tex, sizeof(tex));
-                fprintf(f, "T %s %lu", tex, (unsigned long)flags);
-                for (int j = 0; j < 3; j++) {
-                    FVector p = (iv[j] >= 0 && iv[j] < count) ? verts[iv[j]] : FVector(0, 0, 0);
-                    fprintf(f, " %.2f %.2f %.2f %.4f %.4f", p.X, p.Y, p.Z, uv[j][0], uv[j][1]);
-                }
-                fprintf(f, " %d\n", material);          // the skin slot (MultiSkins index) of this face
-                tris++;
-            }
-            free(verts);
-            actors++;
+            kind = "mesh";
+            if (!meshTriangles(a, triangles)) { printf("UCMapKit|mesh fault|%s\n", (const char*)Utf8(a->GetName())); continue; }
         } else if (a->IsMovingBrush() && a->Brush && a->Brush->Polys) {
-            TTransArray<FPoly>& polys = a->Brush->Polys->Element;
-            int n = 0;
-            for (int k = 0; k < polys.Num(); k++) n += polys(k).NumVertices >= 3 ? polys(k).NumVertices - 2 : 0;
-            fprintf(f, "A %s %s mover %d %d\n", name, cls, (int)a->Style, n);
-            for (int k = 0; k < polys.Num(); k++) {
-                FPoly& p = polys(k);
-                char tex[256] = "none";
-                float tw = 128, th = 128;
-                if (p.Texture) {
-                    wtext(p.Texture->GetPathName(), tex, sizeof(tex));
-                    float sc = p.Texture->Scale > 0 ? p.Texture->Scale : 1.f;
-                    tw = p.Texture->USize * sc;
-                    th = p.Texture->VSize * sc;
-                }
-                for (int j = 1; j + 1 < p.NumVertices; j++) {
-                    int idx[3] = {0, j, j + 1};
-                    fprintf(f, "T %s %lu", tex, (unsigned long)p.PolyFlags);
-                    for (int q = 0; q < 3; q++) {
-                        FVector v = p.Vertex[idx[q]];
-                        FVector d = v - p.Base;
-                        float u = ((d | p.TextureU) + p.PanU) / tw, w = ((d | p.TextureV) + p.PanV) / th;
-                        FVector l = v - a->PrePivot;
-                        fprintf(f, " %.2f %.2f %.2f %.4f %.4f", l.X, l.Y, l.Z, u, w);
-                    }
-                    fputc('\n', f);
-                    tris++;
-                }
-            }
-            actors++;
-        }
+            kind = "mover";
+            moverTriangles(a, triangles);
+        } else continue;
+        Json row;
+        row["actor"] = utf8(a->GetName());
+        row["class"] = utf8(a->GetClass()->GetName());
+        row["kind"] = kind;
+        row["style"] = (int)a->Style;
+        tris += (int)triangles.size();
+        row["triangles"] = std::move(triangles);
+        out.write(row);
+        actors++;
     }
-    fclose(f);
     printf("UCMapKit|meshes|%d actors|%d triangles\n", actors, tris);
     return 1;
 }
 
 // UC_TEXDUMP <texture path> <file>: a texture as raw RGBA (the largest mip up to 256 pixels), also
 // for the compressed (DXT1) and true-colour textures of Revision that OBJ EXPORT writes as empty files.
-// File: "UCTEX <w> <h>\n" then w*h*4 bytes.
+// File: a JSON line {width, height}, then width * height RGBA pixels (4 bytes each), row after row.
 // The pixel layouts UC_TEXDUMP reads, and the one it writes. A DXT1 block is 4x4 pixels drawn from two RGB565
 // colours (5 bits red, 6 green, 5 blue) and two in between, 2 bits a pixel; when Color0 <= Color1 there is one
 // colour in between and the fourth is transparent black.
@@ -711,42 +876,40 @@ static int loadMip(FMipmap* m) {
 
 // UC_LOADPKG <file>: a package loaded from its path, however long. UnrealEd's OBJ LOAD FILE= parses the name into
 // an 80-character buffer, so a package deep in a folder (another mod's, NewVision's textures) was cut and not found.
-static int loadPackage(const char* line) {
-    const char* path = line + 10;
-    while (*path == ' ') path++;
+static int loadPackage(const Args& args) {
+    const char* path = args.rest(1);
     if (!*path) return 0;
     UObject* package = UObject::LoadPackage(NULL, Wide(path), LOAD_NoWarn);
     printf("UCMapKit|loadpkg|%s|%s\n", package ? "ok" : "failed", path);
     return package != NULL;
 }
 
-// UC_TEXFLAGS <file>: the PolyFlags of every loaded texture that has some ("<path> <flags>" per line).
+// UC_TEXFLAGS <file>: the PolyFlags of every loaded texture that has some, a row each: {texture, flags}.
 // The renderer adds them to the flags of the surface: a fence texture is masked by itself even when the
 // surfaces it is on are not (the map editor needs them to draw its transparent parts).
-static int dumpTexFlags(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_TEXFLAGS %511s", path) != 1) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+static int dumpTexFlags(const Args& args) {
+    if (args.count() != 2) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int n = 0, all = 0;
     for (TObjectIterator<UTexture> It; It; ++It) {
         all++;
-        DWORD flags = It->PolyFlags;
-        if (!flags) continue;
-        char name[256];
-        wtext(It->GetPathName(), name, sizeof(name));
-        fprintf(f, "%s %lu\n", name, (unsigned long)flags);
+        if (!It->PolyFlags) continue;
+        Json row;
+        row["texture"] = utf8(It->GetPathName());
+        row["flags"] = It->PolyFlags;
+        out.write(row);
         n++;
     }
-    fclose(f);
     printf("UCMapKit|texflags|%d of %d textures\n", n, all);
     return 1;
 }
 
-static int dumpTexture(const char* line) {
-    char name[256], path[512];
+static int dumpTexture(const Args& args) {
     int maxSize = 256;                              // UC_TEXDUMP <tex> <file> [largest side]: 256 by default
-    if (sscanf(line, "UC_TEXDUMP %255s %511s %d", name, path, &maxSize) < 2) return 0;
+    if (args.count() < 3 || args.count() > 4 || (args.count() == 4 && !args.number(3, maxSize))) return 0;
+    const char* name = args[1];
+    const char* path = args[2];
     UTexture* t = (UTexture*)UObject::StaticLoadObject(UTexture::StaticClass(), NULL, Wide(name), NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
     if (!t) { printf("UCMapKit|texdump|missing|%s\n", name); return 1; }
     printf("UCMapKit|texdump|info|%s|%dx%d|scale %g|format %d\n", name, t->USize, t->VSize, t->Scale, (int)t->Format);
@@ -784,7 +947,11 @@ static int dumpTexture(const char* line) {
     if (ok) {
         FILE* f = fopen(path, "wb");
         if (f) {
-            fprintf(f, "UCTEX %d %d\n", w, h);
+            Json header;
+            header["width"] = w;
+            header["height"] = h;
+            std::string head = header.dump() + "\n";
+            fwrite(head.data(), 1, head.size(), f);
             fwrite(rgba, sizeof(Rgba), w * h, f);
             fclose(f);
         }
@@ -796,8 +963,9 @@ static int dumpTexture(const char* line) {
     return 1;
 }
 
-// UC_CLASSES <file>: every actor class loaded (for the editor palette: all the objects of the game),
-// one tab-separated line: C name package flags drawtype mesh radius height parents itemname familiarname
+// UC_CLASSES <file>: every actor class loaded (for the editor palette: all the objects of the game), a row each:
+// {class, package, flags, drawType, mesh ("None" without), radius, height, parents [nearest first, Actor left out],
+// itemName, familiarName (as ExportText writes them), drawScale}
 static int safeTextProp(UClass* c, BYTE* obj, const TCHAR* field, TCHAR* out) {
     out[0] = 0;
     __try {
@@ -808,36 +976,41 @@ static int safeTextProp(UClass* c, BYTE* obj, const TCHAR* field, TCHAR* out) {
     return 1;
 }
 
-static int listClasses(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_CLASSES %511s", path) != 1) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+// a class's parents, nearest first, up to (not including) the class stop (NULL: all of them)
+static Json parentsOf(UClass* c, UClass* stop) {
+    Json parents = Json::array();
+    for (UClass* s = c->GetSuperClass(); s && s != stop; s = s->GetSuperClass()) parents.push_back(utf8(s->GetName()));
+    return parents;
+}
+
+static int listClasses(const Args& args) {
+    if (args.count() != 2) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int n = 0;
     for (TObjectIterator<UClass> It; It; ++It) {
         UClass* c = *It;
         if (!c->IsChildOf(AActor::StaticClass())) continue;
         AActor* d = (AActor*)c->GetDefaultObject();
         if (!d) continue;
-        char name[128], pkg[128], mesh[256] = "None", parents[1024] = "", item[256] = "", fam[256] = "";
-        wtext(c->GetName(), name, sizeof(name));
-        wtext(c->GetOuter()->GetName(), pkg, sizeof(pkg));
-        if (d->Mesh) wtext(d->Mesh->GetPathName(), mesh, sizeof(mesh));
-        for (UClass* s = c->GetSuperClass(); s && s != AActor::StaticClass(); s = s->GetSuperClass()) {
-            char sn[128];
-            wtext(s->GetName(), sn, sizeof(sn));
-            if (strlen(parents) + strlen(sn) + 2 < sizeof(parents)) { strcat(parents, sn); strcat(parents, "/"); }
-        }
-        TCHAR buf[512];
-        if (safeTextProp(c, (BYTE*)d, TEXT("ItemName"), buf)) wtext(buf, item, sizeof(item));
-        if (safeTextProp(c, (BYTE*)d, TEXT("FamiliarName"), buf)) wtext(buf, fam, sizeof(fam));
-        for (char* q = item; *q; q++) if (*q == '\t' || *q == '\n') *q = ' ';
-        for (char* q = fam; *q; q++) if (*q == '\t' || *q == '\n') *q = ' ';
-        fprintf(f, "C\t%s\t%s\t%lu\t%d\t%s\t%.2f\t%.2f\t%s\t%s\t%s\t%.4f\n", name, pkg, (unsigned long)c->ClassFlags,
-                (int)d->DrawType, mesh, d->CollisionRadius, d->CollisionHeight, parents, item, fam, d->DrawScale);
+        TCHAR item[512], fam[512];
+        safeTextProp(c, (BYTE*)d, TEXT("ItemName"), item);
+        safeTextProp(c, (BYTE*)d, TEXT("FamiliarName"), fam);
+        Json row;
+        row["class"] = utf8(c->GetName());
+        row["package"] = utf8(c->GetOuter()->GetName());
+        row["flags"] = c->ClassFlags;
+        row["drawType"] = (int)d->DrawType;
+        row["mesh"] = d->Mesh ? utf8(d->Mesh->GetPathName()) : "None";
+        row["radius"] = decimals(d->CollisionRadius, 2);
+        row["height"] = decimals(d->CollisionHeight, 2);
+        row["parents"] = parentsOf(c, AActor::StaticClass());
+        row["itemName"] = utf8(item);
+        row["familiarName"] = utf8(fam);
+        row["drawScale"] = decimals(d->DrawScale, 4);
+        out.write(row);
         n++;
     }
-    fclose(f);
     printf("UCMapKit|classes|%d\n", n);
     return 1;
 }
@@ -849,27 +1022,17 @@ static BYTE* propertyData(UObject* obj, UProperty* p, INT index) {
     return (BYTE*)obj + p->Offset + index * p->ElementSize;
 }
 
-// UC_DEFAULTS <file> <prop,prop,...>: the class defaults of those properties for every actor class (the
-// map editor's Properties panel: a map's T3D only has what differs from the class). Lines:
-//   C <class> <parents a/b/c/>          P <class> <prop> <index> <property type> <value>
-//   E <prop> <enum value names separated by |>   (byte properties with an enum, once per property)
+// UC_DEFAULTS <file> <prop,prop,...>: the class defaults of those properties for every actor class (the map
+// editor's Properties panel: a map's T3D only has what differs from the class). Rows:
+//   {kind: class, class, parents [nearest first, up to Object], properties [{name, index, type, value}]}
+//   {kind: enum, property, values [the names of a byte property's enum]}   once per property, before the first
+//       class that has it
 // ExportText adds the property's offset itself; Delta == Data exports even zero values (False, 0, None).
 static int safeExport(UProperty* p, INT index, BYTE* obj, TCHAR* out) {
     out[0] = 0;
     __try { p->ExportText(index, out, obj, obj, 0); }
     __except (EXCEPTION_EXECUTE_HANDLER) { out[0] = 0; return 0; }
     return 1;
-}
-
-static std::string utf8(const TCHAR* text) {
-    return std::string(Utf8(text));
-}
-
-// One JSON line of a dump. Text that is not valid UTF-8 is replaced, never refused.
-static void writeRow(FILE* f, const Json& row) {
-    std::string text = row.dump(-1, ' ', false, Json::error_handler_t::replace);
-    text += '\n';
-    fwrite(text.data(), 1, text.size(), f);
 }
 
 // A native class of the game found by name (its StaticClass() would make the host depend on that package's
@@ -883,63 +1046,62 @@ static UClass* nativeClass(const TCHAR* path, INT size) {
 }
 
 // UC_SCRIPTDUMP / UC_TEXTDUMP <package> <file>: the script sources or the text assets of a loaded package
-// (read only), one JSON line {path, parent, text} each.
-static FILE* openContentDump(const char* line, UPackage** package) {
-    char name[128], path[512];
-    if (sscanf(line, "%*s %127s %511s", name, path) != 2) return NULL;
-    *package = FindObject<UPackage>(NULL, Wide(name));
-    return *package ? fopen(path, "wb") : NULL;
+// (read only), a row each: {path, parent, text}.
+static UPackage* contentPackage(const Args& args) {
+    return args.count() == 3 ? FindObject<UPackage>(NULL, Wide(args[1])) : NULL;
 }
 
 // parent: a copy, as GetPathName() hands every caller the same buffer
-static void contentRow(FILE* f, UObject* obj, const FString& parent, const TCHAR* text) {
+static void contentRow(JsonLines& out, UObject* obj, const FString& parent, const TCHAR* text) {
     Json row;
     row["path"] = utf8(obj->GetPathName());
     row["parent"] = utf8(*parent);
     row["text"] = utf8(text);
-    writeRow(f, row);
+    out.write(row);
 }
 
-static int dumpScripts(const char* line) {
-    UPackage* package;
-    FILE* f = openContentDump(line, &package);
-    if (!f) return 0;
+static int dumpScripts(const Args& args) {
+    UPackage* package = contentPackage(args);
+    if (!package) return 0;
+    JsonLines out(args[2]);
+    if (!out.ok()) return 0;
     int count = 0;
     for (TObjectIterator<UClass> it; it; ++it) {
         if (!it->ScriptText || !it->IsIn(package)) continue;
         UClass* super = it->GetSuperClass();
-        contentRow(f, *it, FString(super ? super->GetPathName() : TEXT("")), *it->ScriptText->Text);
+        contentRow(out, *it, FString(super ? super->GetPathName() : TEXT("")), *it->ScriptText->Text);
         ++count;
     }
-    fclose(f); printf("UCMapKit|scripts|%d\n", count);
+    printf("UCMapKit|scripts|%d\n", count);
     return count > 0;
 }
 
-static int dumpTexts(const char* line) {
+static int dumpTexts(const Args& args) {
     UClass* extString = nativeClass(TEXT("Extension.ExtString"), sizeof(XExtString));
-    UPackage* package;
-    FILE* f = extString ? openContentDump(line, &package) : NULL;
-    if (!f) return 0;
+    UPackage* package = extString ? contentPackage(args) : NULL;
+    if (!package) return 0;
+    JsonLines out(args[2]);
+    if (!out.ok()) return 0;
     int count = 0;
     for (TObjectIterator<UObject> it; it; ++it) {
         if (!it->IsA(extString) || !it->IsIn(package)) continue;
-        contentRow(f, *it, FString(), ((XExtString*)*it)->GetText());
+        contentRow(out, *it, FString(), ((XExtString*)*it)->GetText());
         ++count;
     }
-    fclose(f); printf("UCMapKit|texts|%d\n", count);
+    printf("UCMapKit|texts|%d\n", count);
     return count > 0;
 }
 
 // UC_CONDUMP <file>: every conversation object loaded, for the editor's local cache: all their reflected
 // properties, zero and default values too, objects as full paths, so Python follows the native linked lists.
-static int dumpConversations(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_CONDUMP %511s", path) != 1) return 0;
+static int dumpConversations(const Args& args) {
+    if (args.count() != 2) return 0;
+    const char* path = args[1];
     UClass* base = FindObject<UClass>(ANY_PACKAGE, TEXT("ConSys.ConObject"));
     UClass* randomLabel = nativeClass(TEXT("ConSys.ConEventRandomLabel"), sizeof(DConEventRandomLabel));
     if (!base || !randomLabel) return 0;
-    FILE* f = fopen(path, "wb");
-    if (!f) return 0;
+    JsonLines out(path);
+    if (!out.ok()) return 0;
     // ExportText writes into the caller's buffer and is given no size: one large buffer for every value
     static TCHAR value[65536];
     int count = 0, errors = 0;
@@ -972,17 +1134,18 @@ static int dumpConversations(const char* line) {
             TArray<FString>& names = ((DConEventRandomLabel*)obj)->labels;
             for (INT i = 0; i < names.Num(); ++i) labels.push_back(utf8(*names(i)));
         }
-        writeRow(f, row); ++count;
+        out.write(row); ++count;
     }
-    fclose(f);
     printf("UCMapKit|condump|%d|property errors %d\n", count, errors);
     return errors == 0 && count > 0;
 }
 
 // Resolve through ConSys itself, rather than infer sound names from a speech number.
-static int conversationSound(const char* line) {
-    char name[512], path[512]; INT id;
-    if (sscanf(line, "UC_CONSOUND %511s %d %511s", name, &id, path) != 3 || id < 0) return 0;
+static int conversationSound(const Args& args) {
+    int id;
+    if (args.count() != 4 || !args.number(2, id) || id < 0) return 0;
+    const char* name = args[1];
+    const char* path = args[3];
     Wide wname(name);
     UClass* conversation = nativeClass(TEXT("ConSys.Conversation"), sizeof(DConversation));
     UObject* obj = FindObject<UObject>(ANY_PACKAGE, wname);
@@ -992,152 +1155,119 @@ static int conversationSound(const char* line) {
     row["conversation"] = name;
     row["id"] = id;
     row["sound"] = sound && sound->IsA(USound::StaticClass()) ? Json(utf8(sound->GetPathName())) : Json();
-    FILE* f = fopen(path, "ab");
-    if (!f) return 0;
-    writeRow(f, row); fclose(f);
+    JsonLines out(path, true);                      // one row per command, added to the file
+    if (!out.ok()) return 0;
+    out.write(row);
     printf("UCMapKit|consound|%s|%d|%s\n", name, id, sound ? "found" : "missing");
     return 1;
 }
 
-static int dumpDefaults(const char* line) {
-    // the Properties panel's names: 87 on 13 Oct 2026 (it was cut at 64, so some fields never showed)
-    static char list[7680];
-    char path[512];
-    if (sscanf(line, "UC_DEFAULTS %511s %7679s", path, list) != 2) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
-    static char props[256][64];
-    int np = 0;
-    for (char* t = strtok(list, ","); t && np < 256; t = strtok(NULL, ",")) { strncpy(props[np], t, 63); props[np][63] = 0; np++; }
-    char enumsDone[256] = { 0 };
-    static TCHAR buf[16384];
+static Json enumRow(const char* property, UEnum* e) {
+    Json row, values = Json::array();
+    for (int i = 0; i < e->Names.Num(); i++) values.push_back(utf8(*e->Names(i)));
+    row["kind"] = "enum";
+    row["property"] = property;
+    row["values"] = values;
+    return row;
+}
+
+static int dumpDefaults(const Args& args) {
+    if (args.count() != 3) return 0;
+    // the property names, comma separated (the Properties panel's: 87 on 13 Oct 2026)
+    std::vector<std::string> props;
+    std::string list = args[2];
+    for (size_t from = 0, comma; from <= list.size(); from = comma + 1) {
+        comma = list.find(',', from);
+        if (comma == std::string::npos) comma = list.size();
+        if (comma > from) props.push_back(list.substr(from, comma - from));
+    }
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
+    std::vector<char> enumsDone(props.size(), 0);
+    static TCHAR value[16384];                      // ExportText is given no size: one large buffer
     int n = 0;
     for (TObjectIterator<UClass> It; It; ++It) {
         UClass* c = *It;
         if (!c->IsChildOf(AActor::StaticClass())) continue;
         BYTE* d = (BYTE*)c->GetDefaultObject();
         if (!d) continue;
-        char name[128], parents[1024] = "";
-        wtext(c->GetName(), name, sizeof(name));
-        for (UClass* s = c->GetSuperClass(); s; s = s->GetSuperClass()) {
-            char sn[128];
-            wtext(s->GetName(), sn, sizeof(sn));
-            if (strlen(parents) + strlen(sn) + 2 < sizeof(parents)) { strcat(parents, sn); strcat(parents, "/"); }
-        }
-        fprintf(f, "C\t%s\t%s\n", name, parents);
-        for (int k = 0; k < np; k++) {
-            UProperty* p = FindField<UProperty>(c, Wide(props[k]));
+        Json values = Json::array();
+        for (size_t k = 0; k < props.size(); k++) {
+            UProperty* p = FindField<UProperty>(c, Wide(props[k].c_str()));
             if (!p) continue;
-            char type[64];
-            wtext(p->GetClass()->GetName(), type, sizeof(type));
             if (!enumsDone[k] && p->IsA(UByteProperty::StaticClass()) && ((UByteProperty*)p)->Enum) {
-                UEnum* e = ((UByteProperty*)p)->Enum;
-                fprintf(f, "E\t%s\t", props[k]);
-                for (int i = 0; i < e->Names.Num(); i++) {
-                    char en[128];
-                    wtext(*e->Names(i), en, sizeof(en));
-                    fprintf(f, "%s%s", i ? "|" : "", en);
-                }
-                fprintf(f, "\n");
+                out.write(enumRow(props[k].c_str(), ((UByteProperty*)p)->Enum));
                 enumsDone[k] = 1;
             }
             int dim = p->ArrayDim > 8 ? 8 : p->ArrayDim;
             for (int i = 0; i < dim; i++) {
-                if (!safeExport(p, i, d, buf)) continue;
-                char value[4096];
-                wtext(buf, value, sizeof(value));
-                for (char* q = value; *q; q++) if (*q == '\t' || *q == '\n' || *q == '\r') *q = ' ';
-                fprintf(f, "P\t%s\t%s\t%d\t%s\t%s\n", name, props[k], i, type, value);
+                if (!safeExport(p, i, d, value)) continue;
+                Json one;
+                one["name"] = props[k];
+                one["index"] = i;
+                one["type"] = utf8(p->GetClass()->GetName());
+                one["value"] = utf8(value);
+                values.push_back(one);
             }
         }
+        Json row;
+        row["kind"] = "class";
+        row["class"] = utf8(c->GetName());
+        row["parents"] = parentsOf(c, NULL);
+        row["properties"] = values;
+        out.write(row);
         n++;
     }
-    fclose(f);
     printf("UCMapKit|defaults|%d\n", n);
     return 1;
 }
 
 // UC_CLASSPROPS <file> <class>: every property of one class that UnrealEd's Properties window shows (CPF_Edit), for
-// the map editor's All properties. Lines, in the class's order (its own first, then its parents'):
-//   P <name> <index, -1 for a single value> <property type> <category> <class default>
-//   E <name> <enum value names separated by |>
-static int dumpClassProps(const char* line) {
-    char path[512], cname[128];
-    if (sscanf(line, "UC_CLASSPROPS %511s %127s", path, cname) != 2) return 0;
+// the map editor's All properties. Rows, in the class's order (its own first, then its parents'):
+//   {kind: enum, property, values}   before the property, for a byte property with an enum
+//   {kind: property, name, index (-1 for a single value), type, category, default (the class default as text)}
+static int dumpClassProps(const Args& args) {
+    if (args.count() != 3) return 0;
+    const char* cname = args[2];
     UClass* c = FindObject<UClass>(ANY_PACKAGE, Wide(cname));
     if (!c || !c->IsChildOf(AActor::StaticClass())) { printf("UCMapKit|classprops|missing|%s\n", cname); return 1; }
     BYTE* d = (BYTE*)c->GetDefaultObject();
-    FILE* f = fopen(path, "wt");
-    if (!f || !d) { if (f) fclose(f); return 0; }
-    static TCHAR buf[16384];
+    if (!d) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
+    static TCHAR value[16384];                      // ExportText is given no size: one large buffer
     int n = 0;
     for (TFieldIterator<UProperty> It(c); It; ++It) {
         UProperty* p = *It;
         if (!(p->PropertyFlags & CPF_Edit)) continue;
-        char name[128], type[64], group[128];
-        wtext(p->GetName(), name, sizeof(name));
-        wtext(p->GetClass()->GetName(), type, sizeof(type));
-        wtext(*p->Category, group, sizeof(group));
-        for (char* q = group; *q; q++) if (*q == ' ' || *q == '\t') *q = '_';
-        if (p->IsA(UByteProperty::StaticClass()) && ((UByteProperty*)p)->Enum) {
-            UEnum* e = ((UByteProperty*)p)->Enum;
-            fprintf(f, "E\t%s\t", name);
-            for (int i = 0; i < e->Names.Num(); i++) {
-                char en[128];
-                wtext(*e->Names(i), en, sizeof(en));
-                fprintf(f, "%s%s", i ? "|" : "", en);
-            }
-            fprintf(f, "\n");
-        }
+        std::string name = utf8(p->GetName());
+        if (p->IsA(UByteProperty::StaticClass()) && ((UByteProperty*)p)->Enum)
+            out.write(enumRow(name.c_str(), ((UByteProperty*)p)->Enum));
         int dim = p->ArrayDim > 32 ? 32 : p->ArrayDim;
         for (int i = 0; i < dim; i++) {
-            if (!safeExport(p, i, d, buf)) continue;
-            char value[4096];
-            wtext(buf, value, sizeof(value));
-            for (char* q = value; *q; q++) if (*q == '\t' || *q == '\n' || *q == '\r') *q = ' ';
-            fprintf(f, "P\t%s\t%d\t%s\t%s\t%s\n", name, p->ArrayDim > 1 ? i : -1, type, group[0] ? group : "None", value);
+            if (!safeExport(p, i, d, value)) continue;
+            Json row;
+            row["kind"] = "property";
+            row["name"] = name;
+            row["index"] = p->ArrayDim > 1 ? i : -1;
+            row["type"] = utf8(p->GetClass()->GetName());
+            row["category"] = utf8(*p->Category);
+            row["default"] = utf8(value);
+            out.write(row);
         }
         n++;
     }
-    fclose(f);
     printf("UCMapKit|classprops|%d\n", n);
     return 1;
 }
 
-// Editing existing maps (the map editor on any .dx): actors and brushes are found by name.
-// by name, or "@<Class>": the first actor of that class (or a subclass); "@LevelInfo" is the map's own
-// (after MAP NEW the level's actors are not named as in the saved map)
-static AActor* findActor(const char* name) {
-    if (name[0] == '@') {
-        if (!_stricmp(name + 1, "LevelInfo")) return GEditor->Level->GetLevelInfo();
-        for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
-            AActor* a = GEditor->Level->Actors(i);
-            if (!a) continue;
-            for (UClass* c = a->GetClass(); c; c = c->GetSuperClass()) {
-                char n[128];
-                wtext(c->GetName(), n, sizeof(n));
-                if (!_stricmp(n, name + 1)) return a;
-            }
-        }
-        return NULL;
-    }
-    for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
-        AActor* a = GEditor->Level->Actors(i);
-        if (!a) continue;
-        char n[128];
-        wtext(a->GetName(), n, sizeof(n));
-        if (!_stricmp(n, name)) return a;
-    }
-    return NULL;
-}
-
 // UC_SET <name> x y z pitch yaw roll: place an actor or a brush (doors keep their base with them).
-static int setActor(const char* line) {
-    char name[128];
+static int setActor(const Args& args) {
     float x, y, z;
     int p, yw, r;
-    if (sscanf(line, "UC_SET %127s %f %f %f %d %d %d", name, &x, &y, &z, &p, &yw, &r) != 7) return 0;
-    if (!GEditor->Level) return 0;
+    if (args.count() != 8 || !args.number(2, x) || !args.number(3, y) || !args.number(4, z) || !args.number(5, p)
+        || !args.number(6, yw) || !args.number(7, r) || !GEditor->Level) return 0;
+    const char* name = args[1];
     AActor* a = findActor(name);
     if (!a) { printf("UCMapKit|set|missing|%s\n", name); return 1; }
     a->Location = FVector(x, y, z);
@@ -1154,14 +1284,12 @@ static int setActor(const char* line) {
 }
 
 // UC_DEL <name>: remove an actor or a brush.
-static int deleteActor(const char* line) {
-    char name[128];
-    if (sscanf(line, "UC_DEL %127s", name) != 1) return 0;
-    if (!GEditor->Level) return 0;
-    AActor* a = findActor(name);
-    if (!a) { printf("UCMapKit|del|missing|%s\n", name); return 1; }
+static int deleteActor(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
+    AActor* a = findActor(args[1]);
+    if (!a) { printf("UCMapKit|del|missing|%s\n", args[1]); return 1; }
     GEditor->Level->DestroyActor(a);
-    printf("UCMapKit|del|ok|%s\n", name);
+    printf("UCMapKit|del|ok|%s\n", args[1]);
     return 1;
 }
 
@@ -1173,82 +1301,77 @@ static int safeImport(UProperty* p, const TCHAR* text, BYTE* data) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
-static int setPropOn(AActor* a, const char* name, char* prop, const char* value);
-static int setProp(const char* line) {
-    char name[128], prop[128];
-    int used = 0;
-    if (sscanf(line, "UC_PROP %127s %127s %n", name, prop, &used) < 2 || !used) return 0;
-    if (!GEditor->Level) return 0;
+// prop: "Name" or "Name(index)"
+static int setPropOn(AActor* a, const char* name, const std::string& prop, const char* value) {
+    if (!a) { printf("UCMapKit|prop|missing|%s\n", name); return 1; }
+    size_t paren = prop.find('(');
+    std::string field = prop.substr(0, paren);
+    int index = paren == std::string::npos ? 0 : atoi(prop.c_str() + paren + 1);
+    UProperty* p = FindField<UProperty>(a->GetClass(), Wide(field.c_str()));
+    if (!p || index < 0 || index >= p->ArrayDim) { printf("UCMapKit|prop|noprop|%s|%s\n", name, field.c_str()); return 1; }
+    // a value can be long (the text of a book or a datacube): Wide takes the heap for it
+    if (!safeImport(p, Wide(value), propertyData(a, p, index))) {
+        printf("UCMapKit|prop|failed|%s|%s\n", name, field.c_str());
+        return 1;
+    }
+    printf("UCMapKit|prop|ok|%s|%s\n", name, field.c_str());
+    return 1;
+}
+
+static int setProp(const Args& args) {
+    if (args.count() < 3 || !GEditor->Level) return 0;
+    const char* name = args[1];
     if (name[0] == '@' && name[1] == '@') {         // "@@<Class>": every actor of that class
+        Wide cls(name + 2);
         int n = 0;
         for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
             AActor* a = GEditor->Level->Actors(i);
-            if (!a) continue;
-            for (UClass* c = a->GetClass(); c; c = c->GetSuperClass()) {
-                char cn[128];
-                wtext(c->GetName(), cn, sizeof(cn));
-                if (!_stricmp(cn, name + 2)) { char pr[128]; strcpy(pr, prop); setPropOn(a, name, pr, line + used); n++; break; }
-            }
+            if (a && classIs(a, cls)) { setPropOn(a, name, args[2], args.rest(3)); n++; }
         }
         printf("UCMapKit|prop|all|%s|%d\n", name + 2, n);
         return 1;
     }
-    return setPropOn(findActor(name), name, prop, line + used);
-}
-static int setPropOn(AActor* a, const char* name, char* prop, const char* value) {
-    if (!a) { printf("UCMapKit|prop|missing|%s\n", name); return 1; }
-    int index = 0;
-    char* paren = strchr(prop, '(');
-    if (paren) { index = atoi(paren + 1); *paren = 0; }
-    UProperty* p = FindField<UProperty>(a->GetClass(), Wide(prop));
-    if (!p || index < 0 || index >= p->ArrayDim) { printf("UCMapKit|prop|noprop|%s|%s\n", name, prop); return 1; }
-    // a value can be long (the text of a book or a datacube): Wide takes the heap for it
-    if (!safeImport(p, Wide(value), propertyData(a, p, index))) {
-        printf("UCMapKit|prop|failed|%s|%s\n", name, prop);
-        return 1;
-    }
-    printf("UCMapKit|prop|ok|%s|%s\n", name, prop);
-    return 1;
+    return setPropOn(findActor(name), name, args[2], args.rest(3));
 }
 
-// Lossless string chunks: T3D has no reliable quote escaping, and UC_PROP's tokenization consumes
-// leading whitespace. Hex transports UTF-8 without changing it; ImportText with flags=0 reads raw.
-static int setTextHex(const char* line) {
-    char name[128], prop[128], value[4096]; int used = 0;
-    if (sscanf(line, "UC_TEXTHEX %127s %127s %n", name, prop, &used) < 2 || !used) return 0;
-    const char* hex = line + used; size_t len = strlen(hex);
-    if (len % 2 || len / 2 >= sizeof(value)) return 0;
-    for (size_t i = 0; i < len; i += 2) {
-        int a = hex[i] >= '0' && hex[i] <= '9' ? hex[i]-'0' : hex[i] >= 'a' && hex[i] <= 'f' ? hex[i]-'a'+10 : -1;
-        int b = hex[i+1] >= '0' && hex[i+1] <= '9' ? hex[i+1]-'0' : hex[i+1] >= 'a' && hex[i+1] <= 'f' ? hex[i+1]-'a'+10 : -1;
-        if (a < 0 || b < 0 || (a == 0 && b == 0)) return 0;
-        value[i/2] = (char)((a << 4) | b);
+// UC_TEXTHEX <name> <property> <hex>: a text property given as the hex of its UTF-8. Lossless: T3D has no reliable
+// quote escaping, and UC_PROP's words lose leading spaces; ImportText with flags=0 reads the text as it is.
+static int hexDigit(char c) {
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+static int setTextHex(const Args& args) {
+    if (args.count() != 4) return 0;
+    std::string hex = args[3], value;
+    if (hex.size() % 2) return 0;
+    for (size_t i = 0; i < hex.size(); i += 2) {
+        int high = hexDigit(hex[i]), low = hexDigit(hex[i + 1]);
+        if (high < 0 || low < 0 || (high == 0 && low == 0)) return 0;
+        value += (char)((high << 4) | low);
     }
-    value[len/2] = 0;
-    return setPropOn(findActor(name), name, prop, value);
+    return setPropOn(findActor(args[1]), args[1], args[2], value.c_str());
 }
 
 // UC_OBJPROP <object> <property> <value...>: a property of any object found by name (an imported
 // texture's DrawScale), the same way as UC_PROP.
-static int setObjProp(const char* line) {
-    char name[256], prop[128];
-    int used = 0;
-    if (sscanf(line, "UC_OBJPROP %255s %127s %n", name, prop, &used) < 2 || !used) return 0;
+static int setObjProp(const Args& args) {
+    if (args.count() < 3) return 0;
+    const char* name = args[1];
+    const char* prop = args[2];
     UObject* o = UObject::StaticFindObject(UObject::StaticClass(), ANY_PACKAGE, Wide(name));
     if (!o) { printf("UCMapKit|objprop|missing|%s\n", name); return 1; }
     UProperty* p = FindField<UProperty>(o->GetClass(), Wide(prop));
     if (!p) { printf("UCMapKit|objprop|noprop|%s|%s\n", name, prop); return 1; }
-    if (!safeImport(p, Wide(line + used), propertyData(o, p, 0))) { printf("UCMapKit|objprop|failed|%s|%s\n", name, prop); return 1; }
+    if (!safeImport(p, Wide(args.rest(3)), propertyData(o, p, 0))) { printf("UCMapKit|objprop|failed|%s|%s\n", name, prop); return 1; }
     printf("UCMapKit|objprop|ok|%s|%s\n", name, prop);
     return 1;
 }
 
 // UC_SCALE <name> <factor>: an object made bigger or smaller (map editor, R): its DrawScale and its
 // collision cylinder are multiplied, starting from what the engine has (class defaults included).
-static int scaleActor(const char* line) {
-    char name[128];
+static int scaleActor(const Args& args) {
     float f;
-    if (sscanf(line, "UC_SCALE %127s %f", name, &f) != 2 || !(f > 0.01f && f < 100.0f)) return 0;
+    if (args.count() != 3 || !args.number(2, f) || !(f > 0.01f && f < 100.0f)) return 0;
+    const char* name = args[1];
     if (!GEditor->Level) return 0;
     AActor* a = findActor(name);
     if (!a) { printf("UCMapKit|scale|missing|%s\n", name); return 1; }
@@ -1262,35 +1385,33 @@ static int scaleActor(const char* line) {
 
 // UC_SURFTEX <brush> <old texture name or *> <new texture>: retexture the faces of one brush (its polys
 // and the BSP surfaces it made) without a rebuild, so the lighting of an original map stays.
-static int retextureBrush(AActor* a, const char* oldt, UTexture* tex) {
-    int all = !strcmp(oldt, "*"), n = 0;
-    char tn[256];
+static int retextureBrush(AActor* a, const TCHAR* oldt, UTexture* tex) {
+    int all = !appStrcmp(oldt, TEXT("*")), n = 0;
     if (a->Brush && a->Brush->Polys) {
         for (int i = 0; i < a->Brush->Polys->Element.Num(); i++) {
             FPoly& poly = a->Brush->Polys->Element(i);
-            if (!poly.Texture) continue;
-            wtext(poly.Texture->GetName(), tn, sizeof(tn));
-            if (all || !_stricmp(tn, oldt)) { poly.Texture = tex; n++; }
+            if (poly.Texture && (all || !appStricmp(poly.Texture->GetName(), oldt))) { poly.Texture = tex; n++; }
         }
     }
     UModel* model = GEditor->Level->Model;
     for (int i = 0; i < model->Surfs.Num(); i++) {
         FBspSurf& s = model->Surfs(i);
         if ((AActor*)s.Actor != a || !s.Texture) continue;
-        wtext(s.Texture->GetName(), tn, sizeof(tn));
-        if (all || !_stricmp(tn, oldt)) { s.Texture = tex; n++; }
+        if (all || !appStricmp(s.Texture->GetName(), oldt)) { s.Texture = tex; n++; }
     }
     return n;
 }
 
-static int setSurfTexture(const char* line) {
-    char name[128], oldt[128], newt[256];
-    if (sscanf(line, "UC_SURFTEX %127s %127s %255s", name, oldt, newt) != 3) return 0;
+static int setSurfTexture(const Args& args) {
+    if (args.count() != 4) return 0;
+    const char* name = args[1];
+    Wide oldt(args[2]);
+    const char* newt = args[3];
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     UTexture* tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, Wide(newt));
     if (!tex) { printf("UCMapKit|surftex|notexture|%s\n", newt); return 1; }
     int n = 0;
-    if (!strcmp(name, "*")) {                  // every brush of the map (and every mover)
+    if (args.is(1, "*")) {                     // every brush of the map (and every mover)
         for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
             AActor* a = GEditor->Level->Actors(i);
             if (a && a->Brush && a != GEditor->Level->Brush() && (a->IsStaticBrush() || a->IsA(AMover::StaticClass())))
@@ -1348,7 +1469,7 @@ static int surfaceError(const char* reason) {
     printf("UCMapKit|failed|surface|%s\n", reason); return 1;
 }
 
-static int fitSurface(FPoly& p, const char* mode) {
+static int fitSurface(FPoly& p, const std::string& mode) {
     FVector n = p.Normal.SafeNormal();
     FVector u = (p.TextureU - n * (p.TextureU | n)).SafeNormal();
     if (u.SizeSquared() < .5f) u = (p.Vertex[1] - p.Vertex[0]).SafeNormal();
@@ -1364,8 +1485,8 @@ static int fitSurface(FPoly& p, const char* mode) {
     if (u1 - u0 < .001f || v1 - v0 < .001f || !p.Texture) return 0;
     FLOAT sc = p.Texture->Scale > 0 ? p.Texture->Scale : 1.f;
     FLOAT su = p.Texture->USize * sc / (u1 - u0), sv = p.Texture->VSize * sc / (v1 - v0);
-    if (!strcmp(mode, "tile-u")) sv = su;
-    if (!strcmp(mode, "tile-v")) su = sv;
+    if (mode == "tile-u") sv = su;
+    if (mode == "tile-v") su = sv;
     p.Base = base + u * u0 + v * v0;
     p.TextureU = u * su; p.TextureV = v * sv; p.PanU = p.PanV = 0;
     return 1;
@@ -1421,33 +1542,34 @@ static int wrapSurfaceCylinder(ABrush* b) {
 // UC_SURFACE <brush> <source polygon or *> <floor|wall|tile|tile-u|tile-v|cylinder|pan|scale|rotate|flip-u|flip-v|texture|shadows|flags> [args]
 // flags <set> <clear>: UnrealEd's surface properties (Unlit, Translucent, Masked, Modulated, Two Sided, Mirror, Invisible,
 // Fake Backdrop, Special Lit, No Smoothing), only those bits
-static int editSurface(const char* line) {
-    char name[128], target[32], mode[32], arg[256] = ""; FLOAT x = 0, y = 0;
-    if (sscanf(line, "UC_SURFACE %127s %31s %31s %255s", name, target, mode, arg) < 3) return 0;
-    AActor* actor = findActor(name);
+static int editSurface(const Args& args) {
+    FLOAT x = 0, y = 0;
+    if (args.count() < 4) return 0;
+    std::string mode = args[3], arg = args[4];
+    AActor* actor = findActor(args[1]);
     if (!actor || !actor->IsStaticBrush() || !actor->Brush || !actor->Brush->Polys) return surfaceError("Source brush is missing; select its faces again");
     ABrush* b = (ABrush*)actor;
-    int all = !strcmp(target, "*"), face = atoi(target), count = b->Brush->Polys->Element.Num();
+    int all = args.is(2, "*"), face = atoi(args[2]), count = b->Brush->Polys->Element.Num();
     if (!all && (face < 0 || face >= count)) return surfaceError("Source polygon is missing; select its faces again");
-    if (!strcmp(mode, "cylinder")) return wrapSurfaceCylinder(b);
-    int shadow = !strcmp(mode, "shadows"), texture = !strcmp(mode, "texture"), pan = !strcmp(mode, "pan"), scale = !strcmp(mode, "scale");
-    int fit = !strcmp(mode, "tile") || !strcmp(mode, "tile-u") || !strcmp(mode, "tile-v");
-    int floor = !strcmp(mode, "floor"), wall = !strcmp(mode, "wall"), rotate = !strcmp(mode, "rotate");
-    int flipu = !strcmp(mode, "flip-u"), flipv = !strcmp(mode, "flip-v"), flags = !strcmp(mode, "flags");
+    if (mode == "cylinder") return wrapSurfaceCylinder(b);
+    int shadow = mode == "shadows", texture = mode == "texture", pan = mode == "pan", scale = mode == "scale";
+    int fit = mode == "tile" || mode == "tile-u" || mode == "tile-v";
+    int floor = mode == "floor", wall = mode == "wall", rotate = mode == "rotate";
+    int flipu = mode == "flip-u", flipv = mode == "flip-v", flags = mode == "flags";
     if (!(shadow || texture || pan || scale || fit || floor || wall || rotate || flipu || flipv || flags)) return surfaceError("Unknown surface operation");
     const DWORD allowed = PF_Invisible | PF_Masked | PF_Translucent | PF_Modulated | PF_FakeBackdrop | PF_TwoSided | PF_NoSmooth
         | PF_SpecialLit | PF_Unlit | PF_Mirrored;
-    unsigned long set = 0, clear = 0;
-    if (flags && (sscanf(line, "UC_SURFACE %*s %*s %*s %lu %lu", &set, &clear) != 2 || ((set | clear) & ~allowed) || (set & clear)))
+    DWORD set = 0, clear = 0;
+    if (flags && (args.count() != 6 || !args.number(4, set) || !args.number(5, clear) || ((set | clear) & ~allowed) || (set & clear)))
         return surfaceError("Invalid surface flags");
     if (pan || scale) {
-        if (sscanf(line, "UC_SURFACE %*s %*s %*s %f %f", &x, &y) != 2 || !_finite(x) || !_finite(y)) return surfaceError("Invalid U/V values");
+        if (args.count() != 6 || !args.number(4, x) || !args.number(5, y)) return surfaceError("Invalid U/V values");
         if (scale && (x < .001f || y < .001f || x > 1000 || y > 1000)) return surfaceError("Texture scale must be 0.001 to 1000");
     }
-    if (shadow && strcmp(arg, "low") && strcmp(arg, "normal") && strcmp(arg, "high")) return surfaceError("Invalid shadow detail");
+    if (shadow && arg != "low" && arg != "normal" && arg != "high") return surfaceError("Invalid shadow detail");
     UTexture* tex = NULL;
     if (texture) {
-        tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, Wide(arg));
+        tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, Wide(arg.c_str()));
         if (!tex) return surfaceError("Texture is not loaded");
     }
     int changed = 0;
@@ -1457,7 +1579,7 @@ static int editSurface(const char* line) {
         if (p.NumVertices < 3) return surfaceError("Invalid source polygon");
         if (texture) p.Texture = tex;
         else if (shadow) p.PolyFlags = (p.PolyFlags & ~(PF_LowShadowDetail | PF_HighShadowDetail)) |
-            (!strcmp(arg, "low") ? PF_LowShadowDetail : !strcmp(arg, "high") ? PF_HighShadowDetail : 0);
+            (arg == "low" ? PF_LowShadowDetail : arg == "high" ? PF_HighShadowDetail : 0);
         else if (fit) { if (!fitSurface(p, mode)) return surfaceError("Cannot fit this face: degenerate UVs or no texture"); }
         else if (floor || wall) {
             FVector n = p.Normal.SafeNormal(), u;
@@ -1477,81 +1599,86 @@ static int editSurface(const char* line) {
         storeSurface(b, i, p, !shadow && !texture && !flags, texture,
             shadow ? (PF_LowShadowDetail | PF_HighShadowDetail) : flags ? (DWORD)(set | clear) : 0); changed++;
     }
-    printf("UCMapKit|surface|ok|%s|%d\n", mode, changed); return 1;
+    printf("UCMapKit|surface|ok|%s|%d\n", mode.c_str(), changed); return 1;
 }
 
 // UC_LIGHTSTATS: lightmap samples and storage, before/after LIGHT APPLY (no full pixel dump needed).
-static int lightStats() {
-    if (!GEditor->Level || !GEditor->Level->Model) return 0;
+static int lightStats(const Args& args) {
+    if (args.count() != 1 || !GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* m = GEditor->Level->Model;
     int samples = 0;
     for (int i = 0; i < m->LightMap.Num(); i++) samples += m->LightMap(i).UClamp * m->LightMap(i).VClamp;
     printf("UCMapKit|lightstats|%d|%d|%d\n", m->LightMap.Num(), samples, m->LightBits.Num()); return 1;
 }
 
-// UC_BRUSHES <file>: the static brushes in build order (the <brush> number of UC_BSPDUMP):
-// B <ordinal> <name> <csg 1 add 2 subtract> <polyflags> <editor group> <x y z> <pitch yaw roll> <prepivot xyz>
-static int listBrushes(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_BRUSHES %511s", path) != 1) return 0;
-    if (!GEditor->Level) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+// UC_BRUSHES <file>: the static brushes in build order (the brush number of UC_BSPDUMP), a row each:
+// {ord, name, csg (1 add, 2 subtract), flags, group (the editor group), location, rotation [pitch, yaw, roll], prePivot}
+static int listBrushes(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int k = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsStaticBrush() || a == GEditor->Level->Brush()) continue;
         ABrush* b = (ABrush*)a;
-        char name[128], group[128];
-        wtext(b->GetName(), name, sizeof(name));
-        wtext(*b->Group, group, sizeof(group));
-        for (char* c = group; *c; c++) if (*c == ' ') *c = '_';
-        fprintf(f, "B %d %s %d %d %s %g %g %g %d %d %d %g %g %g\n", k++, name, (int)b->CsgOper, (int)b->PolyFlags,
-                group[0] ? group : "None", b->Location.X, b->Location.Y, b->Location.Z,
-                b->Rotation.Pitch, b->Rotation.Yaw, b->Rotation.Roll, b->PrePivot.X, b->PrePivot.Y, b->PrePivot.Z);
+        Json row;
+        row["ord"] = k++;
+        row["name"] = utf8(b->GetName());
+        row["csg"] = (int)b->CsgOper;
+        row["flags"] = (int)b->PolyFlags;
+        row["group"] = utf8(*b->Group);
+        row["location"] = xyz(b->Location);
+        row["rotation"] = Json::array({ b->Rotation.Pitch, b->Rotation.Yaw, b->Rotation.Roll });
+        row["prePivot"] = xyz(b->PrePivot);
+        out.write(row);
     }
-    fclose(f);
     printf("UCMapKit|brushes|%d\n", k);
     return 1;
 }
 
-// UC_PATHS <file>: the AI's path network as PATHS DEFINE made it, for the "AI paths" view of the map editor.
-// N <name> <class> <x y z>                           every navigation point
-// R <start> <end> <distance> <reach flags> <radius> <height>   every reach spec the AI uses (pruned ones left out)
-static int dumpPaths(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_PATHS %511s", path) != 1) return 0;
-    if (!GEditor->Level) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+// UC_PATHS <file>: the AI's path network as PATHS DEFINE made it, for the "AI paths" view of the map editor. Rows:
+//   {kind: point, name, class, location}                        every navigation point
+//   {kind: link, start, end, distance, flags, radius, height}   every reach spec the AI uses (pruned ones left out)
+static int dumpPaths(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int nodes = 0, specs = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
-        char name[128], cls[128];
-        wtext(a->GetName(), name, sizeof(name));
-        wtext(a->GetClass()->GetName(), cls, sizeof(cls));
-        fprintf(f, "N %s %s %.1f %.1f %.1f\n", name, cls, a->Location.X, a->Location.Y, a->Location.Z);
+        Json row;
+        row["kind"] = "point";
+        row["name"] = utf8(a->GetName());
+        row["class"] = utf8(a->GetClass()->GetName());
+        row["location"] = xyz(a->Location, 1);
+        out.write(row);
         nodes++;
     }
     TArray<FReachSpec>& reach = GEditor->Level->ReachSpecs;
     for (int i = 0; i < reach.Num(); i++) {
         FReachSpec& r = reach(i);
         if (r.bPruned || !r.Start || !r.End) continue;
-        char a[128], b[128];
-        wtext(r.Start->GetName(), a, sizeof(a));
-        wtext(r.End->GetName(), b, sizeof(b));
-        fprintf(f, "R %s %s %d %d %d %d\n", a, b, r.distance, r.reachFlags, r.CollisionRadius, r.CollisionHeight);
+        Json row;
+        row["kind"] = "link";
+        row["start"] = utf8(r.Start->GetName());
+        row["end"] = utf8(r.End->GetName());
+        row["distance"] = r.distance;
+        row["flags"] = r.reachFlags;
+        row["radius"] = r.CollisionRadius;
+        row["height"] = r.CollisionHeight;
+        out.write(row);
         specs++;
     }
-    fclose(f);
     printf("UCMapKit|paths|%d points|%d links\n", nodes, specs);
     return 1;
 }
 
 // UC_ANIMDUMP <mesh path> <file>: a model with every frame of its animations, for the map editor
-// (animations of the characters, Animation Studio). A text header, then after the line "data" the
-// arrays in binary (little endian):
+// (animations of the characters, Animation Studio). A JSON line (the header: mesh, lod, vertSize, counts, scale,
+// origin, rotation, sequences [{name, group, start, frames, rate, notifys [[time, function]]}], textures,
+// materials [[texture index, flags]]), the line "data", then the arrays in binary (little endian):
 //   faces   Faces x (uint16 wedge0, wedge1, wedge2, material)
 //   wedges  Wedges x (uint16 vertex, uint8 u, uint8 v)            vertex counts after the special verts
 //   special SpecialFaces x (uint16 v0, v1, v2, material)
@@ -1559,66 +1686,95 @@ static int dumpPaths(const char* line) {
 static UMesh* loadMesh(const char* path) {
     return (UMesh*)UObject::StaticLoadObject(UMesh::StaticClass(), NULL, Wide(path), NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
 }
-static int dumpAnims(const char* line) {
-    char mpath[256], path[512];
-    if (sscanf(line, "UC_ANIMDUMP %255s %511s", mpath, path) != 2) return 0;
+// the header of an UC_ANIMDUMP file
+static Json animHeader(const char* path, UMesh* mesh, ULodMesh* lod) {
+    Json header, counts, sequences = Json::array(), textures = Json::array(), materials = Json::array();
+    counts["frameVerts"] = mesh->FrameVerts;
+    counts["frames"] = mesh->AnimFrames;
+    counts["specialVerts"] = lod ? lod->SpecialVerts : 0;
+    counts["modelVerts"] = lod ? lod->ModelVerts : 0;
+    counts["faces"] = lod ? lod->Faces.Num() : 0;
+    counts["wedges"] = lod ? lod->Wedges.Num() : 0;
+    counts["materials"] = lod ? lod->Materials.Num() : 0;
+    counts["specialFaces"] = lod ? lod->SpecialFaces.Num() : 0;
+    counts["remap"] = lod ? lod->RemapAnimVerts.Num() : 0;
+    counts["oldFrameVerts"] = lod ? lod->OldFrameVerts : 0;
+    counts["verts"] = mesh->Verts.Num();
+    for (int i = 0; i < mesh->AnimSeqs.Num(); i++) {
+        FMeshAnimSeq& s = mesh->AnimSeqs(i);
+        Json seq, notifys = Json::array();
+        for (int k = 0; k < s.Notifys.Num(); k++)
+            notifys.push_back(Json::array({ digits(s.Notifys(k).Time), utf8(*s.Notifys(k).Function) }));
+        seq["name"] = utf8(*s.Name);
+        seq["group"] = utf8(*s.Group);
+        seq["start"] = s.StartFrame;
+        seq["frames"] = s.NumFrames;
+        seq["rate"] = digits(s.Rate);
+        seq["notifys"] = notifys;
+        sequences.push_back(seq);
+    }
+    for (int i = 0; i < mesh->Textures.Num(); i++)
+        textures.push_back(mesh->Textures(i) ? utf8(mesh->Textures(i)->GetPathName()) : "None");
+    if (lod) for (int i = 0; i < lod->Materials.Num(); i++)
+        materials.push_back(Json::array({ lod->Materials(i).TextureIndex, lod->Materials(i).PolyFlags }));
+    header["mesh"] = path;
+    header["lod"] = lod ? 1 : 0;
+    header["vertSize"] = (int)sizeof(FMeshVert);
+    header["counts"] = counts;
+    header["scale"] = xyz(mesh->Scale);
+    header["origin"] = xyz(mesh->Origin);
+    header["rotation"] = Json::array({ mesh->RotOrigin.Pitch, mesh->RotOrigin.Yaw, mesh->RotOrigin.Roll });
+    header["sequences"] = sequences;
+    header["textures"] = textures;
+    header["materials"] = materials;
+    return header;
+}
+
+// The binary parts, as structs (see the format above)
+struct AnimFace { _WORD Wedge[3], Material; };
+struct AnimWedge { _WORD Vertex; BYTE U, V; };
+struct AnimVert { SWORD X, Y, Z; };
+
+static int dumpAnims(const Args& args) {
+    if (args.count() != 3) return 0;
+    const char* mpath = args[1];
     UMesh* mesh = loadMesh(mpath);
     if (!mesh) { printf("UCMapKit|anim|no mesh|%s\n", mpath); return 0; }
     ULodMesh* lod = mesh->IsA(ULodMesh::StaticClass()) ? (ULodMesh*)mesh : NULL;
     mesh->Verts.Load();
-    FILE* f = fopen(path, "wb");
-    if (!f) return 0;
-    fprintf(f, "UCANIM 1\nmesh %s %d %d\n", mpath, lod ? 1 : 0, (int)sizeof(FMeshVert));
-    fprintf(f, "counts %d %d %d %d %d %d %d %d %d %d %d\n", mesh->FrameVerts, mesh->AnimFrames,
-        lod ? lod->SpecialVerts : 0, lod ? lod->ModelVerts : 0, lod ? lod->Faces.Num() : 0, lod ? lod->Wedges.Num() : 0,
-        lod ? lod->Materials.Num() : 0, lod ? lod->SpecialFaces.Num() : 0, lod ? lod->RemapAnimVerts.Num() : 0,
-        lod ? lod->OldFrameVerts : 0, mesh->Verts.Num());
-    fprintf(f, "xform %g %g %g %g %g %g %d %d %d\n", mesh->Scale.X, mesh->Scale.Y, mesh->Scale.Z,
-        mesh->Origin.X, mesh->Origin.Y, mesh->Origin.Z, mesh->RotOrigin.Pitch, mesh->RotOrigin.Yaw, mesh->RotOrigin.Roll);
-    for (int i = 0; i < mesh->AnimSeqs.Num(); i++) {
-        FMeshAnimSeq& s = mesh->AnimSeqs(i);
-        char name[128], group[128];
-        wtext(*s.Name, name, sizeof(name));
-        wtext(*s.Group, group, sizeof(group));
-        fprintf(f, "seq %s %s %d %d %g %d", name, group, s.StartFrame, s.NumFrames, s.Rate, s.Notifys.Num());
-        for (int k = 0; k < s.Notifys.Num(); k++) {
-            char fn[128];
-            wtext(*s.Notifys(k).Function, fn, sizeof(fn));
-            fprintf(f, " %g %s", s.Notifys(k).Time, fn);
-        }
-        fputc('\n', f);
-    }
-    for (int i = 0; i < mesh->Textures.Num(); i++) {
-        char tex[256] = "None";
-        if (mesh->Textures(i)) wtext(mesh->Textures(i)->GetPathName(), tex, sizeof(tex));
-        fprintf(f, "tex %d %s\n", i, tex);
-    }
-    if (lod) for (int i = 0; i < lod->Materials.Num(); i++)
-        fprintf(f, "mat %d %d %lu\n", i, lod->Materials(i).TextureIndex, (unsigned long)lod->Materials(i).PolyFlags);
-    fprintf(f, "data\n");
+    std::string head = animHeader(mpath, mesh, lod).dump(-1, ' ', false, Json::error_handler_t::replace) + "\ndata\n";
+    std::vector<AnimFace> faces, special;
+    std::vector<AnimWedge> wedges;
+    std::vector<AnimVert> verts;
     if (lod) {
         for (int i = 0; i < lod->Faces.Num(); i++) {
-            FMeshFace& face = lod->Faces(i);
-            _WORD w[4] = { face.iWedge[0], face.iWedge[1], face.iWedge[2], face.MaterialIndex };
-            fwrite(w, 2, 4, f);
+            FMeshFace& f = lod->Faces(i);
+            AnimFace face = { { f.iWedge[0], f.iWedge[1], f.iWedge[2] }, f.MaterialIndex };
+            faces.push_back(face);
         }
         for (int i = 0; i < lod->Wedges.Num(); i++) {
             FMeshWedge& w = lod->Wedges(i);
-            fwrite(&w.iVertex, 2, 1, f);
-            fwrite(&w.TexUV.U, 1, 1, f);
-            fwrite(&w.TexUV.V, 1, 1, f);
+            AnimWedge wedge = { w.iVertex, w.TexUV.U, w.TexUV.V };
+            wedges.push_back(wedge);
         }
         for (int i = 0; i < lod->SpecialFaces.Num(); i++) {
-            FMeshFace& face = lod->SpecialFaces(i);
-            _WORD w[4] = { face.iWedge[0], face.iWedge[1], face.iWedge[2], face.MaterialIndex };
-            fwrite(w, 2, 4, f);
+            FMeshFace& f = lod->SpecialFaces(i);
+            AnimFace face = { { f.iWedge[0], f.iWedge[1], f.iWedge[2] }, f.MaterialIndex };
+            special.push_back(face);
         }
     }
     for (int i = 0; i < mesh->Verts.Num(); i++) {
         FMeshVert& v = mesh->Verts(i);
-        short xyz[3] = { (short)v.X, (short)v.Y, (short)v.Z };
-        fwrite(xyz, 2, 3, f);
+        AnimVert vert = { (SWORD)v.X, (SWORD)v.Y, (SWORD)v.Z };
+        verts.push_back(vert);
     }
+    FILE* f = fopen(args[2], "wb");
+    if (!f) return 0;
+    fwrite(head.data(), 1, head.size(), f);
+    if (!faces.empty()) fwrite(&faces[0], sizeof(AnimFace), faces.size(), f);
+    if (!wedges.empty()) fwrite(&wedges[0], sizeof(AnimWedge), wedges.size(), f);
+    if (!special.empty()) fwrite(&special[0], sizeof(AnimFace), special.size(), f);
+    if (!verts.empty()) fwrite(&verts[0], sizeof(AnimVert), verts.size(), f);
     fclose(f);
     printf("UCMapKit|anim|%s|%d sequences|%d frames|%d verts\n", mpath, mesh->AnimSeqs.Num(), mesh->AnimFrames, mesh->FrameVerts);
     return 1;
@@ -1626,9 +1782,9 @@ static int dumpAnims(const char* line) {
 
 // UC_ANIMNEW <source model> <package> <name> <file>: a copy of a model (every sequence and frame, its
 // triangles, LOD, skins) with the new animations of <file> after its own frames, in a package made in
-// memory (written by UC_ANIMSAVE). The Animation Studio of the map editor makes the file:
-//   "seq <name> <group> <frames> <rate>" lines, then "data", then the frames: FrameVerts x int16 xyz each,
-//   in raw model units like the model's own (the special verts first, as in Verts).
+// memory (written by UC_ANIMSAVE). The Animation Studio of the map editor makes the file: a JSON line
+// {sequences: [{name, group, frames, rate}]}, the line "data", then the frames: FrameVerts x int16 xyz each,
+// in raw model units like the model's own (the special verts first, as in Verts).
 // Several models can go in the same package (one UC_ANIMNEW each).
 static UPackage* AnimPackage = NULL;
 // element by element (Core exports no TArray<_WORD>::operator=); only for plain types
@@ -1638,41 +1794,48 @@ template <class T> static void copyPlain(TArray<T>& to, const TArray<T>& from) {
     a.Add(from.Num(), sizeof(T));
     if (from.Num()) appMemcpy(a.GetData(), ((const FArray&)from).GetData(), from.Num() * sizeof(T));
 }
-static int newAnimMesh(const char* line) {
-    char src[256], pkg[128], name[128], path[512];
-    if (sscanf(line, "UC_ANIMNEW %255s %127s %127s %511s", src, pkg, name, path) != 4) return 0;
+static int newAnimMesh(const Args& args) {
+    if (args.count() != 5) return 0;
+    const char* src = args[1];
+    const char* pkg = args[2];
+    const char* name = args[3];
     UMesh* m0 = loadMesh(src);
     if (!m0 || !m0->IsA(ULodMesh::StaticClass())) { printf("UCMapKit|animnew|not a LOD model|%s\n", src); return 0; }
     ULodMesh* from = (ULodMesh*)m0;
     from->Verts.Load(); from->Tris.Load(); from->Connects.Load(); from->VertLinks.Load();
-    FILE* f = fopen(path, "rb");
-    if (!f) return 0;
-    static char text[65536];
-    size_t got = fread(text, 1, sizeof(text) - 1, f);
-    text[got] = 0;
-    char* data = strstr(text, "\ndata\n");
-    if (!data) { fclose(f); printf("UCMapKit|animnew|no data\n"); return 0; }
-    long dataAt = (long)(data - text) + 6;
-    *data = 0;
-    struct NewSeq { char name[64], group[64]; int frames; float rate; } seqs[256];
-    int nseq = 0, total = 0;
-    for (char* l = strtok(text, "\n"); l && nseq < 256; l = strtok(NULL, "\n")) {
-        NewSeq& s = seqs[nseq];
-        if (sscanf(l, "seq %63s %63s %d %f", s.name, s.group, &s.frames, &s.rate) == 4 && s.frames > 0) { total += s.frames; nseq++; }
+    std::string file;
+    if (!readFile(args[4], file)) return 0;
+    size_t data = file.find("\ndata\n");
+    if (data == std::string::npos) { printf("UCMapKit|animnew|no data\n"); return 0; }
+    Json header = Json::parse(file.substr(0, data), NULL, false);
+    if (header.is_discarded() || !header.is_object() || !header["sequences"].is_array()) {
+        printf("UCMapKit|animnew|bad header\n");
+        return 0;
+    }
+    struct NewSeq { std::string name, group; int frames; float rate; };
+    std::vector<NewSeq> seqs;
+    int total = 0;
+    for (const Json& s : header["sequences"]) {
+        NewSeq seq = { s.value("name", std::string()), s.value("group", std::string("UCAnim")), s.value("frames", 0),
+                       s.value("rate", 0.f) };
+        if (seq.name.empty() || seq.frames <= 0) continue;
+        seqs.push_back(seq);
+        total += seq.frames;
     }
     // after the "data" line, the new frames' vertices as editor/anims.py writes them: x y z, 16-bit each
     struct FrameVert { short X, Y, Z; };
     int fv = from->FrameVerts;
-    FrameVert* v = (FrameVert*)malloc(sizeof(FrameVert) * (size_t)total * fv);
-    fseek(f, dataAt, SEEK_SET);
-    size_t read = fread(v, sizeof(FrameVert), (size_t)total * fv, f);
-    fclose(f);
-    if ((int)read != total * fv) { free(v); printf("UCMapKit|animnew|frames missing|%d of %d\n", (int)read, total * fv); return 0; }
+    size_t bytes = sizeof(FrameVert) * (size_t)total * fv, have = file.size() - (data + 6);
+    if (have < bytes) {
+        printf("UCMapKit|animnew|frames missing|%d of %d\n", (int)(have / sizeof(FrameVert)), total * fv);
+        return 0;
+    }
+    const FrameVert* v = (const FrameVert*)(file.data() + data + 6);
     Wide wpkg(pkg), wname(name);
     if (!AnimPackage) AnimPackage = UObject::CreatePackage(NULL, wpkg);
     ULodMesh* m = (ULodMesh*)UObject::StaticConstructObject(ULodMesh::StaticClass(), AnimPackage, FName(wname),
         RF_Public | RF_Standalone, NULL, GWarn);
-    if (!m) { free(v); return 0; }
+    if (!m) return 0;
     // the model as it is
     m->BoundingBox = from->BoundingBox;
     m->BoundingSphere = from->BoundingSphere;
@@ -1728,8 +1891,8 @@ static int newAnimMesh(const char* line) {
     free(pts);
     m->AnimFrames += total;
     int start = first;
-    for (int s = 0; s < nseq; s++) {
-        Wide wseq(seqs[s].name), wgroup(seqs[s].group);
+    for (size_t s = 0; s < seqs.size(); s++) {
+        Wide wseq(seqs[s].name.c_str()), wgroup(seqs[s].group.c_str());
         FMeshAnimSeq* q = new(m->AnimSeqs) FMeshAnimSeq;
         q->Name = FName(wseq);
         q->Group = FName(wgroup);
@@ -1739,9 +1902,8 @@ static int newAnimMesh(const char* line) {
         start += seqs[s].frames;
     }
     for (int i = 0; i < m->BoundingBoxes.Num(); i++) m->BoundingBox += m->BoundingBoxes(i);
-    free(v);
     printf("UCMapKit|animnew|%s.%s|%d sequences|%d new frames|%d frames|box %d %d|first raw box %.0f %.0f %.0f %.0f %.0f %.0f\n",
-        pkg, name, nseq, total, m->AnimFrames, m->BoundingBoxes.Num(), m->Verts.Num() / fv,
+        pkg, name, (int)seqs.size(), total, m->AnimFrames, m->BoundingBoxes.Num(), m->Verts.Num() / fv,
         from->BoundingBoxes.Num() ? from->BoundingBoxes(0).Min.X : 0.f, from->BoundingBoxes.Num() ? from->BoundingBoxes(0).Min.Y : 0.f,
         from->BoundingBoxes.Num() ? from->BoundingBoxes(0).Min.Z : 0.f, from->BoundingBoxes.Num() ? from->BoundingBoxes(0).Max.X : 0.f,
         from->BoundingBoxes.Num() ? from->BoundingBoxes(0).Max.Y : 0.f, from->BoundingBoxes.Num() ? from->BoundingBoxes(0).Max.Z : 0.f);
@@ -1750,16 +1912,14 @@ static int newAnimMesh(const char* line) {
 
 // UC_ANIMSAVE <file>: writes the package of UC_ANIMNEW (then a new one can be made); without any
 // UC_ANIMNEW, an empty package named after the file (the Studio has no animation left)
-static int saveAnimPackage(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_ANIMSAVE %511s", path) != 1) return 0;
+static int saveAnimPackage(const Args& args) {
+    if (args.count() != 2) return 0;
+    const char* path = args[1];
     if (!AnimPackage) {
-        char name[128];
-        const char* base = strrchr(path, '\\');
-        strncpy(name, base ? base + 1 : path, 127);
-        name[127] = 0;
-        if (char* dot = strrchr(name, '.')) *dot = 0;
-        AnimPackage = UObject::CreatePackage(NULL, Wide(name));
+        std::string name = path;
+        name = name.substr(name.find_last_of("\\/") + 1);              // npos + 1: the whole path
+        name = name.substr(0, name.find('.'));
+        AnimPackage = UObject::CreatePackage(NULL, Wide(name.c_str()));
     }
     UBOOL ok = UObject::SavePackage(AnimPackage, NULL, RF_Standalone, Wide(path), GWarn);
     printf("UCMapKit|animsave|%s|%d\n", path, ok ? 1 : 0);
@@ -1768,7 +1928,7 @@ static int saveAnimPackage(const char* line) {
 }
 
 // UC_MESHLIST <file>: every 3D model loaded (the packages loaded with OBJ LOAD first), for the map editor's
-// Models: "M <package> <path> <class> <triangles> <frames> <sequences>" per line
+// Models, a row each: {package, mesh, class, triangles (-1 when unreadable), frames, sequences}
 static int safeTriCount(UMesh* mesh, ULodMesh* lod) {
     __try {
         if (lod) return lod->Faces.Num();
@@ -1777,25 +1937,26 @@ static int safeTriCount(UMesh* mesh, ULodMesh* lod) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
 }
 
-static int listMeshes(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_MESHLIST %511s", path) != 1) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+static int listMeshes(const Args& args) {
+    if (args.count() != 2) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int n = 0;
     for (TObjectIterator<UMesh> It; It; ++It) {
         UMesh* mesh = *It;
         ULodMesh* lod = mesh->IsA(ULodMesh::StaticClass()) ? (ULodMesh*)mesh : NULL;
         UObject* top = mesh;
         while (top->GetOuter()) top = top->GetOuter();
-        char pkg[128], name[256], cls[64];
-        wtext(top->GetName(), pkg, sizeof(pkg));
-        wtext(mesh->GetPathName(), name, sizeof(name));
-        wtext(mesh->GetClass()->GetName(), cls, sizeof(cls));
-        fprintf(f, "M %s %s %s %d %d %d\n", pkg, name, cls, safeTriCount(mesh, lod), mesh->AnimFrames, mesh->AnimSeqs.Num());
+        Json row;
+        row["package"] = utf8(top->GetName());
+        row["mesh"] = utf8(mesh->GetPathName());
+        row["class"] = utf8(mesh->GetClass()->GetName());
+        row["triangles"] = safeTriCount(mesh, lod);
+        row["frames"] = mesh->AnimFrames;
+        row["sequences"] = mesh->AnimSeqs.Num();
+        out.write(row);
         n++;
     }
-    fclose(f);
     printf("UCMapKit|meshlist|%d\n", n);
     return 1;
 }
@@ -1805,11 +1966,12 @@ static int listMeshes(const char* line) {
 // importer (UEditorEngine::meshImport, what #exec MESH IMPORT runs) into the package (created when
 // needed). Old format: 4 bytes a vertex (11/11/10 bits, Unreal's); new: Deus Ex's 16-bit vertices.
 // Then MESH ORIGIN / MESHMAP SCALE / MESHMAP SETTEXTURE work on it as on any mesh.
-static int importMesh(const char* line) {
-    char pkg[128], name[128], aniv[512], data[512];
+static int importMesh(const Args& args) {
     int old = 0, lodFlag = 1;
-    if (sscanf(line, "UC_MESHIMPORT %127s %127s %511s %511s %d %d", pkg, name, aniv, data, &old, &lodFlag) < 4) return 0;
-    Wide wpkg(pkg), wname(name), waniv(aniv), wdata(data);
+    if (args.count() < 5 || args.count() > 7 || (args.count() > 5 && !args.number(5, old)) || (args.count() > 6 && !args.number(6, lodFlag)))
+        return 0;
+    const char* name = args[2];
+    Wide wpkg(args[1]), wname(name), waniv(args[3]), wdata(args[4]);
     UPackage* p = UObject::CreatePackage(NULL, wpkg);
     ULODProcessInfo info;
     info.LevelOfDetail = lodFlag;
@@ -1829,31 +1991,30 @@ static int importMesh(const char* line) {
 }
 
 // UC_SAVEPKG <package> <file>: a package made or changed in this session (the map editor's models) saved
-static int savePackage(const char* line) {
-    char pkg[128], path[512];
-    if (sscanf(line, "UC_SAVEPKG %127s %511s", pkg, path) != 2) return 0;
-    Wide wpkg(pkg), wpath(path);
+static int savePackage(const Args& args) {
+    if (args.count() != 3) return 0;
+    const char* path = args[2];
+    Wide wpkg(args[1]), wpath(path);
     UPackage* p = UObject::CreatePackage(NULL, wpkg);
     UBOOL ok = UObject::SavePackage(p, NULL, RF_Standalone, wpath, GWarn);
     printf("UCMapKit|savepkg|%s|%d\n", path, ok ? 1 : 0);
     return ok;
 }
 
-// UC_SOUNDS <file>: every sound loaded (the packages loaded with OBJ LOAD first): "<path> <bytes>" per line,
-// for the map editor's sound picker (ambient sounds)
-static int listSounds(const char* line) {
-    char path[512];
-    if (sscanf(line, "UC_SOUNDS %511s", path) != 1) return 0;
-    FILE* f = fopen(path, "wt");
-    if (!f) return 0;
+// UC_SOUNDS <file>: every sound loaded (the packages loaded with OBJ LOAD first), a row each: {sound, bytes}, for the
+// map editor's sound picker (ambient sounds)
+static int listSounds(const Args& args) {
+    if (args.count() != 2) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
     int n = 0;
     for (TObjectIterator<USound> It; It; ++It) {
-        char name[256];
-        wtext(It->GetPathName(), name, sizeof(name));
-        fprintf(f, "%s %d\n", name, It->OriginalSize);
+        Json row;
+        row["sound"] = utf8(It->GetPathName());
+        row["bytes"] = It->OriginalSize;
+        out.write(row);
         n++;
     }
-    fclose(f);
     printf("UCMapKit|sounds|%d\n", n);
     return 1;
 }
@@ -1862,29 +2023,25 @@ static int listSounds(const char* line) {
 // CollisionHeight, 15 for path nodes), as UnrealEd places them. Deus Ex's PATHS DEFINE makes no reach
 // spec from a point floating higher (measured: 15 above the floor links, 25 does not; the original
 // maps have them at 11-44, median 15). Player starts and teleporters keep their height (JC spawns there).
-static int dropNavPoints(const char* line) {
-    if (!GEditor->Level) return 0;
-    const char* list = line + 11;
-    int all = !strncmp(list, "*", 1), moved = 0, checked = 0;
+static int dropNavPoints(const Args& args) {
+    if (args.count() < 2 || !GEditor->Level) return 0;
+    int all = args.is(1, "*"), moved = 0, checked = 0;
+    std::vector<FString> names;
+    for (size_t k = 1; k < args.count(); k++) names.push_back(FString(Wide(args[k])));
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass()) || a->IsA(APlayerStart::StaticClass()) || a->IsA(ATeleporter::StaticClass()))
             continue;
-        char name[128];
-        wtext(a->GetName(), name, sizeof(name));
-        if (!all) {                                  // whole words of the list only
-            const char* p = strstr(list, name);
-            size_t n = strlen(name);
-            while (p && !((p == list || p[-1] == ' ') && (p[n] == 0 || p[n] == ' ' || p[n] == '\n' || p[n] == '\r'))) p = strstr(p + 1, name);
-            if (!p) continue;
-        }
+        int listed = all;
+        for (size_t k = 0; k < names.size() && !listed; k++) listed = !appStricmp(*names[k], a->GetName());
+        if (!listed) continue;
         checked++;
         FCheckResult hit(1.f);
         FVector end = a->Location - FVector(0, 0, 512);
         if (GEditor->Level->SingleLineCheck(hit, NULL, end, a->Location, TRACE_Level, FVector(0, 0, 0), 0)) continue;
         FLOAT z = hit.Location.Z + a->CollisionHeight;
         if (Abs(a->Location.Z - z) < 2.f) continue;
-        printf("UCMapKit|navdrop|%s|%.1f -> %.1f\n", name, a->Location.Z, z);
+        printf("UCMapKit|navdrop|%s|%.1f -> %.1f\n", (const char*)Utf8(a->GetName()), a->Location.Z, z);
         a->Location.Z = z;
         moved++;
     }
@@ -1898,60 +2055,54 @@ static int dropNavPoints(const char* line) {
 // links none floating over about 20 (Battery Park: 302 reach specs instead of 1409; 1095 with them on the
 // floor; 17 Oct 2026). Left alone: player starts, teleporters, lifts and the markers PATHS DEFINE makes itself,
 // points over water (swimming) and points higher than 64 over the floor (put there on purpose).
-static char navTempName[4096][64];
-static FLOAT navTempZ[4096];
-static int navTempCount = 0;
-static int classIs(AActor* a, const char* name) {
-    for (UClass* c = a->GetClass(); c; c = c->GetSuperClass()) {
-        char n[128];
-        wtext(c->GetName(), n, sizeof(n));
-        if (!_stricmp(n, name)) return 1;
-    }
-    return 0;
-}
+struct NavHeight { FString name; FLOAT z; };
+static std::vector<NavHeight> navTemp;
 static int dropNavTemp() {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    static const char* skip[] = { "PlayerStart", "Teleporter", "LiftCenter", "LiftExit", "InventorySpot", "WarpZoneMarker",
-                                  "ButtonMarker", "TriggerMarker", NULL };
-    navTempCount = 0;
+    static const TCHAR* skip[] = { TEXT("PlayerStart"), TEXT("Teleporter"), TEXT("LiftCenter"), TEXT("LiftExit"),
+                                   TEXT("InventorySpot"), TEXT("WarpZoneMarker"), TEXT("ButtonMarker"), TEXT("TriggerMarker") };
+    navTemp.clear();
     int checked = 0;
-    for (int i = 0; i < GEditor->Level->Actors.Num() && navTempCount < 4096; i++) {
+    for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
         int other = 0;
-        for (int k = 0; skip[k] && !other; k++) other = classIs(a, skip[k]);
+        for (int k = 0; k < ARRAY_COUNT(skip) && !other; k++) other = classIs(a, skip[k]);
         if (other) continue;
         checked++;
-        char name[64];
-        wtext(a->GetName(), name, sizeof(name));
+        Utf8 name(a->GetName());
         FPointRegion region = GEditor->Level->Model->PointRegion(GEditor->Level->GetLevelInfo(), a->Location);
-        if (region.Zone && region.Zone->bWaterZone) { printf("UCMapKit|navdrop temp|%s|water\n", name); continue; }
+        if (region.Zone && region.Zone->bWaterZone) { printf("UCMapKit|navdrop temp|%s|water\n", (const char*)name); continue; }
         FCheckResult hit(1.f);
         FVector end = a->Location - FVector(0, 0, 512);
-        if (GEditor->Level->SingleLineCheck(hit, NULL, end, a->Location, TRACE_Level, FVector(0, 0, 0), 0)) { printf("UCMapKit|navdrop temp|%s|no floor\n", name); continue; }
+        if (GEditor->Level->SingleLineCheck(hit, NULL, end, a->Location, TRACE_Level, FVector(0, 0, 0), 0)) { printf("UCMapKit|navdrop temp|%s|no floor\n", (const char*)name); continue; }
         FLOAT z = hit.Location.Z + a->CollisionHeight;
         if (Abs(a->Location.Z - z) < 2.f || z > a->Location.Z) continue;
-        if (a->Location.Z - z > 64.f) { printf("UCMapKit|navdrop temp|%s|%.1f over the floor: kept\n", name, a->Location.Z - z); continue; }
-        printf("UCMapKit|navdrop temp|%s|%.1f -> %.1f\n", name, a->Location.Z, z);
-        strcpy(navTempName[navTempCount], name);
-        navTempZ[navTempCount++] = a->Location.Z;
+        if (a->Location.Z - z > 64.f) { printf("UCMapKit|navdrop temp|%s|%.1f over the floor: kept\n", (const char*)name, a->Location.Z - z); continue; }
+        printf("UCMapKit|navdrop temp|%s|%.1f -> %.1f\n", (const char*)name, a->Location.Z, z);
+        NavHeight kept = { FString(a->GetName()), a->Location.Z };
+        navTemp.push_back(kept);
         a->Location.Z = z;
     }
-    printf("UCMapKit|navdrop temp|%d checked|%d moved\n", checked, navTempCount);
+    printf("UCMapKit|navdrop temp|%d checked|%d moved\n", checked, (int)navTemp.size());
     return 1;
 }
-static int liftNavTemp() {
-    if (!GEditor->Level) return 0;
+static int liftNavTemp(const Args& args) {
+    if (args.count() != 1 || !GEditor->Level) return 0;
     int back = 0;
-    for (int k = 0; k < navTempCount; k++) {
-        AActor* a = findActor(navTempName[k]);
+    for (size_t k = 0; k < navTemp.size(); k++) {
+        AActor* a = findActor(*navTemp[k].name);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
-        a->Location.Z = navTempZ[k];
+        a->Location.Z = navTemp[k].z;
         back++;
     }
-    printf("UCMapKit|navlift|%d of %d back\n", back, navTempCount);
-    navTempCount = 0;
+    printf("UCMapKit|navlift|%d of %d back\n", back, (int)navTemp.size());
+    navTemp.clear();
     return 1;
+}
+// UC_NAVDROP temp, or UC_NAVDROP <* | name name ...>
+static int dropNav(const Args& args) {
+    return args.count() == 2 && args.is(1, "temp") ? dropNavTemp() : dropNavPoints(args);
 }
 
 // UC_KEEPPATHS save (right after MAP LOAD, before any edit) / UC_KEEPPATHS restore (after PATHS DEFINE): the
@@ -1961,42 +2112,33 @@ static int liftNavTemp() {
 // where they were (not moved or deleted in the editor), the new PATHS DEFINE has not linked them itself, and the
 // line between them at a man's height is clear of the level (nothing built across it since).
 struct KeptSpec {
-    char a[64], b[64];
+    FString a, b;
     FVector la, lb;
     INT dist, rad, hgt, flags;
 };
-static KeptSpec* keptSpecs = NULL;
-static int keptCount = 0;
-static int keepPaths(const char* line) {
-    if (!GEditor->Level) return 0;
+static std::vector<KeptSpec> keptSpecs;
+static int keepPaths(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
     TArray<FReachSpec>& reach = GEditor->Level->ReachSpecs;
-    if (!strcmp(line, "UC_KEEPPATHS save")) {
-        free(keptSpecs);
-        keptSpecs = (KeptSpec*)malloc(sizeof(KeptSpec) * (reach.Num() + 1));
-        keptCount = 0;
-        for (int i = 0; i < reach.Num() && keptSpecs; i++) {
+    if (args.is(1, "save")) {
+        keptSpecs.clear();
+        for (int i = 0; i < reach.Num(); i++) {
             FReachSpec& r = reach(i);
             if (r.bPruned || !r.Start || !r.End || !r.Start->IsA(ANavigationPoint::StaticClass()) || !r.End->IsA(ANavigationPoint::StaticClass()))
                 continue;
-            KeptSpec& s = keptSpecs[keptCount++];
-            wtext(r.Start->GetName(), s.a, sizeof(s.a));
-            wtext(r.End->GetName(), s.b, sizeof(s.b));
-            s.la = r.Start->Location;
-            s.lb = r.End->Location;
-            s.dist = r.distance;
-            s.rad = r.CollisionRadius;
-            s.hgt = r.CollisionHeight;
-            s.flags = r.reachFlags;
+            KeptSpec s = { FString(r.Start->GetName()), FString(r.End->GetName()), r.Start->Location, r.End->Location,
+                           r.distance, r.CollisionRadius, r.CollisionHeight, r.reachFlags };
+            keptSpecs.push_back(s);
         }
-        printf("UCMapKit|keeppaths|%d saved\n", keptCount);
+        printf("UCMapKit|keeppaths|%d saved\n", (int)keptSpecs.size());
         return 1;
     }
-    if (strcmp(line, "UC_KEEPPATHS restore")) return 0;
+    if (!args.is(1, "restore")) return 0;
     int back = 0, there = 0, moved = 0, blocked = 0, full = 0;
-    for (int k = 0; k < keptCount; k++) {
+    for (size_t k = 0; k < keptSpecs.size(); k++) {
         KeptSpec& s = keptSpecs[k];
-        AActor* a = findActor(s.a);
-        AActor* b = findActor(s.b);
+        AActor* a = findActor(*s.a);
+        AActor* b = findActor(*s.b);
         if (!a || !b || !a->IsA(ANavigationPoint::StaticClass()) || !b->IsA(ANavigationPoint::StaticClass())
             || (a->Location - s.la).SizeSquared() > 1.f || (b->Location - s.lb).SizeSquared() > 1.f) {
             moved++;
@@ -2045,22 +2187,27 @@ static int keepPaths(const char* line) {
         na->Paths[pa] = idx;
         nb->upstreamPaths[pb] = idx;
         back++;
-        printf("UCMapKit|keeppaths|back|%s|%s\n", s.a, s.b);
+        printf("UCMapKit|keeppaths|back|%s|%s\n", (const char*)Utf8(*s.a), (const char*)Utf8(*s.b));
     }
     printf("UCMapKit|keeppaths|%d of %d put back|%d made again|%d moved or gone|%d blocked|%d no room\n",
-           back, keptCount, there, moved, blocked, full);
+           back, (int)keptSpecs.size(), there, moved, blocked, full);
     return 1;
 }
 
-// UC_SIZES: collision cylinder of every non-brush actor (to rest props exactly on surfaces).
-static int listSizes() {
-    if (!GEditor->Level) return 0;
-    for (int i=0; i<GEditor->Level->Actors.Num(); i++) {
+// UC_SIZES <file>: the collision cylinder of every non-brush actor (to rest props exactly on surfaces), a row each:
+// {class, radius, height}
+static int listSizes(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
+    JsonLines out(args[1]);
+    if (!out.ok()) return 0;
+    for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* actor = GEditor->Level->Actors(i);
         if (!actor || actor->IsA(ABrush::StaticClass()) || actor->IsA(ALevelInfo::StaticClass())) continue;
-        char cls[128];
-        wtext(actor->GetClass()->GetName(), cls, sizeof(cls));
-        printf("UCMapKit|size|%s|%.2f|%.2f\n", cls, actor->CollisionRadius, actor->CollisionHeight);
+        Json row;
+        row["class"] = utf8(actor->GetClass()->GetName());
+        row["radius"] = decimals(actor->CollisionRadius, 2);
+        row["height"] = decimals(actor->CollisionHeight, 2);
+        out.write(row);
     }
     return 1;
 }
@@ -2069,17 +2216,15 @@ static int listSizes() {
 // gets a surface of its own (iLink = its index), as BRUSH IMPORT + BRUSH ADD left them. MAP IMPORTADD
 // links the coplanar faces of one texture into one surface, which changes the map's surfaces and the
 // numbers its faces have in the editor (scene.py brush_blocks imports the script's brushes in one go).
-static int unlinkBrushes(const char* line) {
-    char prefix[128];
-    if (sscanf(line, "UC_UNLINK %127s", prefix) != 1 || !GEditor->Level) return 0;
-    size_t n = strlen(prefix);
+static int unlinkBrushes(const Args& args) {
+    if (args.count() != 2 || !GEditor->Level) return 0;
+    Wide prefix(args[1]);
+    size_t n = wcslen((const wchar_t*)(const TCHAR*)prefix);
     int brushes = 0, polys = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ABrush::StaticClass()) || !a->Brush || !a->Brush->Polys) continue;
-        char model[256];
-        wtext(a->Brush->GetName(), model, sizeof(model));
-        if (strncmp(model, prefix, n)) continue;
+        if (wcsncmp((const wchar_t*)a->Brush->GetName(), (const wchar_t*)(const TCHAR*)prefix, n)) continue;
         for (int k = 0; k < a->Brush->Polys->Element.Num(); k++) a->Brush->Polys->Element(k).iLink = k;
         a->Brush->Linked = 1;
         brushes++;
@@ -2089,50 +2234,26 @@ static int unlinkBrushes(const char* line) {
     return 1;
 }
 
+// The host's own commands; any other line is UnrealEd's (GEditor->Exec).
+typedef int (*Command)(const Args& args);
+static const struct { const char* name; Command run; } Commands[] = {
+    { "UC_POINT", probePoint }, { "UC_TRACE", traceLine }, { "UC_UNLINK", unlinkBrushes }, { "UC_SIZES", listSizes },
+    { "UC_BSPDUMP", dumpBsp }, { "UC_LIGHTDUMP", dumpLights }, { "UC_LIGHTSTATS", lightStats }, { "UC_MESHES", dumpMeshes },
+    { "UC_BRUSHES", listBrushes }, { "UC_PATHS", dumpPaths }, { "UC_NAVDROP", dropNav }, { "UC_NAVLIFT", liftNavTemp },
+    { "UC_KEEPPATHS", keepPaths }, { "UC_ANIMDUMP", dumpAnims }, { "UC_SOUNDS", listSounds }, { "UC_MESHLIST", listMeshes },
+    { "UC_MESHIMPORT", importMesh }, { "UC_SAVEPKG", savePackage }, { "UC_ANIMNEW", newAnimMesh }, { "UC_ANIMSAVE", saveAnimPackage },
+    { "UC_TEXDUMP", dumpTexture }, { "UC_TEXFLAGS", dumpTexFlags }, { "UC_CLASSES", listClasses }, { "UC_DEFAULTS", dumpDefaults },
+    { "UC_LOADPKG", loadPackage }, { "UC_CLASSPROPS", dumpClassProps }, { "UC_CONDUMP", dumpConversations },
+    { "UC_TEXTDUMP", dumpTexts }, { "UC_TEXTHEX", setTextHex }, { "UC_SCRIPTDUMP", dumpScripts }, { "UC_CONSOUND", conversationSound },
+    { "UC_SET", setActor }, { "UC_DEL", deleteActor }, { "UC_PROP", setProp }, { "UC_SCALE", scaleActor }, { "UC_OBJPROP", setObjProp },
+    { "UC_SURFTEX", setSurfTexture }, { "UC_SURFACE", editSurface }, { "UC_MOVER", editMover }, { "UC_WORLD", finishWorld },
+    { "UC_CAMERAS", clearCameras }, { "UC_ACTORS", checkActors },
+};
+
 static int runCommand(const char* line, unsigned short* wide, FFeedbackContext& feedback) {
-    if (!strncmp(line, "UC_POINT ", 9)) return probePoint(line);
-    if (!strncmp(line, "UC_UNLINK ", 10)) return unlinkBrushes(line);
-    if (!strcmp(line, "UC_SIZES")) return listSizes();
-    if (!strncmp(line, "UC_TRACE ", 9)) return traceLine(line);
-    if (!strncmp(line, "UC_BSPDUMP ", 11)) return dumpBsp(line);
-    if (!strncmp(line, "UC_LIGHTDUMP ", 13)) return dumpLights(line);
-    if (!strncmp(line, "UC_MESHES ", 10)) return dumpMeshes(line);
-    if (!strncmp(line, "UC_BRUSHES ", 11)) return listBrushes(line);
-    if (!strncmp(line, "UC_PATHS ", 9)) return dumpPaths(line);
-    if (!strcmp(line, "UC_NAVDROP temp")) return dropNavTemp();
-    if (!strcmp(line, "UC_NAVLIFT")) return liftNavTemp();
-    if (!strncmp(line, "UC_KEEPPATHS ", 13)) return keepPaths(line);
-    if (!strncmp(line, "UC_NAVDROP ", 11)) return dropNavPoints(line);
-    if (!strncmp(line, "UC_ANIMDUMP ", 12)) return dumpAnims(line);
-    if (!strncmp(line, "UC_SOUNDS ", 10)) return listSounds(line);
-    if (!strncmp(line, "UC_MESHLIST ", 12)) return listMeshes(line);
-    if (!strncmp(line, "UC_MESHIMPORT ", 14)) return importMesh(line);
-    if (!strncmp(line, "UC_SAVEPKG ", 11)) return savePackage(line);
-    if (!strncmp(line, "UC_ANIMNEW ", 11)) return newAnimMesh(line);
-    if (!strncmp(line, "UC_ANIMSAVE ", 12)) return saveAnimPackage(line);
-    if (!strncmp(line, "UC_TEXDUMP ", 11)) return dumpTexture(line);
-    if (!strncmp(line, "UC_TEXFLAGS ", 12)) return dumpTexFlags(line);
-    if (!strncmp(line, "UC_CLASSES ", 11)) return listClasses(line);
-    if (!strncmp(line, "UC_DEFAULTS ", 12)) return dumpDefaults(line);
-    if (!strncmp(line, "UC_LOADPKG ", 11)) return loadPackage(line);
-    if (!strncmp(line, "UC_CLASSPROPS ", 14)) return dumpClassProps(line);
-    if (!strncmp(line, "UC_CONDUMP ", 11)) return dumpConversations(line);
-    if (!strncmp(line, "UC_TEXTDUMP ", 12)) return dumpTexts(line);
-    if (!strncmp(line, "UC_TEXTHEX ", 11)) return setTextHex(line);
-    if (!strncmp(line, "UC_SCRIPTDUMP ", 14)) return dumpScripts(line);
-    if (!strncmp(line, "UC_CONSOUND ", 12)) return conversationSound(line);
-    if (!strncmp(line, "UC_SET ", 7)) return setActor(line);
-    if (!strncmp(line, "UC_DEL ", 7)) return deleteActor(line);
-    if (!strncmp(line, "UC_PROP ", 8)) return setProp(line);
-    if (!strncmp(line, "UC_SCALE ", 9)) return scaleActor(line);
-    if (!strncmp(line, "UC_OBJPROP ", 11)) return setObjProp(line);
-    if (!strncmp(line, "UC_SURFTEX ", 11)) return setSurfTexture(line);
-    if (!strncmp(line, "UC_SURFACE ", 11)) return editSurface(line);
-    if (!strcmp(line, "UC_LIGHTSTATS")) return lightStats();
-    if (!strncmp(line, "UC_MOVER ", 9)) return editMover(line);
-    if (!strcmp(line, "UC_WORLD finish")) return finishWorld();
-    if (!strcmp(line, "UC_CAMERAS clear")) return clearCameras();
-    if (!strcmp(line, "UC_ACTORS check")) return checkActors();
+    Args args(line);
+    for (int i = 0; i < ARRAY_COUNT(Commands); i++)
+        if (args.is(0, Commands[i].name)) return Commands[i].run(args);
     if (!strcmp(line, "LIGHT APPLY") && !temporaryViewportReady) {
         puts("UCMapKit|failed|lighting|This WinDrvLite version does not match the supported temporary-viewport fix");
         return 0;

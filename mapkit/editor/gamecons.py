@@ -286,8 +286,7 @@ def catalog(package=None, log=print):
         text, audio = conversation_set(package)
         session.batch(['OBJ LOAD FILE="%s.u"' % text, 'OBJ LOAD FILE="%s.u"' % package,
                        r'UC_CONDUMP ..\Output\conversations.jsonl'])
-        dump = (session.folder / 'Output/conversations.jsonl').read_text(encoding='utf-8')
-        rows = [json.loads(line) for line in dump.split('\n') if line]
+        rows = kit.rows(session.folder / 'Output' / 'conversations.jsonl')
         result = normalize(rows)
         groups = {}
         for con in result['conversations']:
@@ -306,7 +305,7 @@ def catalog(package=None, log=print):
             groups = {group: pair for group, pair in groups.items() if voiced(group)}
         session.batch([r'UC_CONSOUND %s %d ..\Output\soundrefs.jsonl' % (con['path'], line['soundID'])
                        for con, line in groups.values()])
-        resolved = [json.loads(line) for line in (session.folder / 'Output/soundrefs.jsonl').read_text(encoding='utf-8').split('\n') if line]
+        resolved = kit.rows(session.folder / 'Output' / 'soundrefs.jsonl')
         if len(resolved) != len(groups):
             raise ValueError('The engine did not resolve every original audio group.')
         prefixes = {}

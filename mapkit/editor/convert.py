@@ -45,6 +45,7 @@ HERE = Path(__file__).resolve().parent
 KIT = HERE.parent
 sys.path[:0] = [str(HERE), str(KIT), str(KIT.parent)]
 import settings  # noqa: E402
+import kit  # noqa: E402
 import gamecheck  # noqa: E402
 from ue1pkg import Pkg  # noqa: E402
 
@@ -466,13 +467,9 @@ class Source:
 def _classes(path):
     """UC_CLASSES: {class lower: dict(name, package, flags, mesh, parents, names)} (names: its item and
     familiar names)."""
-    out = {}
-    for line in Path(path).read_text(encoding='utf-8', errors='replace').splitlines():
-        f = line.split('\t')
-        if len(f) >= 11 and f[0] == 'C':
-            out[f[1].lower()] = dict(name=f[1], package=f[2], flags=int(f[3]), mesh=f[5],
-                                     parents=[p for p in f[8].split('/') if p], names=' '.join(f[9:11]))
-    return out
+    return {c['class'].lower(): dict(name=c['class'], package=c['package'], flags=c['flags'], mesh=c['mesh'],
+                                     parents=c['parents'], names=c['itemName'] + ' ' + c['familiarName'])
+            for c in kit.rows(path)}
 
 
 def _defaults_commands(props, out_name):
@@ -483,7 +480,7 @@ def _defaults_commands(props, out_name):
         if len(chunks[-1]) >= 250 or len(','.join(chunks[-1] + [p])) > 7000:
             chunks.append([])
         chunks[-1].append(p)
-    files = ['%s%d.txt' % (out_name, i) for i in range(len(chunks))]
+    files = ['%s%d.jsonl' % (out_name, i) for i in range(len(chunks))]
     return [r'UC_DEFAULTS ..\Output\%s %s' % (f, ','.join(c)) for f, c in zip(files, chunks) if c], files
 
 
@@ -491,13 +488,10 @@ def _defaults(folder, files):
     """UC_DEFAULTS: {class lower: {property (as asked): {index: (property type, value)}}}."""
     out = collections.defaultdict(dict)
     for name in files:
-        path = folder / 'Output' / name
-        if not path.is_file():
-            continue
-        for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
-            f = line.split('\t')
-            if len(f) >= 6 and f[0] == 'P':
-                out[f[1].lower()].setdefault(f[2], {})[int(f[3])] = (f[4], f[5])
+        for row in kit.rows(folder / 'Output' / name):
+            if row['kind'] == 'class':
+                for p in row['properties']:
+                    out[row['class'].lower()].setdefault(p['name'], {})[p['index']] = (p['type'], p['value'])
     return out
 
 

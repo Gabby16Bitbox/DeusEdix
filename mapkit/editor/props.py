@@ -200,25 +200,22 @@ def defaults(log=print):
     try:
         weather = ['OBJ LOAD FILE="Precipitation.u"'] if 'weather' in settings.FEATURES else []  # rain and snow zones (Revision)
         s.batch(['OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + ['OBJ LOAD FILE="%s"' % p for p in settings.GAME_LOADS]
-                + weather + [r'UC_DEFAULTS ..\Output\defaults.txt %s' % ','.join(NAMES)])
-        text = (s.folder / 'Output' / 'defaults.txt').read_text(encoding='utf-8', errors='replace')
+                + weather + [r'UC_DEFAULTS ..\Output\defaults.jsonl %s' % ','.join(NAMES)])
+        rows = kit.rows(s.folder / 'Output' / 'defaults.jsonl')
     finally:
         s.close()
     classes, enums = {}, {}
-    for line in text.splitlines():
-        f = line.split('\t')
-        if f[0] == 'C' and len(f) >= 3:
-            classes[f[1]] = dict(parents=[x for x in f[2].split('/') if x], props={}, types={})
-        elif f[0] == 'P' and len(f) >= 6 and f[1] in classes:
-            c = classes[f[1]]
-            vals = c['props'].setdefault(f[2], [])
-            i = int(f[3])
-            while len(vals) <= i:
+    for row in rows:
+        if row['kind'] == 'enum':
+            enums[row['property']] = row['values']
+            continue
+        c = classes[row['class']] = dict(parents=row['parents'], props={}, types={})
+        for p in row['properties']:
+            vals = c['props'].setdefault(p['name'], [])
+            while len(vals) <= p['index']:
                 vals.append('')
-            vals[i] = f[5]
-            c['types'][f[2]] = f[4]
-        elif f[0] == 'E' and len(f) >= 3:
-            enums[f[1]] = f[2].split('|')
+            vals[p['index']] = p['value']
+            c['types'][p['name']] = p['type']
     d = dict(version=VERSION, classes=classes, enums=enums)
     CACHE.write_text(json.dumps(d), encoding='utf-8')
     return d

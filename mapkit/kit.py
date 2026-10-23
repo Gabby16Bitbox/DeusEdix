@@ -37,6 +37,15 @@ def extra_packages():
             and p['name'] not in EDIT_PACKAGES]
 
 
+def rows(path):
+    """A file the host wrote: one JSON value a line (host/README.md) -> the values, [] when there is no file."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open(encoding='utf-8') as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
 def load_cmd(file):
     """The host command that loads a package: by name (found through the run's Paths) with OBJ LOAD, from a path
     with UC_LOADPKG (OBJ LOAD FILE= keeps only 80 characters of a path, UC_LOADPKG any)."""

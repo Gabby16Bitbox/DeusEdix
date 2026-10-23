@@ -41,15 +41,11 @@ def class_info(refresh=False, log=print):
     s = kit.Session([], 'editor-anims')
     try:
         s.batch(['MAP NEW', 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + ['OBJ LOAD FILE="%s"' % p for p in settings.GAME_LOADS]
-                + [r'UC_CLASSES ..\Output\classes.txt'])
-        text = (s.folder / 'Output' / 'classes.txt').read_text(encoding='utf-8', errors='replace')
+                + [r'UC_CLASSES ..\Output\classes.jsonl'])
+        classes = kit.rows(s.folder / 'Output' / 'classes.jsonl')
     finally:
         s.close()
-    out = {}
-    for line in text.splitlines():
-        f = line.split('\t')
-        if len(f) > 8 and f[0] == 'C' and f[5] != 'None':
-            out[f[1]] = dict(mesh=f[5], pkg=f[2], parents=[x for x in f[8].split('/') if x])
+    out = {c['class']: dict(mesh=c['mesh'], pkg=c['package'], parents=c['parents']) for c in classes if c['mesh'] != 'None'}
     path.write_text(json.dumps(out, indent=0, sort_keys=True), encoding='utf-8')
     return out
 
@@ -110,29 +106,20 @@ def mesh_of(cls, log=print):
     return meshes.get(cls)
 
 
+def anim_input(sequences, frames):
+    """The file of UC_ANIMNEW: a JSON line {sequences: [{name, group, frames, rate}]}, the line "data", the frames."""
+    return json.dumps(dict(sequences=sequences)).encode() + b'\ndata\n' + frames
+
+
 def parse(data):
-    """The header of a UC_ANIMDUMP file -> dict; 'offset' = where its arrays start."""
-    i = data.index(b'data\n')
-    out = dict(version=VERSION, seqs=[], tex=[], mats=[], offset=i + 5)
-    for line in data[:i].decode('utf-8', errors='replace').splitlines():
-        f = line.split(' ')
-        if f[0] == 'mesh':
-            out['mesh'], out['lod'], out['vertsize'] = f[1], int(f[2]), int(f[3])
-        elif f[0] == 'counts':
-            keys = ('frameVerts', 'frames', 'specialVerts', 'modelVerts', 'faces', 'wedges', 'materials', 'specialFaces',
-                    'remap', 'oldFrameVerts', 'verts')
-            out['counts'] = dict(zip(keys, [int(x) for x in f[1:12]]))
-        elif f[0] == 'xform':
-            n = [float(x) for x in f[1:10]]
-            out['scale'], out['origin'], out['rot'] = n[0:3], n[3:6], [int(x) for x in n[6:9]]
-        elif f[0] == 'seq' and len(f) >= 7:
-            notes = [[float(f[7 + 2 * k]), f[8 + 2 * k]] for k in range(int(f[6])) if 8 + 2 * k < len(f)]
-            out['seqs'].append(dict(name=f[1], group=f[2], start=int(f[3]), frames=int(f[4]), rate=float(f[5]), notifys=notes))
-        elif f[0] == 'tex' and len(f) >= 3:
-            out['tex'].append(f[2])
-        elif f[0] == 'mat' and len(f) >= 4:
-            out['mats'].append([int(f[2]), int(f[3])])
-    return out
+    """The header of a UC_ANIMDUMP file (a JSON line before the line "data") -> dict; 'offset' = where its arrays start."""
+    i = data.index(b'\ndata\n')
+    h = json.loads(data[:i])
+    return dict(version=VERSION, offset=i + 6, mesh=h['mesh'], lod=h['lod'], vertsize=h['vertSize'], counts=h['counts'],
+                scale=[float(x) for x in h['scale']], origin=[float(x) for x in h['origin']], rot=h['rotation'],
+                seqs=[dict(name=s['name'], group=s['group'], start=s['start'], frames=s['frames'], rate=float(s['rate']),
+                           notifys=[[float(time), fn] for time, fn in s['notifys']]) for s in h['sequences']],
+                tex=h['textures'], mats=h['materials'])
 
 
 def load(mesh, log=print):
@@ -479,16 +466,16 @@ def pack(log=print):
     s = kit.Session([], 'animpack')
     try:
         for mesh in meshes:
-            head, body = [], b''
+            seqs, body = [], b''
             for meta in sorted((folder / mesh).glob('*.json')):
                 m = json.loads(meta.read_text(encoding='utf-8'))
                 b = meta.with_suffix('.bin')
                 if not b.exists():
                     continue
-                head.append('seq %s %s %d %g' % (m['name'], m.get('group') or 'UCAnim', m['frames'], float(m['rate'])))
+                seqs.append(dict(name=m['name'], group=m.get('group') or 'UCAnim', frames=m['frames'], rate=float(m['rate'])))
                 body += b.read_bytes()
             (s.folder / 'Input').mkdir(exist_ok=True)
-            (s.folder / 'Input' / (mesh + '.txt')).write_bytes(('\n'.join(head) + '\ndata\n').encode() + body)
+            (s.folder / 'Input' / (mesh + '.txt')).write_bytes(anim_input(seqs, body))
             out = s.cmd(r'UC_ANIMNEW %s %s %s ..\Input\%s.txt' % (mesh, settings.ANIMS_PACKAGE, mesh.split('.')[-1], mesh))
             ok = re.search(r'UCMapKit\|animnew\|(\S+)\|(\d+) sequences', out)
             lines.append('  %s: %s' % (mesh, ('%s animations' % ok.group(2)) if ok else 'FAILED'))

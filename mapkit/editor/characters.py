@@ -94,34 +94,32 @@ def _cluster(items, need):
     return rep
 
 
-def _classes(text):
+def _classes(path):
+    """UC_DEFAULTS -> {class: {parents, p: {property: [value per index]}}}."""
     out = {}
-    for line in text.splitlines():
-        f = line.split('\t')
-        if f[0] == 'C' and len(f) >= 3:
-            out[f[1]] = dict(parents=[x for x in f[2].split('/') if x], p={})
-        elif f[0] == 'P' and len(f) >= 6 and f[1] in out:
-            vals = out[f[1]]['p'].setdefault(f[2], [])
-            i = int(f[3])
-            while len(vals) <= i:
+    for row in kit.rows(path):
+        if row['kind'] != 'class':
+            continue
+        c = out[row['class']] = dict(parents=row['parents'], p={})
+        for prop in row['properties']:
+            vals = c['p'].setdefault(prop['name'], [])
+            while len(vals) <= prop['index']:
                 vals.append('')
-            vals[i] = f[5]
+            vals[prop['index']] = prop['value']
     return out
 
 
 def _parse_bodies(path):
     """UC_MESHES of the body actors B<i> -> {i: {slot: {tris, flags, pos, uv, zmin, zmax}}}."""
-    out, cur = {}, None
-    for line in Path(path).read_text(encoding='utf-8', errors='replace').splitlines():
-        f = line.split(' ')
-        if f[0] == 'A' and len(f) >= 6:
-            cur = out.setdefault(int(f[1][1:]), {})
-        elif f[0] == 'T' and cur is not None and len(f) >= 19:
-            flags, slot = int(f[2]), int(f[18])
-            if flags & 1:
+    out = {}
+    for row in kit.rows(path):
+        cur = out.setdefault(int(row['actor'][1:]), {})
+        for tri in row['triangles']:
+            flags, slot = tri['flags'], tri.get('slot')
+            if flags & 1 or slot is None:
                 continue
             s = cur.setdefault(slot, dict(tris=0, flags=flags, pos=[], uv=[], zmin=1e9, zmax=-1e9))
-            nums = [float(x) for x in f[3:18]]
+            nums = [float(x) for x in tri['corners']]
             s['tris'] += 1
             for k in range(3):
                 s['pos'] += nums[k * 5:k * 5 + 3]
@@ -207,8 +205,8 @@ def catalog(log=print, force=False):
     s = kit.Session([], 'editor-characters')
     try:
         s.batch(['OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + ['OBJ LOAD FILE="%s"' % p for p in settings.GAME_LOADS]
-                + [r'UC_DEFAULTS ..\Output\looks.txt %s' % PROPS])
-        classes = _classes((s.folder / 'Output' / 'looks.txt').read_text(encoding='utf-8', errors='replace'))
+                + [r'UC_DEFAULTS ..\Output\looks.jsonl %s' % PROPS])
+        classes = _classes(s.folder / 'Output' / 'looks.jsonl')
         humans = {}
         for cls, d in classes.items():
             behaviour = next((HUMAN[p] for p in d['parents'] if p in HUMAN), None)
@@ -228,8 +226,8 @@ def catalog(log=print, force=False):
                        % (source[m], i, i * 200, m, ''.join("    MultiSkins(%d)=Texture'Engine.DefaultTexture'\n" % k
                                                             for k in range(8))) for i, m in enumerate(meshes))
         (s.folder / 'T3D' / 'bodies.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='ascii')
-        s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\bodies.t3d"', r'UC_MESHES ..\Output\bodies.txt'])
-        models = _parse_bodies(s.folder / 'Output' / 'bodies.txt')
+        s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\bodies.t3d"', r'UC_MESHES ..\Output\bodies.jsonl'])
+        models = _parse_bodies(s.folder / 'Output' / 'bodies.jsonl')
         pkgs = {c['cls']: c.get('pkg') for c in data.catalog(log=lambda *a: None)}
         bodies, options, layouts, models_of = {}, defaultdict(dict), [], {}
         for i, m in enumerate(meshes):

@@ -21,18 +21,25 @@ folders are only read.
 below, and then reads one line at a time:
 
 1. It prints `UCMapKit|command|<line>`.
-2. `runCommand()` hands a `UC_...` command to its function. Anything else goes to UnrealEd's own command
-   line (`GEditor->Exec`: `MAP LOAD`, `BRUSH ADD`, `BSP REBUILD`, `LIGHT APPLY`, `MAP SAVE`...).
+2. `runCommand()` splits the line into its words (`Args`) and looks the first one up in the `Commands` table,
+   which gives each `UC_...` command its function. Anything else goes to UnrealEd's own command line
+   (`GEditor->Exec`: `MAP LOAD`, `BRUSH ADD`, `BSP REBUILD`, `LIGHT APPLY`, `MAP SAVE`...).
 3. The command runs inside a structured exception handler. A crash in the engine becomes
    `UCMapKit|fault|<code>` (with `UCMapKit|av|<module>+<offset>` for an access violation) instead of
    ending the session.
 4. It prints `UCMapKit|actors|<count>` and `UCMapKit|complete|<milliseconds>`.
 
 Answers are lines of the form `UCMapKit|<what>|<fields...>` on stdout. The engine's own log lines
-come in between, in UTF-8. Larger results go to a file named in the command:
-- JSON lines, written with nlohmann/json, for the game content the editor caches;
-- tab-separated text or a small binary layout for the others. The comment above each command's
-  function describes its file.
+come in between, in UTF-8.
+
+Larger results go to a file named in the command. Every such file is **JSON lines**: one JSON value a
+line, written with nlohmann/json through `JsonLines`, and read on the Python side with `kit.rows()`. Two
+of them carry binary data after a JSON header line:
+- `UC_TEXDUMP`: the RGBA pixels;
+- `UC_ANIMDUMP`: the model's arrays, after the line `data`.
+
+The comment above each command's function lists the keys of its rows. Numbers keep the precision the
+dumps always had (`digits()`, `decimals()`), so the editor reads the same values and the files stay small.
 
 ## Commands
 
@@ -67,7 +74,9 @@ Each command's arguments and output are described in the comment above its funct
 - **No script calls.** No UnrealScript function is called from C++.
 - **File layouts** read or written are structs: texture pixels, DXT1 blocks, animation frames.
 - **Text** is UTF-8 outside the engine and UTF-16 inside it. `Utf8` and `Wide` convert it, in a buffer
-  on the stack, or on the heap only for long text.
+  on the stack, or on the heap only for long text. Names are compared as the engine's text
+  (`appStricmp`). State kept between commands, such as the points `UC_NAVDROP temp` lowered or the reach
+  specs `UC_KEEPPATHS save` kept, lives in `std::vector` and `FString`.
 
 ## The engine's code changed in memory
 
