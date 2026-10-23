@@ -2,7 +2,8 @@
 (what mapkit\\host\\build_host.ps1 reads). Nothing of it is in the repository:
 
 - the headers come from the official Deus Ex SDK 1112f (Headers\\DxHeaders.zip), which you download yourself;
-- the import libraries (Core/Engine/Editor/Window.lib) are made from the exports of your own game's DLLs.
+- the import libraries (Core/Engine/Editor/Window/Extension/ConSys.lib) are made from the exports of your own
+  game's DLLs.
 
     python dev\\prepare_sdk.py --headers C:\\path\\to\\DxHeaders.zip --game "C:\\...\\steamapps\\common\\Deus Ex"
 
@@ -16,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-PACKAGES = ('Core', 'Engine', 'Editor', 'Window')
+PACKAGES = ('Core', 'Engine', 'Editor', 'Window', 'Extension', 'ConSys')
 
 
 def extract_headers(archive_path, out):

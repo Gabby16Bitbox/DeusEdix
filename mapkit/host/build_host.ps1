@@ -18,6 +18,8 @@ $arguments = @('/EHsc', '/Zc:forScope-', '/D_UNICODE', '/DUNICODE', '/Zc:wchar_t
     ('/I' + (Join-Path $lab 'headers\Engine\Inc')),
     ('/I' + (Join-Path $lab 'headers\Editor\Inc')),
     ('/I' + (Join-Path $lab 'headers\Window\Inc')),
+    ('/I' + (Join-Path $lab 'headers\Extension\Inc')),
+    ('/I' + (Join-Path $lab 'headers\ConSys\Inc')),
     '/nologo', '/O2', '/MT', '/D_CRT_SECURE_NO_WARNINGS',
     ('/I' + (Join-Path $msvc.FullName 'include')),
     ('/I' + (Join-Path $kit.FullName 'ucrt')),
@@ -32,7 +34,11 @@ $arguments = @('/EHsc', '/Zc:forScope-', '/D_UNICODE', '/DUNICODE', '/Zc:wchar_t
     ('/LIBPATH:' + (Join-Path $msvc.FullName 'lib\x86')),
     ('/LIBPATH:' + (Join-Path $kitRoot ('Lib\' + $kit.Name + '\ucrt\x86'))),
     ('/LIBPATH:' + (Join-Path $kitRoot ('Lib\' + $kit.Name + '\um\x86'))), 'kernel32.lib',
-    (Join-Path $lab 'Core.lib'), (Join-Path $lab 'Engine.lib'), (Join-Path $lab 'Editor.lib'), (Join-Path $lab 'Window.lib'))
+    (Join-Path $lab 'Core.lib'), (Join-Path $lab 'Engine.lib'), (Join-Path $lab 'Editor.lib'), (Join-Path $lab 'Window.lib'),
+    # Extension.dll and ConSys.dll load at the first call of one of their methods (the text and conversation
+    # dumps), when the engine has already loaded them for their packages: the host starts the same without them
+    (Join-Path $lab 'Extension.lib'), (Join-Path $lab 'ConSys.lib'), 'delayimp.lib',
+    '/DELAYLOAD:Extension.dll', '/DELAYLOAD:ConSys.dll')
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'UCMapKitHost compilation failed' }
 "built " + (Join-Path $outDir 'UCMapKitHost.exe')

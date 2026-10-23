@@ -58,7 +58,7 @@ def _package_command(name, kit, settings):
                          'or import a PNG for a texture local to another map.' % name)
     if '"' in filename or any(ord(c) < 32 for c in filename):
         raise ValueError('The texture package path contains unsupported characters.')
-    return 'OBJ LOAD FILE="%s"' % filename
+    return kit.load_cmd(filename)
 
 
 def load_commands(edits, local_package=None):

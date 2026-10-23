@@ -83,7 +83,7 @@ def _load_cmd(name, files):
     run_paths = (kit.DEV, kit.DEV.parent / 'HDTP' / 'System', packages.GAME / 'System')
     if name in OWN or any((d / (name + '.u')).exists() for d in run_paths):
         return 'OBJ LOAD FILE="%s.u"' % name
-    return 'OBJ LOAD FILE="%s"' % files[name]
+    return kit.load_cmd(files[name])          # a long path too (another mod's package in the project)
 
 
 def listing(log=print):

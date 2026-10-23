@@ -25,6 +25,12 @@
 #include "FOutputDeviceFile.h"
 #include "FOutputDeviceAnsiError.h"
 #include "FFeedbackContextAnsi.h"
+// The game's text and conversation classes (XExtString, the ConSys objects): their C++ fields are read
+// directly, with no call into UnrealScript.
+#define EXTENSION_API DLL_IMPORT
+#include "ExtString.h"
+#include "ConSys.h"
+#include "ConEventRandomLabel.h"
 #pragma pack(pop)
 
 static void printUtf8(const TCHAR* text, FILE* stream) {
@@ -649,50 +655,29 @@ static void dxt1Block(const BYTE* b, BYTE out[16][4]) {
     }
 }
 
-// The mip table of a loaded texture, read at the place the engine really keeps it: in this engine
-// UTexture::Mips sits 4 bytes before the SDK header's field (worked out from the bytes: the header's
-// "Data" read the real ArrayNum). Each mip is 40 bytes: DataPtr, USize, VSize, UBits, VBits (16),
-// the lazy loader (vtable, archive, SavedPos: negative once loaded), then Data, Num, Max.
-struct UCMip { int usize, vsize, savedPos, num; BYTE* data; };
-
-static int readMipAt(UTexture* t, int shift, int index, UCMip* out) {
-    __try {
-        BYTE* mipsField = (BYTE*)&t->Mips + shift;
-        BYTE* base = *(BYTE**)mipsField;
-        int count = *(int*)(mipsField + 4);
-        if (!base || count <= 0 || count > 16 || index < 0 || index >= count) return 0;
-        if (IsBadReadPtr(base, 40 * count)) return 0;
-        BYTE* e = base + index * 40;
-        out->usize = *(int*)(e + 4);
-        out->vsize = *(int*)(e + 8);
-        out->savedPos = *(int*)(e + 0x18);
-        out->data = *(BYTE**)(e + 0x1c);
-        out->num = *(int*)(e + 0x20);
-        return out->usize > 0 && out->vsize > 0 && out->data != NULL;
-    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+// The mips of a loaded texture: UTexture::Mips, a TArray<FMipmap> (FMipmapBase's sizes, then the pixels in a
+// TLazyArray<BYTE> that loads them from the package when first asked). The SDK's structs match the engine's layout
+// because Editor.h is included with the engine's 4-byte packing (the #pragma pack at the top of this file).
+// Loading reads the package file: guarded, a broken or missing file is "no data", not a crash.
+static int loadMip(FMipmap* m) {
+    __try { m->DataArray.Load(); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    return m->DataArray.Num() > 0;
 }
 
-// the mip table where it really is: at the header's place when the host is built with the engine's
-// 4-byte packing (/Zp4), 4 bytes earlier with the compiler's default; checked against the texture size
-static int mipShift = 1;
-static int readMip(UTexture* t, int index, UCMip* out) {
-    if (mipShift == 1) {
-        UCMip m0;
-        mipShift = (readMipAt(t, 0, 0, &m0) && m0.usize == t->USize && m0.vsize == t->VSize) ? 0 : -4;
-    }
-    return readMipAt(t, mipShift, index, out);
-}
-// a mip not loaded yet (lazy: SavedPos > 0) is loaded through its own TLazyArray (the loader sits at
-// +0x10 of the 40 bytes, its virtual Load is the engine's)
-static int loadMip(UTexture* t, int index) {
-    __try {
-        BYTE* mipsField = (BYTE*)&t->Mips + (mipShift == 1 ? 0 : mipShift);
-        BYTE* base = *(BYTE**)mipsField;
-        if (!base) return 0;
-        FLazyLoader* lazy = (FLazyLoader*)(base + index * 40 + 0x10);
-        lazy->Load();
-    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
-    return 1;
+// UC_LOADPKG <file>: a package loaded from its path, however long. UnrealEd's OBJ LOAD FILE= parses the name into
+// an 80-character buffer, so a package deep in a folder (another mod's, NewVision's textures) was cut and not found.
+static int loadPackage(const char* line) {
+    const char* path = line + 10;
+    while (*path == ' ') path++;
+    int n = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+    if (n <= 1) return 0;
+    TCHAR* wide = (TCHAR*)malloc(n * sizeof(TCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)wide, n);
+    UObject* package = UObject::LoadPackage(NULL, wide, LOAD_NoWarn);
+    free(wide);
+    printf("UCMapKit|loadpkg|%s|%s\n", package ? "ok" : "failed", path);
+    return package != NULL;
 }
 
 // UC_TEXFLAGS <file>: the PolyFlags of every loaded texture that has some ("<path> <flags>" per line).
@@ -727,22 +712,15 @@ static int dumpTexture(const char* line) {
     UTexture* t = (UTexture*)UObject::StaticLoadObject(UTexture::StaticClass(), NULL, wname, NULL, LOAD_NoWarn | LOAD_Quiet, NULL);
     if (!t) { printf("UCMapKit|texdump|missing|%s\n", name); return 1; }
     printf("UCMapKit|texdump|info|%s|%dx%d|scale %g|format %d\n", name, t->USize, t->VSize, t->Scale, (int)t->Format);
-    // the largest mip up to maxSize pixels whose size checks out against the texture's own
-    UCMip m, pick;
-    int found = 0, at = 0;
-    for (int i = 0; i < 16 && readMip(t, i, &m); i++) {
-        if (m.usize != (t->USize >> i) && i == 0) break;           // layout not as expected: give up
-        pick = m;
-        at = i;
-        found = 1;
-        if (m.usize <= maxSize && m.vsize <= maxSize) break;
-    }
-    if (found && pick.savedPos > 0 && loadMip(t, at)) readMip(t, at, &pick);
-    if (!found || pick.savedPos > 0) { printf("UCMapKit|texdump|nodata|%s\n", name); return 1; }
-    int w = pick.usize, h = pick.vsize;
+    // the largest mip up to maxSize pixels (the first one if all are larger); only that one is loaded
+    int at = 0;
+    while (at + 1 < t->Mips.Num() && (t->Mips(at).USize > maxSize || t->Mips(at).VSize > maxSize)) at++;
+    FMipmap* mip = t->Mips.Num() ? &t->Mips(at) : NULL;
+    if (!mip || mip->USize <= 0 || mip->VSize <= 0 || !loadMip(mip)) { printf("UCMapKit|texdump|nodata|%s\n", name); return 1; }
+    int w = mip->USize, h = mip->VSize;
     BYTE* rgba = (BYTE*)calloc(w * h, 4);
-    BYTE* d = pick.data;
-    int n = pick.num, ok = 1;
+    BYTE* d = &mip->DataArray(0);
+    int n = mip->DataArray.Num(), ok = 1;
     if (t->Format == TEXF_P8 && t->Palette && n >= w * h) {
         int masked = (t->PolyFlags & PF_Masked) != 0;          // colour 0 of a masked texture is see-through
         for (int i = 0; i < w * h; i++) {
@@ -860,51 +838,62 @@ static void conJsonText(FILE* f, const TCHAR* value) {
     fputc('"', f); free(text);
 }
 
-static void conReadFunction(UObject* obj, UFunction* fun, void* params, void* result) {
-    // UE1 ProcessEvent skips these final native functions. Invoke the reflected native thunk with
-    // the same literal-int argument stream the VM uses (only the three read-only ConSys accessors).
-    BYTE code[6]; INT used = 0;
-    if (fun->ReturnValueOffset == sizeof(INT)) {
-        code[used++] = EX_IntConst; memcpy(code + used, params, sizeof(INT)); used += sizeof(INT);
-    }
-    code[used] = EX_EndFunctionParms;
-    FFrame frame(obj); frame.Node = fun; frame.Code = code;
-    (obj->*fun->Func)(frame, result);
+// A native class of the game found by name (its StaticClass() would make the host depend on that package's
+// DLL), checked against the SDK header we read it with: a native class's size is its C++ size, so a
+// different build of the game, with another layout, is refused instead of read at the wrong place.
+static UClass* nativeClass(const TCHAR* path, INT size) {
+    UClass* cls = FindObject<UClass>(ANY_PACKAGE, path);
+    if (cls && (cls->GetFlags() & RF_Native) && cls->GetPropertiesSize() == size) return cls;
+    printf("UCMapKit|failed|class ");
+    printUtf8(path, stdout);
+    printf(cls ? " is not the one of the SDK headers\n" : " is not loaded\n");
+    return NULL;
 }
 
-// Read only: text assets and the script source stored in installed packages. Keep the native
-// ExtString accessor so neither Python nor the host guesses a private serialization layout.
-static int dumpGameContent(const char* line, int scripts) {
-    char package[128], path[512];
-    if (sscanf(line, scripts ? "UC_SCRIPTDUMP %127s %511s" : "UC_TEXTDUMP %127s %511s", package, path) != 2) return 0;
-    TCHAR pkg[128]; MultiByteToWideChar(CP_UTF8, 0, package, -1, (LPWSTR)pkg, 128);
-    UObject* outer = FindObject<UPackage>(NULL, pkg);
-    if (!outer) return 0;
-    UClass* base = scripts ? UClass::StaticClass() : FindObject<UClass>(ANY_PACKAGE, TEXT("Extension.ExtString"));
-    if (!base) return 0;
-    FILE* f = fopen(path, "wb"); if (!f) return 0;
+// UC_SCRIPTDUMP / UC_TEXTDUMP <package> <file>: the script sources or the text assets of a loaded package
+// (read only), one JSON line {path, parent, text} each.
+static FILE* openContentDump(const char* line, UPackage** package) {
+    char name[128], path[512];
+    if (sscanf(line, "%*s %127s %511s", name, path) != 2) return NULL;
+    TCHAR wide[128]; MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wide, 128);
+    *package = FindObject<UPackage>(NULL, wide);
+    return *package ? fopen(path, "wb") : NULL;
+}
+
+// parent: a copy, as GetPathName() hands every caller the same buffer
+static void contentRow(FILE* f, UObject* obj, const FString& parent, const TCHAR* text) {
+    fputs("{\"path\":", f); conJsonText(f, obj->GetPathName());
+    fputs(",\"parent\":", f); conJsonText(f, *parent);
+    fputs(",\"text\":", f); conJsonText(f, text); fputs("}\n", f);
+}
+
+static int dumpScripts(const char* line) {
+    UPackage* package;
+    FILE* f = openContentDump(line, &package);
+    if (!f) return 0;
+    int count = 0;
+    for (TObjectIterator<UClass> it; it; ++it) {
+        if (!it->ScriptText || !it->IsIn(package)) continue;
+        UClass* super = it->GetSuperClass();
+        contentRow(f, *it, FString(super ? super->GetPathName() : TEXT("")), *it->ScriptText->Text);
+        ++count;
+    }
+    fclose(f); printf("UCMapKit|scripts|%d\n", count);
+    return count > 0;
+}
+
+static int dumpTexts(const char* line) {
+    UClass* extString = nativeClass(TEXT("Extension.ExtString"), sizeof(XExtString));
+    UPackage* package;
+    FILE* f = extString ? openContentDump(line, &package) : NULL;
+    if (!f) return 0;
     int count = 0;
     for (TObjectIterator<UObject> it; it; ++it) {
-        UObject* obj = *it;
-        if (!obj->IsA(base) || !obj->IsIn(outer)) continue;
-        FString value, parent;
-        if (scripts) {
-            UClass* cls = (UClass*)obj;
-            if (!cls->ScriptText) continue;
-            value = cls->ScriptText->Text;
-            if (cls->GetSuperClass()) parent = cls->GetSuperClass()->GetPathName();
-        } else {
-            UFunction* fun = obj->FindFunction(TEXT("GetText"));
-            if (!fun || !fun->Func) { fclose(f); return 0; }
-            BYTE code[] = { EX_EndFunctionParms };
-            FFrame frame(obj); frame.Node = fun; frame.Code = code;
-            (obj->*fun->Func)(frame, &value);
-        }
-        fputs("{\"path\":", f); conJsonText(f, obj->GetPathName());
-        fputs(",\"parent\":", f); conJsonText(f, *parent);
-        fputs(",\"text\":", f); conJsonText(f, *value); fputs("}\n", f); ++count;
+        if (!it->IsA(extString) || !it->IsIn(package)) continue;
+        contentRow(f, *it, FString(), ((XExtString*)*it)->GetText());
+        ++count;
     }
-    fclose(f); printf("UCMapKit|%s|%d\n", scripts ? "scripts" : "texts", count);
+    fclose(f); printf("UCMapKit|texts|%d\n", count);
     return count > 0;
 }
 
@@ -912,7 +901,8 @@ static int dumpConversations(const char* line) {
     char path[512];
     if (sscanf(line, "UC_CONDUMP %511s", path) != 1) return 0;
     UClass* base = FindObject<UClass>(ANY_PACKAGE, TEXT("ConSys.ConObject"));
-    if (!base) return 0;
+    UClass* randomLabel = nativeClass(TEXT("ConSys.ConEventRandomLabel"), sizeof(DConEventRandomLabel));
+    if (!base || !randomLabel) return 0;
     FILE* f = fopen(path, "wb");
     if (!f) return 0;
     static TCHAR value[65536];
@@ -943,21 +933,14 @@ static int dumpConversations(const char* line) {
             }
         }
         fputc('}', f);
-        if (!appStricmp(obj->GetClass()->GetName(), TEXT("ConEventRandomLabel"))) {
-            // The native DynamicArray property exposes its header, not its strings. Use ConSys'
-            // read-only accessors for the actual random/cyclic jump targets.
-            UFunction* sizeFn = obj->FindFunction(FName(TEXT("GetLabelCount")), 0);
-            UFunction* itemFn = obj->FindFunction(FName(TEXT("GetLabel")), 0);
-            INT size = 0;
-            if (!sizeFn || !itemFn || sizeFn->ParmsSize != sizeof(INT)) { fclose(f); return 0; }
-            conReadFunction(obj, sizeFn, &size, &size);
-            if (size < 0 || size > 4096) { fclose(f); return 0; }
+        if (obj->IsA(randomLabel)) {
+            // the random/cyclic jump targets: a TArray<FString> in C++, which the script property list
+            // only shows as an opaque array header
+            TArray<FString>& labels = ((DConEventRandomLabel*)obj)->labels;
             fputs(",\"labels\":[", f);
-            for (INT i = 0; i < size; ++i) {
-                struct LabelParams { INT index; FString result; } params;
-                if (itemFn->ParmsSize != sizeof(params) || itemFn->ReturnValueOffset != sizeof(INT)) { fclose(f); return 0; }
-                params.index = i; conReadFunction(obj, itemFn, &params, &params.result);
-                if (i) fputc(',', f); conJsonText(f, *params.result);
+            for (INT i = 0; i < labels.Num(); ++i) {
+                if (i) fputc(',', f);
+                conJsonText(f, *labels(i));
             }
             fputc(']', f);
         }
@@ -974,16 +957,10 @@ static int conversationSound(const char* line) {
     if (sscanf(line, "UC_CONSOUND %511s %d %511s", name, &id, path) != 3 || id < 0) return 0;
     TCHAR wname[512];
     MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 512);
+    UClass* conversation = nativeClass(TEXT("ConSys.Conversation"), sizeof(DConversation));
     UObject* obj = FindObject<UObject>(ANY_PACKAGE, wname);
-    if (!obj) return 0;
-    UFunction* fun = obj->FindFunction(FName(TEXT("GetSpeechAudio")), 0);
-    if (!fun || fun->ParmsSize > 64 || fun->ReturnValueOffset + sizeof(UObject*) > fun->ParmsSize) return 0;
-    BYTE params[64] = {0};
-    UProperty* arg = FindField<UProperty>(fun, TEXT("soundID"));
-    if (!arg || arg->Offset + sizeof(INT) > fun->ParmsSize) return 0;
-    *(INT*)(params + arg->Offset) = id;
-    conReadFunction(obj, fun, params, params + fun->ReturnValueOffset);
-    UObject* sound = *(UObject**)(params + fun->ReturnValueOffset);
+    if (!conversation || !obj || !obj->IsA(conversation)) return 0;
+    USound* sound = ((DConversation*)obj)->GetSpeechAudio(id);
     FILE* f = fopen(path, "ab");
     if (!f) return 0;
     fputs("{\"conversation\":", f); conJsonText(f, wname);
@@ -1052,6 +1029,55 @@ static int dumpDefaults(const char* line) {
     }
     fclose(f);
     printf("UCMapKit|defaults|%d\n", n);
+    return 1;
+}
+
+// UC_CLASSPROPS <file> <class>: every property of one class that UnrealEd's Properties window shows (CPF_Edit), for
+// the map editor's All properties. Lines, in the class's order (its own first, then its parents'):
+//   P <name> <index, -1 for a single value> <property type> <category> <class default>
+//   E <name> <enum value names separated by |>
+static int dumpClassProps(const char* line) {
+    char path[512], cname[128];
+    if (sscanf(line, "UC_CLASSPROPS %511s %127s", path, cname) != 2) return 0;
+    unsigned short wname[128];
+    MultiByteToWideChar(CP_UTF8, 0, cname, -1, (LPWSTR)wname, 128);
+    UClass* c = FindObject<UClass>(ANY_PACKAGE, (const TCHAR*)wname);
+    if (!c || !c->IsChildOf(AActor::StaticClass())) { printf("UCMapKit|classprops|missing|%s\n", cname); return 1; }
+    BYTE* d = (BYTE*)c->GetDefaultObject();
+    FILE* f = fopen(path, "wt");
+    if (!f || !d) { if (f) fclose(f); return 0; }
+    static TCHAR buf[16384];
+    int n = 0;
+    for (TFieldIterator<UProperty> It(c); It; ++It) {
+        UProperty* p = *It;
+        if (!(p->PropertyFlags & CPF_Edit)) continue;
+        char name[128], type[64], group[128];
+        wtext(p->GetName(), name, sizeof(name));
+        wtext(p->GetClass()->GetName(), type, sizeof(type));
+        wtext(*p->Category, group, sizeof(group));
+        for (char* q = group; *q; q++) if (*q == ' ' || *q == '\t') *q = '_';
+        if (p->IsA(UByteProperty::StaticClass()) && ((UByteProperty*)p)->Enum) {
+            UEnum* e = ((UByteProperty*)p)->Enum;
+            fprintf(f, "E\t%s\t", name);
+            for (int i = 0; i < e->Names.Num(); i++) {
+                char en[128];
+                wtext(*e->Names(i), en, sizeof(en));
+                fprintf(f, "%s%s", i ? "|" : "", en);
+            }
+            fprintf(f, "\n");
+        }
+        int dim = p->ArrayDim > 32 ? 32 : p->ArrayDim;
+        for (int i = 0; i < dim; i++) {
+            if (!safeExport(p, i, d, buf)) continue;
+            char value[4096];
+            wtext(buf, value, sizeof(value));
+            for (char* q = value; *q; q++) if (*q == '\t' || *q == '\n' || *q == '\r') *q = ' ';
+            fprintf(f, "P\t%s\t%d\t%s\t%s\t%s\n", name, p->ArrayDim > 1 ? i : -1, type, group[0] ? group : "None", value);
+        }
+        n++;
+    }
+    fclose(f);
+    printf("UCMapKit|classprops|%d\n", n);
     return 1;
 }
 
@@ -1275,18 +1301,18 @@ static FPoly surfaceWorld(ABrush* b, int face) {
     return p;
 }
 
-static void storeSurface(ABrush* b, int face, FPoly p, int mapping, int texture, int shadows) {
+// mask: the PolyFlags taken from p (shadow detail, or the face flags of the editor's Surface panel)
+static void storeSurface(ABrush* b, int face, FPoly p, int mapping, int texture, DWORD mask) {
     FModelCoords inv;
     FLOAT orientation = b->BuildCoords(NULL, &inv);
     FPoly local = p;
     local.Transform(inv, b->Location, b->PrePivot, orientation);
-    const DWORD mask = PF_LowShadowDetail | PF_HighShadowDetail;
     for (int i = 0; i < b->Brush->Polys->Element.Num(); i++) {
         FPoly& dst = b->Brush->Polys->Element(i);
         if (i != face && dst.iLink != face) continue;
         if (mapping) { dst.Base = local.Base; dst.TextureU = local.TextureU; dst.TextureV = local.TextureV; dst.PanU = local.PanU; dst.PanV = local.PanV; }
         if (texture) dst.Texture = p.Texture;
-        if (shadows) dst.PolyFlags = (dst.PolyFlags & ~mask) | (p.PolyFlags & mask);
+        if (mask) dst.PolyFlags = (dst.PolyFlags & ~mask) | (p.PolyFlags & mask);
     }
     UModel* m = GEditor->Level->Model;
     for (int i = 0; i < m->Surfs.Num(); i++) {
@@ -1300,7 +1326,7 @@ static void storeSurface(ABrush* b, int face, FPoly p, int mapping, int texture,
             s.PanU = p.PanU; s.PanV = p.PanV;
         }
         if (texture) s.Texture = p.Texture;
-        if (shadows) s.PolyFlags = (s.PolyFlags & ~mask) | (p.PolyFlags & mask);
+        if (mask) s.PolyFlags = (s.PolyFlags & ~mask) | (p.PolyFlags & mask);
     }
 }
 
@@ -1378,7 +1404,9 @@ static int wrapSurfaceCylinder(ABrush* b) {
     printf("UCMapKit|surface|ok|cylinder|%d\n", faces.Num()); return 1;
 }
 
-// UC_SURFACE <brush> <source polygon or *> <floor|wall|tile|tile-u|tile-v|cylinder|pan|scale|rotate|flip-u|flip-v|texture|shadows> [args]
+// UC_SURFACE <brush> <source polygon or *> <floor|wall|tile|tile-u|tile-v|cylinder|pan|scale|rotate|flip-u|flip-v|texture|shadows|flags> [args]
+// flags <set> <clear>: UnrealEd's surface properties (Unlit, Translucent, Masked, Modulated, Two Sided, Mirror, Invisible,
+// Fake Backdrop, Special Lit, No Smoothing), only those bits
 static int editSurface(const char* line) {
     char name[128], target[32], mode[32], arg[256] = ""; FLOAT x = 0, y = 0;
     if (sscanf(line, "UC_SURFACE %127s %31s %31s %255s", name, target, mode, arg) < 3) return 0;
@@ -1391,8 +1419,13 @@ static int editSurface(const char* line) {
     int shadow = !strcmp(mode, "shadows"), texture = !strcmp(mode, "texture"), pan = !strcmp(mode, "pan"), scale = !strcmp(mode, "scale");
     int fit = !strcmp(mode, "tile") || !strcmp(mode, "tile-u") || !strcmp(mode, "tile-v");
     int floor = !strcmp(mode, "floor"), wall = !strcmp(mode, "wall"), rotate = !strcmp(mode, "rotate");
-    int flipu = !strcmp(mode, "flip-u"), flipv = !strcmp(mode, "flip-v");
-    if (!(shadow || texture || pan || scale || fit || floor || wall || rotate || flipu || flipv)) return surfaceError("Unknown surface operation");
+    int flipu = !strcmp(mode, "flip-u"), flipv = !strcmp(mode, "flip-v"), flags = !strcmp(mode, "flags");
+    if (!(shadow || texture || pan || scale || fit || floor || wall || rotate || flipu || flipv || flags)) return surfaceError("Unknown surface operation");
+    const DWORD allowed = PF_Invisible | PF_Masked | PF_Translucent | PF_Modulated | PF_FakeBackdrop | PF_TwoSided | PF_NoSmooth
+        | PF_SpecialLit | PF_Unlit | PF_Mirrored;
+    unsigned long set = 0, clear = 0;
+    if (flags && (sscanf(line, "UC_SURFACE %*s %*s %*s %lu %lu", &set, &clear) != 2 || ((set | clear) & ~allowed) || (set & clear)))
+        return surfaceError("Invalid surface flags");
     if (pan || scale) {
         if (sscanf(line, "UC_SURFACE %*s %*s %*s %f %f", &x, &y) != 2 || !_finite(x) || !_finite(y)) return surfaceError("Invalid U/V values");
         if (scale && (x < .001f || y < .001f || x > 1000 || y > 1000)) return surfaceError("Texture scale must be 0.001 to 1000");
@@ -1427,7 +1460,9 @@ static int editSurface(const char* line) {
         else if (rotate) { FVector u = p.TextureU; SWORD pu = p.PanU; p.TextureU = p.TextureV; p.TextureV = -u; p.PanU = p.PanV; p.PanV = -pu; }
         else if (flipu) { p.TextureU = -p.TextureU; p.PanU = -p.PanU; }
         else if (flipv) { p.TextureV = -p.TextureV; p.PanV = -p.PanV; }
-        storeSurface(b, i, p, !shadow && !texture, texture, shadow); changed++;
+        else if (flags) p.PolyFlags = (p.PolyFlags | (DWORD)set) & ~(DWORD)clear;
+        storeSurface(b, i, p, !shadow && !texture && !flags, texture,
+            shadow ? (PF_LowShadowDetail | PF_HighShadowDetail) : flags ? (DWORD)(set | clear) : 0); changed++;
     }
     printf("UCMapKit|surface|ok|%s|%d\n", mode, changed); return 1;
 }
@@ -1705,11 +1740,20 @@ static int newAnimMesh(const char* line) {
 }
 
 // UC_ANIMSAVE <file>: writes the package of UC_ANIMNEW (then a new one can be made); without any
-// UC_ANIMNEW, an empty UCAnims package (the Studio has no animation left)
+// UC_ANIMNEW, an empty package named after the file (the Studio has no animation left)
 static int saveAnimPackage(const char* line) {
     char path[512];
     if (sscanf(line, "UC_ANIMSAVE %511s", path) != 1) return 0;
-    if (!AnimPackage) AnimPackage = UObject::CreatePackage(NULL, TEXT("UCAnims"));
+    if (!AnimPackage) {
+        char name[128];
+        const char* base = strrchr(path, '\\');
+        strncpy(name, base ? base + 1 : path, 127);
+        name[127] = 0;
+        if (char* dot = strrchr(name, '.')) *dot = 0;
+        TCHAR wname[128];
+        MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 128);
+        AnimPackage = UObject::CreatePackage(NULL, wname);
+    }
     TCHAR wpath[512];
     MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)wpath, 512);
     UBOOL ok = UObject::SavePackage(AnimPackage, NULL, RF_Standalone, wpath, GWarn);
@@ -2071,10 +2115,12 @@ static int runCommand(const char* line, unsigned short* wide, FFeedbackContext& 
     if (!strncmp(line, "UC_TEXFLAGS ", 12)) return dumpTexFlags(line);
     if (!strncmp(line, "UC_CLASSES ", 11)) return listClasses(line);
     if (!strncmp(line, "UC_DEFAULTS ", 12)) return dumpDefaults(line);
+    if (!strncmp(line, "UC_LOADPKG ", 11)) return loadPackage(line);
+    if (!strncmp(line, "UC_CLASSPROPS ", 14)) return dumpClassProps(line);
     if (!strncmp(line, "UC_CONDUMP ", 11)) return dumpConversations(line);
-    if (!strncmp(line, "UC_TEXTDUMP ", 12)) return dumpGameContent(line, 0);
+    if (!strncmp(line, "UC_TEXTDUMP ", 12)) return dumpTexts(line);
     if (!strncmp(line, "UC_TEXTHEX ", 11)) return setTextHex(line);
-    if (!strncmp(line, "UC_SCRIPTDUMP ", 14)) return dumpGameContent(line, 1);
+    if (!strncmp(line, "UC_SCRIPTDUMP ", 14)) return dumpScripts(line);
     if (!strncmp(line, "UC_CONSOUND ", 12)) return conversationSound(line);
     if (!strncmp(line, "UC_SET ", 7)) return setActor(line);
     if (!strncmp(line, "UC_DEL ", 7)) return deleteActor(line);
@@ -2103,6 +2149,32 @@ static int guardedCommand(const char* line, unsigned short* wide, FFeedbackConte
         return 0;
     }
 }
+
+// One command a line, of any length: the line and its wide copy grow when a command is longer than they are
+// (released when the session ends). The wide copy is byte for byte, as the engine's commands are plain ASCII.
+struct LineBuffer {
+    char* text; unsigned short* w; size_t size;
+    LineBuffer() : text((char*)malloc(8192)), w((unsigned short*)malloc(8192 * sizeof(unsigned short))), size(8192) {}
+    ~LineBuffer() { free(text); free(w); }
+    char* read(FILE* input) {
+        size_t length = 0;
+        for (;;) {
+            if (!fgets(text + length, (int)(size - length), input)) return length ? text : NULL;
+            length += strlen(text + length);
+            if (length && text[length - 1] == '\n') return text;
+            if (length + 1 < size) continue;                      // the last line of the file, no line break
+            size *= 2;
+            text = (char*)realloc(text, size);
+            w = (unsigned short*)realloc(w, size * sizeof(unsigned short));
+        }
+    }
+    unsigned short* wide() {
+        size_t i = 0;
+        for (; text[i]; i++) w[i] = (unsigned char)text[i];
+        w[i] = 0;
+        return w;
+    }
+};
 
 // First-chance access violations on any thread: module + offset in the log (diagnostics).
 static LONG CALLBACK reportFault(PEXCEPTION_POINTERS info) {
@@ -2201,32 +2273,13 @@ int main(int argc, char** argv) {
     static const unsigned char ret16[3] = { 0xC2, 0x10, 0x00 };
     patchExport("Editor.dll", "?Draw@UEditorEngine@@UAEXPAVUViewport@@HPAEPAH@Z", ret16, 3);
     puts("UCMapKit|ready"); fflush(stdout);
-    char line[8192];
-    while (fgets(line, sizeof(line), input)) {
-        // a command longer than the buffer: fgets would hand its rest over as another command,
-        // so the rest is read away and the whole command is refused
-        size_t length = strlen(line);
-        if (length == sizeof(line) - 1 && line[length - 1] != '\n') {
-            int c = fgetc(input), dropped = 0;
-            while (c != EOF && c != '\n') { dropped = 1; c = fgetc(input); }
-            if (dropped) {
-                printf("UCMapKit|failed|command longer than %d characters: %.60s...\n", (int)sizeof(line) - 1, line);
-                if (!interactive) {
-                    fprintf(stderr, "UCMapKit|failed|command longer than %d characters\n", (int)sizeof(line) - 1);
-                    return 4;
-                }
-                puts("UCMapKit|complete|0 ms");
-                puts("UCMapKit|ready"); fflush(stdout);
-                continue;
-            }
-        }
+    LineBuffer buffer;
+    char* line;
+    while ((line = buffer.read(input)) != NULL) {
         line[strcspn(line, "\r\n")] = 0;
         if (!line[0] || line[0] == '#') { if (interactive) { puts("UCMapKit|ready"); fflush(stdout); } continue; }
         if (interactive && !strcmp(line, "UC_QUIT")) break;
-        unsigned short wide[8192];
-        int i;
-        for (i=0; line[i]; i++) wide[i] = (unsigned char)line[i];
-        wide[i] = 0;
+        unsigned short* wide = buffer.wide();
         printf("UCMapKit|command|%s\n", line); fflush(stdout);
         DWORD start = GetTickCount();
         int success = guardedCommand(line, wide, feedback);

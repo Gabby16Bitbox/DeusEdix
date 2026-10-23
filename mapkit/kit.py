@@ -37,6 +37,13 @@ def extra_packages():
             and p['name'] not in EDIT_PACKAGES]
 
 
+def load_cmd(file):
+    """The host command that loads a package: by name (found through the run's Paths) with OBJ LOAD, from a path
+    with UC_LOADPKG (OBJ LOAD FILE= keeps only 80 characters of a path, UC_LOADPKG any)."""
+    file = str(file)
+    return 'UC_LOADPKG %s' % file if ('\\' in file or '/' in file) else 'OBJ LOAD FILE="%s"' % file
+
+
 def is_code(p):
     """A package of classes (.u), loaded at startup; textures, sounds and music (.utx .uax .umx) are only found."""
     return Path(p.get('path') or 'x.u').suffix.lower() == '.u'
