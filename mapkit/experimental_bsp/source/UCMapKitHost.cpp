@@ -48,8 +48,11 @@ public:
         else if (warning) Warnings++;
         // like UCC: "<file>(<line>) : Error, <message>" when the compiler says where it is
         if ((event == NAME_Error || warning) && Context) {
+            // bounded: a long message is cut, never written past the buffer (appSprintf has no size)
             TCHAR temp[2048];
-            appSprintf(temp, TEXT("%s : %s, %s"), *Context->GetContext(), *FName(event), text);
+            const int size = sizeof(temp) / sizeof(temp[0]);
+            _snwprintf((wchar_t*)temp, size - 1, L"%s : %s, %s", *Context->GetContext(), *FName(event), text);
+            temp[size - 1] = 0;
             printUtf8(temp, stdout);
             return;
         }
@@ -2032,6 +2035,23 @@ int main(int argc, char** argv) {
     puts("UCMapKit|ready"); fflush(stdout);
     char line[8192];
     while (fgets(line, sizeof(line), input)) {
+        // a command longer than the buffer: fgets would hand its rest over as another command,
+        // so the rest is read away and the whole command is refused
+        size_t length = strlen(line);
+        if (length == sizeof(line) - 1 && line[length - 1] != '\n') {
+            int c = fgetc(input), dropped = 0;
+            while (c != EOF && c != '\n') { dropped = 1; c = fgetc(input); }
+            if (dropped) {
+                printf("UCMapKit|failed|command longer than %d characters: %.60s...\n", (int)sizeof(line) - 1, line);
+                if (!interactive) {
+                    fprintf(stderr, "UCMapKit|failed|command longer than %d characters\n", (int)sizeof(line) - 1);
+                    return 4;
+                }
+                puts("UCMapKit|complete|0 ms");
+                puts("UCMapKit|ready"); fflush(stdout);
+                continue;
+            }
+        }
         line[strcspn(line, "\r\n")] = 0;
         if (!line[0] || line[0] == '#') { if (interactive) { puts("UCMapKit|ready"); fflush(stdout); } continue; }
         if (interactive && !strcmp(line, "UC_QUIT")) break;
