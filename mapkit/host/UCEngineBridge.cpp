@@ -238,30 +238,47 @@ static int patchExport(const char* module, const char* symbol, const unsigned ch
 // 0 when the DLL is not the known build, and exec() then refuses LIGHT APPLY.
 static int temporaryViewportReady = 1;
 
-// The known build's code at the check, from the DLL's base.
-static const DWORD AssertionOffset = 0x1647E;
+// The known build's code at the check, from the DLL's base: the default of [WinDrvLite] in UCEngineBridge.ini.
 static const BYTE AssertionCode[] = {
     0x39, 0x7D, 0x0C,                 // cmp  [ebp+0Ch], edi   is the IsTemporary argument false?
     0x74, 0x18,                       // je   +18h             then jump over the assertion
     0x68, 0xE6, 0x00, 0x00, 0x00,     // push 0E6h             (the assertion's failure call begins)
 };
-static const int JumpOpcode = 3;      // the je, in AssertionCode
 static const BYTE Je = 0x74, Jmp = 0xEB;
+
+// The bridge's settings: UCEngineBridge.ini next to the DLL (each run gets a copy, as it gets the DLL), read once
+// at start through the engine's own config (loadSettings). A value the file leaves out keeps the default here.
+static const TCHAR* const SettingsFile = TEXT("UCEngineBridge.ini");
+struct NavigationSettings {
+    FLOAT FloorSearch = 512.f;          // how far below a point the floor is looked for
+    FLOAT FloorTolerance = 2.f;         // a point this close to where it would rest is not moved
+    FLOAT MaxHeightOverFloor = 64.f;    // UC_NAVDROP temp: a point higher than this over the floor was put there on purpose
+    FLOAT MovedTolerance = 1.f;         // UC_KEEPPATHS restore: a kept route comes back when its points moved less
+    std::vector<UClass*> LeftAlone;     // UC_NAVDROP temp: these classes (and their subclasses) stay where they are
+};
+static NavigationSettings Navigation;
+// Globals hold no heap memory until loadSettings: the engine's headers route new to its allocator (GMalloc), which
+// does not exist yet while the DLL loads (an AV writing to 0, 24 Oct 2026).
+struct WinDrvLiteSettings {
+    DWORD Offset = 0x1647E;             // the check's code, from the DLL's base
+    std::vector<BYTE> Code;             // AssertionCode unless the file says otherwise
+    int Jump = 3;                       // the je, in Code
+};
+static WinDrvLiteSettings WinDrvLite;
 
 static int patchTemporaryViewport() {
     BYTE* base = (BYTE*)GetModuleHandleA("WinDrvLite.dll");
     // the original game's WinDrv.dll has no such check
     if (!base) return 1;
     IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
-    if (nt->OptionalHeader.SizeOfImage < AssertionOffset + sizeof(AssertionCode)) return 0;
-    BYTE* code = base + AssertionOffset;
-    BYTE* jump = code + JumpOpcode;
+    if (WinDrvLite.Code.empty() || nt->OptionalHeader.SizeOfImage < WinDrvLite.Offset + WinDrvLite.Code.size()) return 0;
+    BYTE* code = base + WinDrvLite.Offset;
+    BYTE* jump = code + WinDrvLite.Jump;
 
     // Every byte as in the known build, the jump as it ships (je) or already fixed on disk (jmp: UnrealEd's copy).
-    BYTE expected[sizeof(AssertionCode)];
-    memcpy(expected, AssertionCode, sizeof(expected));
-    expected[JumpOpcode] = *jump == Jmp ? Jmp : Je;
-    if (memcmp(code, expected, sizeof(expected))) return 0;
+    std::vector<BYTE> expected = WinDrvLite.Code;
+    expected[WinDrvLite.Jump] = *jump == Jmp ? Jmp : Je;
+    if (memcmp(code, &expected[0], expected.size())) return 0;
     if (*jump == Jmp) return 1;
 
     // je -> jmp, always over the assertion: in this process's memory only, never in the game's file.
@@ -313,6 +330,57 @@ public:
 // A class by its name (the editor sends "@UNATCOTroop"): NULL when no package loaded has it, so no actor is one.
 static UClass* classNamed(const TCHAR* name) {
     return FindObject<UClass>(ANY_PACKAGE, name);
+}
+
+// UCEngineBridge.ini, once the engine is up (its classes are loaded, GConfig reads the file from the run's System).
+// A value that makes no sense is reported and the default kept; a WinDrvLite code that cannot be patched refuses
+// LIGHT APPLY, as an unknown DLL does.
+static void loadSettings() {
+    NavigationSettings& nav = Navigation;
+    UClass* const leftAlone[] = { APlayerStart::StaticClass(), ATeleporter::StaticClass(), ALiftCenter::StaticClass(),
+                                  ALiftExit::StaticClass(), AInventorySpot::StaticClass(), AWarpZoneMarker::StaticClass(),
+                                  AButtonMarker::StaticClass(), ATriggerMarker::StaticClass() };
+    nav.LeftAlone.assign(leftAlone, leftAlone + ARRAY_COUNT(leftAlone));
+    const struct { const TCHAR* key; FLOAT* value; FLOAT least; } floats[] = {
+        { TEXT("FloorSearch"), &nav.FloorSearch, 1.f }, { TEXT("FloorTolerance"), &nav.FloorTolerance, 0.f },
+        { TEXT("MaxHeightOverFloor"), &nav.MaxHeightOverFloor, 0.f }, { TEXT("MovedTolerance"), &nav.MovedTolerance, 0.f } };
+    for (int k = 0; k < ARRAY_COUNT(floats); k++) {
+        FLOAT value = *floats[k].value;
+        if (!GConfig->GetFloat(TEXT("Navigation"), floats[k].key, value, SettingsFile)) continue;
+        if (value >= floats[k].least) *floats[k].value = value;
+        else say("UCMapKit|settings|Navigation %s=%g is too small: %g kept", (const char*)Utf8(floats[k].key), value, *floats[k].value);
+    }
+    TMultiMap<FString, FString>* section = GConfig->GetSectionPrivate(TEXT("Navigation"), 0, 1, SettingsFile);
+    TArray<FString> names;
+    if (section) section->MultiFind(TEXT("LeftAlone"), names);
+    if (names.Num()) {
+        nav.LeftAlone.clear();
+        for (int k = 0; k < names.Num(); k++) {
+            UClass* cls = classNamed(*names(k));
+            if (cls) nav.LeftAlone.push_back(cls);
+            else say("UCMapKit|settings|Navigation LeftAlone=%s is no class loaded", (const char*)Utf8(*names(k)));
+        }
+    }
+
+    WinDrvLite.Code.assign(AssertionCode, AssertionCode + sizeof(AssertionCode));
+    FString text;
+    if (GConfig->GetString(TEXT("WinDrvLite"), TEXT("Offset"), text, SettingsFile))
+        WinDrvLite.Offset = wcstoul((const wchar_t*)*text, NULL, 0);
+    if (GConfig->GetString(TEXT("WinDrvLite"), TEXT("Code"), text, SettingsFile)) {
+        WinDrvLite.Code.clear();
+        for (const wchar_t* at = (const wchar_t*)*text; *at; ) {
+            wchar_t* end;
+            unsigned long byte = wcstoul(at, &end, 16);
+            if (end == at) break;
+            WinDrvLite.Code.push_back((BYTE)byte);
+            at = end;
+        }
+    }
+    GConfig->GetInt(TEXT("WinDrvLite"), TEXT("Jump"), WinDrvLite.Jump, SettingsFile);
+    if (WinDrvLite.Jump < 0 || WinDrvLite.Jump >= (int)WinDrvLite.Code.size() || WinDrvLite.Code[WinDrvLite.Jump] != Je) {
+        say("UCMapKit|settings|WinDrvLite Code has no je at Jump: LIGHT APPLY is refused with Revision");
+        WinDrvLite.Code.clear();
+    }
 }
 
 // Editing existing maps (the map editor on any .dx): actors and brushes are found by name.
@@ -2083,10 +2151,10 @@ static int dropNavPoints(const char* const* list, int count) {
         if (!all && !names.count(a->GetFName().GetIndex())) continue;
         checked++;
         FCheckResult hit(1.f);
-        FVector end = a->Location - FVector(0, 0, 512);
+        FVector end = a->Location - FVector(0, 0, Navigation.FloorSearch);
         if (GEditor->Level->SingleLineCheck(hit, NULL, end, a->Location, TRACE_Level, FVector(0, 0, 0), 0)) continue;
         FLOAT z = hit.Location.Z + a->CollisionHeight;
-        if (Abs(a->Location.Z - z) < 2.f) continue;
+        if (Abs(a->Location.Z - z) < Navigation.FloorTolerance) continue;
         say("UCMapKit|navdrop|%s|%.1f -> %.1f", (const char*)Utf8(a->GetName()), a->Location.Z, z);
         a->Location.Z = z;
         moved++;
@@ -2099,16 +2167,13 @@ static int dropNavPoints(const char* const* list, int count) {
 // for PATHS DEFINE only; UC_NAVLIFT puts each back where it was. The original maps have their points 11-44
 // units over the floor and were linked by Ion Storm's and Revision's editors, but this host's PATHS DEFINE
 // links none floating over about 20 (Battery Park: 302 reach specs instead of 1409; 1095 with them on the
-// floor; 17 Oct 2026). Left alone: player starts, teleporters, lifts and the markers PATHS DEFINE makes itself,
-// points over water (swimming) and points higher than 64 over the floor (put there on purpose).
+// floor; 17 Oct 2026). Left alone ([Navigation] in UCEngineBridge.ini): the LeftAlone classes (player starts,
+// teleporters, lifts and the markers PATHS DEFINE makes itself), points over water (swimming) and points higher
+// than MaxHeightOverFloor over the floor (put there on purpose).
 struct NavHeight { FString name; FLOAT z; };
 static std::vector<NavHeight> navTemp;
 static int dropNavTemp() {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    // the classes left alone: the engine's own, no names to look up
-    UClass* const skip[] = { APlayerStart::StaticClass(), ATeleporter::StaticClass(), ALiftCenter::StaticClass(),
-                             ALiftExit::StaticClass(), AInventorySpot::StaticClass(), AWarpZoneMarker::StaticClass(),
-                             AButtonMarker::StaticClass(), ATriggerMarker::StaticClass() };
     ClassChains chains;
     navTemp.clear();
     int checked = 0;
@@ -2116,18 +2181,18 @@ static int dropNavTemp() {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
         int other = 0;
-        for (int k = 0; k < ARRAY_COUNT(skip) && !other; k++) other = chains.is(a, skip[k]);
+        for (size_t k = 0; k < Navigation.LeftAlone.size() && !other; k++) other = chains.is(a, Navigation.LeftAlone[k]);
         if (other) continue;
         checked++;
         Utf8 name(a->GetName());
         FPointRegion region = GEditor->Level->Model->PointRegion(GEditor->Level->GetLevelInfo(), a->Location);
         if (region.Zone && region.Zone->bWaterZone) { say("UCMapKit|navdrop temp|%s|water", (const char*)name); continue; }
         FCheckResult hit(1.f);
-        FVector end = a->Location - FVector(0, 0, 512);
+        FVector end = a->Location - FVector(0, 0, Navigation.FloorSearch);
         if (GEditor->Level->SingleLineCheck(hit, NULL, end, a->Location, TRACE_Level, FVector(0, 0, 0), 0)) { say("UCMapKit|navdrop temp|%s|no floor", (const char*)name); continue; }
         FLOAT z = hit.Location.Z + a->CollisionHeight;
-        if (Abs(a->Location.Z - z) < 2.f || z > a->Location.Z) continue;
-        if (a->Location.Z - z > 64.f) { say("UCMapKit|navdrop temp|%s|%.1f over the floor: kept", (const char*)name, a->Location.Z - z); continue; }
+        if (Abs(a->Location.Z - z) < Navigation.FloorTolerance || z > a->Location.Z) continue;
+        if (a->Location.Z - z > Navigation.MaxHeightOverFloor) { say("UCMapKit|navdrop temp|%s|%.1f over the floor: kept", (const char*)name, a->Location.Z - z); continue; }
         say("UCMapKit|navdrop temp|%s|%.1f -> %.1f", (const char*)name, a->Location.Z, z);
         NavHeight kept = { FString(a->GetName()), a->Location.Z };
         navTemp.push_back(kept);
@@ -2186,7 +2251,7 @@ static int keepPaths(int restore) {
         AActor* a = byName(*s.a);
         AActor* b = byName(*s.b);
         if (!a || !b || !a->IsA(ANavigationPoint::StaticClass()) || !b->IsA(ANavigationPoint::StaticClass())
-            || (a->Location - s.la).SizeSquared() > 1.f || (b->Location - s.lb).SizeSquared() > 1.f) {
+            || (a->Location - s.la).Size() > Navigation.MovedTolerance || (b->Location - s.lb).Size() > Navigation.MovedTolerance) {
             moved++;
             continue;
         }
@@ -2328,6 +2393,7 @@ static int start(const UCHostApi* host) {
     GIsStarted = 1;
     GEditor = ConstructObject<UEditorEngine>(UEditorEngine::StaticClass());
     GEditor->Init();
+    loadSettings();
     temporaryViewportReady = patchTemporaryViewport();
     // Headless, the editor engine's Draw would paint its viewports through UnrealEd's front-end, which is not
     // there (it crashed on the toolbar buttons of LIGHT APPLY's viewport): Draw returns at once.

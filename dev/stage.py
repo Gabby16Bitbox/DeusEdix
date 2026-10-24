@@ -66,6 +66,9 @@ def copy_code(source, kit):
     editor.mkdir(parents=True, exist_ok=True)
     for file in (source / 'editor').glob('*.py'):
         shutil.copy2(file, editor / file.name)
+    (editor / 'config').mkdir(exist_ok=True)
+    for file in (source / 'editor' / 'config').glob('*.json'):  # the editor's settings as data (palette.json...)
+        shutil.copy2(file, editor / 'config' / file.name)
     for folder, extensions in (('editor/static', STATIC_EXT), ('tutorial', TUTORIAL_EXT)):
         for file in (source / folder).rglob('*'):
             if file.is_file() and file.suffix.lower() in extensions and '__pycache__' not in file.parts:
@@ -149,6 +152,7 @@ def main():
     (kit / 'bin').mkdir(parents=True, exist_ok=True)
     shutil.copy2(a.host, kit / 'bin' / 'UCMapKitHost.exe')
     shutil.copy2(Path(a.host).with_name('UCEngineBridge.dll'), kit / 'bin' / 'UCEngineBridge.dll')   # its engine bridge
+    shutil.copy2(Path(a.host).with_name('UCEngineBridge.ini'), kit / 'bin' / 'UCEngineBridge.ini')   # and its settings
     for name in ('DeusEdixNav.u', 'DeusEdixNav.dll'):            # the walkable area's routes in C++ (native/README.md)
         shutil.copy2(Path(a.host).with_name(name), kit / 'bin' / name)
     shutil.copy2(HERE / 'ue1pkg.py', out / 'tools' / 'ue1pkg.py')

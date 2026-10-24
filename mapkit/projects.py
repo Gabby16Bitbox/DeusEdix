@@ -344,6 +344,8 @@ class ProjectManager:
                 add(self.code / name, 'tools/mapkit/' + name)
         for file in sorted((self.code / 'editor').glob('*.py')):
             add(file, 'tools/mapkit/editor/' + file.name)
+        for file in sorted((self.code / 'editor/config').glob('*.json')):      # the editor's settings as data
+            add(file, 'tools/mapkit/editor/config/' + file.name)
         for folder, extensions in [('editor/static', STATIC_EXT), ('tutorial', TUTORIAL_EXT)]:
             for file in sorted((self.code / folder).rglob('*')):
                 if file.is_file() and file.suffix.lower() in extensions:
@@ -370,6 +372,8 @@ class ProjectManager:
             if not source.is_file():
                 raise FileNotFoundError('Required application file is missing: ' + str(source))
             add(source, target)
+        if (self.code / 'bin/UCEngineBridge.ini').is_file():        # the bridge's settings (without them, its defaults)
+            add(self.code / 'bin/UCEngineBridge.ini', 'tools/mapkit/bin/UCEngineBridge.ini')
         for name in ('guide.md', 'guide.html'):
             if (self.app / 'docs/guide' / name).is_file():
                 add(self.app / 'docs/guide' / name, 'docs/guide/' + name)

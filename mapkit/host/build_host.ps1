@@ -57,4 +57,6 @@ $hostArgs = $compile + @(
     (Join-Path $PSScriptRoot 'UCMapKitHost.cpp')) + $link + @('/LARGEADDRESSAWARE')
 & $compiler @hostArgs
 if ($LASTEXITCODE -ne 0) { throw 'UCMapKitHost compilation failed' }
+# the bridge's settings (navigation, the WinDrvLite fix), next to it: each run copies both
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'UCEngineBridge.ini') -Destination $outDir -Force
 "built " + (Join-Path $outDir 'UCEngineBridge.dll') + ", " + (Join-Path $outDir 'UCMapKitHost.exe')

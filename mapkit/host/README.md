@@ -93,8 +93,21 @@ Two fixes, both made only in the process's own memory, never in a file:
 2. **Revision's `WinDrvLite.dll` accepts temporary viewports.** Its `UWindowsViewportLite::OpenWindow`
    asserts `!IsTemporary`, which stops `LIGHT APPLY`. The fix turns one conditional jump over that
    assertion into an unconditional one, and only when the surrounding bytes are those of the known
-   build. The instructions it expects are in `AssertionCode`, one per line. With another build of the
-   DLL nothing is changed, and `LIGHT APPLY` is refused with a message.
+   build. The instructions it expects are in `AssertionCode`, one per line, and can be replaced in
+   `UCEngineBridge.ini` (below) for another build of the DLL. With any other code nothing is changed, and
+   `LIGHT APPLY` is refused with a message.
+
+## Settings
+
+`UCEngineBridge.ini` sits next to the bridge (`build_host.ps1` copies it to `bin`, every run gets a copy, as
+it gets the DLL). The bridge reads it once, at start, through the engine's own config (`GConfig`), so
+changing a value needs no rebuild, only a restart of DeusEdix. A value the file leaves out keeps the
+default built into the bridge; one that makes no sense is reported (`UCMapKit|settings|...`) and ignored.
+
+- `[Navigation]`: how far below a point the floor is looked for, the tolerances of `UC_NAVDROP` and
+  `UC_KEEPPATHS`, the height over the floor above which a point stays where it is, and the classes
+  `UC_NAVDROP temp` leaves alone (`LeftAlone=`, one line each, resolved to classes once).
+- `[WinDrvLite]`: the offset, the bytes and the jump of the `WinDrvLite.dll` fix above.
 
 ## Security
 
