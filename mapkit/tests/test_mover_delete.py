@@ -103,7 +103,8 @@ class MoverDeleteTests(unittest.TestCase):
         build = next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='build')
         loop = next(n for n in build.body if isinstance(n,ast.For) and "edits.get('deleted')" in ast.unparse(n.iter))
         ns = {'edits': {'deleted': {'DoorA': {'cls':'DeusExMover'}}}, 'cmds': [], 'lines': [],
-              'lights': False, 'nav': False, 'NAV': set(), '_cmdname': lambda n:n}
+              'lights': False, 'nav': False, 'NAV': set(), '_cmdname': lambda n:n,
+              '_light': lambda cls: cls in ('Light', 'Spotlight')}        # dxmaps._light without the game's classes
         exec(compile(ast.Module(body=[loop],type_ignores=[]),'dxmaps-delete','exec'), ns)
         self.assertEqual(ns['cmds'], ['UC_DEL DoorA'])
         self.assertFalse(ns['lights']); self.assertFalse(ns['nav'])

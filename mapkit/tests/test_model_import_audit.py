@@ -27,13 +27,13 @@ if FIXED:
 def load_functions():
     target = HERE / 'models.py' if FIXED else SOURCE
     source = target.read_text(encoding='utf-8')
-    wanted = {'_name', '_write_3d', '_publish_package', 'pack', 'import_model', 'delete_model'}
+    wanted = {'_name', '_write_3d', '_publish_package', 'pack', 'import_model', 'delete_model', '_sequences', '_frames_of'}
     tree = ast.parse(source)
     selected = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted], type_ignores=[])
     module = types.ModuleType('isolated_models')
     module.__dict__.update(base64=base64, json=json, Path=Path, re=re, shutil=shutil,
                            struct=struct, tempfile=tempfile, os=os, MAX_TRIS=30000, MAX_VERTICES=8191,
-                           MAX_MATERIALS=8, PACKAGE='TestModels')
+                           MAX_MATERIALS=8, MAX_FRAMES=4000, MAX_FRAME_VERTICES=3000000, PACKAGE='TestModels')
     exec(compile(selected, str(target), 'exec'), module.__dict__)
     return module
 

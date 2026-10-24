@@ -193,6 +193,13 @@ class RuntimeTests(unittest.TestCase):
         self.settings.current = lambda: {'id': 'legacy', 'name': 'Existing workspace'}
         workspace = module('workspace', self.settings)
         workspace.DIST.mkdir()
+        # a build of DeusEdixNav, which install copies into the game (24 Oct 2026: the test passed only where
+        # tools/mapkit/bin held a real one)
+        native = self.root / 'native'
+        native.mkdir()
+        workspace.NATIVE = tuple(native / n for n in ('DeusEdixNav.u', 'DeusEdixNav.dll'))
+        for f in workspace.NATIVE:
+            f.write_bytes(b'native')
         (workspace.DIST / 'DXP_a.u').write_text('synthetic runtime')
         ini = self.settings.REVISION / 'System/Revision.ini'
         ini.parent.mkdir(parents=True)

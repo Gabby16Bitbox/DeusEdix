@@ -23,6 +23,9 @@ class FixTests(unittest.TestCase):
             REVISION=self.root/'game/Revision',GAME_SYSTEM=self.root/'game/Revision/System',
             MANAGED_PROJECT=False,STANDALONE=True)
         self.w=load('workspace',self.s)
+        native=self.root/'bin';native.mkdir()
+        self.w.NATIVE=tuple(native/n for n in ('DeusEdixNav.u','DeusEdixNav.dll'))
+        for f in self.w.NATIVE: f.write_bytes(b'native')
     def tearDown(self): self.tmp.cleanup()
     def test_absolute_asset_paths_and_private_system_priority(self):
         text='[Core.System]\nPaths=..\\Textures\\*.utx\nPaths=..\\System\\*.u\nPaths=..\\..\\Sounds\\*.uax\nPaths=..\\Maps\\*.dx\n'
@@ -32,7 +35,7 @@ class FixTests(unittest.TestCase):
         self.assertIn(str(self.w.SYS)+'\\*.u',ini)
         self.assertIn(str(self.s.GAME/'Sounds'/'*.uax'),ini)
     def test_old_workspace_stamp_cannot_skip_migration(self):
-        self.assertEqual(self.w.VERSION,3)
+        self.assertEqual(self.w.VERSION,4)
         self.w.SYS.mkdir(parents=True)
         (self.w.SYS/'DeusEx.ini').write_text('')
         self.w.STAMP.write_text(json.dumps({'version':1}))
