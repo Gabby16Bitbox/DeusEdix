@@ -220,6 +220,8 @@ def compile(log=None):
     shutil.copy2(HOST, host)
     if bridge.is_file():
         shutil.copy2(bridge, SYS / bridge.name)
+    import workspace
+    workspace._copy_native()            # the editor's package uses DeusEdixNav: the compiler loads it with its DLL
     t0 = time.time()
     try:
         r = subprocess.run([str(host), '--make', MAKE_INI], cwd=str(SYS), capture_output=True, text=True, encoding='utf-8',

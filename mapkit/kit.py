@@ -129,6 +129,33 @@ def host_files():
     return [HOST] + ([bridge] if bridge.is_file() else [])
 
 
+NATIVE = ('DeusEdixNav.u', 'DeusEdixNav.dll')      # the walkable area's routes in C++ (native/README.md)
+
+
+def native_files():
+    """DeusEdixNav.u and its DLL, next to the host (native/build_native.ps1, build_package.py): the editor's package
+    uses them, so every engine that loads it needs them."""
+    return [HOST.with_name(n) for n in NATIVE if HOST.with_name(n).is_file()]
+
+
+def install_native(system, files=None):
+    """DeusEdixNav.u and DeusEdixNav.dll (files: these paths instead of native_files()) into a game's System folder,
+    the one with its program: the engine looks for a package's DLL there and nowhere else. Always DeusEdix's own
+    build: a mod file never carries a DLL. -> the names written."""
+    files = [Path(f) for f in files if Path(f).is_file()] if files is not None else native_files()
+    if len(files) != len(NATIVE):
+        raise FileNotFoundError('DeusEdixNav is not built: tools\\mapkit\\native\\build_native.ps1, build_package.py')
+    written = []
+    for f in files:
+        target = Path(system) / f.name
+        if not target.is_file() or target.read_bytes() != f.read_bytes():
+            tmp = target.with_name(target.name + '.tmp')
+            shutil.copy2(f, tmp)
+            tmp.replace(target)
+            written.append(f.name)
+    return written
+
+
 def new_run(inputs=(), label='run'):
     """Create a private run. inputs: paths of maps (or other files) copied into Input\\."""
     if not HOST.exists():
@@ -149,7 +176,8 @@ def new_run(inputs=(), label='run'):
         source = PROJECT / 'dist' / name
         if source.exists():
             os.link(source, system / name)      # a link, not a copy: the voices alone are 37 MB
-    for f in host_files():
+    for f in host_files() + native_files():     # the newest build of DeusEdixNav, not a copy left in DEV
+        (system / f.name).unlink(missing_ok=True)
         shutil.copy2(f, system / f.name)
     for p in extra_packages():                  # a package of another mod kept outside the game's folders
         source = Path(p.get('path') or '')

@@ -60,12 +60,16 @@ def polys(edits):
 def fields(ps):
     """The polygons as UCNavMesh's properties: Sides(p) the number of corners (3 to 6), corner k at
     CornerX/Y/Z(p * 6 + k) and Across(p * 6 + k) the polygon across its edge from corner k to k + 1 (-1: none). A
-    polygon of another shape keeps its place with Sides 0 (the game leaves it out; the others' numbers stay right)."""
+    polygon of another shape keeps its place with Sides 0 (the game leaves it out; the others' numbers stay right),
+    and so does one with no area seen from above (a point, a line): the game's inside test would take it for a
+    polygon round any place near it (native/README.md, "Tests")."""
     props = {}
     for p, text in enumerate(ps):
         nums = [int(v) for v in text.split()]
         n = nums[0]
-        if not 3 <= n <= CORNERS or len(nums) != 1 + 4 * n:
+        xy = [nums[1 + 3 * k:3 + 3 * k] for k in range(n)] if len(nums) == 1 + 4 * n else []
+        twice_area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(xy, xy[1:] + xy[:1]))
+        if not 3 <= n <= CORNERS or len(nums) != 1 + 4 * n or abs(twice_area) < 2:
             props['Sides(%d)' % p] = '0'
             continue
         props['Sides(%d)' % p] = str(n)

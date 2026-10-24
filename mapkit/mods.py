@@ -194,7 +194,7 @@ def export(details, cover=None, log=None):
     # every map loads with the game and the mod's own packages only (nothing of the game is carried)
     import kit
     extra = {p['name'] for p in kit.extra_packages()}
-    own = set(packages) | extra
+    own = set(packages) | extra | {'DeusEdixNav'}      # DeusEdix installs it with every mod (never in the file)
     warnings, requires = [], set()
     for m in maps:
         result = gamecheck.check(m, settings.TARGET, own)
@@ -342,6 +342,10 @@ def install(source, replace=False):
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
+    # DeusEdixNav, the package every DeusEdix mod's code uses: DeusEdix's own build, into the game's System folder
+    # (the only place the engine finds its DLL); a mod file never carries a DLL
+    import kit
+    kit.install_native(game_root(target) / 'System')
     return dict(manifest=manifest, replaced=old is not None)
 
 

@@ -362,6 +362,8 @@ class ProjectManager:
                 seeds['tools/mapkit/catalog/' + name] = source.read_bytes()
         for source, target in [(self.code / 'bin/UCMapKitHost.exe', 'tools/mapkit/bin/UCMapKitHost.exe'),
                                (self.code / 'bin/UCEngineBridge.dll', 'tools/mapkit/bin/UCEngineBridge.dll'),
+                               (self.code / 'bin/DeusEdixNav.u', 'tools/mapkit/bin/DeusEdixNav.u'),
+                               (self.code / 'bin/DeusEdixNav.dll', 'tools/mapkit/bin/DeusEdixNav.dll'),
                                (self.app / 'tools/ue1pkg.py', 'tools/ue1pkg.py')]:
             if not source.is_file():
                 raise FileNotFoundError('Required application file is missing: ' + str(source))

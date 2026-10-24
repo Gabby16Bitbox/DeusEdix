@@ -13,6 +13,10 @@ Revision team (Caustic Creative), Eidos, Square Enix or Ion Storm.** Use it at y
 - **The headless host.** `mapkit/host/UCMapKitHost.cpp` is our code. At run time it loads the
   editor engine (`Editor.dll`) from the user's own Deus Ex install; it is built against the
   engine's public headers, which are not included here.
+- **DeusEdixNav.** `mapkit/native` is our code too: the walkable area's routes in C++, a DLL the game loads with
+  the package DeusEdixNav. It is built against the same public headers, links to the game's Core.dll alone, and
+  DeusEdix copies its own build into the game's System folder, the only place the engine finds a package's DLL.
+  A mod file never carries a DLL.
 - **The tutorial's music.** "Pondering the Cosmos" by Ruskerdax
   (https://opengameart.org/content/ruskerdax-pondering-the-cosmos-0), released to the public domain
   (CC0); credited with thanks. `mapkit/editor/static/audio/tutorial-music.mp3` is that track,

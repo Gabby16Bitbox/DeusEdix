@@ -32,8 +32,10 @@ DIST = PROJECT / 'dist'
 MAPS = PROJECT / 'maps'
 HOST = PROJECT / 'tools' / 'mapkit' / 'bin' / 'UCMapKitHost.exe'
 STAMP = DEV / 'workspace.json'
+# DeusEdixNav (native/README.md): the walkable area's routes in C++, a package the editor's package uses
+NATIVE = tuple(HOST.with_name(n) for n in ('DeusEdixNav.u', 'DeusEdixNav.dll'))
 COMPILE_LOG = (PROJECT / 'logs' if settings.STANDALONE else DEV) / 'compile.log'    # logs\ is the installed program's
-VERSION = 3
+VERSION = 4               # 4: DeusEdixNav in the workspace, compiled before the editor's package
 # the retail packages the editor engine needs and Revision does not ship (setup.ps1)
 RETAIL = ('Editor', 'Fire', 'UBrowser', 'UWindow', 'MPCharacters', 'IpServer', 'Core')
 # Revision's asset folders, read in place through links
@@ -68,7 +70,8 @@ def runtime_fingerprint():
     digest = hashlib.sha256()
     files = sorted((p for p in SRC.rglob('*') if p.is_file()), key=lambda p: str(p.relative_to(SRC)))
     bridge = HOST.with_name('UCEngineBridge.dll')       # the host's engine bridge (host/README.md)
-    for path in files + [HOST] + ([bridge] if bridge.is_file() else []) + [STAMP]:
+    native = [f for f in NATIVE if f.is_file()]
+    for path in files + [HOST] + ([bridge] if bridge.is_file() else []) + native + [STAMP]:
         name = str(path.relative_to(SRC)) if path in files else path.name
         digest.update(name.encode('utf-8') + b'\0')
         digest.update(hashlib.sha256(path.read_bytes()).digest())
@@ -214,7 +217,8 @@ def _ini(text):
         if line.strip() == '[Editor.EditorEngine]':
             names = [l[13:].strip() for l in lines if l.startswith('EditPackages=')]
             names = [n for n in names if n != settings.PACKAGE and (SYS / (n + '.u')).exists()]
-            out += ['EditPackages=' + n for n in names + [settings.PACKAGE]]
+            native = ['DeusEdixNav'] if (SYS / 'DeusEdixNav.u').exists() else []     # loaded before the package using it
+            out += ['EditPackages=' + n for n in names + native + [settings.PACKAGE]]
     # the maps the user installed are looked for first, then the base game's music (make-ini.ps1)
     for i, line in enumerate(out):
         if line.startswith('Paths='):
@@ -262,6 +266,7 @@ def ensure(log=None, force=False):
         _compiler_sources()
     else:
         _junction(DEV / settings.PACKAGE, SRC)
+    _copy_native()
     ini = _ini(settings.GAME_INI.read_text(encoding='latin1'))
     for name in dict.fromkeys((settings.GAME_INI.name, 'DeusEx.ini', 'Default.ini')):
         (SYS / name).write_text(ini, encoding='latin1', newline='')
@@ -271,6 +276,17 @@ def ensure(log=None, force=False):
     STAMP.write_text(json.dumps(_stamp()), encoding='utf-8')
     _log(log, 'Workspace ready: %d files from %s' % (count, settings.GAME_NAME))
     return True
+
+
+def _copy_native():
+    """The newest DeusEdixNav.u and its DLL into the workspace's System: the compiler loads the package, and binds its
+    native function to the DLL, before the editor's package."""
+    for f in NATIVE:
+        if not f.is_file():
+            raise FileNotFoundError('%s is missing: DeusEdix is not complete (reinstall it)' % f.name)
+        if not (SYS / f.name).is_file() or (SYS / f.name).read_bytes() != f.read_bytes():
+            (SYS / f.name).unlink(missing_ok=True)
+            shutil.copy2(f, SYS / f.name)
 
 
 def build(log=None):
@@ -284,6 +300,7 @@ def build(log=None):
         return False, lines
     if getattr(settings, 'MANAGED_PROJECT', False):
         _compiler_sources()
+    _copy_native()
     fingerprint = runtime_fingerprint()
     target = SYS / (settings.PACKAGE + '.u')
     COMPILE_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -397,6 +414,10 @@ def install(log=None, *, maps=True, activate_project=True):
             say('installed %s' % f.name)
     if not (dest / (settings.PACKAGE + '.u')).is_file():
         return False, lines + ['%s.u is not built yet' % settings.PACKAGE]
+    # DeusEdixNav, the package the editor's package uses: its DLL works only in the game's own System folder
+    import kit
+    for name in kit.install_native(settings.GAME_SYSTEM, NATIVE):
+        say('installed %s in %s' % (name, settings.GAME_SYSTEM))
     # other mods' packages kept with the project (Packages panel, Import a mod): the game finds them next to the maps
     import kit
     for p in kit.extra_packages():

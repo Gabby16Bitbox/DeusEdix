@@ -368,6 +368,17 @@ function float Prepare(int k)
 			// (to check the animations chosen in the editor without photos)
 			Probe = AnimOf(fields[2]);
 			return 0.05;
+		case "navroute":
+			// navroute;x;y;z;x;y;z: the route between two places on the map's walkable area (UCNavMesh), its corners
+			// in the log (to compare with native/nav_test.exe)
+			NavRouteLog(V(2), V(5));
+			return 0.05;
+		case "navgo":
+			// navgo;NameOrTag;x;y;z[;1]: a character walks (with ;1 runs) there on the walkable area (UCNavRoute)
+			A = Thing(fields[2]);
+			Log("UCShot navgo" @ A @ "to" @ V(3) @ class'UCNavRoute'.static.Send(ScriptedPawn(A), V(3),
+				numFields > 6 && fields[6] == "1"));
+			return 0.5;
 		case "near":
 			// JC in front of the character (name or Tag), wherever it went (a patrolling one walks)
 			FreeView();
@@ -550,6 +561,26 @@ function float FlyCam(DeusExPlayer P, vector to, vector look, float secs, bool b
 }
 
 // the first actor with that name or Tag
+// navroute: the corners of the route from a to b on the map's walkable area
+function NavRouteLog(vector a, vector b)
+{
+	local UCNavMesh M;
+	local int i;
+	local string s;
+
+	M = class'UCNavMesh'.static.Of(self);
+	if (M == None)
+	{
+		Log("UCShot navroute: no walkable area in the map");
+		return;
+	}
+	M.Route(a, b);
+	s = "UCShot navroute" @ M.NumCorners;
+	for (i = 0; i < M.NumCorners; i++)
+		s = s @ M.CornerAt(i).X @ M.CornerAt(i).Y @ M.CornerAt(i).Z;
+	Log(s);
+}
+
 function Actor Thing(string what)
 {
 	local Actor A;
