@@ -139,9 +139,10 @@ def prune(keep=20):
 
 
 def host_files():
-    """The host and its engine bridge next to it (host/README.md); a host without one (an older build) runs alone."""
-    bridge = HOST.with_name('UCEngineBridge.dll')
-    return [HOST] + ([bridge] if bridge.is_file() else [])
+    """The host, its engine bridge and the bridge's settings next to it (host/README.md); a host without them (an
+    older build) runs alone, a bridge without its settings with its defaults."""
+    extra = [HOST.with_name(n) for n in ('UCEngineBridge.dll', 'UCEngineBridge.ini')]
+    return [HOST] + [f for f in extra if f.is_file()]
 
 
 NATIVE = ('DeusEdixNav.u', 'DeusEdixNav.dll')      # the walkable area's routes in C++ (native/README.md)
