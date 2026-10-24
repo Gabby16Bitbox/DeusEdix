@@ -12,7 +12,8 @@ def collect(session, tag, map_relative, tree_reference, indices, probes, trace_r
     if tag not in ('original', 'local'):
         raise scope.Refused('Invalid extent evidence stage')
     engine = session.folder/'System/Engine.dll'
-    if sha(engine) != scope.ENGINE_SHA:
+    engine_hash = sha(engine)
+    if engine_hash not in scope.KNOWN_ENGINES:
         raise scope.Refused('Unknown Engine binary before instrumentation')
     path = (session.folder/'System'/map_relative).resolve()
     if not path.is_relative_to(session.folder.resolve()) or not path.is_file():
@@ -40,9 +41,9 @@ def collect(session, tag, map_relative, tree_reference, indices, probes, trace_r
     # Detect accidental or concurrent model/file substitution during collection.
     final_dump = session.folder/f'Output/extent-{tag}-after.tree'
     session.cmd('UC_SELECTED_DUMP ..\\Output\\extent-'+tag+'-after.tree')
-    if sha(final_dump) != tree_hash or sha(path) != map_hash or sha(engine) != scope.ENGINE_SHA:
+    if sha(final_dump) != tree_hash or sha(path) != map_hash or sha(engine) != engine_hash:
         raise scope.Refused('Extent evidence inputs changed during collection')
-    audit = dict(stage=tag, map=str(path), map_sha256=map_hash, tree_sha256=tree_hash, engine_sha256=scope.ENGINE_SHA,
+    audit = dict(stage=tag, map=str(path), map_sha256=map_hash, tree_sha256=tree_hash, engine_sha256=engine_hash,
                inventory=inventory, traces=outputs)
     artifact = session.folder/f'Output/extent-{tag}-evidence.json'
     artifact.write_text(json.dumps(audit, indent=2))

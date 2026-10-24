@@ -23,19 +23,19 @@ import certificate_evidence as evidence
 Refused = c.Refused
 X87_U = F(1, 2**24)
 X87_GAMMA6 = 6*X87_U/(1-6*X87_U)
-ENGINE_SHA256 = 'd66b689bbe95d7350b9f348da2273383c642e22e53dd56bd1bcf76ec322aa848'
+from native_engines import KNOWN as KNOWN_ENGINES
 
 
 def verify_profile(profile):
     """Caller obtains the two CW readings and Engine digest in the same session."""
-    if not isinstance(profile, dict) or profile.get('engine_sha256') != ENGINE_SHA256:
+    if not isinstance(profile, dict) or profile.get('engine_sha256') not in KNOWN_ENGINES:
         raise Refused('PointRegion engine implementation is not pinned')
     before, after = profile.get('control_word_before'), profile.get('control_word_after')
     if type(before) is not int or type(after) is not int or before != after or not 0 <= before <= 65535:
         raise Refused('Missing or changed x87 control word evidence')
     if (before & 0x0c00) or (before & 0x0300) not in (0, 0x0200, 0x0300) or (before & 0x003f) != 0x003f:
         raise Refused('Unsupported x87 rounding or precision control')
-    return dict(status='pass', engine_sha256=ENGINE_SHA256, control_word=before,
+    return dict(status='pass', engine_sha256=profile['engine_sha256'], control_word=before,
                 rounding='nearest', bound='gamma6 at PC24, extended exponent',
                 domain='all finite FLOAT coordinates; no world-AABB query restriction')
 
@@ -447,6 +447,6 @@ def validate_world(data):
         comparisons=comparisons, diagram_nodes=len(dd.nodes), terminals=terminals,
         room_zones=room_zones, native_collision='requires independent hull/routing certificate',
         native_rounding='PointRegion x87 gamma6 PC24 bound for all finite FLOAT xyz; traces require separate gate',
-        required_profile=dict(engine_sha256=ENGINE_SHA256, rounding='nearest', exceptions='masked',
+        required_profile=dict(engine_sha256=sorted(KNOWN_ENGINES), rounding='nearest', exceptions='masked',
                               precision_bits=[24, 53, 64], profile_required_separately=True),
         full_reference_used=False, full_removable=False, publication_authorized=False)

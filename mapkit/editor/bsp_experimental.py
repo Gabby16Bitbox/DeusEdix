@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import uuid
 
+STARTUP_SECONDS = 3
+
 
 def _sha(path):
     h = hashlib.sha256()
@@ -100,8 +102,16 @@ def launch(source, *, kit_dir, python_command, label, brush=None, context_paths=
             [*python_command, str(app), '--handoff', str(request)], cwd=str(payload),
             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    if process.poll() is not None:
-        raise RuntimeError('The experimental tool could not start. See ' + str(folder / 'launcher.log'))
+    try:
+        # A window that cannot start (no pywebview in this Python, a missing module) ends within a moment; the
+        # window itself runs until it is closed (24 Oct 2026: the editor said 'opened' and nothing appeared).
+        process.wait(timeout=STARTUP_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+    else:
+        lines = (folder / 'launcher.log').read_text(encoding='utf-8', errors='replace').strip().splitlines()
+        raise RuntimeError('The experimental tool could not start%s. See %s' % (
+            ' (%s)' % lines[-1].strip()[:200] if lines else '', folder / 'launcher.log'))
     return dict(ok=True, started=True, message='Experimental BSP opened a private copy of the last rebuilt map. '
                 'Saved edits are included only after Rebuild; this tool does not replace or install your map.')
 

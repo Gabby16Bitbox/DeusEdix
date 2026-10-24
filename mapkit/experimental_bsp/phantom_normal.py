@@ -19,9 +19,9 @@ TOL = Q(1, 500)  # existing trace comparison, never increased
 RADIUS = Q(1, 8)
 INNER_RADIUS = Q(1, 16)
 _SEAL = object()
-# Exact SDK DLL used by kit sessions. Its entire point LineCheck function and
-# .5 backoff constant were compared against the installed vanilla binary.
-ENGINE_SHA256 = 'd66b689bbe95d7350b9f348da2273383c642e22e53dd56bd1bcf76ec322aa848'
+# Exact DLLs used by kit sessions (native_engines): their entire point LineCheck
+# function and .5 backoff constant are the same code.
+from native_engines import KNOWN as KNOWN_ENGINES
 
 
 class NativeBackoff:
@@ -33,11 +33,12 @@ class NativeBackoff:
 
 def verify_native_backoff(path):
     path = Path(path).resolve()
-    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != ENGINE_SHA256:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    if digest not in KNOWN_ENGINES:
         raise Refused('Unknown native collision backoff implementation')
     evidence = object.__new__(NativeBackoff)
     evidence.path = path
-    evidence.sha256 = ENGINE_SHA256
+    evidence.sha256 = digest
     evidence._seal = _SEAL
     return evidence
 
@@ -45,7 +46,7 @@ def verify_native_backoff(path):
 def _engine(evidence):
     if type(evidence) is not NativeBackoff or evidence._seal is not _SEAL:
         raise Refused('Missing typed native backoff evidence')
-    if evidence.sha256 != ENGINE_SHA256 or hashlib.sha256(evidence.path.read_bytes()).hexdigest() != ENGINE_SHA256:
+    if evidence.sha256 not in KNOWN_ENGINES or hashlib.sha256(evidence.path.read_bytes()).hexdigest() != evidence.sha256:
         raise Refused('Native collision DLL changed after verification')
 
 

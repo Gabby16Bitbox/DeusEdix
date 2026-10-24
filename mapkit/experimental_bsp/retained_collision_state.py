@@ -21,7 +21,7 @@ _EXACT_TAGS = frozenset(('M', 'N', 'D', 'H', 'L', 'Z'))
 #     Base[3],Normal[3],U[3],V[3]. Only the fields below feed ownership,
 # solidity/material semantics. UV and lightmap changes need a separate gate.
 _SURFACE_FIELDS = (0, 1, 2, 3, 4, 5, 12, 13, 14)
-KNOWN_ENGINE_SHA256 = 'd66b689bbe95d7350b9f348da2273383c642e22e53dd56bd1bcf76ec322aa848'
+from native_engines import KNOWN as KNOWN_ENGINES
 
 
 def _snapshot(payload, *, preserve_ring_points=True):
@@ -129,7 +129,7 @@ def certify_retained_collision_core_bytes(before_bytes, after_bytes, reloaded_by
         digest = sha256(Path(engine_path).read_bytes()).hexdigest()
     except (OSError, TypeError, ValueError) as error:
         raise Refused('Cannot verify native collider engine') from error
-    if digest != KNOWN_ENGINE_SHA256:
+    if digest not in KNOWN_ENGINES:
         raise Refused('Unverified native engine for render-ring-independent collision')
     result = _certify(before_bytes, after_bytes, reloaded_bytes, preserve_ring_points=False)
     result['certificate'] = 'retained_native_collision_core_exact_tokens_pinned_engine_v1'

@@ -356,5 +356,5 @@ def validate_world(data):
     return dict(status='pass', certificate='ordered_convex_CSG_exact_partial_surfaces_and_robust_all_strata_routing',
         source_face_arrangement_fragments=fragments, surface=surface, comparisons=comparisons,
         terminals=terminals, room_zones=room_zones, air_connectivity=connectivity, full_reference_used=False,
-        required_profile=dict(engine_sha256=v1.ENGINE_SHA256, rounding='nearest', exceptions='masked'),
+        required_profile=dict(engine_sha256=sorted(v1.KNOWN_ENGINES), rounding='nearest', exceptions='masked'),
         native_collision='separate certificate required', publication_authorized=False)

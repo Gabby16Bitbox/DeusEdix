@@ -16,7 +16,7 @@ import struct
 
 from convex_cells import Refused, q, plane, bounded_cell, vertices, native_float
 
-ENGINE_SHA256 = 'd66b689bbe95d7350b9f348da2273383c642e22e53dd56bd1bcf76ec322aa848'
+from native_engines import KNOWN as KNOWN_ENGINES
 
 
 def verify_engine(engine_path):
@@ -24,7 +24,7 @@ def verify_engine(engine_path):
         digest = hashlib.sha256(Path(engine_path).read_bytes()).hexdigest()
     except (OSError, TypeError, ValueError) as error:
         raise Refused('Missing native engine identity') from error
-    if digest != ENGINE_SHA256:
+    if digest not in KNOWN_ENGINES:
         raise Refused('Unsupported native collision implementation')
     return digest
 

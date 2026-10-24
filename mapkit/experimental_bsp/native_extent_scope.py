@@ -13,7 +13,7 @@ from collections import Counter
 from source_volume import closed_volume_certificate
 from edited_collision_scope import source_edit_certificate
 
-ENGINE_SHA = 'd66b689bbe95d7350b9f348da2273383c642e22e53dd56bd1bcf76ec322aa848'
+from native_engines import KNOWN as KNOWN_ENGINES
 _TOKEN = object()
 
 
@@ -93,9 +93,15 @@ class ModelEvidence:
     references:tuple
 
 
-def parse_model_evidence(output, engine_path):
-    if hashlib.sha256(engine_path.read_bytes()).hexdigest() != ENGINE_SHA:
+def engine_digest(engine_path):
+    digest = hashlib.sha256(engine_path.read_bytes()).hexdigest()
+    if digest not in KNOWN_ENGINES:
         raise Refused('Unknown native implementation')
+    return digest
+
+
+def parse_model_evidence(output, engine_path):
+    engine_sha = engine_digest(engine_path)
     hulls = []
     references = []
     ids = set()
@@ -139,12 +145,11 @@ def parse_model_evidence(output, engine_path):
             references.append(tuple(refs))
     if ack != [len(hulls)] or not hulls:
         raise Refused('Incomplete global hull inventory')
-    return ModelEvidence(_TOKEN, ENGINE_SHA, tuple(hulls), tuple(references))
+    return ModelEvidence(_TOKEN, engine_sha, tuple(hulls), tuple(references))
 
 
 def parse_evidence(output, probe, engine_path):
-    if hashlib.sha256(engine_path.read_bytes()).hexdigest() != ENGINE_SHA:
-        raise Refused('Unknown native implementation')
+    engine_sha = engine_digest(engine_path)
     if len(probe) != 9:
         raise Refused('Expected nine probe coordinates')
     probe = tuple(f32(x) for x in probe)
@@ -215,7 +220,7 @@ def parse_evidence(output, probe, engine_path):
     result = _numbers(finals[0], 7)
     if not 0 < result[0] < 1:
         raise Refused('Clamped final hit')
-    return Evidence(_TOKEN, ENGINE_SHA, probe, expected, tuple(hulls), accepted[-1][0], accepted[-1][1], result)
+    return Evidence(_TOKEN, engine_sha, probe, expected, tuple(hulls), accepted[-1][0], accepted[-1][1], result)
 
 
 def aabb_rejection(bounds, probe, raw_hit):
@@ -256,7 +261,8 @@ def aabb_rejection(bounds, probe, raw_hit):
 
 
 def compare_paths(original, local):
-    if not all(isinstance(e, Evidence) and e._token is _TOKEN and e.engine_sha == ENGINE_SHA for e in (original, local)):
+    if (not all(isinstance(e, Evidence) and e._token is _TOKEN and e.engine_sha in KNOWN_ENGINES for e in (original, local))
+            or original.engine_sha != local.engine_sha):
         raise Refused('Typed verified native evidence required')
     if original.probe != local.probe or original.native_inputs != local.native_inputs or original.result != local.result or original.raw_first_hit != local.raw_first_hit:
         raise Refused('Actual native contact or inputs changed')
@@ -355,7 +361,8 @@ def _box_representation(name, bounds, model, axis):
 def certify(original, local, original_model, local_model, old_sources, new_sources, selected, reference='full'):
     if reference != 'full':
         raise Refused('This may only select Original instead of Full')
-    if not all(isinstance(e, ModelEvidence) and e._token is _TOKEN and e.engine_sha == ENGINE_SHA for e in (original_model, local_model)):
+    if (not all(isinstance(e, ModelEvidence) and e._token is _TOKEN and e.engine_sha in KNOWN_ENGINES for e in (original_model, local_model))
+            or original_model.engine_sha != local_model.engine_sha):
         raise Refused('Verified complete native model evidence required')
     dependency = source_edit_certificate(old_sources, new_sources, selected)
     if not dependency['valid']:

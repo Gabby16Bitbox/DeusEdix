@@ -27,6 +27,7 @@
     "multi_region.py",
     "native_axial_bounds.py",
     "native_certificate_profile.py",
+    "native_engines.py",
     "native_extent_scope.py",
     "nonsolid_update.py",
     "occluded_detail_expansion.py",
