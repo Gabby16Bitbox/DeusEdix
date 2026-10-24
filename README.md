@@ -38,8 +38,13 @@ your PC.
 When you install a project from the editor, its maps go to a folder of its own in the game
 (`DeusEdixProjects\<id>` for the original game, `Revision\DeusEdixProjects\<id>` for Revision), which
 DeusEdix adds to the game's settings (a backup of the ini is kept). Play starts the game with copies
-of the settings made for that launch. Uninstalling takes DeusEdix's lines out again and removes the
-workspace and the caches; your maps and stories stay.
+of the settings made for that launch. The installer also puts `DeusEdixNav.u` and `DeusEdixNav.dll` (the
+characters' route finding) into each game's `System` folder.
+
+Uninstalling (Start > Uninstall DeusEdix, or the installer itself when DeusEdix is already installed) takes
+DeusEdix's lines out again and removes the workspace and the caches. It asks whether to remove everything
+else it put into the games (installed maps, saves and mods, DeusEdixNav) and your projects; both stay unless
+you tick them.
 
 The editor has an interactive tutorial (Help > Interactive tutorial) and a full guide (Help > Guide,
 also in [docs/guide/guide.md](docs/guide/guide.md)).

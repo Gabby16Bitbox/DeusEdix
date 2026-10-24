@@ -8,6 +8,8 @@
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
+; the uninstall entry Windows keeps for the AppId below: an installed DeusEdix (InitializeSetup)
+#define UninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{4FBB3E78-6DE3-47C5-8026-BE48E53048E1}_is1"
 
 [Setup]
 AppId={{4FBB3E78-6DE3-47C5-8026-BE48E53048E1}
@@ -58,15 +60,14 @@ Source: "..\build\release\tools\mapkit\project-template\src\DeusEdix\Classes\UCV
 Name: "{userprograms}\DeusEdix"; Filename: "{app}\DeusEdix.exe"
 Name: "{userprograms}\DeusEdix guide"; Filename: "{app}\docs\guide\guide.html"
 Name: "{userdesktop}\DeusEdix"; Filename: "{app}\DeusEdix.exe"; Tasks: desktopicon
+Name: "{userprograms}\Uninstall DeusEdix"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "{app}\DeusEdix.exe"; Description: "Start DeusEdix"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\docs\guide\guide.html"; Description: "Open the guide"; Flags: postinstall shellexec skipifsilent unchecked
 
-[UninstallRun]
-; Revision.ini and DeusEx.ini without DeusEdix's lines, the workspace and the caches made from the game removed
-; (links to the game's folders are removed as links: the game's own files are never touched)
-Filename: "{app}\deusedix-cli.exe"; Parameters: "--uninstall-cleanup"; Flags: runhidden waituntilterminated; RunOnceId: "DeusEdixCleanup"
+; The uninstaller's cleanup (deusedix-cli --uninstall-cleanup) runs from [Code], CurUninstallStepChanged, with
+; what the user chose to remove.
 
 [UninstallDelete]
 ; Projects, their registry/manifests, authored maps, and .deusedix-*-ui.json
@@ -90,6 +91,38 @@ var
   Understood: TNewCheckBox;
   GamePage: TInputDirWizardPage;
   GameStatus: TNewStaticText;
+  RemoveGameFiles, RemoveProjects: Boolean;   { the uninstaller's choices }
+
+function AskWhatToRemove(): Boolean; forward;
+
+{ Setup started where DeusEdix is installed: update it, or uninstall it (its own uninstaller, which asks what
+  to remove) }
+function InitializeSetup(): Boolean;
+var
+  Uninstaller: String;
+  Code: Integer;
+begin
+  Result := True;
+#ifdef PreviewUninstall
+  { dev only: ISCC /DPreviewUninstall=1 shows the uninstaller's question and stops }
+  AskWhatToRemove();
+  Result := False;
+  Exit;
+#endif
+  if WizardSilent() or not RegQueryStringValue(HKCU, '{#UninstallKey}', 'UninstallString', Uninstaller) then
+    Exit;
+  case TaskDialogMsgBox('DeusEdix is already installed.',
+      'Update it to {#AppVersion}: your projects and settings are kept. Or uninstall it.',
+      mbConfirmation, MB_YESNOCANCEL, ['Update', 'Uninstall'], 0) of
+    IDYES: Result := True;
+    IDNO: begin
+      Exec(RemoveQuotes(Uninstaller), '', '', SW_SHOWNORMAL, ewNoWait, Code);
+      Result := False;
+    end;
+  else
+    Result := False;
+  end;
+end;
 
 { what DeusEdix needs: the original game (its engine is the editor's); Revision is optional }
 function GameMissing(Dir: String): String;
@@ -247,9 +280,12 @@ begin
   Info.Top := Warning.Top + Warning.Height + ScaleY(16);
   Info.Caption := 'DeusEdix contains nothing of Deus Ex or Revision: it works on your own copy of the game (and of ' +
     'Revision, if you have it), read where Steam or GOG installed it, and never changes its files.' + #13#10#13#10 +
-    'When you install a project from the editor, DeusEdix puts its maps in a folder of its own inside the game ' +
-    '(DeusEdixProjects, or Revision\DeusEdixProjects) and adds that folder to the game''s settings (DeusEx.ini, ' +
-    'or Revision.ini; a backup is kept). Uninstalling DeusEdix takes those lines out.';
+    'It adds two files of its own to the game''s System folder (and to Revision\System): DeusEdixNav.u and ' +
+    'DeusEdixNav.dll, which the characters of DeusEdix maps use to find their way. When you install a project ' +
+    'from the editor, DeusEdix puts its maps in a folder of its own inside the game (DeusEdixProjects, or ' +
+    'Revision\DeusEdixProjects) and adds that folder to the game''s settings (DeusEx.ini, or Revision.ini; a backup ' +
+    'is kept).' + #13#10#13#10 +
+    'Uninstalling DeusEdix takes those lines out, and can also remove everything else it put into the games.';
   Understood := TNewCheckBox.Create(DisclaimerPage);
   Understood.Parent := DisclaimerPage.Surface;
   Understood.Top := Info.Top + Info.Height + ScaleY(20);
@@ -327,6 +363,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Game: String;
+  Code: Integer;
 begin
   if CurStep = ssPostInstall then begin
     Game := GamePage.Values[0];
@@ -335,6 +372,120 @@ begin
     { no "target": the editor's own workspace is Revision's; each project says which game it is made for }
     SaveStringToFile(ExpandConstant('{app}\deusedix.json'),
       '{"game": "' + JsonText(Game) + '", "package": "DeusEdix", "version": "{#AppVersion}"}', False);
+    { DeusEdixNav into the System folder of each game there, this version's: maps and mods made with DeusEdix
+      need it even when the game starts without the editor. A running game keeps the old one until the next
+      Install or Play from the editor. }
+    if Game <> '' then
+      Exec(ExpandConstant('{app}\deusedix-cli.exe'), '--install-native', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  end;
+end;
+
+{ a line of text wrapped to the form's width, from Left }
+function AddText(Form: TSetupForm; Left, Top: Integer; Caption: String): TNewStaticText;
+begin
+  Result := TNewStaticText.Create(Form);
+  Result.Parent := Form;
+  Result.Left := Left;
+  Result.Top := Top;
+  Result.Width := Form.ClientWidth - Left - ScaleX(16);
+  Result.WordWrap := True;
+  Result.Caption := Caption;
+end;
+
+function AddCheck(Form: TSetupForm; Top: Integer; Caption: String): TNewCheckBox;
+begin
+  Result := TNewCheckBox.Create(Form);
+  Result.Parent := Form;
+  Result.Left := ScaleX(16);
+  Result.Top := Top;
+  Result.Width := Form.ClientWidth - ScaleX(32);
+  Result.Height := ScaleY(20);
+  Result.Font.Style := [fsBold];
+  Result.Caption := Caption;
+end;
+
+{ The uninstaller's question: what to remove besides the program and the games' settings lines. False: Cancel }
+function AskWhatToRemove(): Boolean;
+var
+  Form: TSetupForm;
+  Intro, GameNote, ProjectsNote: TNewStaticText;
+  GameFiles, Projects: TNewCheckBox;
+  Ok, Cancel: TNewButton;
+begin
+  { sizes scaled here once (ScaleX/ScaleY), so the form keeps them as given }
+  Form := CreateCustomForm(ScaleX(480), ScaleY(300), True, True);
+  try
+    Form.Caption := 'Uninstall DeusEdix';
+    Intro := AddText(Form, ScaleX(16), ScaleY(16), 'DeusEdix will be removed, and the lines it added to the ' +
+      'games'' settings (DeusEx.ini, Revision.ini) taken out. What else should go?');
+
+    GameFiles := AddCheck(Form, Intro.Top + Intro.Height + ScaleY(16), 'Everything DeusEdix put into the games');
+    GameNote := AddText(Form, ScaleX(34), GameFiles.Top + GameFiles.Height, 'The maps, saves and mods it ' +
+      'installed, and DeusEdixNav in their System folders. Mods made with DeusEdix stop working without it.');
+
+    Projects := AddCheck(Form, GameNote.Top + GameNote.Height + ScaleY(12), 'My projects too');
+    ProjectsNote := AddText(Form, ScaleX(34), Projects.Top + Projects.Height, 'The maps, stories, characters ' +
+      'and models you made, and the mods you exported (Documents\DeusEdix Mods). They are deleted for good: ' +
+      'leave this unticked to keep them for a later install.');
+    ProjectsNote.Font.Color := clRed;
+    { as tall as what it says, the buttons under it }
+    Form.ClientHeight := ProjectsNote.Top + ProjectsNote.Height + ScaleY(64);
+
+    Ok := TNewButton.Create(Form);
+    Ok.Parent := Form;
+    Ok.Caption := 'Uninstall';
+    Ok.Width := ScaleX(90);
+    Ok.Height := ScaleY(26);
+    Ok.Left := Form.ClientWidth - ScaleX(16) - 2 * Ok.Width - ScaleX(8);
+    Ok.Top := Form.ClientHeight - ScaleY(16) - Ok.Height;
+    Ok.ModalResult := mrOk;
+    Ok.Default := True;
+
+    Cancel := TNewButton.Create(Form);
+    Cancel.Parent := Form;
+    Cancel.Caption := 'Cancel';
+    Cancel.Width := Ok.Width;
+    Cancel.Height := Ok.Height;
+    Cancel.Left := Form.ClientWidth - ScaleX(16) - Cancel.Width;
+    Cancel.Top := Ok.Top;
+    Cancel.ModalResult := mrCancel;
+    Cancel.Cancel := True;
+
+    Result := Form.ShowModal() = mrOk;
+    RemoveGameFiles := GameFiles.Checked;
+    RemoveProjects := Projects.Checked;
+  finally
+    Form.Free();
+  end;
+end;
+
+{ Unattended (/SILENT), only the program and the games' settings lines, as always }
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  RemoveGameFiles := False;
+  RemoveProjects := False;
+  if not UninstallSilent() then
+    Result := AskWhatToRemove();
+end;
+
+{ Before the program's files go: the games' settings as they were, the workspace and caches, and what the user
+  chose (links to the game's folders are removed as links: the game's own files are never touched) }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Params: String;
+  Code: Integer;
+begin
+  if CurUninstallStep = usUninstall then begin
+    Params := '--uninstall-cleanup';
+    if RemoveGameFiles then
+      Params := Params + ' --game-files';
+    if RemoveProjects then
+      Params := Params + ' --projects';
+    if Exec(ExpandConstant('{app}\deusedix-cli.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code) and
+        (Code <> 0) and not UninstallSilent() then
+      MsgBox('Some of what DeusEdix put into the games could not be removed (is a game running?). ' +
+        'What stayed is listed in ' + ExpandConstant('{%TEMP}') + '\DeusEdix-uninstall.log.', mbInformation, MB_OK);
   end;
 end;
 

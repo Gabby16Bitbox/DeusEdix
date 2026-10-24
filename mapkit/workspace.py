@@ -443,6 +443,154 @@ def uninstall(log=None):
     return project_game.deactivate()
 
 
+def game_systems():
+    """The System folders, with their program, of the games in the Deus Ex folder: the original game's, and
+    Revision's when it is there."""
+    found = []
+    for profile in settings.TARGETS.values():
+        system = (settings.GAME / profile['root'] if profile['root'] else settings.GAME) / 'System'
+        if (system / profile['exe']).is_file():
+            found.append(system)
+    return found
+
+
+def install_native_everywhere(log=None):
+    """DeusEdixNav into every game's System (the installer runs it, for each new version): a map or a mod made
+    with DeusEdix needs it there even when the game is started without the editor. (ok, lines)"""
+    import kit
+    lines = []
+    say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
+    ok = True
+    for system in game_systems():
+        try:
+            written = kit.install_native(system, NATIVE)
+            say('DeusEdixNav %s in %s' % ('installed' if written else 'already there', system))
+        except OSError as e:                    # a running game holds its DLL: the next Install or Play puts it there
+            say('DeusEdixNav not installed in %s: %s' % (system, e))
+            ok = False
+    return ok, lines
+
+
+# What DeusEdix puts into each game: folders in the game's folder, files in its System (remove_game_files)
+GAME_FOLDERS = ('DeusEdixProjects', 'DeusEdixMaps', 'DeusEdixMods')
+GAME_FILES = ('DeusEdixNav.u', 'DeusEdixNav.dll', 'DeusEdixMod.ini')
+
+
+def _remove(path, say):
+    """A file or folder of DeusEdix's; a link is removed as a link, never what it points to. -> removed or absent"""
+    try:
+        if _is_link(path):
+            os.rmdir(path) if path.is_dir() else os.unlink(path)
+        elif path.is_dir():
+            _rmtree(path)
+        elif path.is_file():
+            path.unlink()
+        else:
+            return True
+        say('removed', path)
+        return True
+    except OSError as e:
+        say('could not remove %s: %s' % (path, e))
+        return False
+
+
+# The lines and sections of DeusEdix's own in the games' inis (not those of another mod: UnatcoMaps, its ServerActors)
+OWN_LINE = re.compile(r'(?i)^\s*(paths=\.\.[\\/](deusedixmaps|deusedixprojects)[\\/]|serveractors=(deusedix|dxp_\w+)\.)')
+OWN_SAVE = re.compile(r'(?i)^\s*savepath=.*deusedixprojects')
+OWN_SECTION = re.compile(r'(?i)^\s*\[(deusedix|dxp_\w+)\.uc(shotrunner|consolelink)\]')
+ANY_RUNNER = re.compile(r'(?i)^\s*\[\w+\.uc(shotrunner|consolelink)\]')
+
+
+def _strip_ini(ini, say):
+    """An ini without DeusEdix's own lines and Play sections (as project_game writes: checked, then replaced).
+    -> it holds none of them now"""
+    try:
+        text = ini.read_bytes().decode('latin1')
+    except OSError:
+        return True
+    keep, section_owned = [], False
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith('['):
+            section_owned = bool(OWN_SECTION.match(line))
+        if not section_owned and not OWN_LINE.match(line):
+            keep.append(line)
+    stripped = ''.join(keep)
+    if stripped != text:
+        tmp = ini.with_name(ini.name + '.deusedix-tmp')
+        try:
+            tmp.write_bytes(stripped.encode('latin1'))
+            if ini.read_bytes().decode('latin1') != text:
+                raise OSError('it changed while being cleaned')
+            os.replace(tmp, ini)
+            say("took DeusEdix's lines out of", ini)
+        except OSError as e:
+            tmp.unlink(missing_ok=True)
+            say('could not clean %s: %s' % (ini, e))
+            return False
+    return not any(OWN_SAVE.match(line) for line in stripped.splitlines())
+
+
+def remove_game_files(log=None):
+    """The uninstaller's "everything DeusEdix put into the games", in each game of the Deus Ex folder: the installed
+    projects' maps, packages and saves (DeusEdixProjects, DeusEdixMaps), the installed mods (DeusEdixMods, Revision's
+    DeusEdixMod.ini), DeusEdixNav, DeusEdix's own lines and Play sections in the inis, and, once those are out, its
+    snapshot and backups of the inis. Run after project_game.deactivate_all, which puts the games' own settings
+    back. A running game is left as it is. -> (ok, lines)"""
+    lines = []
+    say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
+    ok = True
+    for profile in settings.TARGETS.values():
+        root = settings.GAME / profile['root'] if profile['root'] else settings.GAME
+        system = root / 'System'
+        if not (system / profile['exe']).is_file():
+            continue
+        r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq ' + profile['exe']], capture_output=True, text=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        if profile['exe'] in r.stdout:
+            say('%s is running: what DeusEdix put into it was left there' % profile['short'])
+            ok = False
+            continue
+        for name in GAME_FOLDERS:
+            ok = _remove(root / name, say) and ok
+        for name in GAME_FILES:
+            ok = _remove(system / name, say) and ok
+        ini, user_ini = system / profile['ini'], system / profile['user_ini']
+        if _strip_ini(ini, say):
+            for name in ('deusedix-project-activation.json', ini.name + '.bak_projects'):
+                ok = _remove(system / name, say) and ok
+        else:
+            say('%s still saves into DeusEdixProjects: its backup %s.bak_projects is kept' % (ini, ini.name))
+            ok = False
+        _strip_ini(user_ini, say)
+        try:
+            runner = any(ANY_RUNNER.match(line) for line in user_ini.read_bytes().decode('latin1').splitlines())
+        except OSError:
+            runner = False
+        if not runner:             # the backup the Play runner made, when no runner section is left (another mod's either)
+            ok = _remove(system / (user_ini.name + '.bak_shots'), say) and ok
+    return ok, lines
+
+
+def remove_projects(log=None):
+    """The uninstaller's "my projects too": the projects folder next to the program, with its registry, and the mods
+    exported from them (Documents\\DeusEdix Mods). A project the registry keeps somewhere else is left where it
+    is, and named. -> (ok, lines)"""
+    lines = []
+    say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
+    root = Path(os.environ.get('DEUSEDIX_PROJECTS_DIR') or PROJECT / 'Projects')
+    try:
+        registry = json.loads((root / 'registry.json').read_text(encoding='utf-8'))
+        elsewhere = [Path(p['path']) for p in registry.get('projects', []) if isinstance(p, dict)
+                     and isinstance(p.get('path'), str) and not Path(p['path']).resolve().is_relative_to(root.resolve())]
+    except (OSError, ValueError, AttributeError):
+        elsewhere = []
+    for path in elsewhere:
+        say('kept, outside the projects folder:', path)
+    import mods
+    ok = _remove(root, say)
+    return _remove(mods.EXPORTS, say) and ok, lines
+
+
 def _is_link(path):
     """A junction or a symbolic link (a reparse point): removing it removes the link, never what it points to."""
     try:

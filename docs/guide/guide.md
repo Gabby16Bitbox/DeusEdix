@@ -1791,9 +1791,17 @@ Everything is in DeusEdix's folder (`%LOCALAPPDATA%\Programs\DeusEdix`), except 
 | `DevInstall\` | the workspace made from your game (links to its folders, copies of its settings) |
 | `logs\` | what the program did, for when something goes wrong |
 
-The first time you install a map, DeusEdix adds the `DeusEdixMaps` folder to `Revision.ini`, so the
-game reads your maps before its own (a backup is kept: `Revision.ini.bak_deusedix`). Uninstalling
-DeusEdix takes those lines out and removes the workspace and the caches; your maps and stories stay.
+When you install a project, DeusEdix puts its maps in a folder of its own inside the game
+(`DeusEdixProjects`) and adds it to the game's settings (`Revision.ini`, or `DeusEx.ini` for the original
+game), so the game reads your maps before its own (a backup is kept: `Revision.ini.bak_projects`). The
+installer also puts `DeusEdixNav.u` and `DeusEdixNav.dll` into each game's `System` folder: the characters of
+DeusEdix maps and mods use them to find their way.
+
+To uninstall DeusEdix, use **Start > Uninstall DeusEdix**, Windows' installed apps, or run the installer again
+and choose **Uninstall**. It always takes DeusEdix's lines out of the games' settings and removes the workspace
+and the caches. It also asks about two things, both kept unless you tick them: everything else DeusEdix put
+into the games (the maps, saves and mods it installed, and DeusEdixNav, which mods made with DeusEdix need), and
+your projects (with the mods you exported to `Documents\DeusEdix Mods`).
 
 ## Local geometry (Experimental)
 
