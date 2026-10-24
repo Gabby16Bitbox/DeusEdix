@@ -12,14 +12,24 @@ const threeFile = process.env.DEUSEDIX_THREE_MODULE || path.resolve(kit, '../res
 const three = pathToFileURL(path.resolve(threeFile)).href;
 const modules = path.join(kit, 'editor/static');
 const stub = (name) => 'data:text/javascript,' + encodeURIComponent(`export class ${name} {}`);
-async function loadStudio(file) {
+// The page's import map, for the Studio and the modules it imports (studio-props.js uses three as well): a
+// module that names three, or one of the page's modules, is rewritten; the others load as they are.
+const loaded = new Map();
+async function moduleUrl(file) {
+  if (loaded.has(file)) return loaded.get(file);
   let text = await readFile(file, 'utf8');
-  text = text.replace("from 'three'", `from '${three}'`)
-    .replace("from 'three/addons/controls/OrbitControls.js'", `from '${stub('OrbitControls')}'`)
-    .replace("from 'three/addons/controls/TransformControls.js'", `from '${stub('TransformControls')}'`)
-    .replace(/from '(\.\/[^']+)'/g, (_, rel) => `from '${pathToFileURL(path.resolve(modules, rel)).href}'`);
+  if (!/from '(three|\.\/)/.test(text)) { loaded.set(file, pathToFileURL(file).href); return loaded.get(file); }
+  text = text.replaceAll("from 'three'", `from '${three}'`)
+    .replaceAll("from 'three/addons/controls/OrbitControls.js'", `from '${stub('OrbitControls')}'`)
+    .replaceAll("from 'three/addons/controls/TransformControls.js'", `from '${stub('TransformControls')}'`);
+  for (const rel of new Set([...text.matchAll(/from '(\.\/[^']+)'/g)].map(m => m[1])))
+    text = text.split(`from '${rel}'`).join(`from '${await moduleUrl(path.resolve(path.dirname(file), rel))}'`);
+  loaded.set(file, 'data:text/javascript;base64,' + Buffer.from(text).toString('base64'));
+  return loaded.get(file);
+}
+async function loadStudio(file) {
   globalThis.window = {};
-  await import('data:text/javascript;base64,' + Buffer.from(text).toString('base64'));
+  await import(await moduleUrl(file));
   return window.__studio;
 }
 const current = await loadStudio(path.join(modules, 'studio.js'));
@@ -108,10 +118,13 @@ function syntheticModel(hd = false) {
   joints[BI.head] = [0, 5, 0];
   return {
     hd, vertices, headWeights,
-    rig: { ref: 0, joints, weights: headWeights.map((weight) => [BI.head, weight, BI.pelvis, 1 - weight]) },
-    model: { FV: vertices.length, pos: new Float32Array(vertices.flat()), info: hd
-      ? { scale: [2, 0.5, 4], origin: [5, -3, 7], rot: [0, 16384, 0] }
-      : { scale: [1, 1, 1], origin: [0, 0, 0], rot: [0, 0, 0] } },
+    // bones of no length (tails on the joints): no vertex near a shoulder or an elbow, no seam
+    rig: { ref: 0, joints, tails: joints.map((j) => [...j]), weights: headWeights.map((weight) => [BI.head, weight, BI.pelvis, 1 - weight]) },
+    // no game frames and no faces: no seams to fit or to smooth
+    model: { FV: vertices.length, SV: 0, pos: new Float32Array(vertices.flat()), seqs: [], faces: new Uint16Array(0), wedges: new Uint16Array(0),
+      info: { counts: { faces: 0 }, ...(hd
+        ? { scale: [2, 0.5, 4], origin: [5, -3, 7], rot: [0, 16384, 0] }
+        : { scale: [1, 1, 1], origin: [0, 0, 0], rot: [0, 0, 0] }) } },
   };
 }
 function knownCurveMotion(mode) {

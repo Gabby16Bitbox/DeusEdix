@@ -510,12 +510,14 @@ for x,y in [(-1460,1000),(-1300,880),(-1300,1120),(-1150,1000),(-1280,830)]:
 # Room 11, code lab: two workstations, and a button for the recruit's own script.
 s.begin_group('codelab', 'Code lab: workstations', 'Building')
 for x in (-1440,-1344):
-    detail((x-44,216,0),(x+44,272,48),Mat('Uob_Consocab_D'))
+    # as deep as the lab's: the display reaches 45 units behind the computer (24 Oct 2026: on a desk 56 deep
+    # its back went through the wall, tests/test_tutorial_clearance.py)
+    detail((x-44,212,0),(x+44,300,48),Mat('Uob_Consocab_D'))
 sign('CODE LAB / UNREALSCRIPT','-x',-1056,300,160,width=176)
 s.end_group()
 for x in (-1440,-1344):
-    on('ComputerPersonal',x,244,base=48,yaw=16384)
-    on('OfficeChair',x,312,yaw=49152)
+    on('ComputerPersonal',x,256,base=48,yaw=16384)
+    on('OfficeChair',x,324,yaw=49152)
 s.actor('Button1',(-1066,440,72),name='TutorialScriptButton',rot=(0,32768,0))
 
 # The recruit places the PlayerStart during the reception lesson.

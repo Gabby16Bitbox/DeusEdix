@@ -10,6 +10,7 @@ async function moduleFrom(path) {
 }
 const { createSaveQueue } = await moduleFrom('../editor/static/save-state.js');
 const { createAutosave, normalizeAutosaveSettings } = await moduleFrom('../editor/static/autosave.js');
+const { exerciseOnly } = await moduleFrom('../editor/static/published-layout.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -35,7 +36,7 @@ function setup({ automaticResponses = false } = {}) {
     window: { __story: story, __menubar: { prefs: {} }, __projectNavigation: false },
     document: { querySelector: () => null }, $: () => busy,
     Date: class extends Date { static now() { return now; } },
-    normalizeAutosaveSettings,
+    normalizeAutosaveSettings, exerciseOnly, publishedLayout: null,
     isTemporaryTutorial: (project, script) => project?.kind === 'tutorial' && script === 'deusedix_tutorial',
     showChanges: () => notices.push('changes'), buildStructList() {}, buildHierarchy() {},
     status: (...args) => statuses.push(args), log: (...args) => logs.push(args),

@@ -147,9 +147,12 @@ class MapSaveRouteTests(unittest.TestCase):
         tree = ast.parse(text)
         handler_class = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'Handler')
         function = next(node for node in handler_class.body if isinstance(node, ast.FunctionDef) and node.name == '_project_POST')
-        noop = SimpleNamespace(names=lambda *args, **kwargs: [], commands=lambda *args, **kwargs: [], validate=lambda *args, **kwargs: [], validate_travel=lambda *args, **kwargs: [])
+        noop = SimpleNamespace(names=lambda *args, **kwargs: [], commands=lambda *args, **kwargs: [], validate=lambda *args, **kwargs: [], validate_travel=lambda *args, **kwargs: [],
+                               validate_edits=lambda *args, **kwargs: [])
         namespace = dict(json=json, urlparse=urlparse, parse_qs=parse_qs, activation=noop, surfaces=noop,
-                         documents=noop, maplinks=noop, edits_path=lambda script: self.target, traceback=traceback)
+                         documents=noop, maplinks=noop, object_tags=noop, player_profiles=noop,
+                         edits_path=lambda script: self.target, traceback=traceback,
+                         project_server=SimpleNamespace(error_payload=lambda exc: dict(error=str(exc))))
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         raw = json.dumps(draft).encode('utf-8')
         handler = SimpleNamespace(path='/api/edits?script=my_map', headers={'Content-Length': str(len(raw))},

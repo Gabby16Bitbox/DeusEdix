@@ -133,6 +133,7 @@ class TutorialRouteTests(unittest.TestCase):
             'json': json, 'mimetypes': mimetypes, 're': re, 'threading': threading, 'time': time, 'shutil': shutil,
             'traceback': traceback, 'parse_qs': parse_qs, 'urlparse': urlparse,
             'LOCK': threading.RLock(), 'PLAY': {'active': False}, 'LIVE': {'active': False},
+            'WAITING': {'n': 0}, 'WAITING_GUARD': threading.Lock(),     # server.UserTurn's
             'PREVIEW': {'token': None, 'script': None},
             'tutorial': self.session, 'project_server': self.project,
             'settings': types.SimpleNamespace(PROJECT=self.root, STANDALONE=True, PACKAGE='DXP_training', MODELS_PACKAGE='DXP_trainingModels',
@@ -155,13 +156,14 @@ class TutorialRouteTests(unittest.TestCase):
             'sounds': types.SimpleNamespace(rekey=Mock(return_value=[])),
         }
         tree = ast.parse(SOURCE.read_text(encoding='utf-8-sig'), filename=str(SOURCE))
-        names = {'Handler', 'tutorial_write_guard', 'tutorial_can_reset', 'tutorial_runtime'}
+        names = {'Handler', 'tutorial_write_guard', 'tutorial_can_reset', 'tutorial_runtime', 'UserTurn'}
         # Execute the production tag-validator import too. Injecting a fake global
         # here previously concealed a missing import that broke every real save.
         selected = ast.Module(body=[node for node in tree.body if
             (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names) or
-            (isinstance(node, ast.Import) and any(alias.name == 'object_tags' for alias in node.names))], type_ignores=[])
-        with patch.dict(sys.modules, {'object_tags': TAG_VALIDATION}):
+            (isinstance(node, ast.Import) and any(alias.name in ('object_tags', 'player_profiles') for alias in node.names))], type_ignores=[])
+        # the production imports of the validators the save route calls (player_profiles: 24 Oct 2026)
+        with patch.dict(sys.modules, {'object_tags': TAG_VALIDATION, 'player_profiles': types.SimpleNamespace(validate_edits=Mock())}):
             exec(compile(selected, str(SOURCE), 'exec'), self.namespace)
         self.Handler = self.namespace['Handler']
         module_patch = patch.dict(sys.modules, {

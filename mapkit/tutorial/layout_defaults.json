@@ -384,7 +384,7 @@
    "TutorialFilmButton": {
     "cls": "Button1",
     "loc": [
-     -1391.5,
+     -1389.5,
      -300,
      72
     ],
@@ -403,7 +403,7 @@
    "ChairLeather0": {
     "cls": "ChairLeather",
     "loc": [
-     -656,
+     -667,
      -336,
      23.3
     ],
@@ -656,7 +656,7 @@
     "cls": "Button1",
     "loc": [
      -1280,
-     208,
+     210.5,
      64
     ],
     "rot": [

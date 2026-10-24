@@ -7008,7 +7008,7 @@ async function navBakeIfNeeded() {
   }
   busy('Making the walkable area for the game...');
   try {
-    const r = await bakePolys(THREE, worldMeshes, navSeeds(), navObstacles(), T, navLockedDoors());
+    const r = await bakePolys(THREE, worldMeshes.concat(pendingNavMeshes()), navSeeds(), navObstacles(), T, navLockedDoors());
     edits.navmesh = { v: 1, key: navKey(), polys: r.polys };
     log(`Walkable area for the game: ${r.polys.length} polygons (of the ${r.all} of the map, those joined to where JC and the characters are).`);
   } catch (e) {
@@ -7016,6 +7016,34 @@ async function navBakeIfNeeded() {
     delete edits.navmesh;
   }
   await save();
+}
+// The walkable area is made before the Rebuild, from the last one's geometry (24 Oct 2026: a wall placed and
+// rebuilt once was not in it, and a character walked into it). What the Rebuild will add counts too: the solid
+// blocks and the drawn walls and floors (not the doors: characters open them).
+function pendingNavMeshes() {
+  const out = [];
+  for (const p of proxies.children) {
+    if (!(p.userData.drawn || (p.userData.box && ['solid', 'detail'].includes(boxKind(p.userData.box))))) continue;
+    p.traverse((o) => { if (o.isMesh && o.geometry?.attributes?.position) out.push(o); });
+  }
+  return out;
+}
+// What it cannot foresee (a hole, a block moved or deleted: the old geometry is still there) is seen after the
+// Rebuild: made again from the new geometry, a different area means the game got an old one
+async function navCheckAfterBuild(baked) {
+  if (!baked) return;
+  try {
+    const r = await bakePolys(THREE, worldMeshes, navSeeds(), navObstacles(), T, navLockedDoors());
+    // a polygon as the game keeps it: "n, its n corners (x y z), its n neighbours"; the corners alone, to 8 units
+    const shape = (polys) => polys.map((s) => {
+      const a = String(s).trim().split(/\s+/).map(Number), n = a[0];
+      return a.slice(1, 1 + 3 * n).map((v) => Math.round(v / 8)).join(',');
+    }).sort().join('|');
+    if (shape(r.polys) !== shape(baked)) {
+      log('The walkable area changed with this Rebuild (a hole, or a block moved or removed): Rebuild once more so that the characters walk on the new one.', 'warn');
+      status(`${mapName}: rebuilt; Rebuild once more for the walkable area`, 'warn');
+    }
+  } catch (_) { /* the map has no walkable area now: the next Rebuild says so */ }
 }
 // Map > Fill AI paths (Gabby, 17 Oct 2026): path nodes wherever JC can walk and no node is near (navmesh.js
 // fillPathNodes), added as if placed by hand: one Undo takes them all away, the rebuild links them.
@@ -9708,11 +9736,15 @@ async function rebuildMap(mode = 'auto') {
     if (script !== rebuildingScript) return;
     await navBakeIfNeeded();
     if (script !== rebuildingScript) return;
+    const baked = edits.navmesh?.polys;
     busy('Rebuilding the map (about a minute)...');
     const camPos = camera.position.clone(), yaw = cam.yaw, pitch = cam.pitch;
     const r = await api('/api/build?script=' + encodeURIComponent(script), { mode });
     log(r.lines, r.ok ? '' : 'bad');
-    if (r.ok) { await loadScene(script, false); camera.position.copy(camPos); cam.yaw = yaw; cam.pitch = pitch; status(`${mapName}: rebuilt`, 'ok'); }
+    if (r.ok) {
+      await loadScene(script, false); camera.position.copy(camPos); cam.yaw = yaw; cam.pitch = pitch; status(`${mapName}: rebuilt`, 'ok');
+      if (script === rebuildingScript) await navCheckAfterBuild(baked);
+    }
     else status('rebuild failed: see Messages', 'bad');
   } catch (e) { log(e.message, 'bad'); } finally { busy(''); }
 }

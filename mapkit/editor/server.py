@@ -68,6 +68,33 @@ PORT = int(os.environ.get('DEUSEDIX_PORT') or 8790)      # DeusEdix's launcher p
 STATIC = HERE / 'static'
 LOCK = threading.RLock()
 LIVE = {'shown': None, 'n': 0}
+# requests of the person using the editor waiting for LOCK or holding it: the Pieces scan, which takes it map
+# after map for minutes the first time, starts no more maps meanwhile (24 Oct 2026: a Save waited 2 minutes)
+WAITING = {'n': 0}
+WAITING_GUARD = threading.Lock()
+
+
+class UserTurn:
+    """LOCK for a request of the person: background work lets it go first (pieces_library.start(waiting=...))."""
+
+    def __enter__(self):
+        with WAITING_GUARD:
+            WAITING['n'] += 1
+        try:
+            LOCK.acquire()
+        except BaseException:
+            self._done()
+            raise
+        return self
+
+    def __exit__(self, *exc):
+        LOCK.release()
+        self._done()
+
+    @staticmethod
+    def _done():
+        with WAITING_GUARD:
+            WAITING['n'] -= 1
 
 
 def scripts():
@@ -942,8 +969,9 @@ class Handler(BaseHTTPRequestHandler):
                     if path == '/api/pieces_stop':
                         return self._send(200, pieces_library.stop())
                     return self._send(200, pieces_library.start(LOCK, force=body.get('force', False),
-                                      prepare=project_server.ensure_runtime, operation=project_server.operation))
-            with project_server.operation(), LOCK:
+                                      prepare=project_server.ensure_runtime, operation=project_server.operation,
+                                      waiting=lambda: WAITING['n'] > 0))
+            with project_server.operation(), UserTurn():
                 query = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
                 tutorial_write_guard(path, query, self.headers)
                 if path in ('/api/play_prepare', '/api/play'):

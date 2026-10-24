@@ -249,6 +249,10 @@ const MENUS = [
     { label: 'Quick help', key: 'help', run: click('helpbtn') },
     { label: 'Guide', run: () => openUrl(location.origin + '/guide') },
     { label: 'Keyboard shortcuts', run: () => openSettings('keys') },
+    // in the training its panel again, at the step reached (closed with ✕, it said to come here: 24 Oct 2026 the
+    // item was gone); in another project the training
+    { label: 'Interactive tutorial...', project: true,
+      run: () => (['training', 'tutorial'].includes(window.__projects?.current?.kind) ? window.__tutorial?.start() : window.__projects?.training()) },
     sep,
     { label: 'About DeusEdix', run: openAbout },
   ]],

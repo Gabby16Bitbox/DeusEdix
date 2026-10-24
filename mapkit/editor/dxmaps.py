@@ -39,7 +39,7 @@ import sounds  # noqa: E402
 import links  # noqa: E402
 import models  # noqa: E402
 import zones  # noqa: E402
-import blocks  # noqa: E402
+import blocks as block_shapes  # noqa: E402   (build() has blocks of its own: the T3D of the added actors)
 import cutscenes  # noqa: E402
 import navbake  # noqa: E402
 import motions  # noqa: E402
@@ -620,7 +620,7 @@ def build(map_name, log=print, options=None):
             continue
         mats = zones.hole_mats(b) if b.get('hole') and b.get('sky') else textures.sign_mats(b, edits)
         # a cube, a wedge, a cylinder, a cone, a sphere, a dome; a hollow one: its convex pieces
-        for j, brush in enumerate(blocks.brushes(b, mats, 'EditBox%d' % i)):
+        for j, brush in enumerate(block_shapes.brushes(b, mats, 'EditBox%d' % i)):
             brush = geom.rotate_brush(brush, [(lo[k]+hi[k])/2 for k in range(3)], b.get('rot'), bool(b.get('hole')))
             f = 'box%d.t3d' % i if j == 0 else 'box%d_p%d.t3d' % (i, j)
             (folder / 'T3D' / f).write_text(brush.t3d(), encoding='ascii')

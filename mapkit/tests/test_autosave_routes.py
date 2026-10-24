@@ -17,7 +17,7 @@ class AutosaveRouteTests(unittest.TestCase):
         draft = {'moved': {'Crate0': {'loc': [1, 2, 3]}}, 'added': []}
         code, result = self.request('/api/edits?script=my_room&automatic=1', draft)
         self.assertEqual(code, 200, result)
-        self.assertEqual(json.loads(self.edits.write_text.call_args.args[0]), draft)
+        self.atomicfile.write_json.assert_called_once_with(self.edits, draft)     # written whole or not at all
         self.project.ensure_runtime.assert_not_called()
         self.workspace.build.assert_not_called()
         self.workspace.install.assert_not_called()
@@ -45,7 +45,7 @@ class AutosaveRouteTests(unittest.TestCase):
             with self.subTest(path=path):
                 code, result = self.request(f'/api/{path}?script={SCRIPT}&automatic=1', {}, token='session-A')
                 self.assertEqual(code, 409, result)
-        self.edits.write_text.assert_not_called()
+        self.atomicfile.write_json.assert_not_called()
         self.story.save.assert_not_called()
         self.project.ensure_runtime.assert_not_called()
 
@@ -53,7 +53,7 @@ class AutosaveRouteTests(unittest.TestCase):
         self.session.enabled = False
         code, result = self.request(f'/api/edits?script={SCRIPT}&automatic=1', {'added': []})
         self.assertEqual(code, 200, result)
-        self.edits.write_text.assert_called_once()
+        self.atomicfile.write_json.assert_called_once()
 
     def test_autosave_can_write_drafts_while_the_game_uses_the_previous_build(self):
         self.game = True
@@ -68,7 +68,7 @@ class AutosaveRouteTests(unittest.TestCase):
         self.project.authorized.return_value = False
         code, _ = self.request('/api/edits?script=my_room&automatic=1', {})
         self.assertEqual(code, 409)
-        self.edits.write_text.assert_not_called()
+        self.atomicfile.write_json.assert_not_called()
 
 
 if __name__ == '__main__':

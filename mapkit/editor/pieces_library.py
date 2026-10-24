@@ -256,7 +256,7 @@ def _read_map(name, path, identity, signature):
     return signature
 
 
-def _run(lock, maps, identity, prepare, operation):
+def _run(lock, maps, identity, prepare, operation, waiting=lambda: False):
     ready, errors, processed = {}, [], 0
     # The catalog is indexed again from every map read so far: done after each map it grew with the square
     # of the maps (about 20 minutes of a first scan of 89 maps). Now at most a quarter of the time goes to it.
@@ -285,6 +285,9 @@ def _run(lock, maps, identity, prepare, operation):
             for start in range(0, len(names), _WORKERS):
                 if _cancel.is_set():
                     break
+                # the person using the editor first: a Save or a Rebuild waiting for the lock goes before more maps
+                while waiting() and not _cancel.wait(0.1):
+                    pass
                 batch = names[start:start + _WORKERS]
                 _update(current=batch[0], message='Reading %s…' % ', '.join(batch))
                 closed = False
@@ -350,8 +353,9 @@ def _run(lock, maps, identity, prepare, operation):
             _update(state='paused', current=None)
 
 
-def start(lock, force=False, prepare=None, operation=None):
-    """Start/resume one job and return immediately, never synchronously initialize SDK."""
+def start(lock, force=False, prepare=None, operation=None, waiting=None):
+    """Start/resume one job and return immediately, never synchronously initialize SDK. `waiting`: true while a
+    request of the person waits for `lock` or holds it (server.UserTurn): no more maps are started meanwhile."""
     global _thread
     if not isinstance(force, bool):
         raise ValueError('The Pieces rescan option must be true or false.')
@@ -366,7 +370,7 @@ def start(lock, force=False, prepare=None, operation=None):
         _cancel.clear()
         _scan.update(state='running', processed=0, total=len(maps), current=None, items=len(snapshot['items']),
                      message='Starting local Pieces generation…', errors=[], stale=snapshot['scan']['stale'])
-        _thread = threading.Thread(target=_run, args=(lock, maps, identity, prepare, operation), name='DeusEdix-Pieces', daemon=True)
+        _thread = threading.Thread(target=_run, args=(lock, maps, identity, prepare, operation, waiting or (lambda: False)), name='DeusEdix-Pieces', daemon=True)
         _thread.start()
     return data()
 

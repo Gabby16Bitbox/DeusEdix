@@ -22,8 +22,8 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual(scope['appearance_blocks']({'props':{'A':{'Mesh':'not a mesh','Skin':'None'}}}),[])
     def test_visual_properties_survive_backend_whitelist(self):
         tree = ast.parse((ROOT/'editor/props.py').read_text(encoding='utf-8'))
-        nodes = [n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in ('base','commands','t3d_props')) or
-                 (isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in ('FIELDS','NAMES') for t in n.targets))]
+        nodes = [n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in ('base','commands','raw_commands','t3d_props')) or
+                 (isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in ('FIELDS','MOVEMENT','NAMES','RAW_KEY') for t in n.targets))]   # NAMES is made of FIELDS and MOVEMENT
         scope={'re':re};exec(compile(ast.Module(body=nodes,type_ignores=[]),'props','exec'),scope)
         props={'Mesh':"LodMesh'DeusExDeco.Barrel1'",'Skin':'None',**{f'MultiSkins({i})':'None' for i in range(8)}}
         cmds=scope['commands']({'props':{'Computer1':props}})

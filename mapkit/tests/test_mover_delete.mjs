@@ -31,7 +31,7 @@ function fixture() {
     syncStructures: () => {}, disposeEffectPoint: () => {}, disposeViewportIcons: () => {},
     applyTextureOverrides: () => {}, applyLighting: () => {}, applyObjectVisibility: () => {},
     selectKeys: () => {}, selectNest: () => {}, showChanges: () => {}, buildStructList: () => {}, buildHierarchy: () => {},
-    logicBox: {style: {display: 'none'}}, renderLogic: () => {}, YAW:65536,
+    logicBox: {style: {display: 'none'}}, renderLogic: () => {}, YAW:65536, rotations: {carry: rot => rot},   // the structure does not turn here
     addedKind: cls => /Mover/.test(cls) ? 'mover' : 'prop',
     makeProxy: (a, owner) => { const p = {parent:proxies, children:[{geometry: 'mesh:' + a.name}], userData:{actor:a, kind:a.kind, source:owner}}; proxies.children.push(p); return p; },
     makeBoxProxy: b => { proxies.children.push({parent:proxies, children:[{geometry:b.name}], userData:{kind:'box',box:b}}); },
