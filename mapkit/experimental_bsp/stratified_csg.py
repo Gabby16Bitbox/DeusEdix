@@ -299,7 +299,7 @@ def _model(data):
         raise Refused('Invalid complete node inventory')
     for n in nodes.values():
         c.plane(n['plane'])
-        if n['flags'] != 0 or not 3 <= n['vertices'] <= 24 or len(n['points']) != n['vertices']:
+        if c.semantic_flags(n) != 0 or not 3 <= n['vertices'] <= 24 or len(n['points']) != n['vertices']:
             raise Refused('Unsupported native CSG node flags/vertices')
         if len(n['children']) != 3 or n['children'][2] != -1:
             raise Refused('Coplanar chains require separate proof')

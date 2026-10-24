@@ -13,6 +13,8 @@ from native_certificate_profile import dump
 from stratified_csg import verify_profile
 from ordered_convex_csg import validate_world
 from convex_hull_certificate import certify_hulls, verify_reload
+from cache_certificate import certify_caches
+from lightbits import Model
 from scope_mapping import certify_scope, complete_contributors
 from verified_output import copy_verified
 
@@ -104,10 +106,11 @@ def rebuild(path, changes, expected_sha, progress=print):
             baked = g.base.baked(candidate)
             if any(baked[k] != old_baked[k] for k in ('lightmaps', 'bits', 'sources')):
                 raise Refused('Stored baked-light data was damaged')
+            caches = certify_caches(before, reloaded, scope, Model(str(s.folder/'Input/source.dx')), Model(str(candidate)))
             report['verified_exports_sha256'] = {n:g.base.sha(s.folder/'Output'/n) for n in ('reloaded.t3d', 'reloaded.tree')}
             report['certificate'] = dict(status='pass', eligible=True, full_reference_used=False,
                 certificate='convex_region_exact_source_native_routing_scope_hulls',
-                world=world, scope=scope, hulls=hulls, reload=reload_proof)
+                world=world, scope=scope, hulls=hulls, reload=reload_proof, caches=caches)
             report['execution'] = [a.report() for a in audits]
             if not report['execution'] or any(not a['full_commands_excluded'] for a in report['execution']):
                 raise Refused('No-Full execution guard missing')

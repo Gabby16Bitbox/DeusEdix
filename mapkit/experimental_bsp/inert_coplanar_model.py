@@ -5,6 +5,7 @@ still validate every original node, including fragments omitted from this
 routing-only proxy. The independent hull certificate must also pass.
 """
 import stratified_csg as v1
+from convex_cells import semantic_flags
 Refused = v1.Refused
 
 
@@ -32,7 +33,7 @@ def model(data):
             visited.add(fragment)
             n = nodes[fragment]
             if (len(n['children']) != 3 or n['children'][:2] != [-1, -1] or
-                    n['plane'] != head['plane'] or n['flags'] != head['flags'] or
+                    n['plane'] != head['plane'] or semantic_flags(n) != semantic_flags(head) or
                     n['zones'] != head['zones'] or n['leaves'] != [-1, -1] or n['collision_bound'] != -1 or
                     not 3 <= n['vertices'] <= 24 or len(n['points']) != n['vertices']):
                 raise Refused('Coplanar fragment is not structurally inert')

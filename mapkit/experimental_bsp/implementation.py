@@ -1,7 +1,7 @@
 """Single fingerprint inventory shared by build and evidence validators."""
 BOX_CODE = ('isolated_box_certificate.py', 'isolated_box_rebuild.py',
           'orthogonal_routing.py', 'certificate_evidence.py')
-CONVEX_CODE = ('certified_convex_rebuild.py', 'ordered_convex_csg.py', 'stratified_csg.py', 'convex_hull_certificate.py',
+CONVEX_CODE = ('certified_convex_rebuild.py', 'ordered_convex_csg.py', 'stratified_csg.py', 'convex_hull_certificate.py', 'cache_certificate.py',
              'scope_mapping.py', 'full_exclusion.py', 'native_certificate_profile.py', 'inert_coplanar_model.py', 'native_axial_bounds.py',
              '../kit.py', '../t3d.py', '../settings.py', 'lightbits.py', '../../ue1pkg.py', 'bspsurf.py')
 DETAIL_CODE = (*CONVEX_CODE, 'certified_detail_rebuild.py', 'retained_bsp_certificate.py', 'retained_collision_state.py',

@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 import struct
 
-from convex_cells import Refused, q, plane, bounded_cell, vertices, native_float
+from convex_cells import Refused, q, plane, bounded_cell, vertices, native_float, semantic_flags
 
 from native_engines import KNOWN as KNOWN_ENGINES
 
@@ -82,7 +82,7 @@ def terminal_inventory(data):
         seen.add(i)
         n = nodes[i]
         plane(n['plane'])
-        if n['flags'] != 0 or n['vertices'] < 3 or n['vertices'] > 24:
+        if semantic_flags(n) != 0 or n['vertices'] < 3 or n['vertices'] > 24:
             raise Refused('Native hull proof currently requires ordinary solid nodes')
         if len(n['children']) != 3:
             raise Refused('Malformed native BSP children')
@@ -95,7 +95,7 @@ def terminal_inventory(data):
                 raise Refused('Invalid, shared or cyclic coplanar chain')
             seen.add(chain)
             linked = nodes[chain]
-            if (linked['plane'] != n['plane'] or linked['flags'] != 0 or
+            if (linked['plane'] != n['plane'] or semantic_flags(linked) != 0 or
                 not 3 <= linked['vertices'] <= 24 or len(linked['children']) != 3 or
                 linked['children'][:2] != [-1, -1] or linked['collision_bound'] != -1):
                 raise Refused('Coplanar chain changes native collision semantics')

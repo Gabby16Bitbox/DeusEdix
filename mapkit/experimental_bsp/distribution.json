@@ -6,6 +6,7 @@
     "bin/UCMapKitHost.exe",
     "boundary_welding.py",
     "bspsurf.py",
+    "cache_certificate.py",
     "certificate_evidence.py",
     "certified_convex_rebuild.py",
     "certified_detail_rebuild.py",

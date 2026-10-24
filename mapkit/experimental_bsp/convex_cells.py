@@ -16,6 +16,15 @@ class Refused(ValueError):
     pass
 
 
+# NF_PolyOccluded | NF_BoxOccluded (UnObj.h): what the renderer found hidden on the frame it last drew. A map that
+# was drawn (the light build's viewport) saves them; no CSG, zone, leaf or collision code reads them.
+RENDER_MARKS = 0x18
+
+
+def semantic_flags(node):
+    return node['flags'] & ~RENDER_MARKS
+
+
 def q(x):
     if isinstance(x, bool):
         raise Refused('Boolean is not a coordinate')
@@ -355,7 +364,7 @@ def certify_leaf_csg(nodes, root, root_outside, scope, brushes, source_root_outs
             raise Refused('Only ordinary solid additive/subtractive convex brushes are supported')
         if not b.get('planes'):
             raise Refused('Missing brush planes')
-    if any(n['flags'] & 0xE7 for n in nodes.values()):
+    if any(semantic_flags(n) & 0xFF for n in nodes.values()):
         raise Refused('Non-ordinary BSP semantics require a separate certificate')
     leaves = leaf_cells(nodes, root, root_outside, scope, budget)
     comparisons = 0

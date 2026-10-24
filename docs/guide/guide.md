@@ -1801,6 +1801,8 @@ Enable **Settings > Editing > Local geometry (Experimental)**, then choose **Map
 
 Select a source brush and enter its movement, scale or rotation. These transforms use that brush's pivot. **Before / After** show the compiled geometry after verification. The default **Area · Full check** reconstructs the affected area and still uses a Full rebuild to check the result. **Isolated box**, **Convex CSG** and **Buried detail** offer independent verification without Full only for supported geometry. Unsupported changes are refused; a successful edit on one brush does not imply that every edit on the map is supported.
 
+It works the same for Deus Ex: Revision and the original Deus Ex. What the modes without Full accept: **Isolated box**, a plain box floating inside one room, on a map of at most 24 plain boxes; **Convex CSG**, a map of at most 24 plain convex brushes, lit or not, with one room and no portals, and an edit whose area leaves out at least one other brush; **Buried detail**, one detail (semisolid) brush that only grows inside solid. On a lit map the faces a result rebuilt have no light until you rebuild **Lighting**.
+
 Results are experimental copies outside the normal project build. **Show result** opens their folder; **Continue from result** starts another edit from the verified copy. To keep one in your project, use **Open map > Browse .dx** to import it as a new map. Rebuild its **Lighting** and **Paths** before Play or Install. The tool does not replace the project's map or install a result automatically. Verification can take a few minutes and this preview is not a speed guarantee.
 
 The feature uses the engine from your installed game. No game maps, packages, textures or engine DLLs are included in DeusEdix.

@@ -9,7 +9,7 @@ from fractions import Fraction
 import hashlib
 from pathlib import Path
 
-from convex_cells import Refused, plane, q
+from convex_cells import Refused, plane, q, semantic_flags
 
 EDITOR_SHA256 = '93e31b3e401880ab17ab4561c3fd4d2baa530fbe25ccb5154911ebad60fff035'
 NATIVE_SEED_HALF_SIZE = 32768
@@ -47,7 +47,7 @@ def axial_cap_bounds(data, terminal):
             raise Refused('Malformed axial cap ancestry')
         seen.add(index)
         n = data['nodes'].get(index)
-        if n is None or n['flags'] != 0 or not 3 <= n['vertices'] <= 24:
+        if n is None or semantic_flags(n) != 0 or not 3 <= n['vertices'] <= 24:
             raise Refused('Axial cap requires ordinary structural ancestors')
         child = n['children'][side]
         if (position+1 < len(path) and child != path[position+1][0]) or (position+1 == len(path) and child != -1):

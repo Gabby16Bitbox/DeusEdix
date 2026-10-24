@@ -276,10 +276,14 @@ def validate_world(data):
     v1._native_coordinates(data)
     brushes, rooms = sources(data)
     terminals = model(data)
-    if any(s['lightmap'] != -1 for s in data['surfs'].values()):
-        raise Refused('Lightmap caches unsupported')
-    if any(l['permeating'] != -1 or l['volumetric'] != -1 or l['visible'] != 2**64-1 for l in data['leaves'].values()):
-        raise Refused('Leaf lighting/visibility caches unsupported')
+    # Lightmaps and leaf light lists are the separate cache certificate's (cache_certificate.py); only their
+    # shape is checked here. Zone visibility stays trivial.
+    if any(type(s['lightmap']) is not int or s['lightmap'] < -1 for s in data['surfs'].values()):
+        raise Refused('Malformed lightmap cache')
+    if any(type(l[k]) is not int or l[k] < -1 for l in data['leaves'].values() for k in ('permeating', 'volumetric')):
+        raise Refused('Malformed leaf light list')
+    if any(l['visible'] != 2**64-1 for l in data['leaves'].values()):
+        raise Refused('Leaf visibility caches unsupported')
     expected, fragments = source_visible_faces(brushes)
     surface = surface_proof(data, brushes, expected)
     room_zones = {}

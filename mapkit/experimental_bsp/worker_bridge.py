@@ -178,8 +178,8 @@ def stage_result(job, request, result):
             raise Rejected('Missing complete no-Full convex-region certificate.')
         if result.get('controller_sha256') != request['implementation_sha256'].get('worker_bridge.py'):
             raise Rejected('Changed convex controller validation.')
-        if any((proof.get(k) or {}).get('status') != 'pass' for k in ('world', 'scope', 'hulls', 'reload')):
-            raise Rejected('Incomplete convex source, scope, hull or reload proof.')
+        if any((proof.get(k) or {}).get('status') != 'pass' for k in ('world', 'scope', 'hulls', 'reload', 'caches')):
+            raise Rejected('Incomplete convex source, scope, hull, reload or light cache proof.')
         profiles = result.get('profiles', {})
         if set(profiles) != {'before', 'edited', 'after', 'reloaded'}:
             raise Rejected('Missing actual native arithmetic profiles.')
