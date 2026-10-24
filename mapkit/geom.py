@@ -426,6 +426,77 @@ def hull(points, mats, name='Hull'):
     return Brush(out, name)
 
 
+
+# ----------------------------------------------------------------------------------- convex subtraction
+SLIVER = 1.0        # a piece thinner than this (world units) is not kept: the engine's BSP chokes on slivers
+
+
+def _ordered(points, n):
+    """Points on one plane, in order round it so that (v1-v0)x(v2-v0) points along n (as hull() orders a face)."""
+    c = Vec3(*(sum(p[a] for p in points) / len(points) for a in range(3)))
+    ref = (Vec3.of(points[0]) - c).normalized()
+    other = n.cross(ref)
+    return sorted(points, key=lambda p: math.atan2((Vec3.of(p) - c).dot(other), (Vec3.of(p) - c).dot(ref)))
+
+
+def split(brush, n, d, cap, eps=0.01):
+    """A convex brush cut by the plane n.p = d: (the piece in front, the piece behind), each a convex Brush or None
+    (all of it on one side, or a sliver). The face each piece gets on the plane is in the material cap."""
+    n = Vec3.of(n)
+    dist = [n.dot(p) - d for f in brush.faces for p in f.verts]
+    if min(dist) > -SLIVER:
+        return brush, None
+    if max(dist) < SLIVER:
+        return None, brush
+    if brush.wrap:                       # round sides keep the mapping they had before the cut
+        wrap_vertical(brush.faces)
+    halves = {1: [], -1: []}
+    on_plane = []
+    for f in brush.faces:
+        sides = {1: [], -1: []}
+        for a, b in zip(f.verts, f.verts[1:] + f.verts[:1]):
+            da, db = n.dot(a) - d, n.dot(b) - d
+            for s in (1, -1):
+                if s * da >= -eps:
+                    sides[s].append(tuple(a))
+            if (da > eps and db < -eps) or (da < -eps and db > eps):
+                t = da / (da - db)
+                x = tuple(a[k] + (b[k] - a[k]) * t for k in range(3))
+                sides[1].append(x)
+                sides[-1].append(x)
+                on_plane.append(x)
+            elif abs(da) <= eps:
+                on_plane.append(tuple(a))
+        for s in (1, -1):
+            if len(sides[s]) >= 3:
+                halves[s].append(Face(sides[s], f.mat, f.normal, f.u, f.v, f.origin))
+    ring = []                            # each crossing is met by the two faces of its edge: once
+    for p in on_plane:
+        if all(max(abs(p[k] - q[k]) for k in range(3)) > eps for q in ring):
+            ring.append(p)
+    out = []
+    for s in (1, -1):
+        faces = halves[s]
+        if len(ring) >= 3:               # its face on the plane, turned out of the piece
+            faces.append(Face(_ordered(ring, n * -s), cap, n * -s))
+        out.append(Brush(faces, brush.name))
+    return out[0], out[1]
+
+
+def subtract(brush, cutter):
+    """A convex brush less a convex cutter, as UnrealEd's CSG takes a subtract brush away: the convex pieces of the
+    brush outside the cutter, cut along its faces ([brush] when they do not meet, [] when it is all inside). The faces
+    made on the cutter's planes take the cutter's materials, as a subtracted brush gives its textures to the walls of
+    the hole it makes."""
+    pieces, rest = [], brush
+    for f in cutter.faces:
+        front, rest = split(rest, f.normal, f.normal.dot(f.verts[0]), f.mat)
+        if rest is None:                 # wholly outside one face of the cutter: untouched
+            return [brush]
+        if front is not None:
+            pieces.append(front)
+    return pieces                        # what is left is inside the cutter
+
 def prism(center, radius, z0, z1, mats, sides=12, phase=0.0, name='Prism', ry=None):
     """Vertical n-gon prism (cylinders, tanks, columns). ry: elliptic radius on Y."""
     cx, cy = center

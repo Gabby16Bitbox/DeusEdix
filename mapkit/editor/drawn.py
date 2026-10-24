@@ -20,13 +20,16 @@ clicked on the map, then brushes at Rebuild. edits['drawn'] = [{name, kind, pts:
 - roof: a slope from the eave A to the ridge B (`rise` above it, or `pitch` degrees when drawn on one level),
   `width` along the ridge, `thick` thick; gable: a second slope beyond the ridge, as far down. Its tiles run along
   the ridge, down the slope, from the ridge; underTex below, sideTex on the edges.
-Every piece is a convex brush (geom.hull), added semisolid (solid to walk on and against, no BSP cuts).
+Every piece is a convex brush (geom.hull), added semisolid (solid to walk on and against, no BSP cuts). The map's
+holes cut them before they are added (holes(): a door through a drawn wall, a stairwell through a drawn floor).
 The editor (static/draw-tools.js) draws the same shapes from the same numbers (DEFAULTS mirrored there; the
 parts of stairs and roofs come from the same arithmetic, tests/test_drawn_stairs.py compares both).
 """
 import math
 
+import blocks
 import geom
+import zones
 
 KINDS = ('wall', 'road', 'floor', 'ceiling', 'stairs', 'roof')
 DEFAULTS = {
@@ -516,9 +519,25 @@ def packages(edits):
     return out
 
 
+def holes(edits):
+    """The convex brushes of the map's hole blocks, turned as the build turns them. UnrealEd adds a semisolid brush
+    after every subtraction, so its holes never cut one: the drawn pieces are cut by them here, before they are added
+    (geom.subtract), the faces of the cut in the hole's texture as the hole's own walls. Water and zone portals carve
+    their own way (zones.brush_ops)."""
+    out = []
+    for b in edits.get('boxes') or []:
+        if not b.get('hole') or b.get('mover') or zones.is_zone_box(b) or not all(b['hi'][k] > b['lo'][k] for k in range(3)):
+            continue
+        centre = [(b['lo'][k] + b['hi'][k]) / 2 for k in range(3)]
+        out += [geom.rotate_brush(br, centre, b.get('rot')) for br in blocks.brushes(b, zones.hole_mats(b), b.get('name', 'Hole'))]
+    return out
+
+
 def all_brushes(edits):
-    """Every drawn path of the map: [(path name, geom.Brush)]; a path that cannot be built is reported."""
+    """Every drawn path of the map, cut by its holes: [(path name, geom.Brush)]; a path that cannot be built is
+    reported."""
     out, report = [], []
+    cutters = holes(edits)
     own = {str(k).lower() for k in (edits.get('textures') or {})}
     for p in edits.get('drawn') or []:
         if p.get('kind') in KINDS:          # a texture name the game has not (a typo): said, not silently blank
@@ -529,7 +548,10 @@ def all_brushes(edits):
             for b in brushes(p):
                 pts = p.get('pts') or []
                 pivot = [sum(q[i] for q in pts) / max(1, len(pts)) for i in range(2)] + [float(p.get('z') or 0)]
-                out.append((p.get('name', ''), geom.rotate_brush(b, pivot, p.get('rot'))))
+                pieces = [geom.rotate_brush(b, pivot, p.get('rot'))]
+                for cutter in cutters:
+                    pieces = [piece for whole in pieces for piece in geom.subtract(whole, cutter)]
+                out += [(p.get('name', ''), piece) for piece in pieces]
         except ValueError as e:
             report.append('  DRAWN %s not built: %s' % (p.get('name'), e))
     return out, report
