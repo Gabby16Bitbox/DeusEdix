@@ -153,6 +153,14 @@ In **Lit**:
 until you press **Rebuild**. An object you add or move takes the lamps around its new place at
 once, but without their shadows until the rebuild.
 
+**UnrealEd's views**: the same list (and **View** in the menu bar) also has UnrealEd's
+**Wireframe** (the outline of every surface, the textures hidden; the objects stay as they are),
+**BSP cuts** (the textured world with the edges of every BSP polygon on it: where the engine split
+the surfaces when it built the map) and **Zones** (every surface in the colour of its zone, with a
+legend: the rooms that zone portals and ZoneInfo actors make). They show the last rebuild; a map
+read by an older version of the editor shows its zones after one **Rebuild**. Choosing a lighting
+brings the textured world back.
+
 ## The screen
 
 The layout follows the familiar hierarchy, scene, inspector and asset browser arrangement:
@@ -271,9 +279,52 @@ it never silently copies only the lights. Un-nest to duplicate independent scene
 **Ctrl+C / Ctrl+V** can transfer several actors or blocks between maps; for mixed selections
 containing structures use **Save as prefab** instead. Alt+click away from a transform handle still selects a face.
 
+**Mirror X / Y / Z** (Edit menu, UnrealEd's *Transform > Mirror*) mirrors the selection about its
+middle, across the game's X, Y or Z axis. Blocks take their mirror image (a ramp rises the other way;
+a block with corners of its own, from *Edit vertices*, has them mirrored); walls, floors, stairs and
+roofs you drew too (on X or Y: a drawing stands on its floor), and curved or spiral stairs turn the
+other way. Objects face the mirrored way and keep their up (a model cannot be drawn mirrored);
+pieces of the map move to their mirrored place as they are. Their animations follow them. One
+**Ctrl+Z** undoes it.
+
+**With UnrealEd**: Edit > **Copy as T3D (UnrealEd)** puts the selection on the clipboard the way
+UnrealEd copies actors, so *Edit > Paste* in UnrealEd puts it at the same place: blocks as brushes
+(a hole subtracts, a detail block is semisolid), what you drew as its pieces (cut by the holes, as the
+Rebuild cuts them), objects with their properties. The other way, what you copy in UnrealEd
+(*Edit > Copy*) comes in with **Ctrl+V** (or Edit > **Paste T3D (UnrealEd)**): brushes become blocks
+with corners of their own, the other actors objects, at the places they had in UnrealEd's map. A
+concave brush, a sheet, the builder brush and movers are left out and named in **Messages** (split a
+concave brush in UnrealEd first). The pieces of the map are UnrealEd's own brushes: copy them there.
+
 **Drop to floor** and **Stick to surface** also work on independent Pieces and multi-selections.
 They use the actual geometry, ignoring the selected objects themselves. If no reachable surface is
 found, the editor reports it without changing the object or adding an empty Undo step.
+
+### UnrealEd's tools
+
+What UnrealEd has for brushes and surfaces, on the editor's blocks and on the map's faces:
+
+- **Top, Front and Side views** (View menu, off at first): panes at the right of the 3D view. The wheel
+  zooms at the cursor, a right or middle drag moves the view, a click picks, dragging the selection
+  moves it on the pane's plane with the grid. **Cut** leaves out what is between the pane and the 3D
+  camera (above it, in the Top view), so rooms show from inside.
+- **Edit vertices** (`V`, the Edit menu or the block's panel): move a block's corners one by one, as
+  UnrealEd's vertex editing; it stays a convex shape. **Delete** takes a corner away, **Reset corners**
+  gives the block its box and shape again.
+- **Tools > 2D Shape Editor**: draw a profile (or start from a rectangle, an arch...), then
+  *Extruded* or *Revolved*, solid or a hole: it becomes blocks, one convex piece each, in one nest.
+- **Edit > Clip block**: two clicks in a Top, Front or Side view draw the line that cuts the selected
+  blocks in two. **Intersect blocks** and **Deintersect blocks**: the block picked last cuts the others,
+  keeping what they share with it, or what is outside it.
+- **Look** in the panel of a face (Face selection, `Q`): UnrealEd's surface properties, *Unlit*,
+  *Translucent*, *Masked*, *Modulated*, *Two-sided*, *Mirror*, *Invisible*, *Fake backdrop*, *Special
+  lit*, *No smooth*. **Select same texture** picks every face of the map with that texture,
+  **Replace in whole map** gives them all another one.
+- **All properties**, the last section of an object's panel: every property UnrealEd's Properties
+  window shows for its class, applied at Rebuild after the editor's own.
+- **Select all of this class** (Edit menu, or right click on an object).
+- **Measure** (`M`): click two points on the surfaces for the distance between them.
+- **Camera bookmarks**: `Ctrl+1` to `Ctrl+9` keep the view, `1` to `9` go back to it.
 
 ### Folders (nests): keep things together
 
@@ -649,7 +700,16 @@ brush); its sides take the texture of the surface you clicked (change it in the 
 with **R** or the numbers in the panel; any block can become a hole (*Kind*: Solid block, Detail block,
 Hole). The 3D view previews the cut at once: the walls, floors and ceilings inside the hole's box
 disappear while you place, move or resize it. The faces of the hole's sides (with their texture)
-appear after **Rebuild**, when the engine really cuts it. **A new room**: a hole the size of the room next to an existing one, then a doorway between
+appear after **Rebuild**, when the engine really cuts it. Holes cut what you drew too (walls,
+floors, ceilings, stairs and roofs, see *Drawing walls*): a doorway through a drawn wall, a
+stairwell through a drawn floor.
+
+**Build order**: blocks are built in their order, as UnrealEd builds its brushes. A hole cuts the
+solid blocks built before it; a solid block built after a hole fills it again. A block's panel shows
+its place (*Build order*) with **To first** and **To last** (also Edit > **Order: to first / to
+last**); Rebuild applies it. Detail blocks are never cut by holes, as in UnrealEd.
+
+**A new room**: a hole the size of the room next to an existing one, then a doorway between
 them; the new room is dark until it has a light: **Light it** (in the panel of a room-sized hole)
 puts one in the middle under its ceiling.
 
