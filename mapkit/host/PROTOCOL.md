@@ -109,7 +109,7 @@ Two more files carry binary data after a JSON header line:
 | `UC_ANIMNEW <source mesh> <package> <name> <file>` | `animnew\|package.name\|N sequences\|...` | reads a file: the line `{sequences: [{name, group, frames, rate}]}`, the line `data`, then int16 xyz frames |
 | `UC_ANIMSAVE <file>` | `animsave\|file\|ok` | |
 
-`UC_BSPDUMP`: header `{format: bsp, textures [names], polygons}`. Arrays, one entry a polygon unless said:
+`UC_BSPDUMP`: header `{format: bsp, textures [names], zones [names], polygons}`. Arrays, one entry a polygon unless said:
 
 | Array | Type | Per polygon |
 |---|---|---|
@@ -120,6 +120,7 @@ Two more files carry binary data after a JSON header line:
 | `brush` | i32 | the build order of the static brush that made it, -1 unknown |
 | `surface` | i32 | its BSP surface |
 | `brushPoly` | i32 | its source polygon in that brush |
+| `zone` | u8 | the zone in front of it: index into `zones` (the names of their ZoneInfo actors, `""` for the level's own zone 0) |
 | `mapping` | f64 | 11: base xyz, textureU xyz, textureV xyz, the texture's width and height in world units |
 | `vertices` | f64 | 3 per vertex, `vertexCount` vertices, polygon after polygon |
 

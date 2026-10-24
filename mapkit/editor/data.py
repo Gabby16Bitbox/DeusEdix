@@ -166,6 +166,7 @@ def _dump(map_name, src, folder, log, lite=False):
             textures.setdefault(tex, (nums[11], nums[12]))
         psurf = list(bsp.get('surface', ()))       # the BSP surface of each polygon (its lightmap)
         pface = list(bsp.get('brushPoly', ()))     # the source brush polygon (survives BSP rebuilds)
+        pzone = dict(zones=header.get('zones'), zone=list(bsp.get('zone', ())))    # none from a bridge before zones
         for m in meshes.values():
             for part in m['parts']:
                 textures.setdefault(part['tex'], (0, 0))
@@ -178,6 +179,7 @@ def _dump(map_name, src, folder, log, lite=False):
         s.close()
     (folder / 'psurf.json').write_text(json.dumps(psurf), encoding='utf-8')
     (folder / 'pface.json').write_text(json.dumps(pface), encoding='utf-8')
+    (folder / 'pzone.json').write_text(json.dumps(pzone), encoding='utf-8')
     (folder / 'meshes.json').write_text(json.dumps(meshes), encoding='utf-8')
     (folder / 'textures.json').write_text(json.dumps(tex_info), encoding='utf-8')
     (folder / 'polys.json').write_text(json.dumps(polys), encoding='utf-8')
@@ -220,13 +222,9 @@ def _dump_paths(map_name, src, folder):
         s.close()
 
 
-def _assemble(map_name, folder):
-    """geometry.json: the polygons as triangles with UVs, one mesh per texture (per structure)."""
-    from texture_mapping import frame
-    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
-    tex_info = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
-    brushes = json.loads((folder / 'brushes.json').read_text(encoding='utf-8'))
-    # polygons of the structures the editor can move (out/<map>.groups.json) stay in their own meshes
+def _owners(map_name, brushes):
+    """{brush build order: structure name}: the polygons of the structures the editor can move
+    (out/<map>.groups.json) stay in their own meshes."""
     owner = {}
     by_name = {b['name']: b['ord'] for b in brushes}
     for name, info in structures(map_name).items():
@@ -235,6 +233,16 @@ def _assemble(map_name, folder):
         for n in info.get('brush_names', []):
             if n in by_name:
                 owner[by_name[n]] = name
+    return owner
+
+
+def _assemble(map_name, folder):
+    """geometry.json: the polygons as triangles with UVs, one mesh per texture (per structure)."""
+    from texture_mapping import frame
+    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    tex_info = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
+    brushes = json.loads((folder / 'brushes.json').read_text(encoding='utf-8'))
+    owner = _owners(map_name, brushes)
     groups = {}
     lm = json.loads((folder / 'lightmap.json').read_text(encoding='utf-8')) if (folder / 'lightmap.json').exists() else None
     psurf = json.loads((folder / 'psurf.json').read_text(encoding='utf-8')) if (folder / 'psurf.json').exists() else []
@@ -283,6 +291,50 @@ def _assemble(map_name, folder):
                                                           lights=(lm or {}).get('lights', []),
                                                           objectlight=(lm or {}).get('objects', {}))),
                                           encoding='utf-8')
+
+
+def views(map_name):
+    """The UnrealEd views of a map's world (the editor's Wireframe, BSP cuts and Zones), from its last SDK pass, per
+    structure as geometry.json keeps the polygons ('' the map's own): cuts, the edges of every BSP polygon (where the
+    BSP split the surfaces); wire, the outline of every surface (its polygons merged, as UnrealEd draws a face); tris
+    and zone, the polygons' triangles and the zone in front of each. zones: the zones' names (zoned False when the
+    pass was made before the bridge dumped zones: a Rebuild makes it again). Kept in views.json while the assembly of
+    the polygons is the same (assembled.txt)."""
+    folder = map_folder(map_name)
+    done, cached = folder / 'assembled.txt', folder / 'views.json'
+    key = done.read_text() if done.exists() else ''
+    if cached.exists():
+        old = json.loads(cached.read_text(encoding='utf-8'))
+        if old.get('key') == key:
+            return old
+    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    owner = _owners(map_name, json.loads((folder / 'brushes.json').read_text(encoding='utf-8')))
+    psurf = json.loads((folder / 'psurf.json').read_text(encoding='utf-8')) if (folder / 'psurf.json').exists() else []
+    pzone = json.loads((folder / 'pzone.json').read_text(encoding='utf-8')) if (folder / 'pzone.json').exists() else {}
+    zone = pzone.get('zone') or []
+    # a tenth of a unit, written as a whole number when it is one (the file is a third smaller)
+    point = lambda p: tuple(int(r) if r == int(r) else r for r in (round(c, 1) for c in p))
+    cuts, wire, edges_of_surface, out = {}, {}, {}, {}
+    for pi, (_tex, _flags, _nums, verts, brush) in enumerate(polys):
+        st = owner.get(brush, '')
+        pts = [point(verts[i:i + 3]) for i in range(0, len(verts), 3)]
+        v = out.setdefault(st, dict(cuts=[], wire=[], tris=[], zone=[]))
+        surface = edges_of_surface.setdefault((st, psurf[pi] if pi < len(psurf) else -pi - 1), {})
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            edge = (a, b) if a < b else (b, a)
+            cuts.setdefault(st, set()).add(edge)
+            surface[edge] = surface.get(edge, 0) + 1
+        for k in range(1, len(pts) - 1):          # the same triangle fan as geometry.json
+            v['tris'] += [c for j in (0, k, k + 1) for c in pts[j]]
+            v['zone'].append(zone[pi] if pi < len(zone) else 0)
+    for (st, _surface), edges in edges_of_surface.items():   # an edge inside a surface is in two of its polygons
+        wire.setdefault(st, set()).update(edge for edge, n in edges.items() if n == 1)
+    for st in out:
+        out[st]['cuts'] = [c for edge in sorted(cuts[st]) for p in edge for c in p]
+        out[st]['wire'] = [c for edge in sorted(wire[st]) for p in edge for c in p]
+    result = dict(key=key, zoned=bool(pzone.get('zones')), zones=pzone.get('zones') or [''], structures=out)
+    cached.write_text(json.dumps(result), encoding='utf-8')
+    return result
 
 
 def lightmap_atlas(path, folder, log=print):

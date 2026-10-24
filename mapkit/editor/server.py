@@ -684,6 +684,10 @@ class Handler(BaseHTTPRequestHandler):
                 # the PolyFlags of the game's textures (masked fences...), made once (data.texture_flags)
                 with LOCK:
                     return self._send(200, data.texture_flags(log=lambda *a: None))
+            if u.path == '/api/views':
+                # the UnrealEd views of the map shown (View > Wireframe, BSP cuts, Zones), from its last SDK pass
+                with LOCK:
+                    return self._send(200, data.views(map_of(q['script'])))
             if u.path == '/api/links':
                 # the ways in and out of a map, and the exits of the other maps that lead to it (maplinks.py)
                 return self._send(200, maplinks.links(q['map']))
@@ -1274,6 +1278,15 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/prefab_library':
                 with LOCK:
                     return self._send(200, save_prefab_selection(q['script'], body))
+            if u.path in ('/api/t3d_export', '/api/t3d_import'):
+                # UnrealEd's clipboard: the selection as T3D for its Edit > Paste, or what its Edit > Copy put there
+                import t3d_clipboard
+                if u.path == '/api/t3d_export':
+                    return self._send(200, t3d_clipboard.export(body.get('items') or [], body.get('holes') or []))
+                try:
+                    return self._send(200, t3d_clipboard.read(body.get('text') or ''))
+                except ValueError as e:
+                    return self._send(400, dict(error=str(e)))
             if u.path in ('/api/sound_import', '/api/sound_delete'):
                 # the user's sounds (the browser's Import, My sounds) made into the editor's sounds package
                 with LOCK:

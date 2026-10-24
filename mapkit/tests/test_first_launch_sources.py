@@ -59,8 +59,8 @@ class CompilerSourcesTests(unittest.TestCase):
     def test_geometry_keeps_map_texture_flags_for_transparency(self):
         source=(KIT/'editor/data.py').read_text(encoding='utf-8')
         tree=ast.parse(source)
-        node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_assemble')
-        module=ast.Module(body=[node],type_ignores=[])
+        nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('_owners','_assemble')]   # with the helper it calls
+        module=ast.Module(body=nodes,type_ignores=[])
         namespace=dict(json=json,OUT=self.root,structures=lambda name:{},PF={})
         exec(compile(module,'_assemble','exec'),namespace)
         folder=self.root/'geometry';folder.mkdir()

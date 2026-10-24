@@ -522,8 +522,10 @@ static int traceLine(const float from[3], const float to[3]) {
 // UC_BSPDUMP <file>: the final world geometry (every visible BSP polygon) with its texture and mapping, for the
 // 3D view of the map editor. A binary dump (Arrays): header {textures, polygons}; arrays, one entry a polygon unless
 // said: texture (into textures), flags, pan (u, v), vertexCount, brush (the build order of the static brush that made
-// it, -1 unknown), surface, brushPoly (its source polygon in that brush), mapping (base xyz, textureU xyz, textureV
-// xyz, the texture's width and height in world units: 11), vertices (x y z of every vertex, polygon after polygon).
+// it, -1 unknown), surface, brushPoly (its source polygon in that brush), zone (the zone in front of it: its number in
+// the header's zones, the names of the zones' ZoneInfo, "" for the level's own), mapping (base xyz, textureU xyz,
+// textureV xyz, the texture's width and height in world units: 11), vertices (x y z of every vertex, polygon after
+// polygon).
 static int dumpBsp(const char* path) {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* m = GEditor->Level->Model;
@@ -543,6 +545,7 @@ static int dumpBsp(const char* path) {
     TextureList textures;
     std::vector<INT> texture, pan, vertexCount, brush, surface, brushPoly;
     std::vector<DWORD> flags;
+    std::vector<BYTE> zone;
     std::vector<double> mapping, vertices;
     for (int i = 0; i < m->Nodes.Num(); i++) {
         FBspNode& n = m->Nodes(i);
@@ -564,6 +567,7 @@ static int dumpBsp(const char* path) {
         brush.push_back(surfBrush(n.iSurf));
         surface.push_back(n.iSurf);
         brushPoly.push_back(s.iBrushPoly);                  // the stable source face, not a transient BSP index
+        zone.push_back(n.iZone[1]);                         // the zone its front faces (iZone[0]: behind it)
         push3(mapping, digits(base.X), digits(base.Y), digits(base.Z));
         push3(mapping, digits(u.X), digits(u.Y), digits(u.Z));
         push3(mapping, digits(v.X), digits(v.Y), digits(v.Z));
@@ -574,8 +578,12 @@ static int dumpBsp(const char* path) {
             push3(vertices, digits(p.X), digits(p.Y), digits(p.Z));
         }
     }
+    std::vector<std::string> zones;                         // zone 0 is the level's own, outside every ZoneInfo
+    for (int z = 0; z < m->NumZones; z++)
+        zones.push_back(m->Zones[z].ZoneActor ? utf8(m->Zones[z].ZoneActor->GetName()) : std::string());
     Arrays out("bsp");
     out.header["textures"] = textures.names;
+    out.header["zones"] = zones;
     out.header["polygons"] = texture.size();
     out.add("texture", texture);
     out.add("flags", flags);
@@ -584,6 +592,7 @@ static int dumpBsp(const char* path) {
     out.add("brush", brush);
     out.add("surface", surface);
     out.add("brushPoly", brushPoly);
+    out.add("zone", zone);
     out.add("mapping", mapping);
     out.add("vertices", vertices);
     if (!out.write(path)) return 0;
