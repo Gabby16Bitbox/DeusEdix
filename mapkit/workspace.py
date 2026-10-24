@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import settings  # noqa: E402
+import atomicfile  # noqa: E402
 
 PROJECT = settings.PROJECT
 DEV = PROJECT / 'DevInstall'
@@ -90,12 +91,12 @@ def needs_build():
 
 
 def _link_or_copy(src, dst):
-    if dst.exists():
-        dst.unlink()
+    if os.path.lexists(dst):        # a link too (exists() is False for a broken one): dropped as a name
+        os.unlink(dst)
     try:
         os.link(src, dst)
     except OSError:
-        shutil.copy2(src, dst)
+        atomicfile.copy_file(src, dst)
 
 
 def _junction(link, target):
@@ -239,6 +240,8 @@ def ensure(log=None, force=False):
     _log(log, 'Preparing the workspace from', rev_sys)
     SYS.mkdir(parents=True, exist_ok=True)
     count = 0
+    # SYS is mostly hard links to the game's files: every write below replaces a name (atomicfile), so a file
+    # shared with the game is never written into
     for src in rev_sys.rglob('*'):
         rel = src.relative_to(rev_sys)
         if src.is_dir() or _NOT_THEIRS.search(src.name):
@@ -246,16 +249,16 @@ def ensure(log=None, force=False):
         dst = SYS / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         if src.suffix.lower() == '.ini':
-            shutil.copy2(src, dst)            # ini files are rewritten: never a link to the game's
+            atomicfile.copy_file(src, dst)    # ini files are rewritten: never a link to the game's
         else:
             _link_or_copy(src, dst)
         count += 1
     if settings.IS_REVISION:            # the original game's System has them already (linked above)
-        shutil.copy2(settings.GAME / 'System' / 'Editor.dll', SYS / 'Editor.dll')
+        atomicfile.copy_file(settings.GAME / 'System' / 'Editor.dll', SYS / 'Editor.dll')
         for name in RETAIL:
             f = settings.GAME / 'System' / (name + '.u')
             if f.is_file():
-                shutil.copy2(f, SYS / f.name)
+                atomicfile.copy_file(f, SYS / f.name)
     for name in LINKED:
         if (settings.REVISION / name).is_dir():
             _junction(DEV / name, settings.REVISION / name)
@@ -269,10 +272,10 @@ def ensure(log=None, force=False):
     _copy_native()
     ini = _ini(settings.GAME_INI.read_text(encoding='latin1'))
     for name in dict.fromkeys((settings.GAME_INI.name, 'DeusEx.ini', 'Default.ini')):
-        (SYS / name).write_text(ini, encoding='latin1', newline='')
+        atomicfile.write_text(SYS / name, ini, encoding='latin1')
     for a, b in (('RevisionUser.ini', 'User.ini'), ('RevisionDefault.ini', 'Default.ini'), ('RevisionDefUser.ini', 'DefUser.ini')):
         if (rev_sys / a).is_file() and not (b == 'Default.ini'):
-            shutil.copy2(rev_sys / a, SYS / b)
+            atomicfile.copy_file(rev_sys / a, SYS / b)
     STAMP.write_text(json.dumps(_stamp()), encoding='utf-8')
     _log(log, 'Workspace ready: %d files from %s' % (count, settings.GAME_NAME))
     return True
@@ -311,9 +314,9 @@ def build(log=None):
         target.unlink(missing_ok=True)
         host = SYS / HOST.name
         bridge = HOST.with_name('UCEngineBridge.dll')   # the host's engine bridge (host/README.md)
-        shutil.copy2(HOST, host)
+        atomicfile.copy_file(HOST, host)
         if bridge.is_file():
-            shutil.copy2(bridge, SYS / bridge.name)
+            atomicfile.copy_file(bridge, SYS / bridge.name)
         t0 = time.time()
         try:
             r = subprocess.run([str(host), '--make', 'DeusEx.ini'], cwd=str(SYS), capture_output=True, text=True,

@@ -15,6 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
+import atomicfile
 import settings
 
 PROJECT = Path(__file__).resolve().parents[2]
@@ -199,11 +200,14 @@ def new_run(inputs=(), label='run'):
             try:
                 os.link(source, system / source.name)
             except OSError:
-                shutil.copy2(source, system / source.name)
+                atomicfile.copy_file(source, system / source.name)
+    # the run's System is mostly hard links (to DEV's files, themselves the game's): a write replaces a name, never
+    # writes into a file it shares
     for path in DEV.glob('*.ini'):
-        shutil.copy2(path, system / path.name)
+        atomicfile.copy_file(path, system / path.name)
     ini = _ini(system)
     for name in ('Default.ini', 'DeusEx.ini', 'Revision.ini', 'ucc.ini', 'Editor.ini', 'UnrealEd.ini'):
+        (system / name).unlink(missing_ok=True)
         (system / name).write_text(ini, encoding='latin1')
     for sub in ('Input', 'Output', 'T3D'):
         (folder / sub).mkdir()

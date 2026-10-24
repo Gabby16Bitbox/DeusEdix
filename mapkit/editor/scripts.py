@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import settings  # noqa: E402
+import atomicfile  # noqa: E402
 
 PACKAGE = settings.SCRIPTS_PACKAGE
 SRC = settings.PROJECT / 'src' / PACKAGE
@@ -168,7 +169,7 @@ def _make_ini():
     at = next((i for i, l in enumerate(lines) if l.strip().lower() == '[core.system]'), None)
     if at is not None:
         lines[at + 1:at + 1] = ['Paths=%s\*%s' % (f, ext) for f in folders for ext in ('.u', '.utx', '.uax', '.umx')]
-    (SYS / MAKE_INI).write_text('\r\n'.join(lines) + '\r\n', encoding='latin1', newline='')
+    atomicfile.write_text(SYS / MAKE_INI, '\r\n'.join(lines) + '\r\n', encoding='latin1')
 
 
 def _problems(text):
@@ -204,10 +205,11 @@ def compile(log=None):
             return dict(ok=False, problems=[], lines=['The workspace is not ready (the game folder?).'], installed=False, note='')
     if not (SYS / 'DeusEx.ini').is_file():
         return dict(ok=False, problems=[], lines=['No workspace at %s: build the project once first.' % DEV], installed=False, note='')
-    # the scripts extend the editor's package: the compiler reads its newest build
+    # the scripts extend the editor's package: the compiler reads its newest build. The workspace's System is mostly
+    # hard links to the game's files: a write there replaces a name (atomicfile), never writes into one
     main = DIST / (settings.PACKAGE + '.u')
     if main.is_file() and (not (SYS / main.name).is_file() or main.stat().st_mtime > (SYS / main.name).stat().st_mtime + 1):
-        shutil.copy2(main, SYS / main.name)
+        atomicfile.copy_file(main, SYS / main.name)
     link = DEV / PACKAGE
     if not os.path.lexists(link):
         import workspace
@@ -217,9 +219,9 @@ def compile(log=None):
     target.unlink(missing_ok=True)
     host = SYS / HOST.name
     bridge = HOST.with_name('UCEngineBridge.dll')       # the host's engine bridge (host/README.md)
-    shutil.copy2(HOST, host)
+    atomicfile.copy_file(HOST, host)
     if bridge.is_file():
-        shutil.copy2(bridge, SYS / bridge.name)
+        atomicfile.copy_file(bridge, SYS / bridge.name)
     import workspace
     workspace._copy_native()            # the editor's package uses DeusEdixNav: the compiler loads it with its DLL
     t0 = time.time()

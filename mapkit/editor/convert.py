@@ -45,6 +45,7 @@ HERE = Path(__file__).resolve().parent
 KIT = HERE.parent
 sys.path[:0] = [str(HERE), str(KIT), str(KIT.parent)]
 import settings  # noqa: E402
+import atomicfile  # noqa: E402
 import kit  # noqa: E402
 import gamecheck  # noqa: E402
 from ue1pkg import Pkg  # noqa: E402
@@ -105,7 +106,7 @@ def _link(src, dst):
     try:
         os.link(src, dst)
     except OSError:                 # another disk
-        shutil.copy2(src, dst)
+        atomicfile.copy_file(src, dst)
 
 
 def _ini(text, ini_dir, system, extra=()):
@@ -158,14 +159,15 @@ def _run(game, target, label, extra_paths=(), packages=()):
             if f.is_file():             # the host, its engine bridge, DeusEdixNav (the editor's package uses it)
                 (system / f.name).unlink(missing_ok=True)
                 shutil.copy2(f, system / f.name)
+        # the System is mostly hard links to the game's files: a write replaces a name, never writes into one
         ini = _ini((system_src / profile['ini']).read_text(encoding='latin1'), system_src, system, extra_paths)
         for name in dict.fromkeys(('Default.ini', 'DeusEx.ini', profile['ini'])):
-            (system / name).write_text(ini, encoding='latin1', newline='')
+            atomicfile.write_text(system / name, ini, encoding='latin1')
         users = (('RevisionUser.ini', 'User.ini'), ('RevisionDefUser.ini', 'DefUser.ini')) if target == 'revision' \
             else (('User.ini', 'User.ini'), ('DefUser.ini', 'DefUser.ini'))
         for a, b in users:
             if (system_src / a).is_file():
-                shutil.copy2(system_src / a, system / b)
+                atomicfile.copy_file(system_src / a, system / b)
     except BaseException:           # a run half made (a full disk...) is not left behind
         _remove(folder)
         raise
