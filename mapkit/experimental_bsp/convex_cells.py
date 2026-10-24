@@ -93,7 +93,7 @@ def box_cell(low, high):
     if any(a >= b for a, b in zip(low, high)):
         raise Refused('Degenerate bounding box')
     vv = [(x, y, z) for x in (low[0], high[0]) for y in (low[1], high[1]) for z in (low[2], high[2])]
-    return tuple(tuple(vv[i] for i in face) for face in ((0,1,3,2),(4,6,7,5),(0,4,5,1),(2,3,7,6),(0,2,6,4),(1,5,7,3)))
+    return tuple(tuple(vv[i] for i in face) for face in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)))
 
 
 def _planar_hull(vv, normal):
@@ -126,13 +126,15 @@ def _clip(cell, p):
     faces, cap = [], set()
     for face in cell:
         out = []
-        a = face[-1]; da = distance(a, p)
+        a = face[-1]
+        da = distance(a, p)
         for b in face:
             db = distance(b, p)
             if (da < 0 and db > 0) or (da > 0 and db < 0):
                 t = da/(da-db)
                 hit = tuple(q(a[k]+t*(b[k]-a[k])) for k in range(3))
-                out.append(hit); cap.add(hit)
+                out.append(hit)
+                cap.add(hit)
             if db <= 0:
                 out.append(b)
                 if db == 0:
@@ -189,22 +191,26 @@ def volume(cell):
 
 def halfspace_feasible(planes, limit=50000):
     """Exact Fourier–Motzkin feasibility, including lower-dimensional sets."""
-    rows=[tuple(q(v) for v in p) for p in planes]
-    dimensions=len(rows[0])-1 if rows else 3
-    for count in range(dimensions,0,-1):
-        if any(not any(r[:-1]) and r[-1]<0 for r in rows):return False
-        rows=list(dict.fromkeys(r for r in rows if any(r[:-1])))
-        if not rows:return True
-        axis=min(range(count),key=lambda k:sum(r[k]>0 for r in rows)*sum(r[k]<0 for r in rows))
-        plus=[r for r in rows if r[axis]>0];minus=[r for r in rows if r[axis]<0]
-        new=[r[:axis]+r[axis+1:] for r in rows if r[axis]==0]
-        if len(plus)*len(minus)+len(new)>limit:raise Refused('Halfspace feasibility budget exceeded')
+    rows = [tuple(q(v) for v in p) for p in planes]
+    dimensions = len(rows[0])-1 if rows else 3
+    for count in range(dimensions, 0, -1):
+        if any(not any(r[:-1]) and r[-1] < 0 for r in rows):
+            return False
+        rows = list(dict.fromkeys(r for r in rows if any(r[:-1])))
+        if not rows:
+            return True
+        axis = min(range(count), key=lambda k:sum(r[k] > 0 for r in rows)*sum(r[k] < 0 for r in rows))
+        plus = [r for r in rows if r[axis] > 0]
+        minus = [r for r in rows if r[axis] < 0]
+        new = [r[:axis]+r[axis+1:] for r in rows if r[axis] == 0]
+        if len(plus)*len(minus)+len(new) > limit:
+            raise Refused('Halfspace feasibility budget exceeded')
         for a in plus:
             for b in minus:
-                row=tuple(q(a[k]/a[axis]-b[k]/b[axis]) for k in range(count+1) if k!=axis)
+                row = tuple(q(a[k]/a[axis]-b[k]/b[axis]) for k in range(count+1) if k != axis)
                 new.append(row)
-        rows=new
-    return not any(r[0]<0 for r in rows)
+        rows = new
+    return not any(r[0] < 0 for r in rows)
 
 
 def bounded_cell(planes, limit=50000):
@@ -214,32 +220,43 @@ def bounded_cell(planes, limit=50000):
     feasibility problems. Enumerating all triple-plane vertices then supplies
     every face of a bounded, full-dimensional convex polyhedron.
     """
-    planes=tuple(plane(p) for p in planes)
-    if not planes:raise Refused('Unbounded cell: no ancestor planes')
-    if len(planes)>80:raise Refused('Ancestor-plane complexity budget exceeded')
-    recession=[p[:3]+(Fraction(0),) for p in planes]
-    cube=[]
+    planes = tuple(plane(p) for p in planes)
+    if not planes:
+        raise Refused('Unbounded cell: no ancestor planes')
+    if len(planes) > 80:
+        raise Refused('Ancestor-plane complexity budget exceeded')
+    recession = [p[:3]+(Fraction(0),) for p in planes]
+    cube = []
     for axis in range(3):
-        for sign in (-1,1):
-            n=[Fraction(0)]*3;n[axis]=sign;cube.append(tuple(n)+(Fraction(1),))
+        for sign in (-1, 1):
+            n = [Fraction(0)]*3
+            n[axis] = sign
+            cube.append(tuple(n)+(Fraction(1),))
     for axis in range(3):
-        for sign in (-1,1):
-            n=[Fraction(0)]*3;n[axis]=-sign
-            if halfspace_feasible(recession+cube+[tuple(n)+(Fraction(-1),)],limit):
+        for sign in (-1, 1):
+            n = [Fraction(0)]*3
+            n[axis] = -sign
+            if halfspace_feasible(recession+cube+[tuple(n)+(Fraction(-1),)], limit):
                 raise Refused('Unbounded ancestor cell requires a separate outside proof')
-    vv=set()
-    for a,b,c in combinations(planes,3):
-        bc=cross(b[:3],c[:3]);det=dot(a[:3],bc)
-        if not det:continue
-        ca=cross(c[:3],a[:3]);ab=cross(a[:3],b[:3])
-        v=tuple(q((a[3]*bc[k]+b[3]*ca[k]+c[3]*ab[k])/det) for k in range(3))
-        if all(distance(v,p)<=0 for p in planes):vv.add(v)
-    faces=[]
+    vv = set()
+    for a, b, c in combinations(planes, 3):
+        bc = cross(b[:3], c[:3])
+        det = dot(a[:3], bc)
+        if not det:
+            continue
+        ca = cross(c[:3], a[:3])
+        ab = cross(a[:3], b[:3])
+        v = tuple(q((a[3]*bc[k]+b[3]*ca[k]+c[3]*ab[k])/det) for k in range(3))
+        if all(distance(v, p) <= 0 for p in planes):
+            vv.add(v)
+    faces = []
     for p in planes:
-        ring=_planar_hull([v for v in vv if distance(v,p)==0],p[:3])
-        if len(ring)>=3 and frozenset(ring) not in [frozenset(f) for f in faces]:faces.append(ring)
-    result=tuple(faces)
-    if not full_dimension(result):raise Refused('Empty or lower-dimensional ancestor cell')
+        ring = _planar_hull([v for v in vv if distance(v, p) == 0], p[:3])
+        if len(ring) >= 3 and frozenset(ring) not in [frozenset(f) for f in faces]:
+            faces.append(ring)
+    result = tuple(faces)
+    if not full_dimension(result):
+        raise Refused('Empty or lower-dimensional ancestor cell')
     return result
 
 
@@ -254,7 +271,8 @@ def partition_brush(cell, planes, budget=None):
         inside, part = split_convex(inside, p, budget)
         if part:
             outside.append(part)
-            if budget: budget.fragment()
+            if budget:
+                budget.fragment()
     return tuple(outside), inside
 
 
@@ -317,8 +335,8 @@ def leaf_cells(nodes, root, outside, cell, budget=None, volumes_only=False):
             else:
                 budget.fragment()
                 result.append(dict(cell=piece, outside=next_out, node=i, side=side, path=next_path,
-                                   zone=n.get('zones', [None,None])[1-side],
-                                   leaf=n.get('leaves', [None,None])[1-side]))
+                                   zone=n.get('zones', [None, None])[1-side],
+                                   leaf=n.get('leaves', [None, None])[1-side]))
     return result
 
 
@@ -330,32 +348,32 @@ def certify_leaf_csg(nodes, root, root_outside, scope, brushes, source_root_outs
     value certifies volumetric geometry only, never native collision caches.
     """
     budget = budget or Budget()
-    if source_root_outside not in (0,1,False,True):
+    if source_root_outside not in (0, 1, False, True):
         raise Refused('Unknown source root state')
     for b in brushes:
-        if b.get('operation') not in (1,2) or b.get('flags',0) != 0:
+        if b.get('operation') not in (1, 2) or b.get('flags', 0) != 0:
             raise Refused('Only ordinary solid additive/subtractive convex brushes are supported')
         if not b.get('planes'):
             raise Refused('Missing brush planes')
     if any(n['flags'] & 0xE7 for n in nodes.values()):
         raise Refused('Non-ordinary BSP semantics require a separate certificate')
-    leaves = leaf_cells(nodes,root,root_outside,scope,budget)
+    leaves = leaf_cells(nodes, root, root_outside, scope, budget)
     comparisons = 0
     for leaf in leaves:
         states = [(leaf['cell'], bool(source_root_outside), ())]
         for brush in brushes:
             updated = []
             for region, outside, lineage in states:
-                pieces, inside = partition_brush(region, brush['planes'],budget)
-                updated.extend((p,outside,lineage) for p in pieces)
+                pieces, inside = partition_brush(region, brush['planes'], budget)
+                updated.extend((p, outside, lineage) for p in pieces)
                 if inside:
                     budget.fragment()
-                    updated.append((inside, brush['operation']==2, lineage+(brush['name'],)))
+                    updated.append((inside, brush['operation'] == 2, lineage+(brush['name'],)))
             states = updated
         for fragment, outside, lineage in states:
             comparisons += 1
             if outside != leaf['outside']:
-                raise Refused('Volumetric CSG mismatch at leaf '+str((leaf['node'],leaf['side']))+' after '+str(lineage)+'; positive volume='+str(volume(fragment)))
-    return dict(volumetric_geometry='certified_exact_within_bounded_scope',leaves=len(leaves),
-                fragments_compared=comparisons,splits=budget.splits,
-                native_collision='unverified',publication_authorized=False)
+                raise Refused('Volumetric CSG mismatch at leaf '+str((leaf['node'], leaf['side']))+' after '+str(lineage)+'; positive volume='+str(volume(fragment)))
+    return dict(volumetric_geometry='certified_exact_within_bounded_scope', leaves=len(leaves),
+                fragments_compared=comparisons, splits=budget.splits,
+                native_collision='unverified', publication_authorized=False)

@@ -1,5 +1,5 @@
 //=============================================================================
-// UCCam - telecamera invisibile per le cutscene (il giocatore la usa come ViewTarget).
+// UCCam - an invisible camera for cutscenes (the player uses it as its ViewTarget).
 //=============================================================================
 class UCCam extends Actor
 	transient;

@@ -8,30 +8,33 @@
 // does): Corner[0..NumCorners-1], the last one is "to". UCNavRoute walks a character through them with the
 // game's own GoingTo / RunningTo, so it opens doors, turns and animates as the game does.
 //
-// Each Poly is "nv x y z ... n ...": its nv corners (Unreal units, on the floor), then, for each edge (corner
-// k to k+1), the polygon across it or -1. For scripts:
+// The polygons are numbers in the map (editor/navbake.py writes them): polygon p has Sides[p] corners (3 to 6),
+// corner k at CornerX/Y/Z[p * 6 + k] (Unreal units, on the floor), and Across[p * 6 + k] is the polygon across
+// its edge from corner k to k + 1, or -1. UnrealScript has no dynamic arrays, so they are sized for the largest
+// walkable area: 2048 polygons. For scripts:
 //     class'UCNavRoute'.static.Send(somePawn, aPlace, bRun)
 //     M = class'UCNavMesh'.static.Of(self); if (M != None && M.Route(a, b)) ... M.CornerAt(i) ...
 //=============================================================================
 class UCNavMesh extends Info;
 
-var() string Poly[2048];
 var() int NumPolys;
+var() byte Sides[2048];
+var() float CornerX[12288], CornerY[12288], CornerZ[12288];
+var() int Across[12288];
 
 var transient bool bLoaded;
-var transient int NV[2048];
-var transient float VX[12288], VY[12288], VZ[12288];     // corners: polygon p, corner k at p * 6 + k
-var transient int NB[12288];
-var transient float CX[2048], CY[2048], CZ[2048];
-var transient float MinX[2048], MinY[2048], MaxX[2048], MaxY[2048], MinZ[2048], MaxZ[2048];
-// the search
-var transient float G[2048], F[2048];
-var transient int From[2048], Seen[2048], Done[2048], Heap[2048], HeapPos[2048];
+var transient float CentreX[2048], CentreY[2048], CentreZ[2048];      // the middle of each polygon
+var transient float MinX[2048], MinY[2048], MaxX[2048], MaxY[2048], MinZ[2048], MaxZ[2048];     // and its box
+// the search (A*): the cost of the way to a polygon and the estimate of the whole way through it, the polygon
+// it was reached from, the search that saw it and the one that closed it; the open polygons in a heap by Estimate
+var transient float WayCost[2048], Estimate[2048];
+var transient int CameFrom[2048], SeenIn[2048], ClosedIn[2048], Heap[2048], HeapPos[2048];
 var transient int HeapN, Search;
 var transient int Way[2048];
 var transient int NumWay;
-// the portals between the polygons of the way, and the route
-var transient float LX[2049], LY[2049], LZ[2049], RX[2049], RY[2049], RZ[2049];
+// the portals between the polygons of the way (the ends of the edge each one crosses), and the route
+var transient float PortalLeftX[2049], PortalLeftY[2049], PortalLeftZ[2049];
+var transient float PortalRightX[2049], PortalRightY[2049], PortalRightZ[2049];
 var transient vector Corner[64];
 var transient int NumCorners;
 
@@ -47,30 +50,10 @@ static function UCNavMesh Of(Actor anyone)
 	return M;
 }
 
-// the next integer of s (space separated); s keeps the rest
-function int NextInt(out string s)
-{
-	local int i;
-	local string t;
-
-	i = InStr(s, " ");
-	if (i < 0)
-	{
-		t = s;
-		s = "";
-	}
-	else
-	{
-		t = Left(s, i);
-		s = Mid(s, i + 1);
-	}
-	return int(t);
-}
-
+// The middles and boxes of the polygons, once. A polygon without 3 to 6 sides is left out of the search.
 function bool Load()
 {
 	local int p, k, n, b;
-	local string s;
 
 	if (bLoaded)
 		return NumPolys > 0;
@@ -79,36 +62,31 @@ function bool Load()
 		NumPolys = 2048;
 	for (p = 0; p < NumPolys; p++)
 	{
-		s = Poly[p];
-		n = NextInt(s);
-		NV[p] = 0;
+		n = Sides[p];
 		if (n < 3 || n > 6)
+		{
+			Sides[p] = 0;
 			continue;
-		NV[p] = n;
+		}
 		b = p * 6;
-		CX[p] = 0;
-		CY[p] = 0;
-		CZ[p] = 0;
+		CentreX[p] = 0;
+		CentreY[p] = 0;
+		CentreZ[p] = 0;
 		for (k = 0; k < n; k++)
 		{
-			VX[b + k] = NextInt(s);
-			VY[b + k] = NextInt(s);
-			VZ[b + k] = NextInt(s);
-			CX[p] += VX[b + k];
-			CY[p] += VY[b + k];
-			CZ[p] += VZ[b + k];
-			if (k == 0 || VX[b + k] < MinX[p]) MinX[p] = VX[b + k];
-			if (k == 0 || VX[b + k] > MaxX[p]) MaxX[p] = VX[b + k];
-			if (k == 0 || VY[b + k] < MinY[p]) MinY[p] = VY[b + k];
-			if (k == 0 || VY[b + k] > MaxY[p]) MaxY[p] = VY[b + k];
-			if (k == 0 || VZ[b + k] < MinZ[p]) MinZ[p] = VZ[b + k];
-			if (k == 0 || VZ[b + k] > MaxZ[p]) MaxZ[p] = VZ[b + k];
+			CentreX[p] += CornerX[b + k];
+			CentreY[p] += CornerY[b + k];
+			CentreZ[p] += CornerZ[b + k];
+			if (k == 0 || CornerX[b + k] < MinX[p]) MinX[p] = CornerX[b + k];
+			if (k == 0 || CornerX[b + k] > MaxX[p]) MaxX[p] = CornerX[b + k];
+			if (k == 0 || CornerY[b + k] < MinY[p]) MinY[p] = CornerY[b + k];
+			if (k == 0 || CornerY[b + k] > MaxY[p]) MaxY[p] = CornerY[b + k];
+			if (k == 0 || CornerZ[b + k] < MinZ[p]) MinZ[p] = CornerZ[b + k];
+			if (k == 0 || CornerZ[b + k] > MaxZ[p]) MaxZ[p] = CornerZ[b + k];
 		}
-		for (k = 0; k < n; k++)
-			NB[b + k] = NextInt(s);
-		CX[p] /= n;
-		CY[p] /= n;
-		CZ[p] /= n;
+		CentreX[p] /= n;
+		CentreY[p] /= n;
+		CentreZ[p] /= n;
 	}
 	Log("UCNavMesh:" @ NumPolys @ "polygons");
 	return NumPolys > 0;
@@ -121,13 +99,14 @@ function bool Inside(int i, float x, float y)
 	local float c;
 
 	b = i * 6;
-	n = NV[i];
+	n = Sides[i];
 	for (k = 0; k < n; k++)
 	{
 		k2 = k + 1;
 		if (k2 == n)
 			k2 = 0;
-		c = (VX[b + k2] - VX[b + k]) * (y - VY[b + k]) - (VY[b + k2] - VY[b + k]) * (x - VX[b + k]);
+		c = (CornerX[b + k2] - CornerX[b + k]) * (y - CornerY[b + k])
+			- (CornerY[b + k2] - CornerY[b + k]) * (x - CornerX[b + k]);
 		if (c > 0.5)
 			pos++;
 		else if (c < -0.5)
@@ -145,20 +124,20 @@ function float PolyDist(int i, float x, float y)
 	if (Inside(i, x, y))
 		return 0;
 	b = i * 6;
-	n = NV[i];
+	n = Sides[i];
 	best = 100000000;
 	for (k = 0; k < n; k++)
 	{
 		k2 = k + 1;
 		if (k2 == n)
 			k2 = 0;
-		ex = VX[b + k2] - VX[b + k];
-		ey = VY[b + k2] - VY[b + k];
+		ex = CornerX[b + k2] - CornerX[b + k];
+		ey = CornerY[b + k2] - CornerY[b + k];
 		f = ex * ex + ey * ey;
 		if (f > 0)
-			f = FClamp(((x - VX[b + k]) * ex + (y - VY[b + k]) * ey) / f, 0, 1);
-		dx = VX[b + k] + ex * f - x;
-		dy = VY[b + k] + ey * f - y;
+			f = FClamp(((x - CornerX[b + k]) * ex + (y - CornerY[b + k]) * ey) / f, 0, 1);
+		dx = CornerX[b + k] + ex * f - x;
+		dy = CornerY[b + k] + ey * f - y;
 		d = dx * dx + dy * dy;
 		if (d < best)
 			best = d;
@@ -179,14 +158,14 @@ function int FindPoly(vector p)
 	nearD = 200;
 	for (i = 0; i < NumPolys; i++)
 	{
-		if (NV[i] == 0 || p.Z < MinZ[i] - 40 || p.Z > MaxZ[i] + 140)
+		if (Sides[i] == 0 || p.Z < MinZ[i] - 40 || p.Z > MaxZ[i] + 140)
 			continue;
 		if (p.X < MinX[i] - nearD || p.X > MaxX[i] + nearD || p.Y < MinY[i] - nearD || p.Y > MaxY[i] + nearD)
 			continue;
 		d = PolyDist(i, p.X, p.Y);
 		if (d == 0)
 		{
-			d = Abs(p.Z - (CZ[i] + 45));
+			d = Abs(p.Z - (CentreZ[i] + 45));
 			if (d < bestD)
 			{
 				bestD = d;
@@ -213,7 +192,7 @@ function HeapUp(int i)
 	while (i > 0)
 	{
 		par = (i - 1) / 2;
-		if (F[Heap[par]] <= F[p])
+		if (Estimate[Heap[par]] <= Estimate[p])
 			break;
 		Heap[i] = Heap[par];
 		HeapPos[Heap[i]] = i;
@@ -246,9 +225,9 @@ function int HeapPop()
 			c = i * 2 + 1;
 			if (c >= HeapN)
 				break;
-			if (c + 1 < HeapN && F[Heap[c + 1]] < F[Heap[c]])
+			if (c + 1 < HeapN && Estimate[Heap[c + 1]] < Estimate[Heap[c]])
 				c++;
-			if (F[Heap[c]] >= F[p])
+			if (Estimate[Heap[c]] >= Estimate[p])
 				break;
 			Heap[i] = Heap[c];
 			HeapPos[Heap[i]] = i;
@@ -262,7 +241,8 @@ function int HeapPop()
 
 function float CentreDist(int a, int b)
 {
-	return Sqrt((CX[a] - CX[b]) * (CX[a] - CX[b]) + (CY[a] - CY[b]) * (CY[a] - CY[b]) + (CZ[a] - CZ[b]) * (CZ[a] - CZ[b]));
+	return Sqrt((CentreX[a] - CentreX[b]) * (CentreX[a] - CentreX[b]) + (CentreY[a] - CentreY[b]) * (CentreY[a] - CentreY[b])
+		+ (CentreZ[a] - CentreZ[b]) * (CentreZ[a] - CentreZ[b]));
 }
 
 // The polygons from s to t (Way[0..NumWay-1]), or False when t cannot be reached from s.
@@ -273,10 +253,10 @@ function bool FindWay(int s, int t)
 
 	Search++;
 	HeapN = 0;
-	G[s] = 0;
-	F[s] = CentreDist(s, t);
-	From[s] = -1;
-	Seen[s] = Search;
+	WayCost[s] = 0;
+	Estimate[s] = CentreDist(s, t);
+	CameFrom[s] = -1;
+	SeenIn[s] = Search;
 	HeapPush(s);
 	while (HeapN > 0 && steps < 4096)
 	{
@@ -284,36 +264,36 @@ function bool FindWay(int s, int t)
 		p = HeapPop();
 		if (p == t)
 			break;
-		Done[p] = Search;
+		ClosedIn[p] = Search;
 		b = p * 6;
-		n = NV[p];
+		n = Sides[p];
 		for (k = 0; k < n; k++)
 		{
-			q = NB[b + k];
-			if (q < 0 || q >= NumPolys || NV[q] == 0 || Done[q] == Search)
+			q = Across[b + k];
+			if (q < 0 || q >= NumPolys || Sides[q] == 0 || ClosedIn[q] == Search)
 				continue;
-			cost = G[p] + CentreDist(p, q);
-			if (Seen[q] != Search)
+			cost = WayCost[p] + CentreDist(p, q);
+			if (SeenIn[q] != Search)
 			{
-				Seen[q] = Search;
-				G[q] = cost;
-				F[q] = cost + CentreDist(q, t);
-				From[q] = p;
+				SeenIn[q] = Search;
+				WayCost[q] = cost;
+				Estimate[q] = cost + CentreDist(q, t);
+				CameFrom[q] = p;
 				HeapPush(q);
 			}
-			else if (cost < G[q])
+			else if (cost < WayCost[q])
 			{
-				G[q] = cost;
-				F[q] = cost + CentreDist(q, t);
-				From[q] = p;
+				WayCost[q] = cost;
+				Estimate[q] = cost + CentreDist(q, t);
+				CameFrom[q] = p;
 				HeapUp(HeapPos[q]);
 			}
 		}
 	}
-	if (Seen[t] != Search)
+	if (SeenIn[t] != Search)
 		return False;
 	NumWay = 0;
-	for (p = t; p >= 0 && NumWay < 2048; p = From[p])
+	for (p = t; p >= 0 && NumWay < 2048; p = CameFrom[p])
 	{
 		Way[NumWay] = p;
 		NumWay++;
@@ -343,28 +323,36 @@ function bool Portal(int i)
 	a = Way[i - 1];
 	c = Way[i];
 	b = a * 6;
-	n = NV[a];
+	n = Sides[a];
 	for (k = 0; k < n; k++)
-		if (NB[b + k] == c)
+		if (Across[b + k] == c)
 			break;
 	if (k == n)
 		return False;
 	k2 = k + 1;
 	if (k2 == n)
 		k2 = 0;
-	dx = CX[c] - CX[a];
-	dy = CY[c] - CY[a];
-	mx = (VX[b + k] + VX[b + k2]) / 2;
-	my = (VY[b + k] + VY[b + k2]) / 2;
-	if (dx * (VY[b + k] - my) - dy * (VX[b + k] - mx) > 0)     // corner k on the left
+	dx = CentreX[c] - CentreX[a];
+	dy = CentreY[c] - CentreY[a];
+	mx = (CornerX[b + k] + CornerX[b + k2]) / 2;
+	my = (CornerY[b + k] + CornerY[b + k2]) / 2;
+	if (dx * (CornerY[b + k] - my) - dy * (CornerX[b + k] - mx) > 0)     // corner k on the left
 	{
-		LX[i] = VX[b + k];  LY[i] = VY[b + k];  LZ[i] = VZ[b + k];
-		RX[i] = VX[b + k2]; RY[i] = VY[b + k2]; RZ[i] = VZ[b + k2];
+		PortalLeftX[i] = CornerX[b + k];
+		PortalLeftY[i] = CornerY[b + k];
+		PortalLeftZ[i] = CornerZ[b + k];
+		PortalRightX[i] = CornerX[b + k2];
+		PortalRightY[i] = CornerY[b + k2];
+		PortalRightZ[i] = CornerZ[b + k2];
 	}
 	else
 	{
-		LX[i] = VX[b + k2]; LY[i] = VY[b + k2]; LZ[i] = VZ[b + k2];
-		RX[i] = VX[b + k];  RY[i] = VY[b + k];  RZ[i] = VZ[b + k];
+		PortalLeftX[i] = CornerX[b + k2];
+		PortalLeftY[i] = CornerY[b + k2];
+		PortalLeftZ[i] = CornerZ[b + k2];
+		PortalRightX[i] = CornerX[b + k];
+		PortalRightY[i] = CornerY[b + k];
+		PortalRightZ[i] = CornerZ[b + k];
 	}
 	return True;
 }
@@ -379,13 +367,13 @@ function AddCorner(int i, bool bLeft)
 		return;
 	if (bLeft)
 	{
-		c.X = LX[i]; c.Y = LY[i]; c.Z = LZ[i];
-		o.X = RX[i]; o.Y = RY[i]; o.Z = RZ[i];
+		c.X = PortalLeftX[i]; c.Y = PortalLeftY[i]; c.Z = PortalLeftZ[i];
+		o.X = PortalRightX[i]; o.Y = PortalRightY[i]; o.Z = PortalRightZ[i];
 	}
 	else
 	{
-		c.X = RX[i]; c.Y = RY[i]; c.Z = RZ[i];
-		o.X = LX[i]; o.Y = LY[i]; o.Z = LZ[i];
+		c.X = PortalRightX[i]; c.Y = PortalRightY[i]; c.Z = PortalRightZ[i];
+		o.X = PortalLeftX[i]; o.Y = PortalLeftY[i]; o.Z = PortalLeftZ[i];
 	}
 	w = VSize((o - c) * vect(1,1,0));
 	if (w > 1)
@@ -401,27 +389,41 @@ function MakeCorners(vector a, vector b)
 	local float apexX, apexY, leftX, leftY, rightX, rightY;
 
 	n = NumWay + 1;                 // portal 0: the start, 1..NumWay-1: the edges, NumWay: the end
-	LX[0] = a.X; LY[0] = a.Y; LZ[0] = a.Z; RX[0] = a.X; RY[0] = a.Y; RZ[0] = a.Z;
-	LX[NumWay] = b.X; LY[NumWay] = b.Y; LZ[NumWay] = b.Z; RX[NumWay] = b.X; RY[NumWay] = b.Y; RZ[NumWay] = b.Z;
+	PortalLeftX[0] = a.X;
+	PortalLeftY[0] = a.Y;
+	PortalLeftZ[0] = a.Z;
+	PortalRightX[0] = a.X;
+	PortalRightY[0] = a.Y;
+	PortalRightZ[0] = a.Z;
+	PortalLeftX[NumWay] = b.X;
+	PortalLeftY[NumWay] = b.Y;
+	PortalLeftZ[NumWay] = b.Z;
+	PortalRightX[NumWay] = b.X;
+	PortalRightY[NumWay] = b.Y;
+	PortalRightZ[NumWay] = b.Z;
 	for (i = 1; i < NumWay; i++)
 		if (!Portal(i))
 		{
-			LX[i] = CX[Way[i]]; LY[i] = CY[Way[i]]; LZ[i] = CZ[Way[i]];
-			RX[i] = LX[i]; RY[i] = LY[i]; RZ[i] = LZ[i];
+			PortalLeftX[i] = CentreX[Way[i]];
+			PortalLeftY[i] = CentreY[Way[i]];
+			PortalLeftZ[i] = CentreZ[Way[i]];
+			PortalRightX[i] = PortalLeftX[i];
+			PortalRightY[i] = PortalLeftY[i];
+			PortalRightZ[i] = PortalLeftZ[i];
 		}
 	NumCorners = 0;
 	apexX = a.X; apexY = a.Y;
-	leftX = LX[0]; leftY = LY[0];
-	rightX = RX[0]; rightY = RY[0];
+	leftX = PortalLeftX[0]; leftY = PortalLeftY[0];
+	rightX = PortalRightX[0]; rightY = PortalRightY[0];
 	apex = 0; left = 0; right = 0;
 	for (i = 1; i < n && NumCorners < 63; i++)
 	{
 		// the right side of the funnel
-		if (Area2(apexX, apexY, rightX, rightY, RX[i], RY[i]) <= 0)
+		if (Area2(apexX, apexY, rightX, rightY, PortalRightX[i], PortalRightY[i]) <= 0)
 		{
-			if ((apexX == rightX && apexY == rightY) || Area2(apexX, apexY, leftX, leftY, RX[i], RY[i]) > 0)
+			if ((apexX == rightX && apexY == rightY) || Area2(apexX, apexY, leftX, leftY, PortalRightX[i], PortalRightY[i]) > 0)
 			{
-				rightX = RX[i]; rightY = RY[i];
+				rightX = PortalRightX[i]; rightY = PortalRightY[i];
 				right = i;
 			}
 			else
@@ -436,11 +438,11 @@ function MakeCorners(vector a, vector b)
 			}
 		}
 		// the left side
-		if (Area2(apexX, apexY, leftX, leftY, LX[i], LY[i]) >= 0)
+		if (Area2(apexX, apexY, leftX, leftY, PortalLeftX[i], PortalLeftY[i]) >= 0)
 		{
-			if ((apexX == leftX && apexY == leftY) || Area2(apexX, apexY, rightX, rightY, LX[i], LY[i]) < 0)
+			if ((apexX == leftX && apexY == leftY) || Area2(apexX, apexY, rightX, rightY, PortalLeftX[i], PortalLeftY[i]) < 0)
 			{
-				leftX = LX[i]; leftY = LY[i];
+				leftX = PortalLeftX[i]; leftY = PortalLeftY[i];
 				left = i;
 			}
 			else

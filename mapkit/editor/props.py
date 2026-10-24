@@ -11,6 +11,7 @@ from pathlib import Path
 
 import kit
 import settings
+from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
 VERSION = 15               # 2: the Character Creator's classes (UCCustom*) of the mod; 3: lights; 4: map links; 5: texts; 6: computers
@@ -250,6 +251,31 @@ def fields_for(cls, log=print):
             f['options'] = d['enums'].get(prop, [])
         out.append(f)
     return out
+
+
+_TREE = [None, None]       # the defaults file's time, its class tree
+
+
+def tree_of(classes):
+    """{class: {'parents': [...]}} (defaults()['classes']) -> its ClassTree."""
+    return ClassTree.from_chains({c: v.get('parents') for c, v in classes.items()})
+
+
+def class_tree(log=print):
+    """The game's class hierarchy (a ClassTree) from the class defaults, kept until they are made again."""
+    stamp = CACHE.stat().st_mtime_ns if CACHE.exists() else None
+    if _TREE[1] is None or _TREE[0] != stamp:
+        tree = tree_of(defaults(log).get('classes', {}))
+        _TREE[:] = [CACHE.stat().st_mtime_ns if CACHE.exists() else None, tree]
+    return _TREE[1]
+
+
+def is_a(cls, *bases, log=print):
+    """Is the class (Class or Package.Class) one of bases or under one of them; None when the game's classes do
+    not have it (another mod's, one of the map's own)."""
+    name = str(cls).split('.')[-1]
+    tree = class_tree(log)
+    return tree.is_a(name, *bases) if name in tree else None
 
 
 def chain(cls, log=print):

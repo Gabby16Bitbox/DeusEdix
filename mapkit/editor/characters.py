@@ -111,15 +111,20 @@ def _classes(path):
 
 def _parse_bodies(path):
     """UC_MESHES of the body actors B<i> -> {i: {slot: {tris, flags, pos, uv, zmin, zmax}}}."""
-    out = {}
-    for row in kit.rows(path):
+    header, a = kit.arrays(path)
+    out, first = {}, 0
+    for row in header.get('actors', []):
         cur = out.setdefault(int(row['actor'][1:]), {})
-        for tri in row['triangles']:
-            flags, slot = tri['flags'], tri.get('slot')
-            if flags & 1 or slot is None:
+        tris = range(first, first + row['triangles'])
+        first += row['triangles']
+        if row['kind'] != 'mesh':           # a mover's faces have no skin slot
+            continue
+        for t in tris:
+            flags, slot = a['flags'][t], a['slot'][t]
+            if flags & 1:
                 continue
             s = cur.setdefault(slot, dict(tris=0, flags=flags, pos=[], uv=[], zmin=1e9, zmax=-1e9))
-            nums = [float(x) for x in tri['corners']]
+            nums = a['corners'][t * 15:t * 15 + 15].tolist()
             s['tris'] += 1
             for k in range(3):
                 s['pos'] += nums[k * 5:k * 5 + 3]
@@ -226,8 +231,8 @@ def catalog(log=print, force=False):
                        % (source[m], i, i * 200, m, ''.join("    MultiSkins(%d)=Texture'Engine.DefaultTexture'\n" % k
                                                             for k in range(8))) for i, m in enumerate(meshes))
         (s.folder / 'T3D' / 'bodies.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='ascii')
-        s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\bodies.t3d"', r'UC_MESHES ..\Output\bodies.jsonl'])
-        models = _parse_bodies(s.folder / 'Output' / 'bodies.jsonl')
+        s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\bodies.t3d"', r'UC_MESHES ..\Output\bodies.bin'])
+        models = _parse_bodies(s.folder / 'Output' / 'bodies.bin')
         pkgs = {c['cls']: c.get('pkg') for c in data.catalog(log=lambda *a: None)}
         bodies, options, layouts, models_of = {}, defaultdict(dict), [], {}
         for i, m in enumerate(meshes):

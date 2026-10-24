@@ -1,48 +1,48 @@
 //=============================================================================
-// UCShotRunner - foto automatiche dal gioco (per controllare le modifiche senza far
-// provare ogni volta a Gabby). Lo usa tools\shots.ps1, che scrive la sezione qui sotto,
-// avvia Revision su una mappa, aspetta che il gioco si chiuda e raccoglie le foto.
-// Nel gioco normale non fa nulla: parte solo se la sezione qui sotto ha bActive=True.
-// La sezione sta in RevisionUser.ini (config(User): Revision non legge file di
-// configurazione con nomi nuovi); tools\shots.ps1 la aggiunge e poi la toglie.
+// UCShotRunner - automatic photos from the game (to check changes without having
+// Gabby try them every time). tools\shots.ps1 uses it: it writes the section below,
+// starts Revision on a map, waits for the game to close and collects the photos.
+// In the normal game it does nothing: it starts only if the section below has bActive=True.
+// The section is in RevisionUser.ini (config(User): Revision does not read configuration files
+// with new names); tools\shots.ps1 adds it and then takes it away.
 //
 //  [DeusEdix.UCShotRunner]
 //  bActive=True
-//  Setup=UCDbgMyStart         (comando UCDbg* che mette i flag e salta alla mappa; vuoto = nessuno)
-//  SetupFlags=Nome=1,Altro=0  (flag da cambiare dopo il comando di preparazione: per le varianti)
-//  StartDelay=6               (secondi dopo l'arrivo, perche' scene e luci partano)
-//  Shots[0]=etichetta;cam;x;y;z;guardaX;guardaY;guardaZ    telecamera libera
-//  Shots[1]=etichetta;view                                  quello che si vede (anche una conversazione)
-//  Shots[2]=etichetta;player;x;y;z;yaw;pitch                sposta JC e guarda (prima persona)
-//  Shots[3]=etichetta;wait;secondi                          solo attesa
-//  Shots[4]=etichetta;console;comando                       un comando da console (es. summon ...)
-//  Shots[5]=etichetta;torch;1                               torcia accesa (0 = spenta), per le foto "player"
-//  Shots[6]=etichetta;follow;Tag                            alle spalle del personaggio con quel Tag
-//  Shots[7]=etichetta;where;Tag                             solo la sua posizione nel log, niente foto
-//  Shots[8]=etichetta;flag;NomeFlag                         valore del flag nel log
-//  Shots[9]=etichetta;talk;Tag                              JC parla col personaggio (come un clic)
-//  Shots[10]=etichetta;next                                 clic per la battuta successiva della conversazione
-//  Shots[11]=etichetta;hud;1                                interfaccia visibile nelle foto (0 = nascosta, il normale):
-//                                                           serve per le battute "al volo" in prima persona, che
-//                                                           si leggono nell'interfaccia
-//  Shots[12]=etichetta;waitmap;NOME_MAPPA;secondi           aspetta di essere in quella mappa (al massimo tot secondi)
-//  Shots[13]=etichetta;waitflag;NomeFlag;secondi            aspetta che il flag sia vero (al massimo tot secondi)
-//  Shots[14]=etichetta;near;NomeOTag;distanza               JC davanti al personaggio, ovunque sia (foto)
-//  Shots[15]=etichetta;choose;N                             sceglie la risposta N (1 = la prima) della conversazione
-//  Shots[16]=etichetta;play;x;y;z;yaw;pitch                 JC li', poi i comandi al giocatore e il runner si spegne
-//                                                           (il pulsante "Play from here" dell'editor)
-//  Shots[17]=etichetta;fly;x;y;z;guardaX;guardaY;guardaZ;secondi[;1]   la telecamera libera scivola fin li' (per i
-//                                                           video); con ;1 JC resta visibile
-//  Shots[18]=etichetta;free                                 di nuovo gli occhi di JC, senza foto
-//  Shots[19]=etichetta;text;NomeOTag;parole~naltre         il testo di un libro/giornale/datacube come lo scrive
-//                                                           l'editor di mappe (~n = a capo, |n nel gioco)
-//  Shots[20]=etichetta;read;NomeOTag                        JC lo legge e la finestra del testo resta aperta
-//  Shots[21]=etichetta;login;NomeOTag;N                     su un computer gia' in uso (frob), entra con l'account N
-//                                                           (0 = esce e chiude lo schermo)
-//  Shots[22]=etichetta;screen;NomeOTag;EMAIL                un pulsante dello schermo del computer (EMAIL, SPECIAL...)
-// Se la mappa cambia a meta' elenco (un salto, un'uscita) si riparte dal passo dove si era
-// rimasti (flag UC_ShotIndex): serve per provare sequenze su piu' mappe.
-// Alla fine il gioco si chiude da solo (exit).
+//  Setup=UCDbgMyStart         (a UCDbg* command that sets the flags and jumps to the map; empty = none)
+//  SetupFlags=Name=1,Other=0  (flags to change after the setup command: for the variants)
+//  StartDelay=6               (seconds after the arrival, so that scenes and lights start)
+//  Shots[0]=label;cam;x;y;z;lookX;lookY;lookZ               free camera
+//  Shots[1]=label;view                                      what is on the screen (a conversation too)
+//  Shots[2]=label;player;x;y;z;yaw;pitch                    moves JC and looks (first person)
+//  Shots[3]=label;wait;seconds                              only waits
+//  Shots[4]=label;console;command                           a console command (e.g. summon ...)
+//  Shots[5]=label;torch;1                                   torch on (0 = off), for the "player" photos
+//  Shots[6]=label;follow;Tag                                behind the character with that Tag
+//  Shots[7]=label;where;Tag                                 only its position in the log, no photo
+//  Shots[8]=label;flag;FlagName                             the flag's value in the log
+//  Shots[9]=label;talk;Tag                                  JC talks to the character (as a click)
+//  Shots[10]=label;next                                     a click for the next line of the conversation
+//  Shots[11]=label;hud;1                                    HUD visible in the photos (0 = hidden, the default):
+//                                                           needed for the first-person lines said in passing, which
+//                                                           are read in the HUD
+//  Shots[12]=label;waitmap;MAP_NAME;seconds                 waits to be in that map (at most that many seconds)
+//  Shots[13]=label;waitflag;FlagName;seconds                waits for the flag to be true (at most that many seconds)
+//  Shots[14]=label;near;NameOrTag;distance                  JC in front of the character, wherever it is (photo)
+//  Shots[15]=label;choose;N                                 picks answer N (1 = the first) of the conversation
+//  Shots[16]=label;play;x;y;z;yaw;pitch                     JC there, then the player takes over and the runner stops
+//                                                           (the editor's "Play from here" button)
+//  Shots[17]=label;fly;x;y;z;lookX;lookY;lookZ;seconds[;1]  the free camera glides there (for
+//                                                           videos); with ;1 JC stays visible
+//  Shots[18]=label;free                                     JC's eyes again, no photo
+//  Shots[19]=label;text;NameOrTag;words~nmore               the text of a book/newspaper/datacube as the map
+//                                                           editor writes it (~n = a new line, |n in the game)
+//  Shots[20]=label;read;NameOrTag                           JC reads it and the text window stays open
+//  Shots[21]=label;login;NameOrTag;N                        on a computer already in use (frob), logs in with account N
+//                                                           (0 = logs out and closes the screen)
+//  Shots[22]=label;screen;NameOrTag;EMAIL                   a button of the computer's screen (EMAIL, SPECIAL...)
+// If the map changes halfway through the list (a jump, an exit) it goes on from the step it
+// had got to (flag UC_ShotIndex): for trying sequences across several maps.
+// At the end the game closes by itself (exit).
 //=============================================================================
 class UCShotRunner extends Actor
 	config(User)
@@ -70,9 +70,9 @@ var string Probe;          // the answer of the step anim (LiveResult)
 var int numFields;
 var UCCam cam;
 var bool bTake;
-var bool bAgain;     // il passo va ripetuto (attesa non finita)
-var float waitT;     // da quanto dura l'attesa in corso
-var bool bKeepHud;   // le foto si fanno con l'interfaccia visibile (azione "hud")
+var bool bAgain;     // the step must run again (the wait is not over)
+var float waitT;     // how long the current wait has lasted
+var bool bKeepHud;   // the photos are taken with the HUD visible (step "hud")
 var bool bPlaying;   // "play": the player has the controls, the runner does nothing any more
 // "fly": the free camera glides from one shot to another (smoothstep), moved in Tick
 var bool bFlying;
@@ -122,7 +122,7 @@ function FreeView()
 	{
 		P.bHidden = False;
 		P.ViewTarget = None;
-		P.bBehindView = P.InConversation(); // JC resta visibile nella camera del dialogo
+		P.bBehindView = P.InConversation(); // JC stays visible in the dialogue camera
 	}
 }
 
@@ -143,7 +143,7 @@ function HideHud()
 		root.hud.Hide();
 }
 
-// Prepara l'inquadratura i-esima; bTake = True se poi va scattata la foto.
+// Sets up the shot Shots[k]; bTake = True if a photo is to be taken after it.
 function float Prepare(int k)
 {
 	local DeusExPlayer P;
@@ -218,7 +218,7 @@ function float Prepare(int k)
 				bAgain = True;
 			return Waiting(k);
 		case "console":
-			// il comando puo' far cambiare mappa: il passo e' gia' fatto, non va ripetuto all'arrivo
+			// the command may change the map: the step is already done, it must not run again on arrival
 			P.FlagBase.SetInt('UC_ShotIndex', k + 1,, 99);
 			P.ConsoleCommand(fields[2]);
 			return 0.5;
@@ -235,8 +235,8 @@ function float Prepare(int k)
 			FreeView();
 			return 0.05;
 		case "hand":
-			// cosa ha in mano JC (per capire chi gli fa riporre l'arma)
-			Log("UCShot mano" @ P.inHand @ "in arrivo" @ P.inHandPending @ "arma" @ P.Weapon @ "stato" @ P.GetStateName() @ "bersaglio" @ P.FrobTarget);
+			// what JC holds (to find out what makes him put his weapon away)
+			Log("UCShot hand" @ P.inHand @ "coming" @ P.inHandPending @ "weapon" @ P.Weapon @ "state" @ P.GetStateName() @ "target" @ P.FrobTarget);
 			return 0.05;
 		case "flag":
 			Log("UCShot flag" @ fields[2] @ P.FlagBase.GetBool(P.rootWindow.StringToName(fields[2])));
@@ -249,12 +249,12 @@ function float Prepare(int k)
 			HideHud();
 			return 0.1;
 		case "next":
-			// come un clic nella conversazione (le battute senza audio aspettano il clic)
+			// as a click in the conversation (lines without audio wait for the click)
 			if (P.conPlay != None)
 				P.conPlay.PlayNextEvent();
 			return 0.6;
 		case "frob":
-			// usa un oggetto (nome o Tag) come JC: pulsanti, porte
+			// uses an object (name or Tag) as JC would: buttons, doors
 			FrobThing(P, fields[2]);
 			return 0.5;
 		case "infolink":
@@ -289,11 +289,11 @@ function float Prepare(int k)
 			ReadThing(P, fields[2]);
 			return 0.5;
 		case "choose":
-			// la risposta N (1 = la prima) di una scelta della conversazione, come il tasto N;
-			// aspetta (al massimo 15 secondi) che le risposte siano sullo schermo
+			// answer N (1 = the first) of a choice of the conversation, as the key N would;
+			// it waits (15 seconds at most) for the answers to be on the screen
 			if (!ChoicesShown(P) && waitT < 15)
 			{
-				// le battute senza voce aspettano un clic: uno al secondo finche' non c'e' una scelta
+				// lines without a voice wait for a click: one a second until there is a choice
 				if (P.conPlay != None && P.conPlay.conWinThird != None && P.conPlay.conWinThird.numChoices == 0
 					&& int(waitT * 4) % 4 == 3)
 					P.conPlay.PlayNextEvent();
@@ -303,11 +303,11 @@ function float Prepare(int k)
 			Waiting(k);
 			if (ChoicesShown(P))
 			{
-				Log("UCShot scegli" @ fields[2] @ "di" @ P.conPlay.conWinThird.numChoices);
+				Log("UCShot choose" @ fields[2] @ "of" @ P.conPlay.conWinThird.numChoices);
 				P.conPlay.conWinThird.KeyboardButtonActivated(int(fields[2]) - 1);
 			}
 			else
-				Log("UCShot scegli: nessuna scelta sullo schermo");
+				Log("UCShot choose: no choice on the screen");
 			return 0.8;
 		case "play":
 			// "Play from here" of the map editor: JC where the editor's camera was (if there is room),
@@ -364,14 +364,14 @@ function float Prepare(int k)
 			Level.Game.SendPlayer(P, fields[2] $ P.BuildOptionString());
 			return 0.5;
 		case "anim":
-			// anim;NomeOTag: stato, animazione e posto di un personaggio, in fondo a LiveResult
-			// (per controllare le animazioni scelte nell'editor senza foto)
+			// anim;NameOrTag: a character's state, animation and place, at the end of LiveResult
+			// (to check the animations chosen in the editor without photos)
 			Probe = AnimOf(fields[2]);
 			return 0.05;
 		case "near":
-			// JC davanti al personaggio (nome o Tag), ovunque sia andato (chi pattuglia cammina)
+			// JC in front of the character (name or Tag), wherever it went (a patrolling one walks)
 			FreeView();
-			// near;NomeOTag;distanza;1: anche con lo sguardo verso di lui, in basso (un corpo a terra)
+			// near;NameOrTag;distance;1: also with the view on it, down low (a body on the floor)
 			NearThing(P, fields[2], float(fields[3]), numFields > 4 && fields[4] == "1");
 			bTake = True;
 			return 0.8;
@@ -398,7 +398,7 @@ function string MapName()
 	return "";
 }
 
-// Un giro di attesa (waitmap / waitflag): un quarto di secondo, poi si ricontrolla.
+// One round of waiting (waitmap / waitflag): a quarter of a second, then it checks again.
 function float Waiting(int k)
 {
 	if (bAgain)
@@ -406,13 +406,13 @@ function float Waiting(int k)
 		waitT += 0.25;
 		return 0.25;
 	}
-	Log("UCShot attesa" @ k @ fields[0] @ "finita dopo" @ waitT @ "in" @ MapName());
+	Log("UCShot wait" @ k @ fields[0] @ "over after" @ waitT @ "in" @ MapName());
 	waitT = 0;
 	return 0.05;
 }
 
-// I flag di SetupFlags ("Nome=1,Altro=0"): il comando di preparazione ha gia' messo i
-// suoi e chiesto il cambio mappa (che avviene a fine tick); questi li correggono.
+// The flags of SetupFlags ("Name=1,Other=0"): the setup command has already set its own
+// and asked for the map change (which happens at the end of the tick); these correct them.
 function ApplySetupFlags()
 {
 	local DeusExPlayer P;
@@ -439,12 +439,12 @@ function ApplySetupFlags()
 		{
 			flagName = Left(item, p2);
 			P.FlagBase.SetBool(P.rootWindow.StringToName(flagName), Mid(item, p2 + 1) == "1",, 99);
-			Log("UCShot flag impostato" @ flagName @ Mid(item, p2 + 1));
+			Log("UCShot flag set" @ flagName @ Mid(item, p2 + 1));
 		}
 	}
 }
 
-// Le risposte di una scelta sono sullo schermo e accettano un tasto (finestra ferma, input libero).
+// The answers of a choice are on the screen and take a key (the window still, the input free).
 function bool ChoicesShown(DeusExPlayer P)
 {
 	local ConWindowActive w;
@@ -455,8 +455,8 @@ function bool ChoicesShown(DeusExPlayer P)
 	return w != None && w.numChoices > 0 && w.moveMode == 2 && !w.bRestrictInput;   // 2 = MM_None
 }
 
-// near;NomeOTag;distanza: JC a quella distanza dal personaggio, davanti a lui se c'e' posto
-// (altrimenti di lato o dietro), girato verso di lui
+// near;NameOrTag;distance: JC at that distance from the character, in front of it if there is room
+// (else at its side or behind it), turned towards it
 function NearThing(DeusExPlayer P, string what, float dist, optional bool bLookAt)
 {
 	local Actor A;
@@ -469,7 +469,7 @@ function NearThing(DeusExPlayer P, string what, float dist, optional bool bLookA
 			break;
 	if (A == None || !(string(A.Name) ~= what || string(A.Tag) ~= what))
 	{
-		Log("UCShot vicino" @ what @ "non trovato");
+		Log("UCShot near" @ what @ "not found");
 		return;
 	}
 	if (dist <= 0)
@@ -491,7 +491,7 @@ function NearThing(DeusExPlayer P, string what, float dist, optional bool bLookA
 	if (bLookAt)
 		r = rotator(A.Location - (P.Location + vect(0,0,1) * P.BaseEyeHeight));
 	P.ViewRotation = r;
-	Log("UCShot vicino" @ A @ "a" @ A.Location @ "stato" @ A.GetStateName() @ "JC a" @ P.Location @ "distanza" @ VSize(A.Location - P.Location));
+	Log("UCShot near" @ A @ "at" @ A.Location @ "state" @ A.GetStateName() @ "JC at" @ P.Location @ "distance" @ VSize(A.Location - P.Location));
 }
 
 // look;NameOrTag: mesh and skins of an actor in the log (look;corpses: of every dead body)
@@ -606,8 +606,8 @@ function KillThing(DeusExPlayer P, string what)
 	Log("UCShot kill: nothing called" @ what);
 }
 
-// Come se JC cliccasse sul personaggio con quel Tag (parte la sua conversazione).
-// frob;NomeOTag: come se JC usasse l'oggetto (pulsanti degli ascensori, porte)
+// As if JC clicked on the character with that Tag (its conversation starts).
+// frob;NameOrTag: as if JC used the object (the buttons of elevators, doors)
 function FrobThing(DeusExPlayer P, string what)
 {
 	local Actor A;
@@ -723,32 +723,32 @@ function Talk(DeusExPlayer P, string tagName)
 			break;
 	if (A == None || !(string(A.Tag) ~= tagName || string(A.Name) ~= tagName))
 	{
-		Log("UCShot parla" @ tagName @ "non trovato");
+		Log("UCShot talk" @ tagName @ "not found");
 		return;
 	}
-	// perche' una conversazione non parte: chi sta gia' parlando, se JC e il PNG possono
-	// conversare, quale conversazione sceglierebbe il gioco
+	// why a conversation does not start: who is talking already, whether JC and the NPC can
+	// talk, which conversation the game would pick
 	c = P.GetActiveConversation(A, IM_Frob);
-	Log("UCShot parla: JC a" @ P.Location @ "distanza" @ VSize(P.Location - A.Location));
+	Log("UCShot talk: JC at" @ P.Location @ "distance" @ VSize(P.Location - A.Location));
 	if (P.conPlay != None && P.conPlay.con != None)
-		Log("UCShot parla: in corso" @ P.conPlay.con.conName);
+		Log("UCShot talk: already playing" @ P.conPlay.con.conName);
 	if (c != None)
 	{
-		Log("UCShot parla: avvio raggio" @ c.bInvokeRadius @ "raggio" @ c.radiusDistance);
-		Log("UCShot parla: scelta" @ c.conName @ "JC puo'" @ P.CanStartConversation() @ "PNG puo'" @ (ScriptedPawn(A) == None || ScriptedPawn(A).CanConverse()) @ "stato" @ A.GetStateName());
+		Log("UCShot talk: radius start" @ c.bInvokeRadius @ "radius" @ c.radiusDistance);
+		Log("UCShot talk: chosen" @ c.conName @ "JC can" @ P.CanStartConversation() @ "NPC can" @ (ScriptedPawn(A) == None || ScriptedPawn(A).CanConverse()) @ "state" @ A.GetStateName());
 	}
 	else
 	{
-		Log("UCShot parla: nessuna conversazione valida, stato" @ A.GetStateName() @ "a" @ A.Location @ "JC a" @ P.Location);
+		Log("UCShot talk: no valid conversation, state" @ A.GetStateName() @ "at" @ A.Location @ "JC at" @ P.Location);
 		for (item = ConListItem(A.ConListItems); item != None; item = item.next)
 			if (item.con != None)
-				Log("UCShot parla:   in lista" @ item.con.conName @ "requisiti ok" @ P.CheckFlagRefs(item.con.flagRefList));
+				Log("UCShot talk:   listed" @ item.con.conName @ "requirements met" @ P.CheckFlagRefs(item.con.flagRefList));
 	}
-	Log("UCShot parla con" @ tagName @ P.StartConversation(A, IM_Frob));
+	Log("UCShot talk to" @ tagName @ P.StartConversation(A, IM_Frob));
 }
 
-// Telecamera alle spalle del personaggio con quel Tag (per seguire chi cammina); scrive
-// nel log dove si trova. Falso se non c'e'.
+// A camera behind the character with that Tag (to follow someone walking); it writes
+// in the log where it is. False if there is none.
 function bool Follow(DeusExPlayer P, string tagName)
 {
 	local Actor A, hitActor;
@@ -760,13 +760,13 @@ function bool Follow(DeusExPlayer P, string tagName)
 			break;
 	if (A == None || !(string(A.Tag) ~= tagName || string(A.Name) ~= tagName))
 	{
-		Log("UCShot segui" @ tagName @ "non trovato");
+		Log("UCShot follow" @ tagName @ "not found");
 		return False;
 	}
 	if (Mover(A) != None)
-		Log("UCShot segui" @ tagName @ "a" @ A.Location @ "stato" @ A.GetStateName() @ "posizione" @ Mover(A).KeyNum);
+		Log("UCShot follow" @ tagName @ "at" @ A.Location @ "state" @ A.GetStateName() @ "key" @ Mover(A).KeyNum);
 	else
-		Log("UCShot segui" @ tagName @ "a" @ A.Location @ "stato" @ A.GetStateName());
+		Log("UCShot follow" @ tagName @ "at" @ A.Location @ "state" @ A.GetStateName());
 	look = A.Location + vect(0,0,20);
 	spot = A.Location - vector(A.Rotation) * 170 + vect(0,0,75);
 	hitActor = Trace(hitLoc, hitNormal, spot, look, False);
@@ -783,8 +783,8 @@ function bool Follow(DeusExPlayer P, string tagName)
 	return True;
 }
 
-// Torcia (potenziamento luce) accesa o spenta: segue lo sguardo di JC, quindi va usata
-// con le foto "player" (non con la telecamera libera).
+// The torch (the light aug) on or off: it follows JC's view, so use it
+// with the "player" photos (not with the free camera).
 function Torch(DeusExPlayer P, bool bOn)
 {
 	local Augmentation aug;
@@ -805,15 +805,15 @@ function Torch(DeusExPlayer P, bool bOn)
 		aug.Deactivate();
 }
 
-// auto: il mutator lo crea mentre la mappa si avvia, e alla fine dell'avvio il motore
-// rimette ogni attore nel suo stato iniziale (un GotoState fatto prima andrebbe perso).
+// auto: the mutator makes it while the map starts, and at the end of the start the engine
+// puts every actor back in its initial state (a GotoState done before would be lost).
 auto state Shooting
 {
 Begin:
 	Sleep(1.0);
 	if (Plr() == None)
 		Goto('Begin');
-	// prima volta: il comando di preparazione mette i flag e ricarica la mappa
+	// the first time: the setup command sets the flags and reloads the map
 	if (Setup != "" && !Plr().FlagBase.GetBool('UC_ShotSetupDone'))
 	{
 		Plr().FlagBase.SetBool('UC_ShotSetupDone', True,, 99);
@@ -831,7 +831,7 @@ Begin:
 		SaveConfig();
 		Goto('Live');
 	}
-	i = Plr().FlagBase.GetInt('UC_ShotIndex');   // dopo un cambio di mappa: da dove si era rimasti
+	i = Plr().FlagBase.GetInt('UC_ShotIndex');   // after a map change: from where it had got to
 Next:
 	if (i < ArrayCount(Shots) && Shots[i] != "")
 	{
@@ -844,14 +844,14 @@ Next:
 		{
 			HideHud();
 			Plr().ConsoleCommand("shot");
-			Log("UCShot preso" @ i @ fields[0]);
+			Log("UCShot taken" @ i @ fields[0]);
 			Sleep(0.6);
 		}
 		i++;
 		Plr().FlagBase.SetInt('UC_ShotIndex', i,, 99);
 		Goto('Next');
 	}
-	Log("UCShot fine");
+	Log("UCShot done");
 	Sleep(0.5);
 	Plr().ConsoleCommand("exit");
 	Stop;
@@ -886,8 +886,8 @@ LiveStep:
 	Goto('Live');
 }
 
-// Il gioco si mette in pausa quando la sua finestra perde il fuoco (SETPAUSE del motore):
-// le foto devono andare avanti lo stesso, quindi la pausa si toglie da sola.
+// The game pauses itself when its window loses the focus (the engine's SETPAUSE):
+// the photos must go on all the same, so the runner lifts the pause by itself.
 event Tick(float deltaTime)
 {
 	local DeusExPlayer P;

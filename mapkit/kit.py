@@ -4,11 +4,13 @@ Each run lives in tools\\mapkit\\runs\\<id> with its own System folder (hard lin
 DevInstall SDK files, the compiled mod from dist\\, adapted ini files), Input\\ and Output\\.
 Nothing in the game folder or in maps\\ is written here.
 """
+import array
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -44,6 +46,33 @@ def rows(path):
         return []
     with path.open(encoding='utf-8') as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+ARRAY_TYPES = {'i32': 'i', 'u32': 'I', 'f64': 'd', 'u8': 'B'}
+
+
+def arrays(path):
+    """A bulk dump of the host (UC_BSPDUMP, UC_MESHES, UC_LIGHTDUMP): a JSON header line, then the arrays it lists,
+    little endian, back to back (host/PROTOCOL.md) -> (header, {name: array.array}); ({}, {}) when there is no file."""
+    path = Path(path)
+    if not path.exists():
+        return {}, {}
+    raw = path.read_bytes()
+    end = raw.index(b'\n')
+    header = json.loads(raw[:end])
+    data = memoryview(raw)
+    out, at = {}, end + 1
+    for entry in header['arrays']:
+        values = array.array(ARRAY_TYPES[entry['type']])
+        size = values.itemsize * entry['count']
+        if at + size > len(data):
+            raise ValueError('%s: the array %s is cut short' % (path.name, entry['name']))
+        values.frombytes(data[at:at + size])
+        if sys.byteorder == 'big':
+            values.byteswap()
+        out[entry['name']] = values
+        at += size
+    return header, out
 
 
 def load_cmd(file):

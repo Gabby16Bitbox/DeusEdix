@@ -128,12 +128,12 @@ def _dump(map_name, src, folder, log, lite=False):
     s = kit.Session([src], 'editor-' + map_name)
     try:
         s.cmd(r'MAP LOAD FILE="..\Input\%s"' % src.name)
-        dump = s.folder / 'Output' / 'bsp.jsonl'
-        s.cmd(r'UC_BSPDUMP ..\Output\bsp.jsonl')     # relative: the project path has spaces
+        dump = s.folder / 'Output' / 'bsp.bin'
+        s.cmd(r'UC_BSPDUMP ..\Output\bsp.bin')     # relative: the project path has spaces
         s.cmd(r'UC_BRUSHES ..\Output\brushes.jsonl')
         if not lite:
-            s.cmd(r'UC_MESHES ..\Output\meshes.jsonl')   # the real 3D models of the objects and the doors
-            s.cmd(r'UC_LIGHTDUMP ..\Output\lights.jsonl')  # the game's lighting, for the "Lit" view
+            s.cmd(r'UC_MESHES ..\Output\meshes.bin')   # the real 3D models of the objects and the doors
+            s.cmd(r'UC_LIGHTDUMP ..\Output\lights.bin')  # the game's lighting, for the "Lit" view
         s.cmd(r'UC_PATHS ..\Output\paths.jsonl')      # the AI's path network, for the "AI paths" view
         s.cmd(r'UC_TEXFLAGS ..\Output\texflags.jsonl')  # Only packages already needed by this map.
         scene_flags = {row['texture']: row['flags'] for row in kit.rows(s.folder / 'Output' / 'texflags.jsonl')}
@@ -142,7 +142,7 @@ def _dump(map_name, src, folder, log, lite=False):
         s.cmd(r'MAP EXPORT FILE="..\Output\scene.t3d"')
         shutil.copy2(s.folder / 'Output' / 'scene.t3d', folder / 'scene.t3d')
         brushes = parse_brushes(s.folder / 'Output' / 'brushes.jsonl')
-        meshes = parse_meshes(s.folder / 'Output' / 'meshes.jsonl')     # {} when lite (no file)
+        meshes = parse_meshes(s.folder / 'Output' / 'meshes.bin')     # {} when lite (no file)
         saved = activation.load(src)
         for name, mesh in saved.get('meshes', {}).items():
             meshes.setdefault(name, mesh)
@@ -150,25 +150,28 @@ def _dump(map_name, src, folder, log, lite=False):
             scene_file = folder / 'scene.t3d'
             scene_file.write_text(activation.editor_text(scene_file.read_text(encoding='latin1'), saved), encoding='latin1')
         polys = []
-        psurf = []                                  # the BSP surface of each polygon (its lightmap)
-        pface = []                                  # the source brush polygon (survives BSP rebuilds)
         textures = {}
-        for row in kit.rows(dump):
-            tex, flags = row['texture'], row['flags']
+        header, bsp = kit.arrays(dump)
+        names, mapping, pan, vertices = header.get('textures', []), bsp.get('mapping'), bsp.get('pan'), bsp.get('vertices')
+        at = 0
+        for i in range(header.get('polygons', 0)):
+            tex, flags = names[bsp['texture'][i]], bsp['flags'][i]
             # base 3, U 3, V 3, pan 2, tile w h
-            nums = [float(x) for x in row['base'] + row['textureU'] + row['textureV'] + row['pan'] + row['size']]
-            verts = [float(x) for x in row['vertices']]
-            brush = row['brush']                    # build order of its brush
-            psurf.append(row['surface'])
-            pface.append(row['brushPoly'])
-            polys.append((tex, flags, nums, verts, brush))
+            nums = mapping[i * 11:i * 11 + 9].tolist() + [float(pan[i * 2]), float(pan[i * 2 + 1])] \
+                + mapping[i * 11 + 9:i * 11 + 11].tolist()
+            n = bsp['vertexCount'][i] * 3
+            verts = vertices[at:at + n].tolist()
+            at += n
+            polys.append((tex, flags, nums, verts, bsp['brush'][i]))     # brush: the build order of its brush
             textures.setdefault(tex, (nums[11], nums[12]))
+        psurf = list(bsp.get('surface', ()))       # the BSP surface of each polygon (its lightmap)
+        pface = list(bsp.get('brushPoly', ()))     # the source brush polygon (survives BSP rebuilds)
         for m in meshes.values():
             for part in m['parts']:
                 textures.setdefault(part['tex'], (0, 0))
         log('%d polygons, %d objects, %d textures' % (len(polys), len(meshes), len(textures)))
         tex_info = export_textures(s, textures, folder, log)
-        lights = s.folder / 'Output' / 'lights.jsonl'
+        lights = s.folder / 'Output' / 'lights.bin'
         if lights.exists():
             lightmap_atlas(lights, folder, log)
     finally:
@@ -287,18 +290,21 @@ def lightmap_atlas(path, folder, log=print):
     its edge; the corner 4x4 is full bright for unlit surfaces) + lightmap.json (where each surface is,
     its mapping, the light on each object: one colour, and the lights that reach it for per-vertex light)."""
     from PIL import Image
-    surfs, actors, lights, objects = [], {}, [], {}
-    for row in kit.rows(path):
-        if row['kind'] == 'surface':
-            (w, h), rgb = row['size'], row['rgb']
-            if len(rgb) == w * h * 3:
-                surfs.append((row['surface'], w, h, [float(x) for x in row['pan'] + row['scale']], bytes(rgb)))
-        elif row['kind'] == 'light':          # x y z r g b radius effect dir(3) cone
-            lights.append([float(x) for x in row['location'] + row['colour'] + [row['radius'], row['effect']]
-                           + row['direction'] + [row['cone']]])
-        elif row['kind'] == 'actor':          # its light; its ambient and the lights that see it
-            actors[row['actor']] = [round(float(x), 3) for x in row['light']]
-            objects[row['actor']] = [round(float(x), 3) for x in row['ambient']] + [row['lights']]
+    header, a = kit.arrays(path)
+    surfs, actors, objects = [], {}, {}
+    at = 0
+    for i, s in enumerate(a['surface']):      # its lightmap: w x h, mapping (pan u, pan v, scale u, scale v), rgb
+        w, h = a['size'][i * 2], a['size'][i * 2 + 1]
+        surfs.append((s, w, h, a['mapping'][i * 4:i * 4 + 4].tolist(), a['rgb'][at:at + w * h * 3].tobytes()))
+        at += w * h * 3
+    # x y z r g b radius effect dir(3) cone
+    lights = [a['lights'][k:k + 12].tolist() for k in range(0, len(a['lights']), 12)]
+    first = 0
+    for i, name in enumerate(header['actors']):     # its light; its ambient and the lights that see it
+        n = a['actorLightCount'][i]
+        actors[name] = [round(x, 3) for x in a['actorLight'][i * 3:i * 3 + 3]]
+        objects[name] = [round(x, 3) for x in a['actorAmbient'][i * 3:i * 3 + 3]] + [a['actorLights'][first:first + n].tolist()]
+        first += n
     width = 1024
     total = sum((w + 2) * (h + 2) for _, w, h, _, _ in surfs)
     while width < 8192 and total > width * width * 0.6:
@@ -445,21 +451,24 @@ HIDDEN_TEX = ('pinkmasktex', 'graymasktex', 'blackmasktex')   # parts the game n
 def parse_meshes(path):
     """UC_MESHES output -> {actor: {cls, kind, parts: [{tex, flags, pos, uv}]}} (coordinates relative
     to the actor, unrotated, Unreal axes)."""
-    out = {}
-    for row in kit.rows(path):
+    header, a = kit.arrays(path)
+    names = header.get('textures', [])
+    out, first = {}, 0
+    for row in header.get('actors', []):            # its triangles follow the previous actor's
         style = STY.get(row['style'], 0)
         parts = {}
-        for tri in row['triangles']:
-            tex, flags = tri['texture'], tri['flags'] | style
+        for t in range(first, first + row['triangles']):
+            tex, flags = names[a['texture'][t]], a['flags'][t] | style
             if flags & 1 or tex.split('.')[-1].lower() in HIDDEN_TEX:
                 continue
-            slot = tri.get('slot', -1)          # MultiSkins index of the face (a mover's have none)
+            slot = a['slot'][t]                 # MultiSkins index of the face (-1: a mover's)
             key = '%s|%d|%d' % (tex, flags & (PF['masked'] | PF['translucent'] | PF['modulated'] | PF['unlit']), slot)
             part = parts.setdefault(key, dict(tex=tex, flags=flags, slot=slot, pos=[], uv=[]))
-            nums = [float(x) for x in tri['corners']]
+            nums = a['corners'][t * 15:t * 15 + 15].tolist()      # x y z u v of each corner
             for k in range(3):
                 part['pos'] += nums[k * 5:k * 5 + 3]
                 part['uv'] += nums[k * 5 + 3:k * 5 + 5]
+        first += row['triangles']
         out[row['actor']] = dict(cls=row['class'], kind=row['kind'], parts=list(parts.values()))
     return out
 
@@ -492,14 +501,14 @@ def palette_meshes(log=print):
                            % (c, k, i, (i % 8) * 600 - 2400, (i // 8) * 600 - 2400) for i, c in enumerate(chunk))
             (s.folder / 'T3D' / 'palette.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='ascii')
             try:
-                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\palette.t3d"', r'UC_MESHES ..\Output\meshes.jsonl'])
+                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\palette.t3d"', r'UC_MESHES ..\Output\meshes.bin'])
             except RuntimeError as e:
                 log('palette chunk %d: %s' % (k, str(e)[:160]))
                 s.close()                # a crashed editor stays broken: start a new one
                 s = kit.Session([], 'editor-palette')
                 s.batch(['MAP NEW', 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + _game_loads())
                 continue
-            for name, m in parse_meshes(s.folder / 'Output' / 'meshes.jsonl').items():
+            for name, m in parse_meshes(s.folder / 'Output' / 'meshes.bin').items():
                 meshes.setdefault(m['cls'], m)
         textures = {p['tex']: (0, 0) for m in meshes.values() if m for p in m['parts'] if p['tex'] not in tex_info}
         if textures:
@@ -570,6 +579,8 @@ def actors(map_name):
     except Exception:
         class_defaults = {}
 
+    tree = props_mod.tree_of(class_defaults)
+
     def bind_of(cls, p):
         own = p.get('BindName', '').strip('"')
         if own:
@@ -586,19 +597,7 @@ def actors(map_name):
         loc = t3d.vec(p.get('Location'))
         rot = t3d.rot(p.get('Rotation', ''))
         r, h = cache.get(cls, [16.0, 16.0]) or [16.0, 16.0]
-        if 'Mover' in cls:
-            kind = 'mover'
-        elif 'Light' in cls or cls == 'Spotlight':
-            kind = 'light'
-        elif cls in ('PathNode', 'PatrolPoint', 'HidePoint', 'AmbushPoint') or cls.endswith('Point'):
-            kind = 'path'
-        elif cls.startswith('UCCustom') or any(k in cls for k in ('Guard', 'Raider', 'Troop', 'Helicopter', 'PlayerStart', 'Pawn')):
-            kind = 'pawn'
-        elif any(k in cls for k in ('Teleporter', 'MapExit', 'Sound', 'Trigger', 'Event', 'Dispatcher', 'Counter',
-                                     'Info', 'Flag', 'Spawn', 'Marker', 'Interpolation')):
-            kind = 'logic'
-        else:
-            kind = 'prop'
+        kind = tree.kind(cls)                   # by its parents: a TrafficLight is a decoration, a Beam a light
         light = None
         if kind == 'light':
             light = dict(b=int(p.get('LightBrightness', 64) or 64), hue=int(p.get('LightHue', 0) or 0),

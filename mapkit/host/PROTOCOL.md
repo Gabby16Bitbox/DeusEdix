@@ -35,9 +35,19 @@ part of this page above it.
 
 ## Files
 
-Every file a command writes is **JSON lines**: one JSON object per line, in UTF-8. Numbers keep a fixed
-precision: 6 significant digits, unless a key below gives decimals (`.1`, `.2`, `.3`, `.4`). Rows with a
-`kind` key come in several shapes in the same file. Two files carry binary data after a JSON header line:
+Every file a command writes starts with a JSON line, in UTF-8. Numbers keep a fixed precision: 6
+significant digits, unless a key below gives decimals (`.1`, `.2`, `.3`, `.4`).
+
+Most files are **JSON lines**: one JSON object per line. Rows with a `kind` key come in several shapes in
+the same file.
+
+The three bulk dumps (`UC_BSPDUMP`, `UC_MESHES`, `UC_LIGHTDUMP`: the geometry, the models and the lighting
+of a whole map) are **arrays**: the header line holds the dump's strings and `arrays`, a list of
+`{name, type, count}`. The arrays follow the newline, in that order, back to back, little endian. Types
+are `i32`, `u32`, `f64` and `u8`. A reader takes each one in a single read (Python: `array.frombytes`,
+`kit.arrays()`). The numbers are rounded as the tables say and stored as 64-bit floats.
+
+Two more files carry binary data after a JSON header line:
 
 - `UC_TEXDUMP`: the line `{width, height}`, then `width * height` RGBA pixels (4 bytes each), row by row.
 - `UC_ANIMDUMP`: the header line, the line `data`, then the arrays (little endian):
@@ -53,14 +63,14 @@ precision: 6 significant digits, unless a key below gives decimals (`.1`, `.2`, 
 | **Level geometry** | | |
 | `UC_POINT x y z` | `point\|x y z\|leaf N\|zone N\|<zone name or none>` (leaf -1: in solid) | |
 | `UC_TRACE x0 y0 z0 x1 y1 z1` | `trace\|hit\|x y z (.2)\|nx ny nz (.3)` or `trace\|none` | |
-| `UC_BSPDUMP <file>` | `bsp\|N polygons` | `{texture, flags, base, textureU, textureV, pan [u, v], size [w, h], vertices [x, y, z, ...], brush, surface, brushPoly}` |
+| `UC_BSPDUMP <file>` | `bsp\|N polygons` | arrays, see the tables below |
 | `UC_BRUSHES <file>` | `brushes\|N` | `{ord, name, csg, flags, group, location, rotation [pitch, yaw, roll], prePivot}` |
 | `UC_UNLINK <model prefix>` | `unlink\|N brushes\|N polygons` | |
 | `UC_WORLD finish` | `world\|N nodes\|N surfs\|N zones` | |
 | `UC_SIZES <file>` | | `{class, radius (.2), height (.2)}` |
 | `UC_ACTORS check` | `in solid\|class\|name\|x y z` ..., `actors\|N checked\|N in solid` | |
 | **Lighting** | | |
-| `UC_LIGHTDUMP <file>` | `lights\|N surfaces\|mapping N/N\|N objects lit by their floor` | see the first table below |
+| `UC_LIGHTDUMP <file>` | `lights\|N surfaces\|mapping N/N\|N objects lit by their floor` | arrays, see the tables below |
 | `UC_LIGHTSTATS` | `lightstats\|lightmaps\|samples\|bytes` | |
 | `UC_CAMERAS clear` | `cameras removed\|N` | |
 | **Actors and properties** | | |
@@ -71,7 +81,7 @@ precision: 6 significant digits, unless a key below gives decimals (`.1`, `.2`, 
 | `UC_SCALE <name> <factor>` | `scale\|ok\|name\|drawScale\|radius\|height` | |
 | `UC_OBJPROP <object> <property> <value...>` | `objprop\|ok\|missing\|noprop\|failed\|...` | |
 | `UC_MOVER <bounds\|prep> <name> x y z` | `mover\|name\|operation\|polygons` | |
-| `UC_MESHES <file>` | `meshes\|N actors\|N triangles`, `mesh fault\|name` | `{actor, class, kind (mesh, mover), style, triangles [{texture, flags, corners [x y z (.2) u v (.4) x3], slot (meshes only)}]}` |
+| `UC_MESHES <file>` | `meshes\|N actors\|N triangles`, `mesh fault\|name` | arrays, see the tables below |
 | **Surfaces** | | |
 | `UC_SURFTEX <brush or *> <old texture or *> <new texture>` | `surftex\|ok\|brush\|N`, `surftex\|missing\|...`, `surftex\|notexture\|...` | |
 | `UC_SURFACE <brush> <polygon or *> <mode> [args]`, where mode is floor, wall, tile, tile-u, tile-v, cylinder, pan x y, scale x y, rotate, flip-u, flip-v, texture <name>, shadows <low\|normal\|high> or flags <set> <clear> | `surface\|ok\|mode\|N`, `failed\|surface\|<reason>` | |
@@ -99,11 +109,41 @@ precision: 6 significant digits, unless a key below gives decimals (`.1`, `.2`, 
 | `UC_ANIMNEW <source mesh> <package> <name> <file>` | `animnew\|package.name\|N sequences\|...` | reads a file: the line `{sequences: [{name, group, frames, rate}]}`, the line `data`, then int16 xyz frames |
 | `UC_ANIMSAVE <file>` | `animsave\|file\|ok` | |
 
-The rows of `UC_LIGHTDUMP`:
+`UC_BSPDUMP`: header `{format: bsp, textures [names], polygons}`. Arrays, one entry a polygon unless said:
 
-| Row | Keys |
-|---|---|
-| `kind: surface` | `surface, size [w, h], pan [u, v], scale [u, v], rgb [r, g, b, ...]`: the lightmap, row by row, lighting 0..2 as 0..255 |
-| `kind: light` | `location (.1), colour (.4), radius (.1), effect, direction (.4), cone`: every light, numbered from 0 in order |
-| `kind: actor` | `actor, light (.3), ambient (.3), lights [numbers]`: how a mesh actor or mover is lit |
-| `kind: mapping` | `fit, checked`: surfaces whose polygons fall inside their lightmap |
+| Array | Type | Per polygon |
+|---|---|---|
+| `texture` | i32 | index into `textures` (`none` for no texture) |
+| `flags` | u32 | PolyFlags of its surface |
+| `pan` | i32 | 2: pan u, pan v |
+| `vertexCount` | i32 | 1 |
+| `brush` | i32 | the build order of the static brush that made it, -1 unknown |
+| `surface` | i32 | its BSP surface |
+| `brushPoly` | i32 | its source polygon in that brush |
+| `mapping` | f64 | 11: base xyz, textureU xyz, textureV xyz, the texture's width and height in world units |
+| `vertices` | f64 | 3 per vertex, `vertexCount` vertices, polygon after polygon |
+
+`UC_MESHES`: header `{format: meshes, textures [names], actors [{actor, class, kind (mesh, mover), style,
+triangles}]}`. Arrays, one entry a triangle, actor after actor in the order of `actors`:
+
+| Array | Type | Per triangle |
+|---|---|---|
+| `texture` | i32 | index into `textures` |
+| `flags` | u32 | PolyFlags |
+| `slot` | i32 | the MultiSkins index of a mesh's face, -1 for a mover's |
+| `corners` | f64 | 15: x y z (.2) u v (.4) of each corner, relative to the actor, unrotated |
+
+`UC_LIGHTDUMP`: header `{format: lights, actors [names], fit, checked}` (`fit` of `checked` surfaces have
+their polygons inside their lightmap). Arrays:
+
+| Array | Type | Per |
+|---|---|---|
+| `surface` | i32 | lit surface: its BSP surface |
+| `size` | i32 | lit surface, 2: w, h |
+| `mapping` | f64 | lit surface, 4: pan u, pan v, scale u, scale v |
+| `rgb` | u8 | the lightmaps, surface after surface, row after row, 3 a lattice point: lighting 0..2 as 0..255 |
+| `lights` | f64 | light, 12: location (.1) xyz, colour (.4) rgb, radius (.1), effect, direction (.4) xyz, cone; numbered from 0 |
+| `actorLight` | f64 | actor, 3 (.3): how bright a mesh actor or mover is |
+| `actorAmbient` | f64 | actor, 3 (.3): its ambient |
+| `actorLightCount` | i32 | actor: how many lights see its centre |
+| `actorLights` | i32 | those lights' numbers, actor after actor |

@@ -95,8 +95,8 @@ def prepare(folder, source, log=print):
             try:
                 session.cmd('MAP LOAD FILE="..\\Input\\%s"' % Path(source).name)
                 if len(meshes) != len(wanted):
-                    session.cmd(r'UC_MESHES ..\Output\moving-pieces.jsonl')
-                    exported = data.parse_meshes(session.folder / 'Output/moving-pieces.jsonl')
+                    session.cmd(r'UC_MESHES ..\Output\moving-pieces.bin')
+                    exported = data.parse_meshes(session.folder / 'Output/moving-pieces.bin')
                     meshes = {n: m for n, m in exported.items() if n in wanted and m['kind'] == 'mover'}
                 if missing():
                     info.update(data.export_textures(session, missing(), folder, log))

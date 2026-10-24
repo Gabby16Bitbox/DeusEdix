@@ -6,6 +6,11 @@ Local rigid fits preserve the target's shape; this is not a sequence-name alias.
 """
 import math
 import struct
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from vec3 import Vec3  # noqa: E402
 
 BASE = {'Walk2H': 'Walk', 'Strafe2H': 'Strafe', 'RunShoot2H': 'RunShoot',
         'BreatheLight2H': 'BreatheLight', 'Shoot2H': 'Shoot', 'CrouchWalk': 'Crouch',
@@ -23,30 +28,26 @@ def needs_motion(name, target, donor):
 
 def base_motion(name, target):
     base = BASE[name]
-    while base not in target.seqs and base in BASE: base = BASE[base]
+    while base not in target.seqs and base in BASE:
+        base = BASE[base]
     return base
 
 
-def sub(a, b):
-    return tuple(x-y for x, y in zip(a, b))
-
-
-def dot(a, b):
-    return sum(x*y for x, y in zip(a, b))
-
-
 def matvec(m, v):
-    return tuple(dot(row, v) for row in m)
+    """The 3x3 matrix m (three rows) times the vector v."""
+    return Vec3(*(Vec3.of(row).dot(v) for row in m))
 
 
 def rigid_fit(source, dest):
     """Horn absolute orientation; bounded Jacobi eigensolve, no numeric dependency."""
     n = len(source)
-    c = tuple(sum(v[i] for v in source)/n for i in range(3))
-    d = tuple(sum(v[i] for v in dest)/n for i in range(3))
+    c = Vec3(*(sum(v[i] for v in source)/n for i in range(3)))
+    d = Vec3(*(sum(v[i] for v in dest)/n for i in range(3)))
     s = [[sum((a[i]-c[i])*(b[j]-d[j]) for a, b in zip(source, dest))
           for j in range(3)] for i in range(3)]
-    xx, xy, xz = s[0]; yx, yy, yz = s[1]; zx, zy, zz = s[2]
+    xx, xy, xz = s[0]
+    yx, yy, yz = s[1]
+    zx, zy, zz = s[2]
     a = [[xx+yy+zz, yz-zy, zx-xz, xy-yx],
          [yz-zy, xx-yy-zz, xy+yx, zx+xz],
          [zx-xz, xy+yx, -xx+yy-zz, yz+zy],
@@ -57,10 +58,12 @@ def rigid_fit(source, dest):
             break
         for p in range(3):
             for q in range(p+1, 4):
-                if abs(a[p][q]) < 1e-14: continue
+                if abs(a[p][q]) < 1e-14:
+                    continue
                 theta = (a[q][q]-a[p][p])/(2*a[p][q])
                 t = (1 if theta >= 0 else -1)/(abs(theta)+math.sqrt(1+theta*theta))
-                cs = 1/math.sqrt(1+t*t); sn = t*cs
+                cs = 1/math.sqrt(1+t*t)
+                sn = t*cs
                 for k in range(4):
                     ap, aq = a[k][p], a[k][q]
                     a[k][p], a[k][q] = cs*ap-sn*aq, sn*ap+cs*aq
@@ -74,19 +77,21 @@ def rigid_fit(source, dest):
     r = ((1-2*(y*y+z*z), 2*(x*y-z*w), 2*(x*z+y*w)),
          (2*(x*y+z*w), 1-2*(x*x+z*z), 2*(y*z-x*w)),
          (2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y)))
-    return r, sub(d, matvec(r, c))
+    return r, d - matvec(r, c)
 
 
 class Mesh:
     def __init__(self, info, data):
         self.info = info
-        c = info['counts']; self.count = c['frameVerts']; self.special = c['specialVerts']
+        c = info['counts']
+        self.count = c['frameVerts']
+        self.special = c['specialVerts']
         self.seqs = {s['name']: s for s in info['seqs']}
         offset = info['offset']
         faces = list(struct.iter_unpack('<4H', data[offset:offset+c['faces']*8]))
         offset += c['faces']*8
-        wedges = [w[0]+self.special for w in struct.iter_unpack('<HBB',data[offset:offset+c['wedges']*4])]
-        self.edges = sorted({tuple(sorted((wedges[f[i]],wedges[f[(i+1)%3]])))
+        wedges = [w[0]+self.special for w in struct.iter_unpack('<HBB', data[offset:offset+c['wedges']*4])]
+        self.edges = sorted({tuple(sorted((wedges[f[i]], wedges[f[(i+1)%3]])))
                              for f in faces for i in range(3)})
         offset = info['offset'] + c['faces']*8 + c['wedges']*4 + c['specialFaces']*8
         raw = struct.unpack_from('<%dh' % (c['verts']*3), data, offset)
@@ -105,9 +110,11 @@ class Mesh:
     def sample(self, sequence, phase, loop=False):
         s = self.seqs[sequence]
         f = phase*(s['frames'] if loop else s['frames']-1)
-        a = min(int(f), s['frames']-1); t = f-a
+        a = min(int(f), s['frames']-1)
+        t = f-a
         b = (a+1) % s['frames'] if loop else min(a+1, s['frames']-1)
-        a += s['start']; b += s['start']
+        a += s['start']
+        b += s['start']
         return [tuple(x+(y-x)*t for x, y in zip(self.points[a*self.count+i], self.points[b*self.count+i]))
                 for i in range(self.count)]
 
@@ -131,24 +138,26 @@ def generate(target, donor):
     ratio = target.height/donor.height
     # Match once using both rest position and existing motion. Re-selecting nearest
     # points every frame can attach a sleeve to the torso when the arm passes it.
-    samples = [(n,p) for n,p in [('Still',0), ('GestureLeft',.5), ('GestureRight',.5),
-               ('Run',.3), ('Walk',.7), ('Crouch',1), ('Tread',.25)]
+    samples = [(n, p) for n, p in [('Still', 0), ('GestureLeft', .5), ('GestureRight', .5),
+               ('Run', .3), ('Walk', .7), ('Crouch', 1), ('Tread', .25)]
                if n in target.seqs and n in donor.seqs]
-    own_samples = [target.sample(n,p) for n,p in samples]
-    source_samples = [[tuple(x*ratio for x in v) for v in donor.sample(n,p)] for n,p in samples]
+    own_samples = [target.sample(n, p) for n, p in samples]
+    source_samples = [[tuple(x*ratio for x in v) for v in donor.sample(n, p)] for n, p in samples]
     neighborhoods = []
     for i, point in enumerate(own_samples[0]):
         if i < target.special and donor.special == target.special:
-            neighborhoods.append(tuple(range(donor.special))); continue
-        distances = [(dot(sub(v,point),sub(v,point)),j)
-                     for j,v in enumerate(source_samples[0]) if j >= donor.special]
-        candidates = [j for _,j in sorted(distances)[:32]]
+            neighborhoods.append(tuple(range(donor.special)))
+            continue
+        distances = [((Vec3.of(v) - point).length_squared(), j)
+                     for j, v in enumerate(source_samples[0]) if j >= donor.special]
+        candidates = [j for _, j in sorted(distances)[:32]]
         def score(j):
-            return sum(dot(sub(src[j],own[i]),sub(src[j],own[i]))
-                       for src,own in zip(source_samples,own_samples))
-        neighborhoods.append(tuple(sorted(candidates,key=score)[:8]))
+            return sum((Vec3.of(src[j]) - own[i]).length_squared()
+                       for src, own in zip(source_samples, own_samples))
+        neighborhoods.append(tuple(sorted(candidates, key=score)[:8]))
     for name in BASE:
-        if not needs_motion(name, target, donor): continue
+        if not needs_motion(name, target, donor):
+            continue
         base = base_motion(name, target)
         if name not in donor.seqs or base not in target.seqs or base not in donor.seqs:
             raise ValueError('Cannot adapt player animation: '+name)
@@ -192,19 +201,22 @@ def generate(target, donor):
 
 def preserve_shape(points, reference, edges):
     points = [list(p) for p in points]
-    limits = [(a,b,max(.05,math.dist(reference[a],reference[b]))) for a,b in edges]
+    limits = [(a, b, max(.05, math.dist(reference[a], reference[b]))) for a, b in edges]
     for iteration in range(60):
         worst = 0
-        for a,b,length in limits:
+        for a, b, length in limits:
             delta = [points[b][i]-points[a][i] for i in range(3)]
             current = math.sqrt(sum(x*x for x in delta))
-            if current < 1e-9: continue
-            desired = min(length*1.18, max(length*.82,current))
-            if desired == current: continue
-            worst = max(worst,abs(current-desired))
+            if current < 1e-9:
+                continue
+            desired = min(length*1.18, max(length*.82, current))
+            if desired == current:
+                continue
+            worst = max(worst, abs(current-desired))
             correction = (current-desired)/current*.5
             for i in range(3):
                 points[a][i] += delta[i]*correction
                 points[b][i] -= delta[i]*correction
-        if worst < .03: break
+        if worst < .03:
+            break
     return points

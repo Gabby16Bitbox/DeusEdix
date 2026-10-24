@@ -2,6 +2,7 @@
 
     python tools\\mapkit\\classes.py DeusExDecoration
 """
+import functools
 import os
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ue1pkg import Pkg  # noqa: E402
+from classtree import ClassTree  # noqa: E402
 
 from settings import GAME  # noqa: E402
 PACKAGES = [GAME / 'System' / 'Engine.u', GAME / 'System' / 'DeusEx.u', GAME / 'Revision' / 'System' / 'RevisionDeco.u',
@@ -28,20 +30,17 @@ def hierarchy():
     return parents, origin
 
 
-def isa(parents, c, base):
-    for _ in range(40):
-        if c == base:
-            return True
-        if c not in parents:
-            return False
-        c = parents[c]
-    return False
+@functools.lru_cache(maxsize=1)
+def tree():
+    """The class tree of the game's packages (a ClassTree), read once."""
+    return ClassTree(hierarchy()[0])
 
 
 if __name__ == '__main__':
     base = sys.argv[1] if len(sys.argv) > 1 else 'DeusExDecoration'
     parents, origin = hierarchy()
-    found = sorted(c for c in parents if c != base and isa(parents, c, base))
+    classes = ClassTree(parents)
+    found = sorted(c for c in parents if c != base and classes.is_a(c, base))
     groups = {}
     for c in found:
         groups.setdefault(parents[c], []).append(c + ('' if origin[c] == 'DeusEx' else '[' + origin[c] + ']'))

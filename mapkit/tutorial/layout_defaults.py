@@ -144,7 +144,7 @@ def _own_piece(recipe):
         rot=(90 if ext[0]>=ext[1] else 0) if abs(f.normal[2])>.7 else (0 if ext[2]>=max(ext[:2]) else 90)
         f.mat=Mat('WarnYeloStrip_A',(width,4*width),rot=rot)
         u=geom.mapping(f,False)[0]
-        f.mat=f.mat.with_(align=min(f.verts,key=lambda q:geom.dot(q,u)))
+        f.mat=f.mat.with_(align=min(f.verts,key=u.dot))
     return _brush_block('TutorialStripe',b)
 
 

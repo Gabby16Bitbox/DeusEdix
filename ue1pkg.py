@@ -1,13 +1,12 @@
-"""Lettore minimo di pacchetti Unreal Engine 1 (Deus Ex, versione 68).
+"""A minimal reader of Unreal Engine 1 packages (Deus Ex, package version 68).
 
-Serve per leggere offline conversazioni (.u) e attori delle mappe (.dx)
-senza aprire il gioco o UnrealEd.
+It reads conversations (.u) and the actors of maps (.dx) offline, without the game or UnrealEd.
 
-Uso:
-  python ue1pkg.py <file> find <testo>          # export il cui nome contiene <testo>
-  python ue1pkg.py <file> dump <NomeExport>     # proprieta' di un export
-  python ue1pkg.py <file> conv <NomeConversazione>   # conversazione leggibile
-  python ue1pkg.py <file> class <NomeClasse>    # tutti gli export di quella classe (riassunto)
+Usage:
+  python ue1pkg.py <file> find <text>             # exports whose name contains <text>
+  python ue1pkg.py <file> dump <ExportName>       # the properties of an export
+  python ue1pkg.py <file> conv <ConversationName> # a conversation, readable
+  python ue1pkg.py <file> class <ClassName>       # every export of that class (a summary)
 """
 import struct
 import sys
@@ -96,7 +95,7 @@ class Pkg:
         return None
 
     def props(self, idx):
-        """Ritorna lista di (nome, tipo, indice_array, valore)."""
+        """The export's properties: a list of (name, type, array index, value)."""
         e = self.exports[idx - 1]
         d = self.d
         o = e['off']
@@ -205,13 +204,13 @@ def flagrefs(p, ref):
 def conv(p, name):
     idx = p.find_export(name, 'Conversation')
     if not idx:
-        print('conversazione non trovata:', name)
+        print('conversation not found:', name)
         return
     print('=== Conversation', name)
     for (n, t, a, v) in p.props(idx):
         if n not in ('eventList', 'flagRefList'):
             print('  %s = %s' % (n, p.pval(v)))
-    print('  REQUISITI:', flagrefs(p, p.get(idx, 'flagRefList', ('ref', 0))))
+    print('  REQUIRES:', flagrefs(p, p.get(idx, 'flagRefList', ('ref', 0))))
     ev = p.get(idx, 'eventList', ('ref', 0))
     i = 0
     while isinstance(ev, tuple) and ev[1] > 0 and i < 400:

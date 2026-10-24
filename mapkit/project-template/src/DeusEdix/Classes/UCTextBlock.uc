@@ -1,12 +1,12 @@
 //=============================================================================
-// UCTextBlock - un testo scritto nell'editor delle mappe che i computer del gioco leggono:
-// la lista delle email di un account, un'email, la lista dei bollettini di un terminale
-// pubblico, un bollettino. I computer leggono testi "ExtString" da un pacchetto di testi
-// (Computers.TextPackage); UCBoot, quando la mappa parte, crea per ogni blocco l'ExtString
-// <TextName> nel pacchetto DeusEdix, e l'editor mette TextPackage=DeusEdix
-// nei computer che hanno email o bollettini suoi.
-// Il testo e' nel formato dei testi del gioco: <EMAIL=nome,oggetto,da,a,cc> per righe della
-// lista delle email, <FILE=nome,titolo> per quella dei bollettini, <P> per i paragrafi.
+// UCTextBlock - a text written in the map editor that the game's computers read:
+// the email list of an account, an email, the bulletin list of a public
+// terminal, a bulletin. The computers read "ExtString" texts from a text package
+// (Computers.TextPackage); when the map starts, UCBoot makes, for every block, the ExtString
+// <TextName> in the DeusEdix package, and the editor sets TextPackage=DeusEdix
+// on the computers that have emails or bulletins written in the editor.
+// The text is in the format of the game's texts: <EMAIL=name,subject,from,to,cc> for the rows of the
+// email list, <FILE=name,title> for the bulletin list, <P> for paragraphs.
 //=============================================================================
 class UCTextBlock extends Info;
 

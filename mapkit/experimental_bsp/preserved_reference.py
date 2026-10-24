@@ -11,22 +11,24 @@ from exact_surface_identity import compare_with_exact_groups
 from selected_rebuild import Refused
 
 
-def compare_preserved_coverage(before,after,full,scratch,old_sources,new_sources,
-                               selected,planes,key_for_surface,compare,enabled):
-    dependencies=source_edit_certificate(old_sources,new_sources,selected)
-    original_compare=compare
-    compare=lambda a,b,p:compare_with_exact_groups(a,b,p,original_compare)
+def compare_preserved_coverage(before, after, full, scratch, old_sources, new_sources,
+                               selected, planes, key_for_surface, compare, enabled):
+    dependencies = source_edit_certificate(old_sources, new_sources, selected)
+    original_compare = compare
+    compare = lambda a, b, p:compare_with_exact_groups(a, b, p, original_compare)
     if enabled and dependencies['valid']:
-        return compare_scoped_coverage(before,after,full,dependencies,planes,compare)
-    empty=lambda data:dict(data,polys=[])
-    original_check=compare(empty(after),empty(before),planes)
-    try:full_check=compare(after,full,planes)
+        return compare_scoped_coverage(before, after, full, dependencies, planes, compare)
+    empty = lambda data:dict(data, polys=[])
+    original_check = compare(empty(after), empty(before), planes)
+    try:
+        full_check = compare(after, full, planes)
     except Refused as error:
-        if not dependencies['valid']:raise
-        result=compare_scoped_coverage(before,after,full,dependencies,planes,compare)
-        result['complete_full_refusal']=str(error)
+        if not dependencies['valid']:
+            raise
+        result = compare_scoped_coverage(before, after, full, dependencies, planes, compare)
+        result['complete_full_refusal'] = str(error)
         return result
-    return dict(original_preserved_coverage=original_check,full_affected_coverage=full_check,
-        certificate=dict(source_faces=0,source_dependencies=dependencies,
+    return dict(original_preserved_coverage=original_check, full_affected_coverage=full_check,
+        certificate=dict(source_faces=0, source_dependencies=dependencies,
             criterion='Mandatory Full: every surface of the rebuilt cell passed complete bidirectional coverage.',
-            selected=sorted(selected),surface_keys=[]))
+            selected=sorted(selected), surface_keys=[]))

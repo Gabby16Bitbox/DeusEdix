@@ -132,8 +132,8 @@ event Tick(float deltaTime)
 	}
 	if (ev.Name == lastEvent)
 		return;
-	// Aspetta che ConPlay abbia impostato attori, testo e telecamera.
-	// Il currentEvent esiste gia' durante le rotazioni/preparazioni della scena.
+	// Wait until ConPlay has set up the actors, the text and the camera.
+	// currentEvent already exists while the scene turns its actors and gets ready.
 	if (!P.conPlay.IsInState('WaitForText') && !P.conPlay.IsInState('WaitForInput')
 		&& !P.conPlay.IsInState('WaitForSpeech'))
 		return;
@@ -176,8 +176,8 @@ event Tick(float deltaTime)
 		soundRadius = 65536.0;
 	else
 		soundRadius = 512.0 + P.conPlay.initialRadius;
-	// Registra l'handle nel lettore nativo: saltare/chiudere una battuta deve
-	// fermare anche la nostra voce, come avviene per i dialoghi originali.
+	// Store the handle in the native player: skipping/closing a line must
+	// stop our voice too, as it does for the original dialogues.
 	handle = spk.PlaySound(snd, SLOT_Talk, 1.0,, soundRadius);
 	if (handle == 0)
 	{
@@ -194,8 +194,8 @@ event Tick(float deltaTime)
 	P.conPlay.playingSoundID = handle;
 	Log("UCVoice: conversation playback" @ snd @ "speaker=" $ spk @ "handle=" $ P.conPlay.playingSoundID);
 	P.conPlay.StartSpeakingAnimation();
-	// Le battute passive dei soldati/MIB durano quanto l'audio, evitando che
-	// il timer del solo testo faccia partire la voce successiva troppo presto.
+	// The passive lines of soldiers/MIBs last as long as their audio, so that
+	// the text-only timer does not start the next voice too early.
 	if (P.conPlay.IsInState('WaitForText') || P.conPlay.IsInState('WaitForSpeech'))
 		P.conPlay.SetTimer(GetSoundDuration(snd) + 0.15, False);
 }

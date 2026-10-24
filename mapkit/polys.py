@@ -4,8 +4,9 @@ A carved room (CSG_Subtract brush) stores its faces with normals pointing out of
 its floor is stored facing down. polygons() flips those, so 'floor' means a surface you stand on.
 """
 import gzip
-import re
 from pathlib import Path
+
+import t3d
 
 REFS = Path(__file__).resolve().parent / 'refs'
 
@@ -31,39 +32,31 @@ def ref_text(map_name):
 def ref_names():
     return sorted({p.name.split('.')[0] for p in REFS.glob('*.t3d*')})
 
-_actor = re.compile(r'Begin Actor Class=(\w+)[^\n]*\n(.*?)\nEnd Actor', re.S)
-_poly = re.compile(r'Begin Polygon([^\n]*)\n(.*?)End Polygon', re.S)
-
-
-def _v(s):
-    return [float(x) for x in s.replace('+', '').split(',')]
-
-
 def polygons(text):
     """Yield (texture, normal_seen, vertices, textureU, csg) for every brush polygon of the map."""
-    for a in _actor.finditer(text):
-        cls, body = a.group(1), a.group(2)
-        if 'Begin Polygon' not in body:
+    for actor in t3d.walk(t3d.blocks(text)):
+        if actor.kind != 'Actor':
             continue
-        csg = re.search(r'CsgOper=(\w+)', body)
-        csg = csg.group(1) if csg else ('CSG_Add' if cls == 'Brush' else 'Mover')
-        flip = csg == 'CSG_Subtract'
-        for m in _poly.finditer(body):
-            t = re.search(r'Texture=(\S+)', m.group(1))
-            if not t:
+        faces = [b for b in t3d.walk(actor.children) if b.kind == 'Polygon']
+        if not faces:
+            continue
+        csg = next((s.split('=', 1)[1] for s in actor.lines if s.startswith('CsgOper=')), None)
+        csg = csg or ('CSG_Add' if actor.fields.get('Class', '').split('.')[-1] == 'Brush' else 'Mover')
+        for face in faces:
+            tex = face.fields.get('Texture')
+            if not tex:
                 continue
-            pb = m.group(2)
             try:
-                n = _v(re.search(r'Normal\s+([^\n]+)', pb).group(1))
-                u = _v(re.search(r'TextureU\s+([^\n]+)', pb).group(1))
-                vs = [_v(l.split(None, 1)[1]) for l in pb.splitlines() if l.strip().startswith('Vertex')]
-            except (AttributeError, ValueError):
+                n, u = face.numbers('Normal'), face.numbers('TextureU')
+                vs = [[float(x) for x in s.split(None, 1)[1].replace('+', '').split(',')] for s in face.lines
+                      if s.startswith('Vertex')]
+            except (IndexError, ValueError):
                 continue
-            if len(vs) < 3:
+            if n is None or u is None or len(vs) < 3:
                 continue
-            if flip:
+            if csg == 'CSG_Subtract':
                 n = [-c for c in n]
-            yield t.group(1), n, vs, u, csg
+            yield tex, n, vs, u, csg
 
 
 def kind(n):

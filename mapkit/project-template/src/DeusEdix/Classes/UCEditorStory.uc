@@ -1,5 +1,5 @@
 //=============================================================================
-// UCEditorStory - base of the stories written in the map editor ("Storia"): the editor
+// UCEditorStory - base of the stories written in the map editor ("Story"): the editor
 // (tools\mapkit\story.py) generates one subclass per map, UCEd_<map>, with the dialogues
 // attached to the characters and objects of the map and the events of the mission (JC
 // arrives somewhere, a flag becomes true, the map starts). UCBoot spawns UCEd_<map> at every

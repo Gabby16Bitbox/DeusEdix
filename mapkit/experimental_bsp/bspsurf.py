@@ -1,9 +1,9 @@
-"""Superfici della geometria fissa (BSP) di una mappa UE1 (Deus Ex, versione 68).
+"""The surfaces of the static geometry (BSP) of a UE1 map (Deus Ex, package version 68).
 
-Uso: python bspsurf.py <mappa.dx> [testo]
-Elenca, per ogni superficie del modello principale, texture, flag e il brush che l'ha
-creata (FBspSurf.Actor); con [testo] solo le righe che lo contengono. Serve per sapere
-se un brush cancellato ha lasciato pezzi nella geometria (mappa non ricostruita).
+Usage: python bspsurf.py <map.dx> [text]
+Lists, for every surface of the main model, its texture, flags and the brush that made it
+(FBspSurf.Actor); with [text], only the lines that contain it. It tells whether a deleted
+brush left pieces in the geometry (a map that was not rebuilt).
 """
 import os
 import struct
@@ -35,11 +35,14 @@ def props_end(p, idx):
             _, o = p.ci(o)
         size = {0: 1, 1: 2, 2: 4, 3: 12, 4: 16}.get(si)
         if si == 5:
-            size = d[o]; o += 1
+            size = d[o]
+            o += 1
         elif si == 6:
-            size = struct.unpack_from('<H', d, o)[0]; o += 2
+            size = struct.unpack_from('<H', d, o)[0]
+            o += 2
         elif si == 7:
-            size = struct.unpack_from('<I', d, o)[0]; o += 4
+            size = struct.unpack_from('<I', d, o)[0]
+            o += 4
         if arr and t != 3:
             b = d[o]
             o += 1 if b < 128 else (2 if (b & 0xC0) == 0x80 else 4)
@@ -87,7 +90,7 @@ def main():
     models = [(e['size'], i + 1) for i, e in enumerate(p.exports) if p.classname(e) == 'Model']
     models.sort(reverse=True)
     surfs = read_model(p, models[0][1])
-    print('modello', p.exports[models[0][1] - 1]['name'], 'superfici', len(surfs))
+    print('model', p.exports[models[0][1] - 1]['name'], 'surfaces', len(surfs))
     per_actor = Counter(s['actor'] for s in surfs)
     for s in surfs:
         line = '%-22s %-10s flags=%08x base=%s normal=%s' % (s['tex'], s['actor'], s['flags'],

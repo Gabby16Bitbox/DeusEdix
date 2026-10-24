@@ -1,21 +1,21 @@
 //=============================================================================
-// UCSoundFX - un effetto sonoro messo nell'editor delle mappe.
-// - Zona (bOnTouch): suona quando JC ci entra (il cilindro CollisionRadius / CollisionHeight, come
-//   un Trigger: TriggerType, bTriggerOnceOnly, ReTriggerDelay valgono come sempre), e fa anche
-//   partire il suo Event, come un Trigger qualsiasi.
-// - Attivato (Tag): suona quando qualcosa lo attiva: l'Event di una porta (quando ha finito di
-//   aprirsi), di un pulsante, di un tastierino, di un altro trigger, un'azione della storia.
-// FXSound si sente da dove sta l'oggetto fino a FXRadius unita' (bAtPlayer: nella testa di JC,
-// alla stessa altezza ovunque sia: una voce, un allarme del comunicatore).
+// UCSoundFX - a sound effect placed in the map editor.
+// - Zone (bOnTouch): it plays when JC walks into it (the cylinder CollisionRadius / CollisionHeight, as
+//   a Trigger: TriggerType, bTriggerOnceOnly, ReTriggerDelay work as always), and it also
+//   sets off its Event, as any Trigger does.
+// - Triggered (Tag): it plays when something triggers it: the Event of a door (when it has finished
+//   opening), of a button, of a keypad, of another trigger, an action of the story.
+// FXSound is heard from where the object is, up to FXRadius units (bAtPlayer: inside JC's head,
+// just as loud wherever he is: a voice, an alarm on the communicator).
 //=============================================================================
 class UCSoundFX extends Trigger;
 
 var() sound FXSound;
-var() float FXVolume;          // 1 = normale
-var() float FXRadius;          // fin dove si sente (unita')
-var() float FXPitch;           // 1 = come registrato
-var() bool  bAtPlayer;         // si sente "in testa" a JC, non da qui
-var() bool  bOnTouch;          // suona quando JC ci entra (se no, solo quando e' attivato)
+var() float FXVolume;          // 1 = normal
+var() float FXRadius;          // how far it is heard (units)
+var() float FXPitch;           // 1 = as recorded
+var() bool  bAtPlayer;         // heard "inside JC's head", not from here
+var() bool  bOnTouch;          // plays when JC walks in (else only when triggered)
 var bool bPlayed;
 
 function PlayFX(Actor Who)
@@ -47,7 +47,7 @@ function Touch(Actor Other)
         return;
     if (IsRelevant(Other) && (ReTriggerDelay <= 0 || Level.TimeSeconds - TriggerTime >= ReTriggerDelay))
         PlayFX(Other);
-    Super.Touch(Other);          // il suo Event e il messaggio, come ogni trigger
+    Super.Touch(Other);          // its Event and its message, as every trigger
 }
 
 function Trigger(Actor Other, Pawn EventInstigator)

@@ -1,20 +1,20 @@
 //=============================================================================
-// UCScene - base di tutte le scene (eventi scriptati) della route UNATCO.
+// UCScene - the base of every scene (scripted event) of the UNATCO route.
 //
-// Una scena e' un'Actor con uno stato "Playing" scritto come sequenza
-// (Sleep, Say, FireTag...). REGOLA: nessun puntatore a Player/flags/finestre
-// deve restare in variabili membro: ogni helper li prende, li usa e li lascia
-// (altrimenti il cambio mappa manda in crash il motore).
+// A scene is an Actor with a "Playing" state written as a sequence
+// (Sleep, Say, FireTag...). RULE: no pointer to the Player/flags/windows
+// may stay in member variables: every helper gets them, uses them and lets them go
+// (otherwise a map change crashes the engine).
 //=============================================================================
 class UCScene extends Actor
 	abstract
 	transient;
 
-var bool bHistoryOnly;   // Say() scrive solo nella cronologia (vedi InfoStart)
+var bool bHistoryOnly;   // Say() writes only to the history (see InfoStart)
 var bool bHushTalks;     // no talking with people while its InfoLinks play (UCTalkHush, from InfoStart)
 var int infoVoiceId;     // Own channel only: cancelling a tutorial must not stop another speaker.
 var bool bInfoVoiceActive;
-var name openedDoors[16];  // porte gia' aperte dai PNG della scena (OpenDoorsNear)
+var name openedDoors[16];  // doors already opened by the scene's NPCs (OpenDoorsNear)
 var int numOpened;
 
 function DeusExPlayer Plr()
@@ -22,15 +22,15 @@ function DeusExPlayer Plr()
 	return DeusExPlayer(GetPlayerPawn());
 }
 
-// Le porte chiuse davanti a un PNG della scena si aprono (una volta, e restano aperte):
-// anche quelle a chiave, che un PNG non sa aprire e davanti alle quali si incastrava.
-// Le porte dell'appartamento di Paul nella mappa non sono segnate come porte (bIsDoor):
-// per l'IA dei PNG erano muri, e Gunther restava davanti alla porta (provato con le foto
-// automatiche). Qui vale ogni mover "da aprire": non le finestre (vetro, non frobbabili)
-// ne' i passaggi segreti (non frobbabili). Viene anche segnato come porta, cosi' l'IA
-// del gioco lo gestisce da sola se si richiude. Aprire in anticipo (raggio ampio) serve
-// anche quando passano in fila: ognuno frobbava la porta (apri/chiudi) e l'anta girava
-// loro addosso, e restavano a spingere e indietreggiare davanti al portone del 'Ton.
+// Closed doors in front of an NPC of the scene open (once, and they stay open):
+// locked ones too, which an NPC cannot open and in front of which it used to get stuck.
+// The doors of Paul's apartment in the map are not marked as doors (bIsDoor):
+// to the NPCs' AI they were walls, and Gunther stayed in front of the door (tried with the automatic
+// photos). Here every mover "to be opened" counts: not the windows (glass, not frobbable)
+// nor the secret passages (not frobbable). It is also marked as a door, so the game's
+// AI handles it by itself if it shuts again. Opening early (a wide radius) also helps
+// when they go through one after another: each one frobbed the door (open/close), it swung
+// into them, and they kept pushing and backing off in front of the 'Ton's main door.
 function OpenDoorsNear(ScriptedPawn sp, float radius)
 {
 	local DeusExMover m;
@@ -55,14 +55,14 @@ function OpenDoorsNear(ScriptedPawn sp, float radius)
 		openedDoors[numOpened] = m.Name;
 		numOpened++;
 		m.bLocked = False;
-		// come fanno i PNG (ScriptedPawn.FrobDoor): un PNG apre qualsiasi porta con Frob
+		// as the NPCs do it (ScriptedPawn.FrobDoor): an NPC opens any door with Frob
 		m.Frob(sp, None);
 	}
 }
 
-// True se JC sta guardando l'attore: nel campo visivo (circa 60 gradi dal centro) e
-// senza muri in mezzo. Regola delle scene: un PNG si sposta o sparisce SOLO quando
-// JC non lo vede (si ferma prima in un punto visibile e sensato).
+// True if JC is looking at the actor: in his field of view (about 60 degrees from the centre) and
+// with no walls in between. Rule of the scenes: an NPC moves or vanishes ONLY when
+// JC cannot see it (it first stops at a visible spot that makes sense).
 function bool SeenByJC(Actor A)
 {
 	local DeusExPlayer P;
@@ -79,16 +79,16 @@ function bool SeenByJC(Actor A)
 	return P.LineOfSightTo(A);
 }
 
-// Anna Navarre e' morta sul 747 (missione 3). AnnaNavarre_Dead da solo non basta:
-// M03PlayerKilledAnna lo mette l'InfoLink di Alex (DL_AlexShocked) quando Anna muore
-// li', ed e' il flag che il gioco originale usa per il sospetto di Manderley e di
-// Gunther. Una morte avvenuta altrove non attiva le varianti "Anna morta sul 747".
+// Anna Navarre died on the 747 (mission 3). AnnaNavarre_Dead alone is not enough:
+// M03PlayerKilledAnna is set by Alex's InfoLink (DL_AlexShocked) when Anna dies
+// there, and it is the flag the original game uses for the suspicion of Manderley and
+// Gunther. A death somewhere else does not turn on the "Anna died on the 747" variants.
 function bool Anna747()
 {
 	return GetF('AnnaNavarre_Dead') && GetF('M03PlayerKilledAnna');
 }
 
-// True mentre il giocatore e' in una conversazione (aspettare che finisca).
+// True while the player is in a conversation (wait for it to end).
 function bool Talking()
 {
 	local DeusExPlayer P;
@@ -131,7 +131,7 @@ function string DisplayName(string bindName)
 	return bindName;
 }
 
-// Mostra una battuta nella finestra InfoLink. Ritorna per quanti secondi tenerla.
+// Shows a line in the InfoLink window. Returns how many seconds to keep it.
 function float Say(string bindName, string text)
 {
 	local DeusExPlayer P;
@@ -168,7 +168,7 @@ function float Say(string bindName, string text)
 	win.ClearScreen();
 	win.DisplayText(text);
 
-	// voce registrata (se c'e'): la battuta dura quanto l'audio
+	// a recorded voice (if there is one): the line lasts as long as the audio
 	snd = class'UCVoiceBank'.static.Resolve(Self, bindName, text); // a user dub or original voice reference
 	if (snd == None)
 		snd = class'UCVoice'.static.Find(text, bindName, bindName != "JCDenton");
@@ -185,8 +185,8 @@ function float Say(string bindName, string text)
 	return 2.0 + Len(text) * 0.045;
 }
 
-// Fine dell'InfoLink: "END TRANSMISSION..." lampeggia un secondo e la finestra si chiude, come nel
-// gioco (UCInfoLinkFX). bCut: chiusa di colpo (una chiamata interrotta).
+// The end of the InfoLink: "END TRANSMISSION..." blinks for a second and the window closes, as in the
+// game (UCInfoLinkFX). bCut: closed at once (a call cut short).
 function StopInfoVoice()
 {
 	local DeusExPlayer P;
@@ -244,7 +244,7 @@ function Msg(string text)
 		P.ClientMessage(text);
 }
 
-// Fa scattare tutti gli attori della mappa con quel Tag. Ritorna quanti sono.
+// Triggers every actor of the map with that Tag. Returns how many there are.
 function int FireTag(Name tagName)
 {
 	local Actor A;
@@ -259,7 +259,7 @@ function int FireTag(Name tagName)
 	return n;
 }
 
-// Scrive nel log chi ha quel Tag (per capire cosa fanno gli eventi vanilla).
+// Writes to the log who has that Tag (to understand what the vanilla events do).
 function DumpTag(Name tagName)
 {
 	local Actor A;
@@ -268,9 +268,9 @@ function DumpTag(Name tagName)
 		Log("DeusEdix: tag" @ tagName @ ":" @ string(A.Class) @ "@" @ int(A.Location.X) $ "," $ int(A.Location.Y) $ "," $ int(A.Location.Z) @ "event:" @ A.Event);
 }
 
-// Avvia una conversazione costruita con UCCon con il personaggio npc.
-// La modalita' nativa include telecamere, blocco input e musica di conversazione.
-// bForcePlay e' riservato al finale/intro: salta tutti questi sistemi.
+// Starts a conversation built with UCCon with the character npc.
+// The native mode includes cameras, input lock and conversation music.
+// bForcePlay is kept for the ending/intro: it skips all of these systems.
 function bool PlayConv(UCCon c, Actor npc)
 {
 	local DeusExPlayer P;
@@ -283,14 +283,14 @@ function bool PlayConv(UCCon c, Actor npc)
 	return P.StartConversation(npc, IM_Other, c.con, False, False);
 }
 
-// Come PlayConv, ma il PNG non entra nello stato di conversazione: continua a fare
-// quello che stava facendo (camminare) mentre parla.
-// NOTA sulle conversazioni "sentite" (prima persona, UCCon.Passive): il gioco le tronca
-// appena JC e' a piu' di 300 unita' da chi le ha avviate, a meno che abbiano un raggio
-// (DeusExPlayer.CheckActiveConversationRadius): dare sempre UCCon.Radius(...) largo.
-// E non le fa partire se due PNG che si parlano sono a piu' di 300 unita' l'uno
-// dall'altro (Conversation.CheckActorDistances): se sono lontani, le battute vanno
-// "rivolte" a JCDenton, che e' escluso da quel controllo.
+// As PlayConv, but the NPC does not enter the conversation state: it goes on doing
+// what it was doing (walking) while it talks.
+// NOTE on "overheard" conversations (first person, UCCon.Passive): the game cuts them
+// as soon as JC is more than 300 units from who started them, unless they have a radius
+// (DeusExPlayer.CheckActiveConversationRadius): always give them a wide UCCon.Radius(...).
+// And it does not start them if two NPCs talking to each other are more than 300 units
+// apart (Conversation.CheckActorDistances): if they are far apart, the lines must be
+// "spoken to" JCDenton, who is left out of that check.
 function bool PlayConvMoving(UCCon c, Actor npc)
 {
 	local DeusExPlayer P;
@@ -302,11 +302,11 @@ function bool PlayConvMoving(UCCon c, Actor npc)
 	return P.StartConversation(npc, IM_Other, c.con, True, False);
 }
 
-// Chi dice (o ascolta) una battuta viene messo dal gioco nello stato di conversazione
-// fino alla fine dello scambio: sta fermo, girato verso l'interlocutore
-// (ConPlayBase.AddConActor). Per chi deve tirare dritto mentre parla: se e' fermo dentro
-// la conversazione indicata lo si rimette in cammino verso la sua meta. Va chiamata a
-// ogni giro della scena finche' la conversazione dura.
+// Whoever says (or listens to) a line is put by the game in the conversation state
+// until the end of the exchange: it stands still, turned towards the one it talks with
+// (ConPlayBase.AddConActor). For one who must keep going while talking: if it stands still in
+// the given conversation, it is sent walking towards its goal again. Call it on
+// every round of the scene while the conversation lasts.
 function KeepWalking(ScriptedPawn sp, name conName)
 {
 	local DeusExPlayer P;
@@ -316,12 +316,12 @@ function KeepWalking(ScriptedPawn sp, name conName)
 		return;
 	if (sp.IsInState('FirstPersonConversation') && sp.OrderActor != None)
 	{
-		sp.bConversationEndedNormally = True;   // altrimenti uscire dallo stato annulla lo scambio
+		sp.bConversationEndedNormally = True;   // else leaving the state cancels the exchange
 		sp.GotoState('GoingTo');
 	}
 }
 
-// Suono "incoming transmission" dell'InfoLink.
+// The InfoLink's "incoming transmission" sound.
 function InfoSound()
 {
 	local DeusExPlayer P;
@@ -331,22 +331,22 @@ function InfoSound()
 		P.PlaySound(Sound'DeusExSounds.UserInterface.DataLinkStart', SLOT_None);
 }
 
-// --- InfoLink a senso unico ---------------------------------------------------
-// Le battute dell'InfoLink, una per indice (0, 1, 2...; -1 = finito, 0 = saltata).
-// Le scene con un InfoLink la ridefiniscono.
+// --- One-way InfoLink ---------------------------------------------------------
+// The InfoLink's lines, one per index (0, 1, 2...; -1 = finished, 0 = skipped).
+// The scenes with an InfoLink override it.
 function float InfoLine(int i)
 {
 	return -1;
 }
 
-// Inizio di un InfoLink: come nel gioco (DataLinkPlay) la finestra si apre su "INCOMING
-// TRANSMISSION..." con l'icona DataLink che lampeggia per 1.5 s (UCInfoLinkFX): chi chiama
-// aspetta 1.5 s prima della prima battuta. Le scene sono transient: se JC cambia zona a meta', la scena
-// sparisce. Come fa il gioco originale (DeusExPlayer.PreTravel ->
-// DataLinkPlay.AbortAndSaveHistory) l'InfoLink vale allora come ascoltato: chi chiama
-// segna il suo flag "fatto" e ne applica gli effetti PRIMA di InfoStart, e qui tutto il
-// testo (InfoLine 0, 1, 2...) va subito nella cronologia delle conversazioni (Log).
-// Cosi' non si ripete e si puo' rileggere.
+// The start of an InfoLink: as in the game (DataLinkPlay) the window opens on "INCOMING
+// TRANSMISSION..." with the DataLink icon blinking for 1.5 s (UCInfoLinkFX): the caller
+// waits 1.5 s before the first line. The scenes are transient: if JC changes map halfway, the scene
+// is gone. As the original game does (DeusExPlayer.PreTravel ->
+// DataLinkPlay.AbortAndSaveHistory) the InfoLink then counts as heard: the caller
+// sets its "done" flag and applies its effects BEFORE InfoStart, and here the whole
+// text (InfoLine 0, 1, 2...) goes at once into the conversation history (Log).
+// So it is not repeated, and it can be read again.
 function InfoStart(string ownerBind)
 {
 	local DeusExPlayer P;
@@ -399,7 +399,7 @@ function AddInfoHistory(DeusExPlayer P, string bindName, string text)
 	P.conHistory.AddEvent(ev);
 }
 
-// Testo grande a macchina da scrivere (come l'inizio missione di Deus Ex).
+// Large typewriter text (like the start of a mission in Deus Ex).
 function TitleCard(string line1, optional string line2, optional string line3)
 {
 	local DeusExPlayer P;
@@ -439,7 +439,7 @@ function UCCam FindCam()
 	return None;
 }
 
-// Cutscene: la telecamera diventa cam, il giocatore sparisce e non si muove.
+// Cutscene: the view becomes cam, the player vanishes and does not move.
 function CutsceneStart(vector camPos, Actor lookAt)
 {
 	local DeusExPlayer P;
@@ -469,8 +469,8 @@ function CutsceneStart(vector camPos, Actor lookAt)
 		root.hud.Hide();
 }
 
-// La telecamera segue l'attore a ogni fotogramma (UCCam.Track): basta chiamarla una volta, le
-// chiamate ripetute dai cicli delle scene non cambiano niente.
+// The camera follows the actor every frame (UCCam.Track): calling it once is enough, the
+// repeated calls from the scenes' loops change nothing.
 function CamLookAt(Actor lookAt)
 {
 	local UCCam cam;
@@ -480,7 +480,7 @@ function CamLookAt(Actor lookAt)
 		cam.Track(lookAt, vect(0,0,20));
 }
 
-// Rimette tutto come prima (da chiamare PRIMA di cambiare mappa).
+// Puts everything back as it was (call it BEFORE changing map).
 function CutsceneEnd()
 {
 	local DeusExPlayer P;
@@ -504,7 +504,7 @@ function CutsceneEnd()
 		cam.Destroy();
 }
 
-// Cambia mappa portando il giocatore in un punto preciso.
+// Changes map, taking the player to a given spot.
 function TravelTo(string mapName, int arrival)
 {
 	local DeusExPlayer P;
@@ -516,15 +516,15 @@ function TravelTo(string mapName, int arrival)
 	Level.Game.SendPlayer(P, mapName);
 }
 
-// Le sottoclassi ridefiniscono questo stato con la loro sequenza.
+// The subclasses override this state with their sequence.
 state Playing
 {
 Begin:
 	Destroy();
 }
 
-// NB: lo stato iniziale va dato con InitialState: un GotoState() in PostBeginPlay
-// verrebbe annullato dal motore (SetInitialState viene chiamato dopo).
+// NB: the initial state must be given with InitialState: a GotoState() in PostBeginPlay
+// would be undone by the engine (SetInitialState is called afterwards).
 defaultproperties
 {
      bHidden=True

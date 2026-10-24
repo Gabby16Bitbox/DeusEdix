@@ -1,23 +1,23 @@
-"""Ombre "cotte" della geometria fissa (BSP) di una mappa UE1 (Deus Ex, versione 68).
+"""The baked shadows of the static geometry (BSP) of a UE1 map (Deus Ex, package version 68).
 
-Il motore salva, per ogni superficie illuminata e per ogni luce che la tocca, una
-maschera a 1 bit (1 = la luce arriva, 0 = ombra). Le ombre lasciate da oggetti tolti
-dopo la ricostruzione delle luci restano li': questo strumento le mostra e le toglie
-senza ricostruire le luci (che nell'editor SDK scurisce le mappe di Revision).
+The engine keeps, for every lit surface and every light that reaches it, a 1-bit mask
+(1 = the light reaches the point, 0 = shadow). The shadows of objects removed after the
+lighting was built stay there: this tool shows them and removes them without building
+the lighting again (which, in the SDK editor, makes Revision's maps darker).
 
-Uso:
-  python lightbits.py <mappa.dx> list x1 y1 x2 y2 z1 z2
-      superfici in quel riquadro (pavimenti e muri) con le luci e quanta ombra hanno
-  python lightbits.py <mappa.dx> png <cartella> x1 y1 x2 y2 z1 z2
-      un'immagine per superficie+luce (bianco = luce, nero = ombra)
-  python lightbits.py <mappa.dx> clear x1 y1 x2 y2 z1 z2 [nz] [luce,...]
-      mette a "luce" i punti delle superfici dentro il riquadro (solo quelle con
-      normale z ~ nz se dato, solo le luci indicate se date). Modifica il file sul posto.
-  python lightbits.py <mappa.dx> unshadow <mappa_vecchia.dx> x1 y1 x2 y2 z1 z2 [prova]
-      il modo giusto per togliere le ombre di geometria tolta: per ogni punto delle
-      superfici nel riquadro traccia il raggio verso ogni luce sia nella geometria
-      vecchia (quella con cui furono calcolate le ombre) sia in quella attuale, e
-      accende solo i punti in ombra prima e liberi adesso. Con "prova" non scrive.
+Usage:
+  python lightbits.py <map.dx> list x1 y1 x2 y2 z1 z2
+      the surfaces in that box (floors and walls), their lights and how much shadow each has
+  python lightbits.py <map.dx> png <folder> x1 y1 x2 y2 z1 z2
+      one image for each surface and light (white = light, black = shadow)
+  python lightbits.py <map.dx> clear x1 y1 x2 y2 z1 z2 [nz] [light,...]
+      sets the points of the surfaces inside the box to "lit" (only the surfaces whose
+      normal z is about nz when given, only the lights named when given). Edits the file in place.
+  python lightbits.py <map.dx> unshadow <old_map.dx> x1 y1 x2 y2 z1 z2 [dry]
+      the right way to remove the shadows of removed geometry: for every point of the
+      surfaces in the box it traces the ray to every light, both in the old geometry (the
+      one the shadows were made with) and in the current one, and lights only the points
+      that were in shadow then and are free now. With "dry" it writes nothing.
 """
 import math
 import os
@@ -37,7 +37,7 @@ class Model:
         if name:
             idx = p.find_export(name, 'Model')
         else:
-            # il modello piu' grande e' la geometria fissa della mappa
+            # the largest model is the static geometry of the map
             models = sorted([(e['size'], i + 1) for i, e in enumerate(p.exports) if p.classname(e) == 'Model'], reverse=True)
             idx = models[0][1]
         self.idx = idx
@@ -50,9 +50,9 @@ class Model:
         n, o = p.ci(o)
         self.points = [struct.unpack_from('<fff', d, o + 12 * i) for i in range(n)]
         o += 12 * n
-        self.sec = {}                     # sezioni del modello: nome -> (inizio, fine) nel file
+        self.sec = {}                     # sections of the model: name -> (start, end) in the file
         self.sec['start'] = o
-        n, o = p.ci(o)                    # Nodes: piano, figli (dietro, davanti)
+        n, o = p.ci(o)                    # Nodes: plane, children (back, front)
         self.nodes = []
         self.node_polys = []              # (iVertPool, iSurf, NumVertices)
         for _ in range(n):
@@ -135,10 +135,10 @@ class Model:
         o += 8                            # RootOutside, Linked
         self.sec['end'] = o
         if o != e['off'] + e['size']:
-            raise SystemExit('lettura del modello non allineata (%d invece di %d)' % (o, e['off'] + e['size']))
+            raise SystemExit('the model was read out of step (%d instead of %d)' % (o, e['off'] + e['size']))
 
     def empty(self, P):
-        """Vero se il punto e' nello spazio vuoto (non dentro la geometria fissa)."""
+        """True when the point is in empty space (not inside the static geometry)."""
         i = 0
         front = True
         while i >= 0 and i < len(self.nodes):
@@ -148,7 +148,7 @@ class Model:
         return front
 
     def sees(self, a, b, step=2.0):
-        """Vero se il segmento a-b non attraversa la geometria fissa."""
+        """True when the segment a-b does not cross the static geometry."""
         dx, dy, dz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
         n = max(1, int(math.sqrt(dx * dx + dy * dy + dz * dz) / step))
         for k in range(1, n):
@@ -158,8 +158,8 @@ class Model:
         return True
 
     def against_wall(self, s, lm, u, v):
-        """Vero per i punti sul bordo della maschera che toccano un muro: il motore li
-        lascia sempre in ombra (li calcola a filo del muro), quindi non vanno accesi."""
+        """True for the points on the edge of the mask that touch a wall: the engine always
+        leaves them in shadow (it computes them flush with the wall), so they stay dark."""
         nrm = self.vectors[s['vNormal']]
         outs = []
         if u == 0:
@@ -177,7 +177,7 @@ class Model:
         return False
 
     def surf_lights(self, lm):
-        """Luci (nome) della superficie, nell'ordine delle maschere."""
+        """The lights (names) of the surface, in the order of its masks."""
         out = []
         i = lm['il']
         while 0 <= i < len(self.lights) and self.lights[i] != 0:
@@ -186,14 +186,14 @@ class Model:
         return out
 
     def lumel_world(self, s, lm, u, v):
-        """Punto del mondo al centro del punto (u,v) della maschera."""
+        """The world point at the centre of point (u, v) of the mask."""
         base = self.points[s['pBase']]
         tu = self.vectors[s['vU']]
         tv = self.vectors[s['vV']]
         nrm = self.vectors[s['vNormal']]
         U = lm['pan'][0] + (u + 0.5) * lm['us']
         V = lm['pan'][1] + (v + 0.5) * lm['vs']
-        # P = base + a*tu' + b*tv' risolvendo (P-base).tu = U, (P-base).tv = V, (P-base).n = 0
+        # P = base + a*tu' + b*tv', solving (P-base).tu = U, (P-base).tv = V, (P-base).n = 0
         m = [tu, tv, nrm]
         rhs = [U, V, 0.0]
         det = (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
@@ -230,7 +230,7 @@ class Model:
                 yield si, s, lm
 
     def masks(self, lm):
-        """(nome luce, offset nel file, byte per riga) per ogni maschera della superficie."""
+        """(light name, offset in the file, bytes a row) for every mask of the surface."""
         row = (lm['uc'] + 7) >> 3
         size = row * lm['vc']
         out = []
@@ -240,7 +240,7 @@ class Model:
 
 
 def write_png(path, px, scale):
-    """PNG in scala di grigi (senza librerie esterne), ingrandito di 'scale'."""
+    """A greyscale PNG (no outside library), enlarged 'scale' times."""
     import zlib
     h, w = len(px) * scale, len(px[0]) * scale
     raw = b''.join(b'\0' + bytes(px[y // scale][x // scale] for x in range(w)) for y in range(h))
@@ -265,12 +265,12 @@ def main():
         for si, s, lm in m.surfaces_in(box):
             nrm = m.vectors[s['vNormal']]
             c = m.lumel_world(s, lm, lm['uc'] // 2, lm['vc'] // 2)
-            print('surf %d %s %s n=%s centro=%s %dx%d' % (si, s['tex'], s['actor'], tuple(round(x, 2) for x in nrm),
+            print('surf %d %s %s n=%s centre=%s %dx%d' % (si, s['tex'], s['actor'], tuple(round(x, 2) for x in nrm),
                                                        tuple(round(x) for x in c), lm['uc'], lm['vc']))
             for name, off, row in m.masks(lm):
                 tot = lm['uc'] * lm['vc']
                 lit = sum(1 for v in range(lm['vc']) for u in range(lm['uc']) if d[off + v * row + (u >> 3)] >> (u & 7) & 1)
-                print('    %-16s ombra %3d%%' % (name, round(100 * (tot - lit) / tot)))
+                print('    %-16s shadow %3d%%' % (name, round(100 * (tot - lit) / tot)))
     elif cmd == 'png':
         out = sys.argv[3]
         os.makedirs(out, exist_ok=True)
@@ -300,11 +300,11 @@ def main():
                                 data[b] |= 1 << (u & 7)
                                 changed += 1
         open(path, 'wb').write(bytes(data))
-        print('punti schiariti:', changed)
+        print('points lit:', changed)
     elif cmd == 'unshadow':
         old = Model(sys.argv[3])
         box = box_args(sys.argv[4:10])
-        dry = len(sys.argv) > 10 and sys.argv[10] == 'prova'
+        dry = len(sys.argv) > 10 and sys.argv[10] == 'dry'
         data = bytearray(d)
         where = {}
         changed = 0
@@ -317,8 +317,8 @@ def main():
                 L = where[name]
                 if not L:
                     continue
-                # bordi che il motore tiene scuri anche dove la luce arriva (punti calcolati
-                # a filo di qualcosa): li' non si accende niente
+                # edges the engine keeps dark even where the light reaches them (points computed
+                # flush with something): nothing is lit there
                 def stored(u, v):
                     return data[off + v * row + (u >> 3)] >> (u & 7) & 1
 
@@ -354,12 +354,12 @@ def main():
                     grid.append(line)
                 if n:
                     changed += n
-                    print('superficie %d %s, luce %s: %d punti accesi (+)' % (si, s['tex'], name, n))
+                    print('surface %d %s, light %s: %d points lit (+)' % (si, s['tex'], name, n))
                     for line in grid:
                         print('    ' + line)
         if not dry:
             open(path, 'wb').write(bytes(data))
-        print('punti accesi:', changed, '(prova, file non toccato)' if dry else '')
+        print('points lit:', changed, '(dry run, the file is unchanged)' if dry else '')
 
 
 if __name__ == '__main__':

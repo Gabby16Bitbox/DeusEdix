@@ -14,6 +14,7 @@ b['align'] a flat side facing +X instead of a corner.
 import math
 
 import geom
+from vec3 import Vec3
 
 SHAPES = ('box', 'wedge', 'cylinder', 'cone', 'sphere', 'dome')
 CYLINDER_SIDES = 16
@@ -62,14 +63,14 @@ def _brush(polys, mats, name):
     c = tuple(sum(p[k] for p in pts) / len(pts) for k in range(3))
     faces = []
     for poly in polys:
-        n = geom.cross(geom.sub(poly[1], poly[0]), geom.sub(poly[2], poly[0]))
-        if geom.dot(n, n) < 1e-9:
+        n = (Vec3.of(poly[1]) - poly[0]).cross(Vec3.of(poly[2]) - poly[0])
+        if n.dot(n) < 1e-9:
             continue
-        mid = tuple(sum(p[k] for p in poly) / len(poly) for k in range(3))
-        if geom.dot(n, geom.sub(mid, c)) < 0:
+        mid = Vec3(*(sum(p[k] for p in poly) / len(poly) for k in range(3)))
+        if n.dot(mid - c) < 0:
             poly = poly[::-1]
-            n = geom.mul(n, -1)
-        n = geom.norm(n)
+            n = -n
+        n = n.normalized()
         key = ('+' if max(n, key=abs) > 0 else '-') + 'xyz'[[abs(x) for x in n].index(max(abs(x) for x in n))]
         m = geom._pick(mats, key)
         if m is not None:
@@ -140,7 +141,7 @@ def wrap_round(pieces, c, outer, inner=None):
             n = f.normal
             if abs(n[2]) > 0.999 or f.u is not None:
                 continue
-            h = geom.norm((n[0], n[1], 0.0))
+            h = Vec3(n[0], n[1], 0.0).normalized()
             vs = f.verts
             flat = [(vs[i], vs[(i + 1) % len(vs)]) for i in range(len(vs)) if abs(vs[i][2] - vs[(i + 1) % len(vs)][2]) < 1e-3]
             if not flat:
@@ -151,14 +152,14 @@ def wrap_round(pieces, c, outer, inner=None):
             if r < 1e-6 or abs(mid[0] * h[0] + mid[1] * h[1]) < 0.5 * r:      # a wall between pieces
                 continue
             out = mid[0] * h[0] + mid[1] * h[1] > 0
-            u = geom.norm(geom.cross(h, (0.0, 0.0, 1.0)))
-            v = geom.norm(geom.cross(n, u))
+            u = h.cross((0.0, 0.0, 1.0)).normalized()
+            v = n.cross(u).normalized()
             if v[2] > 0:
-                v = geom.mul(v, -1)
-            P = min((a, e), key=lambda q: geom.dot(q, u))
+                v = -v
+            P = min((a, e), key=u.dot)
             above = sum(q[2] for q in vs) / len(vs) > P[2]
             phi = math.atan2(mid[1], mid[0])
-            bands.setdefault((round(P[2], 1), out, above), []).append((-phi if out else phi, f, u, v, P, abs(geom.dot(geom.sub(e, a), u))))
+            bands.setdefault((round(P[2], 1), out, above), []).append((-phi if out else phi, f, u, v, P, abs((Vec3.of(e) - a).dot(u))))
     for (_z, out, _above), items in bands.items():
         items.sort(key=lambda it: it[0])
         total = sum(it[5] for it in items)
@@ -170,8 +171,8 @@ def wrap_round(pieces, c, outer, inner=None):
                 su = total / max(1, round(total / su))
             cu = cum - m.offset[0]
             cv = _slant(outer if out or not inner else inner, P[2]) - m.offset[1]
-            f.u, f.v = geom.mul(u, tu / su), geom.mul(v, tv / sv)
-            f.origin = geom.sub(geom.sub(P, geom.mul(u, cu)), geom.mul(v, cv))
+            f.u, f.v = u * (tu / su), v * (tv / sv)
+            f.origin = Vec3.of(P) - u * cu - v * cv
             cum += w
     return pieces
 

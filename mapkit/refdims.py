@@ -14,6 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import classes  # noqa: E402
 import polys  # noqa: E402
 import t3d  # noqa: E402
 import sizes  # noqa: E402
@@ -21,7 +22,6 @@ import sizes  # noqa: E402
 REFS = HERE / 'refs'
 DEFAULT = ['06_HongKong_Helibase', '01_NYC_UNATCOHQ', '06_HongKong_VersaLife', '06_HongKong_WanChai_Market',
            '02_NYC_Warehouse', '09_NYC_Dockyard', '06_HongKong_WanChai_Canal', '03_NYC_Airfield']
-_poly = re.compile(r'Begin Polygon([^\n]*)\n(.*?)End Polygon', re.S)
 
 
 def load(m):
@@ -80,10 +80,11 @@ def desks(maps):
     tops = []
     for m in maps:
         acts = load(m)
+        tree = classes.tree()
         chairs = [(t3d.vec(a['props'].get('Location', '')), a['cls']) for a in acts
-                  if a['cls'] in ('OfficeChair', 'Chair1', 'WHChairDining', 'ChairLeather')]
+                  if tree.is_a(a['cls'], 'Seat') and a['cls'] in sz]
         for a in acts:
-            if a['cls'] not in ('ComputerPersonal', 'ComputerSecurity', 'Phone'):
+            if not tree.is_a(a['cls'], 'Computers', 'Phone') or a['cls'] not in sz:
                 continue
             p = t3d.vec(a['props'].get('Location', ''))
             near = [(math.hypot(c[0] - p[0], c[1] - p[1]), c, k) for c, k in chairs if abs(c[2] - p[2]) < 120]
@@ -98,15 +99,19 @@ def desks(maps):
     print('  median %d, common %s' % (statistics.median(tops), collections.Counter(t // 4 * 4 for t in tops).most_common(6)))
 
 
+def _faces(text):
+    """Every Polygon block of a map's T3D."""
+    return (b for b in t3d.walk(t3d.blocks(text)) if b.kind == 'Polygon' and b.tail is not None)
+
+
 def scale(maps):
     c = collections.Counter()
     for m in maps:
         text = polys.ref_text(m)
-        for mm in _poly.finditer(text):
-            u = re.search(r'TextureU\s+([^\n]+)', mm.group(2))
-            if not u:
+        for face in _faces(text):
+            v = face.numbers('TextureU')
+            if v is None:
                 continue
-            v = [float(x) for x in u.group(1).replace('+', '').split(',')]
             k = math.sqrt(sum(x * x for x in v))
             if k > 0:
                 c[round(1 / k, 2)] += 1
@@ -120,14 +125,12 @@ def tex(name, maps):
     for m in maps:
         text = polys.ref_text(m)
         rows = collections.Counter()
-        for mm in _poly.finditer(text):
-            if 'Texture=' + name not in mm.group(1):
+        for face in _faces(text):
+            if face.fields.get('Texture') != name:
                 continue
-            body = mm.group(2)
-            vs = [[float(x) for x in l.split(None, 1)[1].replace('+', '').split(',')]
-                  for l in body.splitlines() if l.strip().startswith('Vertex')]
-            u = [float(x) for x in re.search(r'TextureU\s+([^\n]+)', body).group(1).replace('+', '').split(',')]
-            v = [float(x) for x in re.search(r'TextureV\s+([^\n]+)', body).group(1).replace('+', '').split(',')]
+            vs = [[float(x) for x in s.split(None, 1)[1].replace('+', '').split(',')]
+                  for s in face.lines if s.startswith('Vertex')]
+            u, v = face.numbers('TextureU'), face.numbers('TextureV')
             ext = [round(max(p[i] for p in vs) - min(p[i] for p in vs)) for i in range(3)]
             rows[(tuple(ext), round(1 / math.sqrt(sum(x * x for x in u)), 2),
                   round(1 / math.sqrt(sum(x * x for x in v)), 2))] += 1

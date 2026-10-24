@@ -12,6 +12,8 @@ import math
 import re
 from pathlib import Path
 
+from vec3 import Vec3
+
 CATALOG = Path(__file__).resolve().parent / 'catalog'
 _SIZES = None
 
@@ -66,31 +68,6 @@ def register(name, w, h):
     _SIZES[name.lower()] = (float(w), float(h))
 
 
-def sub(a, b):
-    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-
-
-def add(a, b):
-    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-
-
-def mul(a, k):
-    return (a[0] * k, a[1] * k, a[2] * k)
-
-
-def dot(a, b):
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-
-
-def cross(a, b):
-    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
-
-
-def norm(a):
-    length = math.sqrt(dot(a, a))
-    return (a[0] / length, a[1] / length, a[2] / length) if length > 1e-9 else (0.0, 0.0, 0.0)
-
-
 def fmt(v):
     def f(x):
         x = round(x, 5)
@@ -130,7 +107,8 @@ class Face:
     def __init__(self, verts, mat, normal=None, u=None, v=None, origin=None):
         self.verts = verts
         self.mat = as_mat(mat)
-        self.normal = normal or norm(cross(sub(verts[1], verts[0]), sub(verts[2], verts[0])))
+        a = Vec3.of(verts[0])
+        self.normal = Vec3.of(normal) if normal else (Vec3.of(verts[1]) - a).cross(Vec3.of(verts[2]) - a).normalized()
         self.u, self.v, self.origin = u, v, origin
 
 
@@ -146,24 +124,24 @@ def mapping(face, inside):
     if ax == 'z':
         # U x V points toward the viewer (no mirrored text): +Y on floors, -Y on ceilings
         seen_up = (n[2] > 0) != bool(inside)
-        u = (1.0, 0.0, 0.0)
-        v = (0.0, 1.0, 0.0) if seen_up else (0.0, -1.0, 0.0)
+        u = Vec3(1.0, 0.0, 0.0)
+        v = Vec3(0.0, 1.0, 0.0) if seen_up else Vec3(0.0, -1.0, 0.0)
     else:
         # walls: U to the right of a viewer facing the surface, V downwards
-        horiz = norm((n[0], n[1], 0.0)) if ax is None or abs(n[2]) < 0.999 else (1.0, 0.0, 0.0)
+        horiz = Vec3(n[0], n[1], 0.0).normalized() if ax is None or abs(n[2]) < 0.999 else Vec3(1.0, 0.0, 0.0)
         if horiz == (0.0, 0.0, 0.0):
-            horiz = (1.0, 0.0, 0.0) if ax == 'x' else (0.0, 1.0, 0.0)
-        u = norm(cross(horiz, up))
+            horiz = Vec3(1.0, 0.0, 0.0) if ax == 'x' else Vec3(0.0, 1.0, 0.0)
+        u = horiz.cross(up).normalized()
         if inside:
-            u = mul(u, -1)
-        v = (0.0, 0.0, -1.0)
+            u = -u
+        v = Vec3(0.0, 0.0, -1.0)
         # slanted faces (roofs of ramps): project V on the face
         if abs(n[2]) > 1e-6 and abs(n[2]) < 0.999:
-            v = norm(cross(n, u)) if not inside else norm(cross(u, n))
+            v = n.cross(u).normalized() if not inside else u.cross(n).normalized()
             if v[2] > 0:
-                v = mul(v, -1)
+                v = -v
     for _ in range(m.rot // 90 % 4):
-        u, v = v, mul(u, -1)
+        u, v = v, -u
     tu, tv = tex_size(m.tex)
     if m.tile is None:
         g = game_scale(m.tex, face_kind(n, inside))
@@ -174,12 +152,12 @@ def mapping(face, inside):
             sv = float(m.tile) * tv / tu
     else:
         su, sv = float(m.tile[0]), float(m.tile[1])
-    U = mul(u, tu / su)
-    V = mul(v, tv / sv)
+    U = u * (tu / su)
+    V = v * (tv / sv)
     # origin: the world anchor projected on the plane, shifted by the pan offset
     p0 = face.verts[0]
-    anchor = add(m.align, add(mul(u, -m.offset[0]), mul(v, -m.offset[1])))
-    origin = sub(anchor, mul(n, dot(sub(anchor, p0), n)))
+    anchor = Vec3.of(m.align) + (u * -m.offset[0] + v * -m.offset[1])
+    origin = anchor - n * (anchor - p0).dot(n)
     return U, V, origin
 
 
@@ -202,12 +180,12 @@ def wrap_vertical(faces, inside=False):
     info = []
     for f in sides:
         n = f.normal
-        u = norm(cross(norm((n[0], n[1], 0.0)), (0.0, 0.0, 1.0)))
+        u = Vec3(n[0], n[1], 0.0).normalized().cross((0.0, 0.0, 1.0)).normalized()
         if inside:
-            u = mul(u, -1)
-        lo = min(f.verts, key=lambda q: dot(q, u))
-        hi = max(f.verts, key=lambda q: dot(q, u))
-        info.append((f, u, (lo[0], lo[1]), dot(hi, u) - dot(lo, u)))
+            u = -u
+        lo = min(f.verts, key=u.dot)
+        hi = max(f.verts, key=u.dot)
+        info.append((f, u, (lo[0], lo[1]), u.dot(hi) - u.dot(lo)))
     # chain the faces: each one starts where the previous one ends
     start = {(round(s[0], 1), round(s[1], 1)): i for i, (_, _, s, _) in enumerate(info)}
     order, i, seen = [], 0, set()
@@ -223,9 +201,9 @@ def wrap_vertical(faces, inside=False):
         f, u, s, w = info[k]
         m = f.mat
         tu, tv, su, sv = _scales(m, "wall")
-        f.u = mul(u, tu / su)
-        f.v = (0.0, 0.0, -tv / sv)
-        f.origin = (s[0] - u[0] * (cum - m.offset[0]), s[1] - u[1] * (cum - m.offset[0]), m.align[2] - m.offset[1])
+        f.u = u * (tu / su)
+        f.v = Vec3(0.0, 0.0, -tv / sv)
+        f.origin = Vec3(s[0] - u[0] * (cum - m.offset[0]), s[1] - u[1] * (cum - m.offset[0]), m.align[2] - m.offset[1])
         cum += w
 
 
@@ -298,7 +276,7 @@ class XForm:
         """A face normal: it bends the other way of the stretch."""
         if not self.scaled:
             return self.vec(n)
-        return norm(self.vec(tuple(n[k] / self.scale[k] for k in range(3))))
+        return Vec3.of(self.vec(tuple(n[k] / self.scale[k] for k in range(3)))).normalized()
 
     def tex(self, v):
         """A texture axis (TextureU/V): turned; also stretched when the textures grow with the faces."""
@@ -411,16 +389,16 @@ def hull(points, mats, name='Hull'):
     for i in range(nps):
         for j in range(i + 1, nps):
             for k in range(j + 1, nps):
-                n = cross(sub(pts[j], pts[i]), sub(pts[k], pts[i]))
-                if dot(n, n) < 1e-6:
+                n = (Vec3.of(pts[j]) - pts[i]).cross(Vec3.of(pts[k]) - pts[i])
+                if n.dot(n) < 1e-6:
                     continue
-                n = norm(n)
-                d = dot(n, pts[i])
-                side = [dot(n, p) - d for p in pts]
+                n = n.normalized()
+                d = n.dot(pts[i])
+                side = [n.dot(p) - d for p in pts]
                 if all(s <= 1e-3 for s in side):
                     pass
                 elif all(s >= -1e-3 for s in side):
-                    n = mul(n, -1)
+                    n = -n
                     d = -d
                 else:
                     continue
@@ -428,14 +406,14 @@ def hull(points, mats, name='Hull'):
                 if key in seen:
                     continue
                 seen.append(key)
-                on = [p for p in pts if abs(dot(n, p) - d) < 1e-3]
+                on = [p for p in pts if abs(n.dot(p) - d) < 1e-3]
                 on = list(dict.fromkeys(on))
                 # order counter-clockwise around the normal, then make (v1-v0)x(v2-v0) == n
-                c = mul(tuple(sum(p[a] for p in on) for a in range(3)), 1.0 / len(on))
-                ref = norm(sub(on[0], c))
-                other = cross(n, ref)
-                on.sort(key=lambda p: math.atan2(dot(sub(p, c), other), dot(sub(p, c), ref)))
-                if dot(cross(sub(on[1], on[0]), sub(on[2], on[0])), n) < 0:
+                c = Vec3(*(sum(p[a] for p in on) for a in range(3))) * (1.0 / len(on))
+                ref = (on[0] - c).normalized()
+                other = n.cross(ref)
+                on.sort(key=lambda p: math.atan2((p - c).dot(other), (p - c).dot(ref)))
+                if (Vec3.of(on[1]) - on[0]).cross(Vec3.of(on[2]) - on[0]).dot(n) < 0:
                     on.reverse()
                 faces.append((n, on))
     out = []
@@ -481,19 +459,19 @@ def hprism(axis, center, radius, a0, a1, mats, sides=12, name='HPrism'):
     arc = 2 * radius * math.sin(math.pi / sides)
     for f in hb.faces:
         n = f.normal
-        if abs(dot(n, ax)) > 0.5:
+        if abs(n.dot(ax)) > 0.5:
             continue                      # end caps keep the default mapping
         # position of this facet around the axis (angle of its normal in the ring plane)
         ang = math.atan2(n[2], n[1] if axis == 'x' else n[0]) % (2 * math.pi)
         k = int(round(ang / (2 * math.pi / sides) - 0.5)) % sides
         p0 = ring[k]
         start = P(a0, p0[0], p0[1])
-        around = norm(sub(P(a0, ring[(k + 1) % sides][0], ring[(k + 1) % sides][1]), start))
+        around = (Vec3.of(P(a0, ring[(k + 1) % sides][0], ring[(k + 1) % sides][1])) - start).normalized()
         m = f.mat
         tu, tv, su, sv = _scales(m, "wall")
-        f.u = mul(ax, tu / su)
-        f.v = mul(around, tv / sv)
-        f.origin = sub(start, mul(around, k * arc))
+        f.u = Vec3.of(ax) * (tu / su)
+        f.v = around * (tv / sv)
+        f.origin = start - around * (k * arc)
     return hb
 
 
@@ -552,7 +530,7 @@ def sign_box(lo, hi, face, sign_tex, frame_mat, name='Sign', flags=0):
         else:
             raise ValueError('sign faces are vertical')
         height = Z - z
-        f.u = mul(right, tu / width)
-        f.v = (0.0, 0.0, -tv / height)
+        f.u = Vec3.of(right) * (tu / width)
+        f.v = Vec3(0.0, 0.0, -tv / height)
         f.origin = start
     return b

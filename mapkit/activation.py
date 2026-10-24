@@ -26,7 +26,7 @@ def commands(edits):
     if not disabled:
         return []
     return [r'MAP EXPORT FILE="..\Output\editor-enabled.t3d"',
-            r'UC_MESHES ..\Output\editor-enabled-meshes.jsonl'] + ['UC_DEL ' + name for name in sorted(disabled)]
+            r'UC_MESHES ..\Output\editor-enabled-meshes.bin'] + ['UC_DEL ' + name for name in sorted(disabled)]
 
 
 def sidecar(map_path):
@@ -49,7 +49,7 @@ def save(map_path, run_folder, edits):
     actors = [a['raw'] for a in t3d.actors(text) if a['name'] in disabled]
     # This parser only converts the engine's mesh dump; it does not open a game session.
     import data
-    meshes = data.parse_meshes(output / 'editor-enabled-meshes.jsonl')
+    meshes = data.parse_meshes(output / 'editor-enabled-meshes.bin')
     payload = dict(version=1, runtime_sha256=digest(map_path), actors=actors,
                    meshes={name: value for name, value in meshes.items() if name in disabled})
     dst.write_text(json.dumps(payload), encoding='utf-8')

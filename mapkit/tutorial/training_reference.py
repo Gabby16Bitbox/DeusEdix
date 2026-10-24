@@ -8,6 +8,7 @@ import re
 
 import geom
 import polys
+from vec3 import Vec3
 import refscan
 import t3d
 
@@ -39,7 +40,7 @@ def brush(actor, offset=(0, 0, 0), materials=None):
 
     def axis(v):
         v = t3d._rotate(tuple(v[k]/main[k] for k in range(3)), rotation)
-        return tuple(v[k]/post[k] for k in range(3))
+        return Vec3(*(v[k]/post[k] for k in range(3)))
 
     faces = []
     for poly in t3d.polys(actor['body']):
@@ -48,7 +49,7 @@ def brush(actor, offset=(0, 0, 0), materials=None):
         pan = re.search(r'Pan\s+U=(-?\d+)\s+V=(-?\d+)', raw)
         if pan:
             # Absorb the source's Pan into Origin, including non-orthogonal texture axes.
-            uu, vv, uv = geom.dot(u, u), geom.dot(v, v), geom.dot(u, v)
+            uu, vv, uv = u.dot(u), v.dot(v), u.dot(v)
             det = uu*vv-uv*uv
             if abs(det) > 1e-12:
                 pu, pv = int(pan[1]), int(pan[2])
@@ -56,7 +57,7 @@ def brush(actor, offset=(0, 0, 0), materials=None):
                 origin = tuple(origin[k]-a*u[k]-b*v[k] for k in range(3))
         tex = (materials or {}).get(poly['texture'], poly['texture'])
         faces.append(geom.Face([point(p) for p in poly['verts']], geom.Mat(tex, flags=poly['flags']),
-                               normal=geom.norm(axis(vector(raw, 'Normal'))), u=u, v=v, origin=origin))
+                               normal=axis(vector(raw, 'Normal')).normalized(), u=u, v=v, origin=origin))
     return geom.Brush(faces)
 
 

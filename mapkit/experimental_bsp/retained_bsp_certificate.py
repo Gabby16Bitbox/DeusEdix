@@ -30,7 +30,9 @@ def _validate(data):
             raise Refused('Incomplete native node metadata')
         for child in n['children']:
             _integer(child, -1)
-        _integer(n['vertices']); _integer(n['flags']); _integer(n['zone_mask'])
+        _integer(n['vertices'])
+        _integer(n['flags'])
+        _integer(n['zone_mask'])
         if len(n['points']) != n['vertices'] or n['vertices'] in (1, 2):
             raise Refused('Malformed native polygon inventory')
         c.plane(n['plane'])
@@ -48,7 +50,8 @@ def _validate(data):
             _integer(leaf, -1)
             if leaf != -1 and leaf not in data['leaves']:
                 raise Refused('Unknown native leaf')
-        _integer(n['collision_bound'], -1); _integer(n['render_bound'], -1)
+        _integer(n['collision_bound'], -1)
+        _integer(n['render_bound'], -1)
     for surf in data['surfs'].values():
         _surface_identity(surf)
         if len(surf['pan']) != 2:
@@ -81,7 +84,8 @@ def _source_inventory(before, after, selected):
     a, b = before['brushes'], after['brushes']
     if [(x['order'], x['name']) for x in a] != [(x['order'], x['name']) for x in b]:
         raise Refused('Authoritative source inventory/order changed')
-    old = {x['name']: x for x in a}; new = {x['name']: x for x in b}
+    old = {x['name']: x for x in a}
+    new = {x['name']: x for x in b}
     if not set(selected) <= old.keys():
         raise Refused('Unknown selected source')
     if {name for name in old if old[name] != new[name]} != set(selected):
@@ -117,7 +121,8 @@ def _surface_pair(a, b, old, new, selected, allow_selected_uv):
         raise Refused('Selected surface ownership changed')
     # A UV update is derived here from complete source metadata. The caller
     # cannot authorize arbitrary changed surfaces by passing their new values.
-    oa = _source_uv(a, old[a['actor']]); nb = _source_uv(b, new[a['actor']])
+    oa = _source_uv(a, old[a['actor']])
+    nb = _source_uv(b, new[a['actor']])
     if any(a[k] != b[k] for k in ('actor', 'face', 'texture', 'flags', 'normal')):
         raise Refused('Selected UV update altered material, owner or normal')
     if any(oa[k] != nb[k] for k in ('index', 'link', 'flags', 'texture', 'normal')):
@@ -142,7 +147,8 @@ def certify_retained_bsp(before, after, selected, root=None, allow_selected_uv=F
 
 
 def _certify(before, after, selected, root, allow_selected_uv):
-    bp = _validate(before); _validate(after)
+    bp = _validate(before)
+    _validate(after)
     old, new, selected = _source_inventory(before, after, selected)
     whole = root is None
     if type(allow_selected_uv) is not bool or allow_selected_uv and not whole:
@@ -151,22 +157,28 @@ def _certify(before, after, selected, root, allow_selected_uv):
         raise Refused('A strict non-root replacement is required')
     if before['root_outside'] != after['root_outside'] or before['zones'] != after['zones']:
         raise Refused('World root or zone connectivity/visibility changed')
-    path = []; at = root
+    path = []
+    at = root
     while at:
         parent, side = bp[at]
         if side == 2:
             raise Refused('Regional root is reached through an iPlane continuation')
-        path.append((parent, side)); at = parent
+        path.append((parent, side))
+        at = parent
     path.reverse()
     planes = [before['nodes'][i]['plane'] if side == 0 else
               tuple(-x for x in before['nodes'][i]['plane']) for i, side in path]
-    mapping = {}; replacement = None; stack = [(0, 0)]; uv_updates = set()
+    mapping = {}
+    replacement = None
+    stack = [(0, 0)]
+    uv_updates = set()
     while stack:
         left, right = stack.pop()
         if not whole and left == root:
             if replacement is not None:
                 raise Refused('Multiple replacement branches')
-            replacement = right; continue
+            replacement = right
+            continue
         a, b = before['nodes'][left], after['nodes'][right]
         if any(a[k] != b[k] for k in ('vertices', 'flags', 'plane', 'zones', 'zone_mask')) or _ring(a['points']) != _ring(b['points']):
             raise Refused('A retained native partition, polygon or zone label changed at node '+str(left))
@@ -204,11 +216,11 @@ def _certify(before, after, selected, root, allow_selected_uv):
                 uv_updates.add((sa['actor'], sa['face']))
             if sa['lightmap'] != sb['lightmap'] and not (allow_selected_uv and sa['actor'] in selected and sb['lightmap'] == -1):
                 raise Refused('Whole-BSP lighting binding changed without authorization')
-    return dict(status='pass',publication_authorized=False,source_intent_certified=False,
+    return dict(status='pass', publication_authorized=False, source_intent_certified=False,
         parsed_representation_only=True,
-        scope='entire_BSP' if whole else 'retained_outside',outside_map=mapping,
-        before_owned=sorted(owned_before),after_owned=sorted(owned_after),after_root=replacement,
-        ancestry=path,planes=planes,selected=sorted(selected),source_uv_updates=sorted(uv_updates),
+        scope='entire_BSP' if whole else 'retained_outside', outside_map=mapping,
+        before_owned=sorted(owned_before), after_owned=sorted(owned_after), after_root=replacement,
+        ancestry=path, planes=planes, selected=sorted(selected), source_uv_updates=sorted(uv_updates),
         remaining_obligations=['authored edit intent and complete affected source support']+
         (['raw native collision/state equality including signed zeros', 'all 64 native zone-pool slots'] if whole else
          ['replacement surfaces/zone semantics', 'native collision hulls']),
@@ -217,7 +229,9 @@ def _certify(before, after, selected, root, allow_selected_uv):
 
 
 def _raw_surfaces_and_sources(payload):
-    surfaces = {}; sources = {}; current = None
+    surfaces = {}
+    sources = {}
+    current = None
     for line in payload.decode('utf-8').splitlines():
         row = line.split()
         if not row:
@@ -225,7 +239,8 @@ def _raw_surfaces_and_sources(payload):
         if row[0] == 'S':
             surfaces[int(row[1])] = row
         elif row[0] == 'B':
-            current = row[2]; sources[current] = {'rows':[row], 'faces':{}}
+            current = row[2]
+            sources[current] = {'rows':[row], 'faces':{}}
         elif row[0] == 'F':
             sources[current]['rows'].append(row)
             sources[current]['faces'][int(row[1])] = row
@@ -243,15 +258,18 @@ def certify_retained_bsp_bytes(before_bytes, after_bytes, selected, allow_select
     wrapper preserves signed-zero distinctions for source/UV fields; it never
     substitutes decimal/rational equality for a native mapping-bit comparison.
     """
-    before = parse_certificate_bytes(before_bytes); after = parse_certificate_bytes(after_bytes)
+    before = parse_certificate_bytes(before_bytes)
+    after = parse_certificate_bytes(after_bytes)
     proof = certify_retained_bsp(before, after, selected, allow_selected_uv=allow_selected_uv)
-    a, old = _raw_surfaces_and_sources(before_bytes); b, new = _raw_surfaces_and_sources(after_bytes)
+    a, old = _raw_surfaces_and_sources(before_bytes)
+    b, new = _raw_surfaces_and_sources(after_bytes)
     selected = set(selected)
     for name in old:
         if name not in selected and old[name]['rows'] != new[name]['rows']:
             raise Refused('An unselected raw authored source changed')
     for sid, left in a.items():
-        right = b[sid]; actor = left[2]
+        right = b[sid]
+        actor = left[2]
         if not allow_selected_uv or actor not in selected:
             if left != right:
                 raise Refused('A raw retained surface record changed')
@@ -284,7 +302,8 @@ def contributor_obligations(data, planes, contributors):
             raise Refused('Malformed or nonlocal contributor inventory')
         if names != [n for n in ordered if n in names]:
             raise Refused('Contributors changed authored order')
-        excluded = {}; unresolved = []
+        excluded = {}
+        unresolved = []
         for b in data['brushes']:
             if b['name'] in names:
                 continue
@@ -299,10 +318,10 @@ def contributor_obligations(data, planes, contributors):
             if witnesses:
                 excluded[b['name']] = witnesses[0]
             else:
-                unresolved.append(dict(actor=b['name'],kind='boundary_contact' if 0 in distances else 'potential_interior',
-                    max_cut_distances=tuple(distances),operation=b['operation'],flags=b['flags']))
-        return dict(status='pass' if not unresolved else 'refused',publication_authorized=False,
-                    excluded=excluded,unresolved=unresolved,contributors=names,
+                unresolved.append(dict(actor=b['name'], kind='boundary_contact' if 0 in distances else 'potential_interior',
+                    max_cut_distances=tuple(distances), operation=b['operation'], flags=b['flags']))
+        return dict(status='pass' if not unresolved else 'refused', publication_authorized=False,
+                    excluded=excluded, unresolved=unresolved, contributors=names,
                     contract='Complete AABB strictly outside at least one exact ancestor halfspace; no epsilon')
     except (KeyError, IndexError, TypeError, ValueError, OverflowError) as error:
         if isinstance(error, Refused):

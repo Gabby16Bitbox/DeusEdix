@@ -24,16 +24,16 @@ def read_sources(path):
         elif row[0] == 'B':
             brush = dict(name=row[1], operation=int(row[2]), flags=int(row[3]),
                          location=list(map(float, row[4:7])),
-                         rotation=list(map(int, row[7:10])), points=[], faces=[],face_normals=[])
+                         rotation=list(map(int, row[7:10])), points=[], faces=[], face_normals=[])
             result[brush['name']] = brush
         elif row[0] == 'F':
             face = [tuple(map(float, row[2+i*3:5+i*3])) for i in range(int(row[1]))]
             brush['faces'].append(face)
             brush['points'].extend(face)
-        elif row[0]=='N':
-            if len(row)!=5 or int(row[1])!=len(brush['face_normals']) or len(brush['faces'])!=int(row[1])+1:
+        elif row[0] == 'N':
+            if len(row) != 5 or int(row[1]) != len(brush['face_normals']) or len(brush['faces']) != int(row[1])+1:
                 raise ValueError('Malformed or reordered authoritative source normal')
-            brush['face_normals'].append(tuple(map(float,row[2:5])))
+            brush['face_normals'].append(tuple(map(float, row[2:5])))
     return result, root
 
 
@@ -181,25 +181,25 @@ def audit(run, epsilon):
 
 
 def tests():
-    assert portal_relation([[(-2,0,0),(-1,0,0),(-1,1,0)]], [(1,0,0,0)])['relation'] == 'outside'
-    assert portal_relation([[(-1,0,0),(1,0,0),(1,1,0)]], [(1,0,0,0)])['relation'] == 'intersects'
-    assert portal_relation([[(0,0,0),(0,1,0),(0,1,1)]], [(1,0,0,0)])['relation'] == 'boundary'
+    assert portal_relation([[(-2, 0, 0), (-1, 0, 0), (-1, 1, 0)]], [(1, 0, 0, 0)])['relation'] == 'outside'
+    assert portal_relation([[(-1, 0, 0), (1, 0, 0), (1, 1, 0)]], [(1, 0, 0, 0)])['relation'] == 'intersects'
+    assert portal_relation([[(0, 0, 0), (0, 1, 0), (0, 1, 1)]], [(1, 0, 0, 0)])['relation'] == 'boundary'
     # AABB overlaps this diagonal plane, while every triangle vertex is outside.
-    triangle = [[(-2,0,0),(0,-2,0),(-2,-2,0)]]
-    assert portal_relation(triangle, [(1,1,0,-1)])['relation'] == 'outside'
+    triangle = [[(-2, 0, 0), (0, -2, 0), (-2, -2, 0)]]
+    assert portal_relation(triangle, [(1, 1, 0, -1)])['relation'] == 'outside'
     # A tiny crossing is never outside. It can be diagnosed as boundary drift,
     # but that alone does not authorize skipping it.
-    assert portal_relation([[(-1,0,0),(1e-10,0,0),(1e-10,1,0)]], [(1,0,0,0)])['relation'] != 'outside'
-    face = [(0,0,0),(0,1,0),(0,1,1)]
+    assert portal_relation([[(-1, 0, 0), (1e-10, 0, 0), (1e-10, 1, 0)]], [(1, 0, 0, 0)])['relation'] != 'outside'
+    face = [(0, 0, 0), (0, 1, 0), (0, 1, 1)]
     brush = dict(name='Portal', points=face)
-    tree = dict(nodes={0:dict(actor='Portal')}, polys=[['0','1','0','0','0','0','3']+[str(x) for p in face for x in p]])
-    assert retained_portal_certificate(tree, brush, [(1,0,0,0)], set())['safe']
-    assert not retained_portal_certificate(tree, brush, [(1,0,0,0)], {0})['safe']
-    assert not retained_portal_certificate(tree, brush, [(1,0,0,1)], set())['safe']
+    tree = dict(nodes={0:dict(actor='Portal')}, polys=[['0', '1', '0', '0', '0', '0', '3']+[str(x) for p in face for x in p]])
+    assert retained_portal_certificate(tree, brush, [(1, 0, 0, 0)], set())['safe']
+    assert not retained_portal_certificate(tree, brush, [(1, 0, 0, 0)], {0})['safe']
+    assert not retained_portal_certificate(tree, brush, [(1, 0, 0, 1)], set())['safe']
     # Regression evidence from a real original-map run, without loading/saving
     # the engine or changing any file. Fail rather than silently skip if missing.
-    fixture=json.loads((Path(__file__).parent/'fixtures/retained-portal.json').read_text())
-    actual={name:{int(i):value for i,value in fixture[name].items()} for name in ('nodes','polys')}
+    fixture = json.loads((Path(__file__).parent/'fixtures/retained-portal.json').read_text())
+    actual = {name:{int(i):value for i, value in fixture[name].items()} for name in ('nodes', 'polys')}
     cert = retained_portal_certificate(actual, fixture['brush'], fixture['planes'], set(fixture['old_nodes']))
     assert cert['safe'] and cert['retained_nodes'] == [7930] and cert['plane'] == 5
     assert not retained_portal_certificate(actual, fixture['brush'], fixture['planes'], {7930})['safe']

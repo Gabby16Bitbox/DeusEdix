@@ -48,9 +48,12 @@ The bridge never writes to the console or to a file itself. It prints its answer
 (`UCMapKit|<what>|<fields...>`) and the engine's log through the host. It hands the host JSON rows for the
 files, and the host writes them.
 
-Every file is **JSON lines**: one JSON value a line, built with nlohmann/json, and read on the Python side
-with `kit.rows()`. Two of them carry binary data after a JSON header line: `UC_TEXDUMP` (the RGBA pixels)
-and `UC_ANIMDUMP` (the model's arrays, after the line `data`). `PROTOCOL.md` lists every command and its
+Most files are **JSON lines**: one JSON value a line, built with nlohmann/json, and read on the Python side
+with `kit.rows()`. The bulk dumps of a whole map (`UC_BSPDUMP`, `UC_MESHES`, `UC_LIGHTDUMP`) are not: a
+JSON header line with their strings and the list of their arrays, then the numbers as flat binary arrays
+(`Arrays` in UCEngineBridge.cpp, `kit.arrays()` in Python), no JSON value per number. Two more carry binary
+data after a JSON header line: `UC_TEXDUMP` (the RGBA pixels) and `UC_ANIMDUMP` (the model's arrays, after
+the line `data`). `PROTOCOL.md` lists every command and its
 rows. Numbers keep the precision the dumps always had (`digits()`, `decimals()`), so the editor reads the
 same values and the files stay small.
 

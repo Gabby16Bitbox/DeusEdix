@@ -1,15 +1,15 @@
 //=============================================================================
-// UCAnimSet - cosa fa un personaggio quando non e' impegnato, deciso nell'editor delle mappe.
-// - Con PawnName (il nome del personaggio nella mappa): l'animazione che fa da fermo (Orders
-//   Standing) al posto del respiro, e (bOwnModel) il suo modello con le animazioni fatte
-//   nell'Animation Studio: UCAnims.<modello che ha adesso>, stesse sequenze del gioco piu' le nuove.
-//   Il modello e' quello che il gioco gli ha messo: con HDTP i soldati passano a HDTPCharacters.*
-//   (Facelift), e UCAnims ha una copia per ciascuno; se il gioco lo cambia ancora, si rimette.
-// - Senza PawnName: le animazioni dei punti di pattuglia per tutti i personaggi. PatrolPoint ha un
-//   campo PatrolAnim che il gioco non usa mai: chi pattuglia e si ferma su quel punto (PauseTime)
-//   la fa al posto del respiro.
-// L'IA del gioco rimette il respiro solo ogni tanto (fine di un ciclo, gesti casuali): il Tick lo
-// riporta all'animazione scelta. In conversazione, in combattimento o in fuga non tocca niente.
+// UCAnimSet - what a character does when it is not busy, chosen in the map editor.
+// - With PawnName (the character's name in the map): the animation it plays standing still (Orders
+//   Standing) instead of breathing, and (bOwnModel) its model with the animations made
+//   in the Animation Studio: DeusEdixAnims.<the model it has now>, the game's sequences plus the new ones.
+//   The model is the one the game gave it: with HDTP the soldiers switch to HDTPCharacters.*
+//   (Facelift), and DeusEdixAnims has a copy of each; if the game changes it again, it is put back.
+// - Without PawnName: the animations of the patrol points, for every character. PatrolPoint has a
+//   PatrolAnim field the game never uses: whoever patrols and stops at that point (PauseTime)
+//   plays it instead of breathing.
+// The game's AI puts the breathing back only now and then (end of a loop, random gestures): the Tick
+// brings it back to the chosen animation. In a conversation, a fight or a flight it touches nothing.
 // - bStayPut (editor: Inspector > Behaviour > Stays put; Gabby, 18 Oct 2026): never turns, not even to talk.
 //   While standing or talking the body keeps the way it faced at the start (no turning speed: the game's
 //   turns only ask for a rotation) and its animation; the head alone follows JC (the game's head turn,
@@ -21,7 +21,7 @@ var() name PawnName;
 var() name IdleAnim;
 var() float IdleRate;
 var() bool bOwnModel;
-var Mesh Tried;                    // l'ultimo modello per cui si e' cercata la copia
+var Mesh Tried;                    // the last model whose copy was looked for
 
 var ScriptedPawn Who;
 var bool bReady;
@@ -41,7 +41,7 @@ var() Texture AppearanceSkins[8];
 function PostBeginPlay()
 {
     Super.PostBeginPlay();
-    SetTimer(0.2, false);          // dopo che tutti gli attori della mappa sono partiti
+    SetTimer(0.2, false);          // after every actor of the map has started
 }
 
 function Timer()
@@ -79,7 +79,7 @@ function Timer()
     bReady = true;
 }
 
-// l'animazione che dovrebbe fare adesso ('' = decide il gioco)
+// the animation it should play now ('' = the game decides)
 function name Wanted(ScriptedPawn P, out float Rate)
 {
     local PatrolPoint Point;
@@ -143,7 +143,7 @@ function Hold()
     }
 }
 
-// il modello con le animazioni nuove, copia di quello che ha adesso
+// the model with the new animations, a copy of the one it has now
 function OwnModel()
 {
     local Mesh M;

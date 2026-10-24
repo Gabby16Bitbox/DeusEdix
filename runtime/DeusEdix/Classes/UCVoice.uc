@@ -1,8 +1,8 @@
 //=============================================================================
-// UCVoice - trova la voce registrata (ElevenLabs) di una battuta.
-// Il suono si chiama "V" + hash di voce/canale/testo, nel pacchetto DeusEdixVoices.u
-// (generato da tools/voices/make_voices.py: l'hash DEVE essere identico).
-// Se il pacchetto o il suono non c'e', ritorna None e resta solo il testo.
+// UCVoice - finds the recorded voice (ElevenLabs) of a line.
+// The sound is named "V" + a hash of voice/channel/text, in the package DeusEdixVoices.u
+// (made by tools/voices/make_voices.py: the hash MUST be identical).
+// With no package or no sound it returns None, and only the text is left.
 //=============================================================================
 class UCVoice extends Object;
 
@@ -57,7 +57,7 @@ static function string Profile(Actor speaker, string binding)
 			return "MJ12TroopB";
 		return "MJ12Troop";
 	}
-	// Special Agents al 'Ton (MIB presentati come "Special Agent")
+	// Special Agents at the 'Ton (MIBs introduced as "Special Agent")
 	if ((speaker != None && speaker.IsA('MIB')) || Left(binding, 14) ~= "UCSpecialAgent")
 		return "MIB";
 	if (binding ~= "UCMaggieHolo")

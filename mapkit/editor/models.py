@@ -185,14 +185,14 @@ def package_models(pkg, log=print):
                            % (k + i, (i % 8) * 800 - 3200, (i // 8) * 800 - 3200, m['cls'], m['mesh']) for i, m in enumerate(chunk))
             (s.folder / 'T3D' / 'models.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='latin1')
             try:
-                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\models.t3d"', r'UC_MESHES ..\Output\meshes.jsonl'])
+                s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\models.t3d"', r'UC_MESHES ..\Output\meshes.bin'])
             except RuntimeError as e:
                 log('models of %s, chunk %d: %s' % (pkg, k, str(e)[:160]))
                 s.close()
                 s = kit.Session([], 'editor-models-' + _safe(pkg)[:20])
                 s.batch(start)
                 continue
-            for name, m in data.parse_meshes(s.folder / 'Output' / 'meshes.jsonl').items():
+            for name, m in data.parse_meshes(s.folder / 'Output' / 'meshes.bin').items():
                 if name.startswith('UCM') and name[3:].isdigit():
                     found[meshes[int(name[3:])]['mesh']] = m
         textures = {p['tex']: (0, 0) for m in found.values() for p in m['parts']}

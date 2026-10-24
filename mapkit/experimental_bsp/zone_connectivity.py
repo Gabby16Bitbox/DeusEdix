@@ -49,7 +49,8 @@ def positive_overlap(a, b, p):
         if not subject:
             return False
         out = []
-        x = subject[-1]; dx = cross2(c, d, x)
+        x = subject[-1]
+        dx = cross2(c, d, x)
         for y in subject:
             dy = cross2(c, d, y)
             if (dx < 0 < dy) or (dy < 0 < dx):

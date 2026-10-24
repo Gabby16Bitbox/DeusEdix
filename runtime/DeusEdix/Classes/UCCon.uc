@@ -1,14 +1,14 @@
 //=============================================================================
-// UCCon - costruisce una conversazione NATIVA di Deus Ex da codice.
-// Le battute senza audio (soundID = -1) vengono mostrate come testo dal
-// sistema di conversazioni del gioco (telecamere, nomi, clic per continuare).
+// UCCon - builds a NATIVE Deus Ex conversation from code.
+// Lines without audio (soundID = -1) are shown as text by the
+// game's conversation system (cameras, names, click to continue).
 //
-// IMPORTANTE: creare UCCon con new(Level) e tutti i suoi oggetti con new(Outer).
-// Oggetti creati senza Outer non appartengono a nessun pacchetto e il gioco va in
-// crash quando salva la mappa al cambio livello (SaveExports: PackageIndex>0).
+// IMPORTANT: create UCCon with new(Level) and all of its objects with new(Outer).
+// Objects created without an Outer belong to no package, and the game
+// crashes when it saves the map at a level change (SaveExports: PackageIndex>0).
 //
-// Uso (sempre in una variabile LOCALE, mai membro di un Actor):
-//   c = new(Level) class'UCCon';   // Outer = la mappa: gli oggetti appartengono al livello
+// Usage (always in a LOCAL variable, never a member of an Actor):
+//   c = new(Level) class'UCCon';   // Outer = the map: the objects belong to the level
 //   c.Begin('UC_M1_Alex', "AlexJacobson", False);
 //   c.Line("AlexJacobson", "JCDenton", "I went through Paul's access logs.");
 //   c.SetFlag('UC_M1_AlexDone', True);
@@ -19,8 +19,8 @@ class UCCon extends Object;
 var Conversation con;
 var ConEvent last;
 var string lastSpeakerName, lastSpeakingToName;
-var string pendingLabel;   // etichetta per il prossimo evento (destinazione di scelte e salti)
-var bool bFixedCamera;     // un'unica inquadratura (FixedShot): niente primi piani a ogni battuta
+var string pendingLabel;   // label for the next event (the target of choices and jumps)
+var bool bFixedCamera;     // a single shot (FixedShot): no close-ups at every line
 var ConChoice lastAnswer;
 var UCConRandom randomBranch;
 
@@ -42,21 +42,21 @@ function Begin(Name conName, string ownerName, bool bFirstPerson)
 	bFixedCamera = False;
 }
 
-// Parte anche quando JC si avvicina (distanza dal centro dell'attore).
+// It also starts when JC comes near (distance from the actor's centre).
 function Radius(int dist)
 {
 	con.bInvokeRadius = True;
 	con.radiusDistance = dist;
 }
 
-// Non parte cliccando (solo per vicinanza).
+// It does not start on a click (only when JC comes near).
 function NoFrob()
 {
 	con.bInvokeFrob = False;
 }
 
-// Inquadratura unica di lato e dall'alto, come le conversazioni vanilla con Jock
-// nell'elicottero (i primi piani di un elicottero non hanno senso).
+// A single shot from the side and from above, as in the vanilla conversations with Jock
+// in the helicopter (close-ups make no sense in a helicopter).
 function FixedShot()
 {
 	local ConEventMoveCamera shot;
@@ -70,10 +70,10 @@ function FixedShot()
 	bFixedCamera = True;
 }
 
-// Inquadratura unica larga, di lato e appena dall'alto (circa 15 gradi), a distanza
-// moderata: per spazi chiusi col soffitto basso rispetto alla scena (l'hangar di Hong
-// Kong), dove la SideAbove45 di FixedShot sbatte nel tetto e il gioco la avvicina fino a
-// metterla dentro l'elicottero.
+// A single wide shot, from the side and slightly above (about 15 degrees), at a moderate
+// distance: for closed spaces whose ceiling is low for the scene (the Hong Kong
+// hangar), where FixedShot's SideAbove45 hits the roof and the game pulls it in until it
+// ends up inside the helicopter.
 function WideShot()
 {
 	local ConEventMoveCamera shot;
@@ -90,15 +90,15 @@ function WideShot()
 	bFixedCamera = True;
 }
 
-// Il prossimo evento si chiama cosi' (per Choice e Jump).
+// The next event gets this label (for Choice and Jump).
 function Label(string l)
 {
 	pendingLabel = l;
-	lastSpeakerName = "";      // dopo un salto la camera va rimessa su chi parla
+	lastSpeakerName = "";      // after a jump the camera must go back to the speaker
 	lastSpeakingToName = "";
 }
 
-// Due risposte per JC; ognuna salta alla sua etichetta.
+// Two answers for JC; each one jumps to its label.
 function Choice(string text1, string label1, string text2, string label2)
 {
 	local ConEventChoice e;
@@ -121,9 +121,9 @@ function Choice(string text1, string label1, string text2, string label2)
 	Add(e);
 }
 
-// Una scelta con quante risposte si vuole (come le armi di Paul a Liberty Island): Choices()
-// la apre, ogni Answer() aggiunge una risposta che salta alla sua etichetta. Con un flag la
-// risposta compare solo se il flag ha quel valore.
+// A choice with as many answers as needed (like Paul's weapons on Liberty Island): Choices()
+// opens it, each Answer() adds an answer that jumps to its label. With a flag the
+// answer shows only if the flag has that value.
 function Choices()
 {
 	local ConEventChoice e;
@@ -166,9 +166,9 @@ function Answer(string text, string l, optional Name flagName, optional bool val
 	tail.nextChoice = c;
 }
 
-// JC riceve un oggetto (arma, munizioni, oggetto; "DeusEx.WeaponGEPGun") creato dal nulla: chi
-// parla tiene il suo. Il gioco lo mostra nella conversazione; se l'inventario e' pieno la
-// conversazione va a failLabel (o prosegue).
+// JC receives an item (a weapon, ammo, an object; "DeusEx.WeaponGEPGun") made from nothing: the
+// speaker keeps its own. The game shows it in the conversation; if the inventory is full the
+// conversation goes to failLabel (or goes on).
 function Give(string className, optional int count, optional string failLabel)
 {
 	local ConEventTransferObject e;
@@ -183,7 +183,7 @@ function Give(string className, optional int count, optional string failLabel)
 	Add(e);
 }
 
-// Salta a un'etichetta della stessa conversazione.
+// Jumps to a label of the same conversation.
 function Jump(string l)
 {
 	local ConEventJump e;
@@ -212,7 +212,7 @@ function JumpOriginal(Actor context, string path)
 	ConEventJump(last).jumpCon=original;
 }
 
-// Se il flag ha quel valore salta all'etichetta, altrimenti prosegue.
+// If the flag has that value it jumps to the label, else it goes on.
 function IfFlag(Name flagName, bool value, string l)
 {
 	local ConEventCheckFlag e;
@@ -229,7 +229,7 @@ function IfFlag(Name flagName, bool value, string l)
 	Add(e);
 }
 
-// Fine della conversazione a meta' lista (dopo un ramo di una scelta).
+// The end of the conversation halfway through the list (after a branch of a choice).
 function EndHere()
 {
 	local ConEventEnd e;
@@ -239,7 +239,7 @@ function EndHere()
 	Add(e);
 }
 
-// Requisito: la conversazione parte solo se il flag ha quel valore.
+// Requirement: the conversation starts only if the flag has that value.
 function Require(Name flagName, bool value)
 {
 	local ConFlagRef r;
@@ -251,14 +251,14 @@ function Require(Name flagName, bool value)
 	con.flagRefList = r;
 }
 
-// Si puo' sentire una volta sola (flag <nome>_Played).
+// It can be heard only once (flag <name>_Played).
 function Once()
 {
 	con.bDisplayOnce = True;
 }
 
-// Aggiunge la conversazione in testa alla lista del PNG: cliccandolo parte
-// questa (se i requisiti sono soddisfatti) al posto di quelle vanilla.
+// Puts the conversation at the head of the NPC's list: a click on the NPC starts
+// this one (if its requirements are met) instead of the vanilla ones.
 function AttachTo(Actor npc)
 {
 	local ConListItem item;
@@ -275,7 +275,7 @@ function AttachTo(Actor npc)
 	npc.ConListItems = item;
 }
 
-// Conversazione senza scelte che scorre da sola (niente clic).
+// A conversation without choices that runs by itself (no clicks).
 function Passive()
 {
 	con.bNonInteractive = True;

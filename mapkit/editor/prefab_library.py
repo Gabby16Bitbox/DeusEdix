@@ -59,19 +59,13 @@ def _names(selection, key):
     return list(dict.fromkeys(value))
 
 
-@functools.lru_cache(maxsize=1)
-def _parents():
-    return classes.hierarchy()[0]
-
-
 def _scenery(actor):
     cls = actor['cls'].split('.')[-1]
-    if 'Mover' in cls or prefabs.STORY.search(cls):
+    tree = classes.tree()
+    if tree.is_a(cls, 'Mover') or ('Mover' in cls and cls not in tree) or prefabs.STORY.search(cls):
         return False
-    # A class-name substring alone misses pawns such as ScientistFemale.
-    parents = _parents()
-    return (classes.isa(parents, cls, 'Light') or classes.isa(parents, cls, 'Decoration') or
-            classes.isa(parents, cls, 'DeusExDecoration') or cls in {'UCMeshDeco'})
+    # by the parents: a class-name substring alone misses pawns such as ScientistFemale
+    return tree.is_a(cls, 'Light', 'Decoration') or cls in {'UCMeshDeco'}
 
 
 def _vector(value, length, context):

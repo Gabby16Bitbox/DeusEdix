@@ -1,6 +1,6 @@
 //=============================================================================
-// UCMark - segnaposto invisibile con un Tag, usato come destinazione per gli
-// ordini dei PNG (es. SetOrders('RunningTo', 'UCJCMark')).
+// UCMark - an invisible marker with a Tag, used as the destination of the
+// characters' orders (e.g. SetOrders('RunningTo', 'UCJCMark')).
 //=============================================================================
 class UCMark extends Actor
 	transient;

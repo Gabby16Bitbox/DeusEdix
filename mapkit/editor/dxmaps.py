@@ -378,6 +378,18 @@ NAV = ('PathNode', 'PatrolPoint', 'HidePoint', 'AmbushPoint', 'PlayerStart', 'Te
 NAV_DEFINE = ['UC_NAVDROP temp', 'PATHS DEFINE', 'UC_NAVLIFT']
 
 
+def _light(cls):
+    """A light (a class under Light; by its name for a class the game's classes do not have)."""
+    known = props.is_a(cls, 'Light', log=lambda *a: None)
+    return 'Light' in str(cls) if known is None else known
+
+
+def _mover(cls):
+    """A door or a lift (a class under Mover; by its name for a class the game's classes do not have)."""
+    known = props.is_a(cls, 'Mover', log=lambda *a: None)
+    return 'Mover' in str(cls) if known is None else known
+
+
 def _cmdname(n):
     return re.sub(r'[^\w]', '', n)
 
@@ -460,7 +472,7 @@ def build(map_name, log=print, options=None):
             r = ai['rot']
             cmds.append('UC_SET %s %.3f %.3f %.3f %d %d %d' % ((a, p[0], p[1], p[2]) + xf.rot(r)))
             move_keys(a, p, xf.rot(r), ai['cls'])
-            lights = lights or 'Light' in ai['cls']
+            lights = lights or _light(ai['cls'])
         geometry = lights = nav = True
         lines.append('  EDIT moved structure %s (%s) by (%g, %g, %g)%s%s' % (
             name, s['label'], off[0], off[1], off[2], ', turned %d deg' % round(yaw * 360 / 65536) if yaw else '',
@@ -473,13 +485,13 @@ def build(map_name, log=print, options=None):
             cmds.append('UC_SCALE %s %.4f' % (_cmdname(n), float(m['scale'])))
         cls = (m.get('cls') or '').split('.')[-1]
         move_keys(n, (x, y, z), r, cls)
-        lights = lights or 'Light' in cls
+        lights = lights or _light(cls)
         nav = nav or cls in NAV
         lines.append('  EDIT moved %s' % n)
     for n, d in (edits.get('deleted') or {}).items():
         cmds.append('UC_DEL %s' % _cmdname(n))
         cls = (d.get('cls') or '').split('.')[-1]
-        lights = lights or 'Light' in cls
+        lights = lights or _light(cls)
         nav = nav or cls in NAV
         lines.append('  EDIT deleted %s' % n)
     blocks, pastes = [], {}
@@ -510,7 +522,7 @@ def build(map_name, log=print, options=None):
     for a in edits.get('added') or []:
         if a.get('raw'):            # a whole T3D block (a mover copied from an original map: prefabs.original_actor)
             blocks.append(a['raw'] if a['raw'].endswith('\n') else a['raw'] + '\n')
-            if 'Mover' in a['cls']:
+            if _mover(a['cls']):
                 movers.append(a['name'])
         else:
             props_a = dict(a.get('props', {}))
@@ -518,7 +530,7 @@ def build(map_name, log=print, options=None):
                 props_a.update(cutscenes.props(edits, a['name']))
             blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], tuple(int(v) for v in a.get('rot', (0, 0, 0))), '',
                                        props_a))
-        lights = lights or a['cls'] in ('Light', 'Spotlight')
+        lights = lights or _light(a['cls'])
         nav = nav or a['cls'].split('.')[-1] in NAV        # patrol points of a route: the AI needs paths to them
         lines.append('  EDIT added %s %s' % (a['cls'], a['name']))
     # the emails and bulletins of the computers: hidden UCTextBlock actors (comptexts.py)
@@ -554,9 +566,10 @@ def build(map_name, log=print, options=None):
     for a in navbake.blocks(edits, map_name):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += navbake.report(edits, map_name)
-    map_movers = set(re.findall(r'Begin Actor Class=\w*Mover\w* Name=(\w+)', scene_text))
-    map_lights = set(re.findall(r'Begin Actor Class=(?:Light|Spotlight|TriggerLight)\w* Name=(\w+)', scene_text))
-    map_lights |= {a['name'] for a in edits.get('added') or [] if a['cls'] in ('Light', 'Spotlight')}
+    scene_actors = list(t3d.actors(scene_text))
+    map_movers = {a['name'] for a in scene_actors if _mover(a['cls'])}
+    map_lights = {a['name'] for a in scene_actors if _light(a['cls'])}
+    map_lights |= {a['name'] for a in edits.get('added') or [] if _light(a['cls'])}
     if settings.STANDALONE and not re.search(r'Begin Actor Class=(?:\w+\.)?UCBoot ', scene_text):
         # DeusEdix: the actor that starts the editor's story, texts and characters' fates in the game
         blocks.append(Scene._block('UCBoot', (0, 0, 0), 'UCBoot0', (0, 0, 0), '', {}))
@@ -641,7 +654,7 @@ def build(map_name, log=print, options=None):
     cmds += textures.actor_commands(edits, map_name)
     cmds += props.commands(edits)              # the Properties panel (no rebuild needed)
     cmds += documents.commands(edits, map_name)
-    cmds += links.commands(links.object_tags.with_baked(edits,scene_text), {a['name']:a for a in list(t3d.actors(scene_text))+list(edits.get('added') or []) if a['name'] in map_lights})              # lights the interactions turn on and off
+    cmds += links.commands(links.object_tags.with_baked(edits,scene_text), {a['name']:a for a in scene_actors+list(edits.get('added') or []) if a['name'] in map_lights})              # lights the interactions turn on and off
     cmds += motions.commands(edits, map_movers, map_lights)   # the keys of animated movers, moving lights
     cmds += level_cmds
     import player_profiles

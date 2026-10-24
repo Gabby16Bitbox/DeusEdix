@@ -14,6 +14,7 @@
 #include <float.h>
 // JSON for the dumps the editor reads: nlohmann/json 3.11.3 (MIT, third_party/nlohmann/LICENSE.MIT). Included
 // before the engine's headers, whose macros (check, ...) would otherwise reach into its code.
+#include <map>
 #include <string>
 #include <vector>
 #include "nlohmann/json.hpp"
@@ -123,6 +124,60 @@ static Json xyz(const FVector& v) {
 static Json xyz(const FVector& v, int places) {
     return Json::array({ decimals(v.X, places), decimals(v.Y, places), decimals(v.Z, places) });
 }
+
+// A dump of bulk numbers (BSP polygons, mesh triangles, lightmaps): a JSON header line, with the dump's strings and
+// the list of its arrays (name, type, count), then those arrays, little endian, back to back (PROTOCOL.md). The
+// numbers go into flat arrays as they are made, with no JSON value each, and the editor reads every array in one
+// piece. The arrays must live until write().
+class Arrays {
+public:
+    Json header;
+    explicit Arrays(const char* format) { header["format"] = format; }
+    void add(const char* name, const std::vector<INT>& v) { push(name, "i32", v.empty() ? NULL : &v[0], v.size() * sizeof(INT), v.size()); }
+    void add(const char* name, const std::vector<DWORD>& v) { push(name, "u32", v.empty() ? NULL : &v[0], v.size() * sizeof(DWORD), v.size()); }
+    void add(const char* name, const std::vector<double>& v) { push(name, "f64", v.empty() ? NULL : &v[0], v.size() * sizeof(double), v.size()); }
+    void add(const char* name, const std::vector<BYTE>& v) { push(name, "u8", v.empty() ? NULL : &v[0], v.size(), v.size()); }
+    int write(const char* path) {
+        JsonLines out(path);
+        if (!out.ok()) return 0;
+        header["arrays"] = list;
+        out.write(header);
+        for (size_t i = 0; i < parts.size(); i++) out.bytes(parts[i].first, parts[i].second);
+        return 1;
+    }
+private:
+    Json list = Json::array();
+    std::vector<std::pair<const void*, size_t>> parts;
+    void push(const char* name, const char* type, const void* data, size_t bytes, size_t count) {
+        Json entry;
+        entry["name"] = name;
+        entry["type"] = type;
+        entry["count"] = count;
+        list.push_back(entry);
+        parts.push_back(std::make_pair(data, bytes));
+    }
+};
+static void push3(std::vector<double>& out, double x, double y, double z) {
+    out.push_back(x);
+    out.push_back(y);
+    out.push_back(z);
+}
+
+// The index of a texture in a dump's texture list, added the first time ("none" for no texture)
+class TextureList {
+public:
+    Json names = Json::array();
+    INT operator()(UTexture* texture) {
+        std::map<UTexture*, INT>::iterator it = index.find(texture);
+        if (it != index.end()) return it->second;
+        INT at = (INT)names.size();
+        names.push_back(texture ? utf8(texture->GetPathName()) : std::string("none"));
+        index[texture] = at;
+        return at;
+    }
+private:
+    std::map<UTexture*, INT> index;
+};
 
 class Utf8Log : public FOutputDevice {
 public:
@@ -324,14 +379,13 @@ static int traceLine(const float from[3], const float to[3]) {
 }
 
 // UC_BSPDUMP <file>: the final world geometry (every visible BSP polygon) with its texture and mapping, for the
-// 3D view of the map editor. A row a polygon: {texture, flags, base, textureU, textureV, pan [u, v], size [the
-// texture's width and height in world units], vertices [x, y, z, ...], brush, surface, brushPoly}. brush: the
-// build order of the static brush that made it (-1 unknown); brushPoly: its source polygon in that brush.
+// 3D view of the map editor. A binary dump (Arrays): header {textures, polygons}; arrays, one entry a polygon unless
+// said: texture (into textures), flags, pan (u, v), vertexCount, brush (the build order of the static brush that made
+// it, -1 unknown), surface, brushPoly (its source polygon in that brush), mapping (base xyz, textureU xyz, textureV
+// xyz, the texture's width and height in world units: 11), vertices (x y z of every vertex, polygon after polygon).
 static int dumpBsp(const char* path) {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* m = GEditor->Level->Model;
-    JsonLines out(path);
-    if (!out.ok()) return 0;
     // static brushes in creation order (= the order of the map script's operations), builder excluded
     TArray<ABrush*> brushes;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
@@ -345,7 +399,10 @@ static int dumpBsp(const char* path) {
         for (int k = 0; k < brushes.Num(); k++)
             if (brushes(k) == m->Surfs(i).Actor) { surfBrush(i) = k; break; }
     }
-    int count = 0;
+    TextureList textures;
+    std::vector<INT> texture, pan, vertexCount, brush, surface, brushPoly;
+    std::vector<DWORD> flags;
+    std::vector<double> mapping, vertices;
     for (int i = 0; i < m->Nodes.Num(); i++) {
         FBspNode& n = m->Nodes(i);
         if (n.NumVertices < 3 || n.iSurf < 0) continue;
@@ -357,45 +414,58 @@ static int dumpBsp(const char* path) {
             tw = s.Texture->USize * sc;
             th = s.Texture->VSize * sc;
         }
-        Json vertices = Json::array();
+        FVector base = m->Points(s.pBase), u = m->Vectors(s.vTextureU), v = m->Vectors(s.vTextureV);
+        texture.push_back(textures(s.Texture));
+        flags.push_back(s.PolyFlags);
+        pan.push_back(s.PanU);
+        pan.push_back(s.PanV);
+        vertexCount.push_back(n.NumVertices);
+        brush.push_back(surfBrush(n.iSurf));
+        surface.push_back(n.iSurf);
+        brushPoly.push_back(s.iBrushPoly);                  // the stable source face, not a transient BSP index
+        push3(mapping, digits(base.X), digits(base.Y), digits(base.Z));
+        push3(mapping, digits(u.X), digits(u.Y), digits(u.Z));
+        push3(mapping, digits(v.X), digits(v.Y), digits(v.Z));
+        mapping.push_back(digits(tw));
+        mapping.push_back(digits(th));
         for (int k = 0; k < n.NumVertices; k++) {
             FVector& p = m->Points(m->Verts(n.iVertPool + k).pVertex);
-            vertices.push_back(digits(p.X)); vertices.push_back(digits(p.Y)); vertices.push_back(digits(p.Z));
+            push3(vertices, digits(p.X), digits(p.Y), digits(p.Z));
         }
-        Json row;
-        row["texture"] = s.Texture ? utf8(s.Texture->GetPathName()) : "none";
-        row["flags"] = s.PolyFlags;
-        row["base"] = xyz(m->Points(s.pBase));
-        row["textureU"] = xyz(m->Vectors(s.vTextureU));
-        row["textureV"] = xyz(m->Vectors(s.vTextureV));
-        row["pan"] = Json::array({ (int)s.PanU, (int)s.PanV });
-        row["size"] = Json::array({ digits(tw), digits(th) });
-        row["vertices"] = vertices;
-        row["brush"] = surfBrush(n.iSurf);
-        row["surface"] = n.iSurf;
-        row["brushPoly"] = s.iBrushPoly;               // the stable source face, not a transient BSP index
-        out.write(row);
-        count++;
     }
-    say("UCMapKit|bsp|%d polygons", count);
+    Arrays out("bsp");
+    out.header["textures"] = textures.names;
+    out.header["polygons"] = texture.size();
+    out.add("texture", texture);
+    out.add("flags", flags);
+    out.add("pan", pan);
+    out.add("vertexCount", vertexCount);
+    out.add("brush", brush);
+    out.add("surface", surface);
+    out.add("brushPoly", brushPoly);
+    out.add("mapping", mapping);
+    out.add("vertices", vertices);
+    if (!out.write(path)) return 0;
+    say("UCMapKit|bsp|%d polygons", (int)texture.size());
     return 1;
 }
 
 // UC_LIGHTDUMP <file>: the lighting of the map as the game draws it, for the map editor's "Lit" view.
 // The SDK keeps, per lit surface, the shadow bits of every light that reaches it (LightBits, built by
 // LIGHT APPLY); the game adds the lights up while drawing. Here: the same sum (light colour and
-// brightness, radius falloff, angle of incidence, spotlight cone, shadow bits) plus the zone ambient. Rows:
-//   {kind: surface, surface, size [w, h], pan [u, v], scale [u, v], rgb [r, g, b, ...]}   the lattice point (i, j) is
-//       where the surface's texture coordinates are (pan u + i * scale u, pan v + j * scale v); rgb: lighting 0..2
-//       as 0..255, row after row
-//   {kind: light, location, colour, radius, effect, direction, cone}   every light (colour with the brightness curve),
-//       in order, numbered from 0, for the editor's own per-vertex lighting of the objects
-//   {kind: actor, actor, light [r, g, b], ambient [r, g, b], lights [numbers]}   a mesh actor or mover: light is the
-//       brighter of the lights that see its centre and the light of the floor under it (from the lightmap, so with
-//       the real shadows), + ambient; ambient and lights are what the game lights it with (the engine lights meshes
-//       per vertex, each light all or nothing): its zone's ambient, + what the floor adds when its centre sees no
-//       light, and the lights that see its centre
-//   {kind: mapping, fit, checked}   surfaces whose polygons fall inside their lightmap, of those checked
+// brightness, radius falloff, angle of incidence, spotlight cone, shadow bits) plus the zone ambient.
+// A binary dump (Arrays): header {actors (names), fit, checked}; arrays:
+//   surface, size (w, h), mapping (pan u, pan v, scale u, scale v) for every lit surface: its lattice point (i, j) is
+//       where the surface's texture coordinates are (pan u + i * scale u, pan v + j * scale v); rgb: the lightmaps,
+//       surface after surface, row after row, 3 bytes a lattice point (lighting 0..2 as 0..255)
+//   lights: 12 numbers a light, in order (location, colour with the brightness curve, radius, effect, direction,
+//       cone), for the editor's own per-vertex lighting of the objects
+//   actorLight, actorAmbient (3 each), actorLightCount, actorLights (the lights' numbers) for every mesh actor or
+//       mover of actors: light is the brighter of the lights that see its centre and the light of the floor under it
+//       (from the lightmap, so with the real shadows), + ambient; ambient and the lights are what the game lights it
+//       with (the engine lights meshes per vertex, each light all or nothing): its zone's ambient, + what the floor
+//       adds when its centre sees no light, and the lights that see its centre
+//   fit, checked: surfaces whose polygons fall inside their lightmap, of those checked
 
 static FVector lightColour(BYTE H, BYTE S, BYTE V) {
     FVector hue = H < 86 ? FVector((85 - H) / 85.f, H / 85.f, 0)
@@ -452,8 +522,19 @@ struct SurfaceLight {
     TArray<FVector> texels, ambients;
 };
 
+// What UC_LIGHTDUMP writes (see above)
+struct LightDump {
+    std::vector<INT> surface, size;
+    std::vector<double> mapping;
+    std::vector<BYTE> rgb;
+    std::vector<double> lights;
+    Json actors = Json::array();
+    std::vector<double> actorLight, actorAmbient;
+    std::vector<INT> actorLightCount, actorLights;
+};
+
 // the surfaces' lightmaps as the game draws them; returns the surfaces written
-static int lightSurfaces(UModel* m, JsonLines& out, SurfaceLight& lit, int& fit, int& checked) {
+static int lightSurfaces(UModel* m, LightDump& out, SurfaceLight& lit, int& fit, int& checked) {
     TArray<INT> firstNode;
     firstNode.Add(m->Surfs.Num());
     for (int i = 0; i < m->Surfs.Num(); i++) firstNode(i) = INDEX_NONE;
@@ -499,7 +580,6 @@ static int lightSurfaces(UModel* m, JsonLines& out, SurfaceLight& lit, int& fit,
         lit.texelAt(s) = lit.texels.Num();
         lit.ambients(s) = ambient;
         lit.texels.AddZeroed(w * h);
-        Json rgb = Json::array();
         for (int j = 0; j < h; j++) {
             for (int i = 0; i < w; i++) {
                 float r1 = lm.Pan.X + i * lm.UScale, r2 = lm.Pan.Y + j * lm.VScale;
@@ -513,38 +593,35 @@ static int lightSurfaces(UModel* m, JsonLines& out, SurfaceLight& lit, int& fit,
                 }
                 lit.texels(lit.texelAt(s) + j * w + i) = light;
                 FVector c = ambient + light * 2.f;     // the lights are overbright on the surfaces (ambient is not)
-                rgb.push_back(Clamp(appFloor(c.X * 127.5f), 0, 255));
-                rgb.push_back(Clamp(appFloor(c.Y * 127.5f), 0, 255));
-                rgb.push_back(Clamp(appFloor(c.Z * 127.5f), 0, 255));
+                out.rgb.push_back((BYTE)Clamp(appFloor(c.X * 127.5f), 0, 255));
+                out.rgb.push_back((BYTE)Clamp(appFloor(c.Y * 127.5f), 0, 255));
+                out.rgb.push_back((BYTE)Clamp(appFloor(c.Z * 127.5f), 0, 255));
             }
         }
-        Json row;
-        row["kind"] = "surface";
-        row["surface"] = s;
-        row["size"] = Json::array({ w, h });
-        row["pan"] = Json::array({ digits(lm.Pan.X), digits(lm.Pan.Y) });
-        row["scale"] = Json::array({ digits(lm.UScale), digits(lm.VScale) });
-        row["rgb"] = rgb;
-        out.write(row);
+        out.surface.push_back(s);
+        out.size.push_back(w);
+        out.size.push_back(h);
+        out.mapping.push_back(digits(lm.Pan.X));
+        out.mapping.push_back(digits(lm.Pan.Y));
+        out.mapping.push_back(digits(lm.UScale));
+        out.mapping.push_back(digits(lm.VScale));
         surfs++;
     }
     return surfs;
 }
 
-// every light, in order (the actor rows number them from 0)
-static void lightList(JsonLines& out, TArray<AActor*>& lights) {
+// every light, in order (the actors' light numbers count from 0)
+static void lightList(LightDump& out, TArray<AActor*>& lights) {
     for (int k = 0; k < GEditor->Level->Actors.Num(); k++) {
         AActor* l = GEditor->Level->Actors(k);
         if (!l || !l->LightType || !l->LightBrightness) continue;
-        Json row;
-        row["kind"] = "light";
-        row["location"] = xyz(l->Location, 1);
-        row["colour"] = xyz(lightColour(l->LightHue, l->LightSaturation, l->LightBrightness), 4);
-        row["radius"] = decimals(25.f * (l->LightRadius + 1), 1);
-        row["effect"] = (int)l->LightEffect;
-        row["direction"] = xyz(l->Rotation.Vector(), 4);
-        row["cone"] = (int)l->LightCone;
-        out.write(row);
+        FVector colour = lightColour(l->LightHue, l->LightSaturation, l->LightBrightness), dir = l->Rotation.Vector();
+        push3(out.lights, decimals(l->Location.X, 1), decimals(l->Location.Y, 1), decimals(l->Location.Z, 1));
+        push3(out.lights, decimals(colour.X, 4), decimals(colour.Y, 4), decimals(colour.Z, 4));
+        out.lights.push_back(decimals(25.f * (l->LightRadius + 1), 1));
+        out.lights.push_back((int)l->LightEffect);
+        push3(out.lights, decimals(dir.X, 4), decimals(dir.Y, 4), decimals(dir.Z, 4));
+        out.lights.push_back((int)l->LightCone);
         lights.AddItem(l);
     }
 }
@@ -584,19 +661,20 @@ static FVector floorLight(UModel* m, AActor* a, const SurfaceLight& lit) {
 // a body) plus the ambient of their zone. A centre that is inside or behind something (a barrel against a grille, a
 // lamp inside its fitting) would leave it black: the light of the floor under it is the lower bound.
 // Returns how many took their floor's light.
-static int lightActors(UModel* m, JsonLines& out, const TArray<AActor*>& lights, const SurfaceLight& lit) {
+static int lightActors(UModel* m, LightDump& out, const TArray<AActor*>& lights, const SurfaceLight& lit) {
     int floors = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !((a->DrawType == DT_Mesh && a->Mesh) || a->IsMovingBrush())) continue;
         FVector c = ambientOf(a->Region.Zone), zoneAmbient = c;
-        Json seen = Json::array();
+        int seen = 0;
         for (int k = 0; k < lights.Num(); k++) {
             AActor* l = lights(k);
             if (l != a && (l->Location - a->Location).SizeSquared() < Square(25.f * (l->LightRadius + 1))
                 && m->FastLineCheck(a->Location, l->Location)) {
                 c += lightAt(l, a->Location, NULL);
-                seen.push_back(k);
+                out.actorLights.push_back(k);
+                seen++;
             }
         }
         FVector occl = c, fl = floorLight(m, a, lit);
@@ -604,13 +682,10 @@ static int lightActors(UModel* m, JsonLines& out, const TArray<AActor*>& lights,
         // the floor's extra light (when it is brighter than the lights the centre sees) as flat light
         FVector extra = c - occl;
         FVector ambient = zoneAmbient + FVector(Max(extra.X, 0.f), Max(extra.Y, 0.f), Max(extra.Z, 0.f));
-        Json row;
-        row["kind"] = "actor";
-        row["actor"] = utf8(a->GetName());
-        row["light"] = xyz(c, 3);
-        row["ambient"] = xyz(ambient, 3);
-        row["lights"] = seen;
-        out.write(row);
+        out.actors.push_back(utf8(a->GetName()));
+        push3(out.actorLight, decimals(c.X, 3), decimals(c.Y, 3), decimals(c.Z, 3));
+        push3(out.actorAmbient, decimals(ambient.X, 3), decimals(ambient.Y, 3), decimals(ambient.Z, 3));
+        out.actorLightCount.push_back(seen);
     }
     return floors;
 }
@@ -618,28 +693,36 @@ static int lightActors(UModel* m, JsonLines& out, const TArray<AActor*>& lights,
 static int dumpLights(const char* path) {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* m = GEditor->Level->Model;
-    JsonLines out(path);
-    if (!out.ok()) return 0;
     SurfaceLight lit;
+    LightDump dump;
     TArray<AActor*> lights;
     int fit = 0, checked = 0;
-    int surfs = lightSurfaces(m, out, lit, fit, checked);
-    lightList(out, lights);
-    int floors = lightActors(m, out, lights, lit);
-    Json mapping;
-    mapping["kind"] = "mapping";
-    mapping["fit"] = fit;
-    mapping["checked"] = checked;
-    out.write(mapping);
+    int surfs = lightSurfaces(m, dump, lit, fit, checked);
+    lightList(dump, lights);
+    int floors = lightActors(m, dump, lights, lit);
+    Arrays out("lights");
+    out.header["actors"] = dump.actors;
+    out.header["fit"] = fit;
+    out.header["checked"] = checked;
+    out.add("surface", dump.surface);
+    out.add("size", dump.size);
+    out.add("mapping", dump.mapping);
+    out.add("rgb", dump.rgb);
+    out.add("lights", dump.lights);
+    out.add("actorLight", dump.actorLight);
+    out.add("actorAmbient", dump.actorAmbient);
+    out.add("actorLightCount", dump.actorLightCount);
+    out.add("actorLights", dump.actorLights);
+    if (!out.write(path)) return 0;
     say("UCMapKit|lights|%d surfaces|mapping %d/%d|%d objects lit by their floor", surfs, fit, checked, floors);
     return 1;
 }
 
 // UC_MESHES <file>: the real look of every mesh actor (crates, barrels, people, the helicopter) and of every mover
 // (doors), for the 3D view of the map editor. Coordinates relative to the actor's Location, unrotated, with its
-// DrawScale, skins and current animation frame. A row an actor: {actor, class, kind (mesh or mover), style,
-// triangles [{texture, flags, corners [x y z u v of each corner: 15 numbers], slot}]} (slot: the MultiSkins
-// index of a mesh's face; a mover's faces have none)
+// DrawScale, skins and current animation frame. A binary dump (Arrays): header {textures, actors [{actor, class, kind
+// (mesh or mover), style, triangles}]}; arrays, one entry a triangle, actor after actor: texture (into textures),
+// flags, slot (the MultiSkins index of a mesh's face, -1 for a mover's), corners (x y z u v of each corner: 15).
 
 // SEH helpers (no C++ objects to unwind in these frames)
 static int safeFrame(UMesh* mesh, ULodMesh* lod, FVector* out, AActor* a) {
@@ -659,8 +742,27 @@ static UTexture* safeTexture(UMesh* mesh, int index, AActor* a) {
     __try { return mesh->GetTexture(index, a); } __except (EXCEPTION_EXECUTE_HANDLER) { return NULL; }
 }
 
-// a mesh actor's triangles in its current frame, at the origin; NULL when the engine cannot pose it
-static int meshTriangles(AActor* a, Json& triangles) {
+// What UC_MESHES writes (see above)
+struct MeshDump {
+    TextureList textures;
+    Json actors = Json::array();
+    std::vector<INT> texture, slot;
+    std::vector<DWORD> flags;
+    std::vector<double> corners;
+    void triangle(UTexture* tex, DWORD polyFlags, INT skin) {
+        texture.push_back(textures(tex));
+        flags.push_back(polyFlags);
+        slot.push_back(skin);
+    }
+    void corner(const FVector& p, float u, float v) {
+        push3(corners, decimals(p.X, 2), decimals(p.Y, 2), decimals(p.Z, 2));
+        corners.push_back(decimals(u, 4));
+        corners.push_back(decimals(v, 4));
+    }
+};
+
+// a mesh actor's triangles in its current frame, at the origin; -1 when the engine cannot pose it
+static int meshTriangles(AActor* a, MeshDump& out) {
     UMesh* mesh = a->Mesh;
     FVector loc = a->Location;
     FRotator rot = a->Rotation;
@@ -672,7 +774,7 @@ static int meshTriangles(AActor* a, Json& triangles) {
     int ok = safeFrame(mesh, lod, &verts[0], a);
     a->Location = loc;
     a->Rotation = rot;
-    if (!ok) return 0;
+    if (!ok) return -1;
     int n = lod ? lod->Faces.Num() : mesh->Tris.Num();
     for (int k = 0; k < n; k++) {
         int iv[3], material;
@@ -701,26 +803,17 @@ static int meshTriangles(AActor* a, Json& triangles) {
             material = t.TextureIndex;
             flags = t.PolyFlags;
         }
-        UTexture* texture = safeTexture(mesh, material, a);
-        Json corners = Json::array();
-        for (int j = 0; j < 3; j++) {
-            FVector p = (iv[j] >= 0 && iv[j] < count) ? verts[iv[j]] : FVector(0, 0, 0);
-            corners.push_back(decimals(p.X, 2)); corners.push_back(decimals(p.Y, 2)); corners.push_back(decimals(p.Z, 2));
-            corners.push_back(decimals(uv[j][0], 4)); corners.push_back(decimals(uv[j][1], 4));
-        }
-        Json triangle;
-        triangle["texture"] = texture ? utf8(texture->GetPathName()) : "none";
-        triangle["flags"] = flags;
-        triangle["corners"] = corners;
-        triangle["slot"] = material;
-        triangles.push_back(triangle);
+        out.triangle(safeTexture(mesh, material, a), flags, material);
+        for (int j = 0; j < 3; j++)
+            out.corner((iv[j] >= 0 && iv[j] < count) ? verts[iv[j]] : FVector(0, 0, 0), uv[j][0], uv[j][1]);
     }
-    return 1;
+    return n;
 }
 
 // a mover's brush as triangles (fans of its polygons), relative to its pivot
-static void moverTriangles(AActor* a, Json& triangles) {
+static int moverTriangles(AActor* a, MeshDump& out) {
     TTransArray<FPoly>& polys = a->Brush->Polys->Element;
+    int n = 0;
     for (int k = 0; k < polys.Num(); k++) {
         FPoly& p = polys(k);
         float tw = 128, th = 128;
@@ -731,51 +824,53 @@ static void moverTriangles(AActor* a, Json& triangles) {
         }
         for (int j = 1; j + 1 < p.NumVertices; j++) {
             int idx[3] = {0, j, j + 1};
-            Json corners = Json::array();
+            out.triangle(p.Texture, p.PolyFlags, -1);
             for (int q = 0; q < 3; q++) {
                 FVector v = p.Vertex[idx[q]];
                 FVector d = v - p.Base;
-                float u = ((d | p.TextureU) + p.PanU) / tw, w = ((d | p.TextureV) + p.PanV) / th;
-                FVector l = v - a->PrePivot;
-                corners.push_back(decimals(l.X, 2)); corners.push_back(decimals(l.Y, 2)); corners.push_back(decimals(l.Z, 2));
-                corners.push_back(decimals(u, 4)); corners.push_back(decimals(w, 4));
+                out.corner(v - a->PrePivot, ((d | p.TextureU) + p.PanU) / tw, ((d | p.TextureV) + p.PanV) / th);
             }
-            Json triangle;
-            triangle["texture"] = p.Texture ? utf8(p.Texture->GetPathName()) : "none";
-            triangle["flags"] = p.PolyFlags;
-            triangle["corners"] = corners;
-            triangles.push_back(triangle);
+            n++;
         }
     }
+    return n;
 }
 
 static int dumpMeshes(const char* path) {
     if (!GEditor->Level) return 0;
-    JsonLines out(path);
-    if (!out.ok()) return 0;
+    MeshDump dump;
     int actors = 0, tris = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a) continue;
-        Json triangles = Json::array();
+        int n;
         const char* kind;
         if (a->DrawType == DT_Mesh && a->Mesh) {
             kind = "mesh";
-            if (!meshTriangles(a, triangles)) { say("UCMapKit|mesh fault|%s", (const char*)Utf8(a->GetName())); continue; }
+            n = meshTriangles(a, dump);
+            if (n < 0) { say("UCMapKit|mesh fault|%s", (const char*)Utf8(a->GetName())); continue; }
         } else if (a->IsMovingBrush() && a->Brush && a->Brush->Polys) {
             kind = "mover";
-            moverTriangles(a, triangles);
+            n = moverTriangles(a, dump);
         } else continue;
-        Json row;
-        row["actor"] = utf8(a->GetName());
-        row["class"] = utf8(a->GetClass()->GetName());
-        row["kind"] = kind;
-        row["style"] = (int)a->Style;
-        tris += (int)triangles.size();
-        row["triangles"] = std::move(triangles);
-        out.write(row);
+        Json actor;
+        actor["actor"] = utf8(a->GetName());
+        actor["class"] = utf8(a->GetClass()->GetName());
+        actor["kind"] = kind;
+        actor["style"] = (int)a->Style;
+        actor["triangles"] = n;
+        dump.actors.push_back(actor);
+        tris += n;
         actors++;
     }
+    Arrays out("meshes");
+    out.header["textures"] = dump.textures.names;
+    out.header["actors"] = dump.actors;
+    out.add("texture", dump.texture);
+    out.add("flags", dump.flags);
+    out.add("slot", dump.slot);
+    out.add("corners", dump.corners);
+    if (!out.write(path)) return 0;
     say("UCMapKit|meshes|%d actors|%d triangles", actors, tris);
     return 1;
 }
