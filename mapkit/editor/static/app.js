@@ -40,7 +40,7 @@ import { createPiecesBrowser } from './pieces-browser.js';
 import { collectPrefabSelection } from './prefab-selection.js';
 import { createTextureTransfer } from './texture-transfer.js';
 import { createSurfaceTexturePreview } from './surface-texture-preview.js';
-import { createDrawTools, DRAW_LABELS } from './draw-tools.js';
+import { createDrawTools, DRAW_LABELS, DRAW_DEFAULTS } from './draw-tools.js';
 import { createSkyTool } from './sky-tool.js';
 import { createMapPose } from './map-pose.js';
 import { createViewportToolbar } from './viewport-toolbar.js';
@@ -438,6 +438,7 @@ async function loadScene(s, resetCamera) {
     if (j.kind === 'script' || !j.kind || j.built)
       for (const [n, m] of Object.entries(edits.moved || {})) if (m && m.scale) builtScale[n] = m.scale;
     builtBoxes = new Map((j.kind === 'script' || !j.kind || j.built ? edits.boxes || [] : []).map((b) => [b.name, boxSig(b)]));
+    builtDrawn = new Map((j.kind === 'script' || !j.kind || j.built ? edits.drawn || [] : []).map((p) => [p.name, drawnSig(p)]));
     if (Array.isArray(edits.deleted)) edits.deleted = Object.fromEntries(edits.deleted.map((n) => [n, {}]));
     undo = []; dirty = false; selected = null;
     clearMaterials();
@@ -714,6 +715,7 @@ function holeCutMaterial(m) {
   return c;
 }
 // each drawn frame: the boxes of the hole blocks (as they are now, also while dragged), a little inside them
+let lastHoles = null;
 function updateHoleCut() {
   let n = 0;
   for (const p of proxies.children) {
@@ -727,6 +729,11 @@ function updateHoleCut() {
   }
   const changed = (n > 0) !== (HOLE.n.value > 0);
   HOLE.n.value = n;
+  const holes = JSON.stringify(holeBlocks().map(boxSig));
+  if (holes !== lastHoles) {                        // the holes' edits changed: the drawings are cut again
+    lastHoles = holes;
+    for (const p of proxies.children) if (p.userData.kind === 'drawn') drawTools.refresh(p);
+  }
   if (changed) applyLighting();                     // the map's surfaces take (or leave) their cutting copies
   // the holes cut what is drawn too (editor/drawn.py): its outline shows them before the Rebuild, also once redrawn
   if (n) for (const p of proxies.children) {
@@ -1157,6 +1164,7 @@ async function applyTexture(ctx, png, to, document = null) {
 
 let builtScale = {};                     // scale of each object in the map as last built (the edits it had)
 let builtBoxes = new Map();              // the blocks as the map shown was built: name -> their shape and place
+let builtDrawn = new Map();              // the drawings as the map shown was built (with the holes that cut them)
 const boxSig = (b) => JSON.stringify([b.lo, b.hi, b.rot || null, b.tex || '', blockShape(b), !!b.solid, !!b.hole, b.verts || null]);
 const blockLooks = new Map();            // a block's texture before a Rebuild: map|texture -> {map, tile, masked}
 let lastPlacingMove = null;              // the pointer's last move while placing (R re-turns the ghost there)
@@ -2418,6 +2426,41 @@ async function dressBlock(g) {
   g.userData.dressed = true;
 }
 
+// a drawing (Tools > Draw) until a Rebuild, as a block: its faces with their textures as the build will map them
+// (editor/drawn.py look(): the same brushes, cut by the holes), each knowing the texture setting it shows, so that a
+// texture dropped on it changes that one. Built as it is, the map's own surfaces show it, with their lighting.
+const holeBlocks = () => edits.boxes.filter((b) => b.hole);
+const drawnSig = (p) => JSON.stringify([p, holeBlocks().map(boxSig)]);
+async function dressDrawn(g) {
+  const p = g.userData.drawn, sig = drawnSig(p), turn = {};
+  g.userData.dressTurn = turn;               // several changes in a row (a picked texture): only the last one dresses it
+  const current = () => g.userData.dressTurn === turn && g.userData.drawn === p && drawnSig(p) === sig && g.parent === proxies;
+  if (builtDrawn.get(p.name) === sig) return;
+  const got = await api('/api/drawn_look', { drawn: p, holes: holeBlocks() }).catch(() => null);
+  if (!got || !current()) return;
+  const looks = await Promise.all(got.faces.map((f) => blockLook(shortTex(f.tex))));
+  if (!current()) return;
+  // the build's world coordinates in the proxy's own frame (it stands at the drawing's middle, turned by its rot)
+  const back = g.quaternion.clone().invert(), at = T(g.userData.origin);
+  const dressed = new THREE.Group();
+  got.faces.forEach((f, i) => {
+    const pos = new Float32Array(f.pos.length);
+    for (let k = 0; k < f.pos.length; k += 3) T(f.pos.slice(k, k + 3)).sub(at).applyQuaternion(back).toArray(pos, k);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(f.uv), 2));
+    const look = looks[i];
+    const mat = look ? new THREE.MeshBasicMaterial({ map: look.map, color: 0xd9d9d9, alphaTest: look.masked ? 0.5 : 0, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }) : new THREE.MeshBasicMaterial({ color: 0x8a8f99, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData = { drawnSetting: f.setting, drawnTex: f.tex };
+    dressed.add(mesh);
+  });
+  for (const o of g.children) o.traverse((c) => { if (c.isMesh) c.visible = false; });     // the plain volume: its edges stay
+  g.add(dressed);
+  wake();
+}
+
 // ---------------------------------------------------------------- signs with your own text
 // "+ Sign": a thin block whose front face shows the text drawn here (a picture imported as a texture
 // of the map, stretched over the face by editor/textures.py sign_mats); edges and back are iron
@@ -2665,7 +2708,8 @@ function ledgeNear(ue, radius) {
   }
   return best ? [ue[0], ue[1], Math.round(best.z * 10) / 10] : null;
 }
-const drawTools = createDrawTools({ THREE, T, scene, getEdits: () => edits, status, escapeHtml, getSnap: () => snap, texList: () => texList, probe: ledgeNear });
+const drawTools = createDrawTools({ THREE, T, scene, getEdits: () => edits, status, escapeHtml, getSnap: () => snap, texList: () => texList, probe: ledgeNear,
+  dress: (g) => dressDrawn(g) });
 // Map > Sky & time of day (sky-tool.js; the sky box by editor/zones.py)
 const skyTool = createSkyTool({ THREE, scene, getEdits: () => edits, getScript: () => script, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName });
 // Pose here: a character posed against the map where it stands (map-pose.js)
@@ -2713,7 +2757,17 @@ textureTransfer = createTextureTransfer({ canvas,
   status,
   targetAt: (at, quiet = false) => {
     const ray = mouseRay(at), hit = visibleHits(ray.intersectObjects(world.children, true))[0];
-    const prop = visibleHits(ray.intersectObjects(proxies.children, true)).find(h => h.object.userData.tex !== undefined || h.object.userData.box);
+    const prop = visibleHits(ray.intersectObjects(proxies.children, true)).find(h => h.object.userData.tex !== undefined || h.object.userData.box
+      || h.object.userData.drawnSetting !== undefined);
+    // a drawing not built yet shows its textures on top of what an older Rebuild made there: it is the one picked
+    if (prop && prop.object.userData.drawnSetting !== undefined && (!hit || prop.distance <= hit.distance + .5)) {
+      let g = prop.object;
+      while (g && !g.userData.drawn) g = g.parent;
+      const setting = prop.object.userData.drawnSetting, p = g.userData.drawn;
+      if (!setting) { if (!quiet) status('This face is a side of a hole cut in the drawing: it takes the hole\'s texture.', 'warn'); return null; }
+      if (selectionLocked(g)) { if (!quiet) status('Unlock this drawing before changing its texture.', 'warn'); return null; }
+      return { drawn: g, setting, label: `${DRAW_LABELS[p.kind]} ${p.name}` };
+    }
     const face = surfaceTools.faceAt(hit);
     const block = prop && prop.object.userData.box && (!hit || prop.distance < hit.distance - .1) ? prop.object : null;
     if (block) {
@@ -2731,6 +2785,17 @@ textureTransfer = createTextureTransfer({ canvas,
     return { ...face, hit, object };
   },
   apply: async (texture, target, isCurrent) => {
+    if (target.drawn) {
+      const g = target.drawn, p = g.userData.drawn, tex = shortTex(texture.ref);
+      if (!isCurrent() || g.parent !== proxies) throw new Error('The map changed before this texture could be applied.');
+      if (!requireUnlocked(g)) throw new Error('Unlock this drawing first.');
+      pushUndo();
+      if (tex === DRAW_DEFAULTS[p.kind][target.setting]) delete p[target.setting]; else p[target.setting] = tex;
+      setDirty();
+      drawTools.refresh(g);
+      if (selected === g) showDetails();
+      return;
+    }
     if (target.block) {
       const p = target.block, b = p.userData.box;
       if (!isCurrent() || p.parent !== proxies) throw new Error('The map changed before this texture could be applied.');

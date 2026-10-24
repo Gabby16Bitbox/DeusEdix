@@ -448,7 +448,9 @@ for example): there you can only change objects, not the map's geometry.
 **Tools > Draw wall / Draw road / Draw floor / Draw ceiling** (or the same buttons in **+ Create**).
 Click points on the ground one after the other; `Shift` keeps the line at 45 degrees; the points snap
 to an 8-unit grid. **Enter**, a double click or a click on the first point again finishes; `Backspace`
-takes the last point away, `Esc` stops.
+takes the last point away, `Esc` stops. As soon as a tool is chosen, a sliver of what it makes follows the
+cursor (a piece of wall as long as it is thick, a slice of road, a tile of floor or ceiling, the first step, a
+roof's eave): it is where the first click puts it.
 
 - **Wall**: a wall along the line, 160 high and 16 thick, with clean corners.
 - **Road**: the asphalt with a sidewalk and a curb on each side.
@@ -458,6 +460,11 @@ takes the last point away, `Esc` stops.
 
 Select a drawn shape to change it in the Inspector: height, thickness, width, sidewalks and every
 texture. Move and turn it with the gizmo. **Rebuild** makes it part of the map.
+
+Like a block, a drawn shape shows its textures before the **Rebuild** the way the game will map them,
+holes cut in it included. Every texture field has its picture: click it for the texture picker. Or
+take a texture (click its picture in an object's **Textures**, or drag it) and click a face of the
+drawing: the face's own setting changes (a floor's top or its edge, a step's tread or its riser).
 
 ### Stairs and roofs from A to B
 

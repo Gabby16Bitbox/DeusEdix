@@ -30,6 +30,7 @@ import math
 import blocks
 import geom
 import zones
+from vec3 import Vec3
 
 KINDS = ('wall', 'road', 'floor', 'ceiling', 'stairs', 'roof')
 DEFAULTS = {
@@ -371,6 +372,14 @@ def roof_parts(p):
 
 # ------------------------------------------------------------------ brushes
 
+def _mat(s, setting):
+    """The material of one of the path's texture settings ('tex', 'edgeTex'...), which remembers it: the editor's
+    preview (look) tells which setting a texture dropped on a face changes."""
+    m = geom.Mat(s[setting])
+    m.setting = setting
+    return m
+
+
 def _axes(m, kind):
     tu, tv, su, sv = geom._scales(m, kind)
     return tu / su, tv / sv
@@ -384,14 +393,14 @@ def _textured(brush, part, s, kind):
     for f in brush.faces:
         n = f.normal
         if kind == 'stairs' and 'poly' in part and n[2] > 0.99:                  # the tread
-            m = geom.Mat(s['tex'])
+            m = _mat(s, 'tex')
             ku, kv = _axes(m, 'floor')
             f.mat = m
             f.u = (w[0] * ku, w[1] * ku, 0.0)
             f.v = (run[0] * kv, run[1] * kv, 0.0)
             f.origin = (part['nose'][0] - w[0] * s['width'] / 2, part['nose'][1] - w[1] * s['width'] / 2, part['top'])
         elif kind == 'stairs' and 'poly' in part and n[0] * run[0] + n[1] * run[1] < -0.7 and abs(n[2]) < 0.01:   # the riser
-            m = geom.Mat(s['riserTex'])
+            m = _mat(s, 'riserTex')
             ku, kv = _axes(m, 'wall')
             right = (run[1], -run[0])                   # to the right of someone facing the stairs
             f.mat = m
@@ -399,7 +408,7 @@ def _textured(brush, part, s, kind):
             f.v = (0.0, 0.0, -kv)
             f.origin = (part['nose'][0] - right[0] * s['width'] / 2, part['nose'][1] - right[1] * s['width'] / 2, part['top'])
         elif 'up' in part and n[2] > 0.2:                                      # a ramp's or a roof's top
-            m = geom.Mat(s['tex'])
+            m = _mat(s, 'tex')
             ku, kv = _axes(m, 'floor')
             up = part['up']
             f.mat = m
@@ -411,11 +420,11 @@ def _textured(brush, part, s, kind):
 
 
 def _parts_brushes(p, s, kind, parts, name):
-    side = geom.Mat(s['sideTex'])
-    under = geom.Mat(s.get('underTex') or s['sideTex'])
+    side = _mat(s, 'sideTex')
+    under = _mat(s, 'underTex' if s.get('underTex') else 'sideTex')
     out = []
     for i, part in enumerate(parts):
-        mats = {'top': geom.Mat(s['tex']), 'bottom': under, 'all': side}
+        mats = {'top': _mat(s, 'tex'), 'bottom': under, 'all': side}
         if 'poly' in part:
             b = _prism(part['poly'], part['z0'], part['z1'], side if part.get('column') else mats, '%s_%d' % (name, i))
         else:
@@ -449,17 +458,17 @@ def brushes(p):
         if kind == 'wall':
             if s['thick'] <= 0 or s['height'] <= 0:
                 return []
-            mats = geom.Mat(s['tex'])
+            mats = _mat(s, 'tex')
             for i, q in enumerate(strips(pts, closed, -s['thick'] / 2, s['thick'] / 2)):
                 out.append(_prism(q, z, z + s['height'], mats, '%s_%d' % (name, i)))
             return out
         half = s['width'] / 2
         if half > 0:
-            road = {'top': geom.Mat(s['tex']), 'bottom': geom.Mat(s['tex']), 'all': geom.Mat(s['curbTex'])}
+            road = {'top': _mat(s, 'tex'), 'bottom': _mat(s, 'tex'), 'all': _mat(s, 'curbTex')}
             for i, q in enumerate(strips(pts, closed, -half, half)):
                 out.append(_prism(q, z - 2, z + ROAD_LIFT, road, '%s_road%d' % (name, i)))
         if s['walk'] > 0 and s['curb'] > 0:
-            walk = {'top': geom.Mat(s['walkTex']), 'bottom': geom.Mat(s['walkTex']), 'all': geom.Mat(s['curbTex'])}
+            walk = {'top': _mat(s, 'walkTex'), 'bottom': _mat(s, 'walkTex'), 'all': _mat(s, 'curbTex')}
             for side, (d0, d1) in (('L', (half, half + s['walk'])), ('R', (-half - s['walk'], -half))):
                 for i, q in enumerate(strips(pts, closed, d0, d1)):
                     out.append(_prism(q, z - 2, z + s['curb'], walk, '%s_walk%s%d' % (name, side, i)))
@@ -472,14 +481,14 @@ def brushes(p):
     if kind == 'floor':
         if s['thick'] <= 0:
             return []
-        mats = {'top': geom.Mat(s['tex']), 'bottom': geom.Mat(s['edgeTex']), 'all': geom.Mat(s['edgeTex'])}
+        mats = {'top': _mat(s, 'tex'), 'bottom': _mat(s, 'edgeTex'), 'all': _mat(s, 'edgeTex')}
         top = z + s['lift']
         return [_prism(q, top - s['thick'], top, mats, '%s_%d' % (name, i)) for i, q in enumerate(parts)]
     # ceiling: its underside at `height`
     base = z + s['height']
     if s['thick'] <= 0:
         return []
-    mats = {'top': geom.Mat(s['tex']), 'bottom': geom.Mat(s['underTex']), 'all': geom.Mat(s['edgeTex'])}
+    mats = {'top': _mat(s, 'tex'), 'bottom': _mat(s, 'underTex'), 'all': _mat(s, 'edgeTex')}
     return [_prism(q, base, base + s['thick'], mats, '%s_%d' % (name, i)) for i, q in enumerate(parts)]
 
 
@@ -555,3 +564,26 @@ def all_brushes(edits):
         except ValueError as e:
             report.append('  DRAWN %s not built: %s' % (p.get('name'), e))
     return out, report
+
+
+def look(p, holes=()):
+    """One drawn path as the build will make it and map its textures (the editor shows it so until a Rebuild, as it
+    shows a block): [{'setting', 'tex', 'pos', 'uv'}], one entry a material. pos: triangles in world units; uv: in
+    repeats of the texture, as geometry.json gives the map's own surfaces; setting: the path's texture setting those
+    faces show ('' for the walls of a hole cut in it, which are in the hole's texture). holes: the map's hole blocks."""
+    built, _report = all_brushes({'drawn': [p], 'boxes': list(holes)})
+    groups = {}
+    for _name, brush in built:
+        if brush.wrap:                       # round sides: their texture runs on round them, as Brush.t3d writes it
+            geom.wrap_vertical(brush.faces)
+        for f in brush.faces:
+            u, v, origin = (f.u, f.v, f.origin) if f.u is not None else geom.mapping(f, False)
+            tu, tv = geom.tex_size(f.mat.tex)
+            setting = getattr(f.mat, 'setting', '')
+            g = groups.setdefault((setting, f.mat.tex), dict(setting=setting, tex=f.mat.tex, pos=[], uv=[]))
+            for k in range(1, len(f.verts) - 1):         # a triangle fan, as the map's polygons
+                for q in (f.verts[0], f.verts[k], f.verts[k + 1]):
+                    d = Vec3.of(q) - origin
+                    g['pos'] += [round(c, 2) for c in q]
+                    g['uv'] += [round(d.dot(u) / tu, 4), round(d.dot(v) / tv, 4)]
+    return list(groups.values())

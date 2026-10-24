@@ -1,7 +1,8 @@
 // Tools > Draw wall / road / floor / ceiling: click points on the map, Enter (or click the first point again, or
 // double-click) to finish. edits.drawn = [{name, kind, pts: [[x, y], ...], z, closed, ...settings}] in Unreal
 // units; editor/drawn.py makes the brushes at Rebuild from the same numbers (DRAW_DEFAULTS mirrors DEFAULTS there).
-// Shown here like the blocks: a translucent volume with its edges, the real surfaces after Rebuild.
+// Shown here like the blocks: a translucent volume with its edges, dressed (dress(g), app.js) with its textures as the
+// build will map them until a Rebuild, the real surfaces after it.
 // Stairs and roofs (20 Oct 2026): two clicks, A and B, each at its own height (B is `rise` above A); B snaps onto
 // the floor of a ledge near it. While drawing: [ and ] make them narrower or wider, , and . lower or raise the
 // steps. stairParts/roofParts are drawn.py's stair_parts/roof_parts in JavaScript (tests/test_drawn_stairs.py).
@@ -34,6 +35,7 @@ const HELP = {
 const COLORS = { wall: 0xd9c49b, road: 0x7b8594, floor: 0x9fb4d9, ceiling: 0xd99f9f, stairs: 0xb7d99f, roof: 0xd9a37b };
 const ROAD_LIFT = 2;
 const CLOSING = 32;                   // a click this close to the first point closes the shape
+const SLIVER = 32;                    // how long the shape under the cursor is before the first click
 
 export function settingsOf(p) {
   const out = { ...DRAW_DEFAULTS[p.kind] };
@@ -225,8 +227,19 @@ export function volumes(p) {
   return out;
 }
 
+// before the first click: a sliver of what the tool makes, where the cursor is, so it shows the tool has started (a wall
+// as long as it is thick, a slice of the road, a tile of the floor or the ceiling, the first step, a roof's eave)
+function sliverOf(kind, [x, y], z, opts) {
+  const s = settingsOf({ kind, ...opts }), h = SLIVER / 2;
+  const across = (len) => [[x - len / 2, y], [x + len / 2, y]];
+  if (kind === 'wall') return { kind, pts: across(Math.max(4, s.thick)), z, ...opts };
+  if (kind === 'road') return { kind, pts: across(SLIVER), z, ...opts };
+  if (kind === 'floor' || kind === 'ceiling') return { kind, pts: [[x - h, y - h], [x + h, y - h], [x + h, y + h], [x - h, y + h]], z, ...opts };
+  return { kind, pts: [[x, y], [x + SLIVER, y]], z, rise: kind === 'stairs' ? s.riser : 0, ...opts };
+}
+
 // ------------------------------------------------------------------ the module
-export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml, getSnap, texList, probe }) {
+export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml, getSnap, texList, probe, dress }) {
   const rotations = createRotations(THREE);
   let session = null;                 // {kind, pts, z, hover}
   const preview = new THREE.Group();
@@ -278,6 +291,7 @@ export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml,
     g.position.copy(T(c));
     g.quaternion.copy(rotations.quat(p.rot));
     g.userData = { drawn: p, source: 'drawn', kind: 'drawn', origin: c };
+    dress?.(g);
     return g;
   }
   // the proxy drawn again after a change of its settings (same object, same selection)
@@ -287,6 +301,7 @@ export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml,
     g.add(meshOf(p, c));
     g.position.copy(T(c)); g.quaternion.copy(rotations.quat(p.rot));
     g.userData.origin = c;
+    dress?.(g);
   }
   // the gizmo moved or turned it: its points follow (about the point it was shown at)
   function commitMove(g) {
@@ -323,6 +338,7 @@ export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml,
     const p = { kind: session.kind, pts, z: session.z, closed: closing && (session.kind === 'wall' || session.kind === 'road'), ...session.opts };
     if (TWO_CLICKS.has(session.kind) && session.hover) p.rise = Math.round((session.hover.z - session.z) * 10) / 10;
     if (pts.length >= 2) { const m = meshOf(p, [0, 0, 0], 0.4); preview.add(m); }
+    else if (!session.pts.length && session.hover) preview.add(meshOf(sliverOf(session.kind, session.hover.pt, session.z, session.opts), [0, 0, 0], 0.4));
     // the points clicked, the first one bigger (click it to close the shape)
     session.pts.forEach((q, i) => {
       const dot = new THREE.Mesh(new THREE.SphereGeometry(i === 0 ? 7 : 5, 10, 8), new THREE.MeshBasicMaterial({ color: i === 0 && closing ? 0x5aff8a : 0xffd25a, depthTest: false }));
@@ -443,7 +459,7 @@ export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml,
       : k === 'column' ? `<div class="row"><label title="${escapeHtml(tip || '')}">${label}</label><input type="checkbox" data-dw="${k}" ${s[k] ? 'checked' : ''}></div>`
       : typeof DRAW_DEFAULTS[p.kind][k] === 'number'
       ? `<div class="row"><label title="${escapeHtml(tip || '')}">${label}</label><input type="number" data-dw="${k}" value="${s[k]}" step="8" min="0"></div>`
-      : `<div class="row"><label title="${escapeHtml(tip || '')}">${label}</label><input data-dw="${k}" list="dwtex" value="${escapeHtml(s[k])}"></div>`;
+      : `<div class="row"><label title="${escapeHtml(tip || '')}">${label}</label><input data-dw="${k}" list="texlist" value="${escapeHtml(s[k])}"></div>`;
     const fields = FIELDS[p.kind];
     if (!document.getElementById('dw-style')) {         // labels on one line ("Ceiling texture", "Ridge height")
       const css = document.createElement('style'); css.id = 'dw-style';
@@ -456,7 +472,7 @@ export function createDrawTools({ THREE, T, scene, getEdits, status, escapeHtml,
       ${p.kind === 'stairs' ? `<div class="row"><label title="Ready textures as the game uses them on its stairs">Look</label><select data-dw-style><option value="">choose...</option>${Object.keys(STAIR_STYLES).map((k) => `<option>${k}</option>`).join('')}</select></div>` : ''}
       ${p.kind === 'wall' || p.kind === 'road' ? `<div class="row"><label title="The last point joins the first">Closed loop</label><input type="checkbox" data-dw="closed" ${p.closed ? 'checked' : ''}></div>` : ''}
       ${fields.map(field).join('')}
-      <datalist id="dwtex">${list.map((t) => `<option value="${escapeHtml(t)}">`).join('')}</datalist>
+      <datalist id="texlist">${list.map((t) => `<option value="${escapeHtml(t)}">`).join('')}</datalist>
       <div class="row actions"><button type="button" data-dw-del class="danger" title="Delete it (Del)">Delete</button></div></div>`;
     for (const input of el.querySelectorAll('[data-dw]')) input.onchange = () => change(() => {
       const k = input.dataset.dw;

@@ -1278,6 +1278,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/prefab_library':
                 with LOCK:
                     return self._send(200, save_prefab_selection(q['script'], body))
+            if u.path == '/api/drawn_look':
+                # a drawing's faces with their textures as the build maps them (the editor's preview until a Rebuild)
+                import drawn
+                return self._send(200, dict(faces=drawn.look(body.get('drawn') or {}, body.get('holes') or [])))
             if u.path in ('/api/t3d_export', '/api/t3d_import'):
                 # UnrealEd's clipboard: the selection as T3D for its Edit > Paste, or what its Edit > Copy put there
                 import t3d_clipboard
