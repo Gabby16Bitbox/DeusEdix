@@ -7,7 +7,7 @@
 param([string]$Lab)
 $ErrorActionPreference = 'Stop'
 if (-not $Lab) {
-    $Lab = @((Join-Path $PSScriptRoot '..\..\..\build_tools\sdk'), (Join-Path $PSScriptRoot '..\..\editor_bridge\editor_lab')) |
+    $Lab = @((Join-Path $PSScriptRoot '..\..\build_tools\sdk'), (Join-Path $PSScriptRoot '..\..\editor_bridge\editor_lab')) |
         Where-Object { Test-Path -LiteralPath (Join-Path $_ 'Core.lib') } | Select-Object -First 1
     if (-not $Lab) { throw 'The SDK headers and libraries were not found: pass -Lab' }
 }
