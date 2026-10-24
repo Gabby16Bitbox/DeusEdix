@@ -16,6 +16,8 @@
 // before the engine's headers, whose macros (check, ...) would otherwise reach into its code.
 #include <map>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "nlohmann/json.hpp"
 #include <stdarg.h>
@@ -271,10 +273,24 @@ static int patchTemporaryViewport() {
     return 1;
 }
 
+// A name as the engine keeps it: an FName, one integer to compare (the name table holds each name once,
+// case-insensitively). FNAME_Find adds nothing to the table: a name it does not hold is no object's (NAME_None).
+static FName knownName(const TCHAR* name) {
+    return FName(name, FNAME_Find);
+}
+
+// The level's actor in slot i, or NULL: an empty slot, or an actor destroyed and not yet cleaned up (bDeleteMe). In
+// the game the engine frees those later, at a map change or once 128 are waiting; the editor empties the slot at
+// once (UC_DEL then a lookup: missing), the flag covers the other case.
+static AActor* levelActor(int i) {
+    AActor* a = GEditor->Level->Actors(i);
+    return a && !a->bDeleteMe ? a : NULL;
+}
+
 // a class or one of its parents has this name
-static int classIs(AActor* a, const TCHAR* name) {
+static int classIs(AActor* a, FName name) {
     for (UClass* c = a->GetClass(); c; c = c->GetSuperClass())
-        if (!appStricmp(c->GetName(), name)) return 1;
+        if (c->GetFName() == name) return 1;
     return 0;
 }
 
@@ -282,20 +298,34 @@ static int classIs(AActor* a, const TCHAR* name) {
 // by name, or "@<Class>": the first actor of that class (or a subclass); "@LevelInfo" is the map's own
 // (after MAP NEW the level's actors are not named as in the saved map)
 static AActor* findActor(const TCHAR* name) {
-    if (name[0] == '@') {
-        if (!appStricmp(name + 1, TEXT("LevelInfo"))) return GEditor->Level->GetLevelInfo();
-        for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
-            AActor* a = GEditor->Level->Actors(i);
-            if (a && classIs(a, name + 1)) return a;
-        }
-        return NULL;
-    }
+    FName key = knownName(name[0] == '@' ? name + 1 : name);
+    if (key == NAME_None) return NULL;
+    if (name[0] == '@' && key == knownName(TEXT("LevelInfo"))) return GEditor->Level->GetLevelInfo();
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
-        AActor* a = GEditor->Level->Actors(i);
-        if (a && !appStricmp(a->GetName(), name)) return a;
+        AActor* a = levelActor(i);
+        if (a && (name[0] == '@' ? classIs(a, key) : a->GetFName() == key)) return a;
     }
     return NULL;
 }
+
+// The level's actors by name, for a command that looks up many: one pass, then each lookup is a hash (findActor
+// walks the list each time). The names are not kept between commands: the engine drops a name from its table
+// once nothing uses it, and its number can then be given to another.
+class ActorsByName {
+    std::unordered_map<INT, AActor*> actors;
+public:
+    ActorsByName() {
+        for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
+            AActor* a = levelActor(i);
+            if (a) actors.insert(std::make_pair(a->GetFName().GetIndex(), a));    // the first of a name, as findActor
+        }
+    }
+    AActor* operator()(const TCHAR* name) const {
+        FName key = knownName(name);
+        std::unordered_map<INT, AActor*>::const_iterator it = actors.find(key.GetIndex());
+        return key == NAME_None || it == actors.end() ? NULL : it->second;
+    }
+};
 static AActor* findActor(const char* name) {
     return findActor(Wide(name));
 }
@@ -1355,10 +1385,10 @@ static int setPropOn(AActor* a, const char* name, const std::string& prop, const
 static int setProp(const char* name, const char* prop, const char* value) {
     if (!GEditor->Level) return 0;
     if (name[0] == '@' && name[1] == '@') {         // "@@<Class>": every actor of that class
-        Wide cls(name + 2);
+        FName cls = knownName(Wide(name + 2));
         int n = 0;
-        for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
-            AActor* a = GEditor->Level->Actors(i);
+        for (int i = 0; i < GEditor->Level->Actors.Num() && cls != NAME_None; i++) {
+            AActor* a = levelActor(i);
             if (a && classIs(a, cls)) { setPropOn(a, name, prop, value); n++; }
         }
         say("UCMapKit|prop|all|%s|%d", name + 2, n);
@@ -1398,17 +1428,18 @@ static int scaleActor(const char* name, float f) {
 // and the BSP surfaces it made) without a rebuild, so the lighting of an original map stays.
 static int retextureBrush(AActor* a, const TCHAR* oldt, UTexture* tex) {
     int all = !appStrcmp(oldt, TEXT("*")), n = 0;
+    FName old = all ? NAME_None : knownName(oldt);          // NAME_None: no texture has that name
     if (a->Brush && a->Brush->Polys) {
         for (int i = 0; i < a->Brush->Polys->Element.Num(); i++) {
             FPoly& poly = a->Brush->Polys->Element(i);
-            if (poly.Texture && (all || !appStricmp(poly.Texture->GetName(), oldt))) { poly.Texture = tex; n++; }
+            if (poly.Texture && (all || poly.Texture->GetFName() == old)) { poly.Texture = tex; n++; }
         }
     }
     UModel* model = GEditor->Level->Model;
     for (int i = 0; i < model->Surfs.Num(); i++) {
         FBspSurf& s = model->Surfs(i);
         if ((AActor*)s.Actor != a || !s.Texture) continue;
-        if (all || !appStricmp(s.Texture->GetName(), oldt)) { s.Texture = tex; n++; }
+        if (all || s.Texture->GetFName() == old) { s.Texture = tex; n++; }
     }
     return n;
 }
@@ -2010,15 +2041,13 @@ static int listSounds(const char* path) {
 static int dropNavPoints(const char* const* list, int count) {
     if (count < 1 || !GEditor->Level) return 0;
     int all = !strcmp(list[0], "*"), moved = 0, checked = 0;
-    std::vector<FString> names;
-    for (int k = 0; k < count; k++) names.push_back(FString(Wide(list[k])));
+    std::unordered_set<INT> names;
+    for (int k = 0; k < count; k++) names.insert(knownName(Wide(list[k])).GetIndex());
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass()) || a->IsA(APlayerStart::StaticClass()) || a->IsA(ATeleporter::StaticClass()))
             continue;
-        int listed = all;
-        for (size_t k = 0; k < names.size() && !listed; k++) listed = !appStricmp(*names[k], a->GetName());
-        if (!listed) continue;
+        if (!all && !names.count(a->GetFName().GetIndex())) continue;
         checked++;
         FCheckResult hit(1.f);
         FVector end = a->Location - FVector(0, 0, 512);
@@ -2043,15 +2072,17 @@ struct NavHeight { FString name; FLOAT z; };
 static std::vector<NavHeight> navTemp;
 static int dropNavTemp() {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    static const TCHAR* skip[] = { TEXT("PlayerStart"), TEXT("Teleporter"), TEXT("LiftCenter"), TEXT("LiftExit"),
-                                   TEXT("InventorySpot"), TEXT("WarpZoneMarker"), TEXT("ButtonMarker"), TEXT("TriggerMarker") };
+    static const TCHAR* skipped[] = { TEXT("PlayerStart"), TEXT("Teleporter"), TEXT("LiftCenter"), TEXT("LiftExit"),
+                                      TEXT("InventorySpot"), TEXT("WarpZoneMarker"), TEXT("ButtonMarker"), TEXT("TriggerMarker") };
+    std::vector<FName> skip;
+    for (int k = 0; k < ARRAY_COUNT(skipped); k++) skip.push_back(knownName(skipped[k]));
     navTemp.clear();
     int checked = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
         int other = 0;
-        for (int k = 0; k < ARRAY_COUNT(skip) && !other; k++) other = classIs(a, skip[k]);
+        for (size_t k = 0; k < skip.size() && !other; k++) other = skip[k] != NAME_None && classIs(a, skip[k]);
         if (other) continue;
         checked++;
         Utf8 name(a->GetName());
@@ -2074,8 +2105,9 @@ static int dropNavTemp() {
 static int liftNavTemp() {
     if (!GEditor->Level) return 0;
     int back = 0;
+    ActorsByName byName;
     for (size_t k = 0; k < navTemp.size(); k++) {
-        AActor* a = findActor(*navTemp[k].name);
+        AActor* a = byName(*navTemp[k].name);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
         a->Location.Z = navTemp[k].z;
         back++;
@@ -2114,10 +2146,11 @@ static int keepPaths(int restore) {
         return 1;
     }
     int back = 0, there = 0, moved = 0, blocked = 0, full = 0;
+    ActorsByName byName;
     for (size_t k = 0; k < keptSpecs.size(); k++) {
         KeptSpec& s = keptSpecs[k];
-        AActor* a = findActor(*s.a);
-        AActor* b = findActor(*s.b);
+        AActor* a = byName(*s.a);
+        AActor* b = byName(*s.b);
         if (!a || !b || !a->IsA(ANavigationPoint::StaticClass()) || !b->IsA(ANavigationPoint::StaticClass())
             || (a->Location - s.la).SizeSquared() > 1.f || (b->Location - s.lb).SizeSquared() > 1.f) {
             moved++;
@@ -2203,6 +2236,7 @@ static int unlinkBrushes(const char* modelPrefix) {
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ABrush::StaticClass()) || !a->Brush || !a->Brush->Polys) continue;
+        // a prefix of the model's name, so its text (an FName only says equal or not)
         if (wcsncmp((const wchar_t*)a->Brush->GetName(), (const wchar_t*)(const TCHAR*)prefix, n)) continue;
         for (int k = 0; k < a->Brush->Polys->Element.Num(); k++) a->Brush->Polys->Element(k).iLink = k;
         a->Brush->Linked = 1;
