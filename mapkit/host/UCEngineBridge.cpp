@@ -14,6 +14,7 @@
 #include <float.h>
 // JSON for the dumps the editor reads: nlohmann/json 3.11.3 (MIT, third_party/nlohmann/LICENSE.MIT). Included
 // before the engine's headers, whose macros (check, ...) would otherwise reach into its code.
+#include <algorithm>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -287,25 +288,53 @@ static AActor* levelActor(int i) {
     return a && !a->bDeleteMe ? a : NULL;
 }
 
-// a class or one of its parents has this name
-static int classIs(AActor* a, FName name) {
-    for (UClass* c = a->GetClass(); c; c = c->GetSuperClass())
-        if (c->GetFName() == name) return 1;
-    return 0;
+// "Is this class a T?" in one look-up: an UnrealScript class has a single parent, so its ancestors listed by depth
+// are all its supertypes, and a class is a T when its ancestor at T's depth is T (Click & Rose, "Fast subtype
+// checking in the HotSpot JVM", 2002, 4.1, the primary supertypes; UE4's UStruct::IsChildOf). Made per command,
+// like ActorsByName: a class the engine frees between commands must leave no list behind for another at its address.
+class ClassChains {
+    std::unordered_map<UClass*, std::vector<UClass*> > chains;    // Object first, the class itself last
+    const std::vector<UClass*>& chain(UClass* c) {
+        std::unordered_map<UClass*, std::vector<UClass*> >::iterator it = chains.find(c);
+        if (it != chains.end()) return it->second;
+        std::vector<UClass*>& made = chains[c];                    // a reference that a later insert keeps valid
+        for (UClass* k = c; k; k = k->GetSuperClass()) made.push_back(k);
+        std::reverse(made.begin(), made.end());
+        return made;
+    }
+public:
+    int is(AActor* a, UClass* t) {
+        size_t depth = chain(t).size() - 1;
+        const std::vector<UClass*>& ancestors = chain(a->GetClass());
+        return depth < ancestors.size() && ancestors[depth] == t;
+    }
+};
+
+// A class by its name (the editor sends "@UNATCOTroop"): NULL when no package loaded has it, so no actor is one.
+static UClass* classNamed(const TCHAR* name) {
+    return FindObject<UClass>(ANY_PACKAGE, name);
 }
 
 // Editing existing maps (the map editor on any .dx): actors and brushes are found by name.
 // by name, or "@<Class>": the first actor of that class (or a subclass); "@LevelInfo" is the map's own
 // (after MAP NEW the level's actors are not named as in the saved map)
 static AActor* findActor(const TCHAR* name) {
-    // a name known in advance is made once, at the first call (the name table is up by then); intrinsic: never dropped
-    static const FName LevelInfo(TEXT("LevelInfo"), FNAME_Intrinsic);
-    FName key = knownName(name[0] == '@' ? name + 1 : name);
+    if (name[0] == '@') {
+        UClass* cls = classNamed(name + 1);
+        if (!cls) return NULL;
+        if (cls == ALevelInfo::StaticClass()) return GEditor->Level->GetLevelInfo();
+        ClassChains chains;
+        for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
+            AActor* a = levelActor(i);
+            if (a && chains.is(a, cls)) return a;
+        }
+        return NULL;
+    }
+    FName key = knownName(name);
     if (key == NAME_None) return NULL;
-    if (name[0] == '@' && key == LevelInfo) return GEditor->Level->GetLevelInfo();
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = levelActor(i);
-        if (a && (name[0] == '@' ? classIs(a, key) : a->GetFName() == key)) return a;
+        if (a && a->GetFName() == key) return a;
     }
     return NULL;
 }
@@ -1388,11 +1417,12 @@ static int setPropOn(AActor* a, const char* name, const std::string& prop, const
 static int setProp(const char* name, const char* prop, const char* value) {
     if (!GEditor->Level) return 0;
     if (name[0] == '@' && name[1] == '@') {         // "@@<Class>": every actor of that class
-        FName cls = knownName(Wide(name + 2));
+        UClass* cls = classNamed(Wide(name + 2));
+        ClassChains chains;
         int n = 0;
-        for (int i = 0; i < GEditor->Level->Actors.Num() && cls != NAME_None; i++) {
+        for (int i = 0; i < GEditor->Level->Actors.Num() && cls; i++) {
             AActor* a = levelActor(i);
-            if (a && classIs(a, cls)) { setPropOn(a, name, prop, value); n++; }
+            if (a && chains.is(a, cls)) { setPropOn(a, name, prop, value); n++; }
         }
         say("UCMapKit|prop|all|%s|%d", name + 2, n);
         return 1;
@@ -2075,20 +2105,18 @@ struct NavHeight { FString name; FLOAT z; };
 static std::vector<NavHeight> navTemp;
 static int dropNavTemp() {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    // the classes left alone, made once at the first call like findActor's LevelInfo
-    static const FName skip[] = {
-        FName(TEXT("PlayerStart"), FNAME_Intrinsic), FName(TEXT("Teleporter"), FNAME_Intrinsic),
-        FName(TEXT("LiftCenter"), FNAME_Intrinsic), FName(TEXT("LiftExit"), FNAME_Intrinsic),
-        FName(TEXT("InventorySpot"), FNAME_Intrinsic), FName(TEXT("WarpZoneMarker"), FNAME_Intrinsic),
-        FName(TEXT("ButtonMarker"), FNAME_Intrinsic), FName(TEXT("TriggerMarker"), FNAME_Intrinsic),
-    };
+    // the classes left alone: the engine's own, no names to look up
+    UClass* const skip[] = { APlayerStart::StaticClass(), ATeleporter::StaticClass(), ALiftCenter::StaticClass(),
+                             ALiftExit::StaticClass(), AInventorySpot::StaticClass(), AWarpZoneMarker::StaticClass(),
+                             AButtonMarker::StaticClass(), ATriggerMarker::StaticClass() };
+    ClassChains chains;
     navTemp.clear();
     int checked = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
         int other = 0;
-        for (int k = 0; k < ARRAY_COUNT(skip) && !other; k++) other = classIs(a, skip[k]);
+        for (int k = 0; k < ARRAY_COUNT(skip) && !other; k++) other = chains.is(a, skip[k]);
         if (other) continue;
         checked++;
         Utf8 name(a->GetName());
