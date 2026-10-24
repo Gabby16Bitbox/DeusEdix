@@ -349,6 +349,14 @@ def install_map(script):
         shutil.copy2(data.OUT / (map_name + '.dx'), PROJECT / 'maps' / (map_name + '.dx'))
     if settings.STANDALONE:
         import workspace
+        # the map's dialogues and events as the Story saved them, compiled when they changed, as Play does
+        # (24 Oct 2026: a dialogue saved in the Story never reached the game installed with Install map)
+        pre += story.write_all()
+        if workspace.needs_build():
+            ok, output = run_ps('build.ps1', '-Isolated')
+            pre += output
+            if not ok:
+                return False, pre
         ok, lines = workspace.install()
         return ok, pre + lines
     r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',

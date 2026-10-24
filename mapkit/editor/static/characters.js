@@ -1,8 +1,9 @@
 // "Characters" panel of the map editor (Character Creator): characters of your own, made of the bodies,
 // faces and clothes of the game's characters (editor/characters.py reads them from the game), saved in
-// tools/mapkit/characters/<id>.json, placed from Add > Custom characters. In the game they are
-// UCCustomCivilian / UCCustomSoldier / UCCustomThug with the Mesh, MultiSkins and LookBody set here
-// (src/UnatcoContinues/Classes/UCCustomLook.uc): they keep that look, and so does their corpse.
+// tools/mapkit/characters/<id>.json, placed with Place in map or from the Browser (Objects > Custom
+// characters). In the game they are UCCustomCivilian / UCCustomSoldier / UCCustomThug with the Mesh,
+// MultiSkins and LookBody set here (src/<settings.PACKAGE>/Classes/UCCustomLook.uc): they keep that look, and
+// so does their corpse.
 import * as THREE from 'three';
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -105,7 +106,7 @@ const box = document.createElement('div');
 box.id = 'charbox';
 document.body.appendChild(box);
 box.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
-box.innerHTML = `<div class="ch-head"><b>Characters</b><span class="hint" style="margin:0 0 0 10px">Make your own characters from the faces, bodies and clothes of the game's characters. Save them, then place them from <i>Add &gt; Custom characters</i>.</span>
+box.innerHTML = `<div class="ch-head"><b>Characters</b><span class="hint" style="margin:0 0 0 10px">Make your own characters from the faces, bodies and clothes of the game's characters. Save them, then place them with <i>Place in map</i>, or from the Browser (<i>Objects &gt; Custom characters</i>).</span>
     <a href="/guide#characters" target="_blank" style="margin-left:auto;color:var(--acc)">Guide</a><button id="ch-close">Close</button></div>
   <div class="ch-cols">
     <div class="ch-list"><div class="row"><button id="ch-new" class="primary">+ New</button><button id="ch-import" title="Load a character saved as a .json file (shared by someone else)">Import</button>

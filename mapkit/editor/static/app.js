@@ -3945,7 +3945,7 @@ $('#msearch').addEventListener('input', () => buildModels());
 function modelPkg(pkg) {                   // the exported models of a package (made once by the server)
   if (!modelPkgs[pkg]) {
     status(`Reading the models of ${pkg} (the first time, up to a minute)...`);
-    modelPkgs[pkg] = api('/api/models_pkg?pkg=' + encodeURIComponent(pkg)).then((d) => { meshTex[pkg] = d.textures || {}; status(''); return d; })
+    modelPkgs[pkg] = api('/api/models_pkg?pkg=' + encodeURIComponent(pkg)).then((d) => { meshTex[pkg] = ownTextures(pkg, d.textures || {}); status(''); return d; })
       .catch((e) => { delete modelPkgs[pkg]; status(''); throw e; });
   }
   return modelPkgs[pkg];
@@ -4038,9 +4038,13 @@ async function readModelFiles(files) {
   const main = files.find((f) => /\.(glb|gltf|fbx|obj|dae)$/i.test(f.name));
   if (!main) throw new Error('choose a .glb, .gltf, .fbx, .obj or .dae file (with its textures)');
   const urls = new Map(files.map((f) => [f.name.toLowerCase(), URL.createObjectURL(f)]));
+  const own = new Set(urls.values());
   const manager = new THREE.LoadingManager(), missing = new Map();
   manager.setURLModifier((url) => {
-    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+    // a texture next to the model is asked for after the folder of the file that names it: the folder of a
+    // chosen file is its blob URL's ('blob:http://host/barrier.png', 24 Oct 2026: the .mtl's, .gltf's and
+    // FBX's textures were all lost); only the files chosen here go through as they are
+    if (url.startsWith('data:') || own.has(url)) return url;
     const name = decodeURIComponent(url.split(/[\\/]/).pop().split('?')[0]), n = name.toLowerCase();
     if (!urls.get(n) && /\.(png|jpe?g|tga|bmp|webp|gif|tiff?|dds)$/i.test(n)) missing.set(n, name);   // asked for, not chosen
     return urls.get(n) || url;
@@ -4698,7 +4702,16 @@ async function openImport() {
     render();
   };
 }
-function modelsChanged() {                 // UCModels made again: lists and models read again
+// a model imported again keeps the names of its textures (UCM_barrier_0): the page kept showing the picture it
+// had already loaded under that address (24 Oct 2026: a barrier imported first without its texture stayed white
+// in My models and in the 3D view after it was imported again with it), so each new MODELS_PKG asks anew
+let modelsRevision = 0;
+function ownTextures(pkg, textures) {
+  if (pkg !== MODELS_PKG || !modelsRevision) return textures;
+  return Object.fromEntries(Object.entries(textures).map(([k, t]) => [k, t && t.png ? { ...t, png: `${t.png}?r=${modelsRevision}` } : t]));
+}
+function modelsChanged() {                 // MODELS_PKG made again: lists and models read again
+  modelsRevision++;
   modelList = null;
   delete modelPkgs[MODELS_PKG];
   for (const k of Object.keys(meshModels)) if (k.startsWith(MODELS_PKG + '.')) delete meshModels[k];
@@ -5414,6 +5427,8 @@ function cancelPlacing() {
   ghost.visible = false;
   for (const c of [...ghost.children]) if (c !== ghostBody) ghost.remove(c);
   for (const b of document.querySelectorAll('.item.active')) b.classList.remove('active');
+  // its "Click a floor or a wall to place..." stayed in the status bar after Esc (24 Oct 2026)
+  if (/^Click a (floor or a )?wall to place: /.test($('#status').textContent)) status('');
 }
 // what is not built yet counts as a surface too: drawn walls, floors, stairs, and the solid blocks (Crypt Test,
 // 20 Oct 2026: a lever placed on a wall just drawn went through it, onto the room's wall behind)
@@ -5435,9 +5450,11 @@ function placeAt(e) {
   if (n.y > 0.6) p.y += half + 0.5;                       // on a floor
   else if (n.y < -0.6) p.y -= half + 0.5;                 // under a ceiling
   else p.addScaledVector(new THREE.Vector3(n.x, 0, n.z).normalize(), rad + 0.5);   // against a wall
-  if (snap) {                               // a sign keeps its distance from its wall: no snap across it
-    if (!placing.sign || Math.abs(n.x) < 0.6) p.x = Math.round(p.x / 8) * 8;
-    if (!placing.sign || Math.abs(n.z) < 0.6) p.z = Math.round(p.z / 8) * 8;
+  // what goes on a wall keeps its distance from it: no snap across it (24 Oct 2026: a button 2 units thick, 1022
+  // from a wall at 1024, was snapped to 1024 and went inside the wall; only signs kept their distance)
+  if (snap) {
+    if (Math.abs(n.x) < 0.6) p.x = Math.round(p.x / 8) * 8;
+    if (Math.abs(n.z) < 0.6) p.z = Math.round(p.z / 8) * 8;
   }
   return { p, n, hit: hit.point.clone(), tex: hit.object.userData.tex };
 }

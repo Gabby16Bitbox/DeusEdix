@@ -16,6 +16,7 @@ import settings
 
 THUMBS = data.GAME_CACHE / '_texthumbs'
 SIZE = 96                       # the longest side of a picture
+UNREADABLE = 2                  # the version of a package's list of textures that could not be read
 _PKG = re.compile(r'[A-Za-z0-9_\-]{1,64}')
 _index = None
 
@@ -82,14 +83,17 @@ def thumbs(pkg):
     folder.mkdir(parents=True, exist_ok=True)
     failed_file = folder / '_unreadable.json'
     try:
-        failed = set(json.loads(failed_file.read_text(encoding='utf-8')))
-    except (OSError, ValueError):
+        # {version, unreadable}. A bare list was written before 24 Oct 2026, when from the 23rd the pictures were
+        # read the old way and every texture of the packages opened then was listed: tried again.
+        saved = json.loads(failed_file.read_text(encoding='utf-8'))
+        failed = set(saved['unreadable']) if isinstance(saved, dict) and saved.get('version') == UNREADABLE else set()
+    except (OSError, ValueError, KeyError, TypeError):
         failed = set()
     todo = [(short, full) for short, full, _w, _h in entry['textures']
             if not (folder / (short + '.png')).exists() and short not in failed]
     if todo:
         _make(todo, folder, failed)
-        failed_file.write_text(json.dumps(sorted(failed)), encoding='utf-8')
+        failed_file.write_text(json.dumps(dict(version=UNREADABLE, unreadable=sorted(failed))), encoding='utf-8')
     out = {}
     for short, _full, _w, _h in entry['textures']:
         f = folder / (short + '.png')
@@ -114,10 +118,8 @@ def _make(todo, folder, failed):
         for i, (short, _full) in enumerate(todo):
             raw = out / ('th%d.raw' % i)
             try:
-                head, _, pix = raw.read_bytes().partition(b'\n')
-                f = head.split()
-                w, h = int(f[1]), int(f[2])
-                im = Image.frombytes('RGBA', (w, h), pix[:w * h * 4])
+                w, h, pix = kit.texdump(raw)
+                im = Image.frombytes('RGBA', (w, h), pix)
                 im.thumbnail((SIZE, SIZE), Image.LANCZOS)
                 im.save(folder / (short + '.png'))
             except (OSError, ValueError, IndexError):

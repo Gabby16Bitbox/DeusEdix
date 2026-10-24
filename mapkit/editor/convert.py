@@ -940,10 +940,8 @@ def _picture(src, dst_dir):
         return dst_dir / src.name
     try:
         from PIL import Image
-        data = src.read_bytes()
-        head, body = data.split(b'\n', 1)
-        _tag, w, h = head.split()
-        image = Image.frombytes('RGBA', (int(w), int(h)), body[:int(w) * int(h) * 4]).convert('RGB').quantize(256)
+        w, h, pixels = kit.texdump(src)
+        image = Image.frombytes('RGBA', (w, h), pixels).convert('RGB').quantize(256)
         out = dst_dir / (src.stem + '.pcx')
         image.save(out)
         return out

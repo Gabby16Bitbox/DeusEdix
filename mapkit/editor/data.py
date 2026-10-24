@@ -708,13 +708,18 @@ def catalog(log=print):
 # weapons only creatures and robots use (a dog's bite, a spider bot's discharge): not things to give
 NPC_ONLY = re.compile(r'Bite|Bump|Scratch|Swipe|Spit|Jump|SpiderBot|RobotMachinegun|RobotRocket|MJ12Rocket|MJ12Commando|'
                       r'LaserEyes|PolyFlags')
+# the game's placeholder names ("DEFAULT DECORATION NAME - REPORT THIS AS A BUG"), as app.js gameName()
+PLACEHOLDER_NAME = re.compile(r'DEFAULT\s+\w+\s+NAME|REPORT THIS AS A BUG', re.I)
 
 
 def items():
-    """What can be given or carried: weapons, ammo and pickups of the game and the mod (Pkg.Class)."""
+    """What can be given or carried: weapons, ammo and pickups of the game and the editor's package (Pkg.Class).
+    Not the game's own stand-ins named 'DEFAULT AMMO NAME - REPORT THIS AS A BUG' (AmmoNone: the ammo of what
+    shoots nothing, 24 Oct 2026)."""
     return [dict(cls='%s.%s' % (c['pkg'], c['cls']), name=c['name'], cat=c['cat'])
             for c in catalog(log=lambda *a: None)
-            if c['cat'] in ('Weapons', 'Ammo', 'Pickups') and c['name'] and not NPC_ONLY.search(c['cls'])]
+            if c['cat'] in ('Weapons', 'Ammo', 'Pickups') and c['name'] and not NPC_ONLY.search(c['cls'])
+            and not PLACEHOLDER_NAME.search(c['name'])]
 
 
 ORDER = ['Most used', 'Level', 'Triggers', 'AI', 'Sounds', 'Zones', 'Decorations', 'Pickups', 'Weapons', 'Ammo', 'Characters', 'Bodies', 'Lights']

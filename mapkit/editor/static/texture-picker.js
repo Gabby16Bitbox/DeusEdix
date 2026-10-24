@@ -197,7 +197,10 @@ export function createTexturePicker({ api, getMapTextures }) {
       if (source === 'all' && !query) { items = []; note = 'Type a name to search every texture of the game, or pick a package on the left.'; }
       else if (!items.length) note = 'No texture with that name.';
       if (items.length > 240) { note = `${items.length} textures: the first 240 are shown, type more of the name.`; items = items.slice(0, 240); }
-      const need = [...new Set(items.filter((i) => !thumbs.has(i.name.toLowerCase())).map((i) => i.pkg))].slice(0, 6);
+      // only packages not asked for yet: one whose pictures came without some of its textures asked again for ever
+      // (each answer drew the grid, which asked again: the page froze, 24 Oct 2026)
+      const need = [...new Set(items.filter((i) => !thumbs.has(i.name.toLowerCase())).map((i) => i.pkg))]
+        .filter((p) => !loadingPkg.has(p)).slice(0, 6);
       if (need.length) {
         box.querySelector('.tp-foot').textContent = `Making the pictures of ${need.join(', ')} (the first time only)…`;
         Promise.all(need.map(loadThumbs)).then(() => { if (box) { box.querySelector('.tp-foot').textContent = 'Click: try it · Double click or Enter: keep it · Esc: close'; render(); } })

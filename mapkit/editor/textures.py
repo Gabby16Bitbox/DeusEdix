@@ -335,13 +335,10 @@ def source(tex, map_name, log=print):
             raw = s.folder / 'Output' / 'full.raw'
             if not raw.exists():
                 raise RuntimeError('the game has no texture %s (or its format is not readable)' % tex)
-            data = raw.read_bytes()
+            w, h, pix = kit.texdump(raw)
         finally:
             s.close()
-        head, _, pix = data.partition(b'\n')
-        f = head.split()
-        w, h = int(f[1]), int(f[2])
-        Image.frombytes('RGBA', (w, h), pix[:w * h * 4]).save(out)
+        Image.frombytes('RGBA', (w, h), pix).save(out)
     im = Image.open(out)
     return dict(url='/cache/_texfull/%s?v=%d' % (out.name, out.stat().st_mtime_ns), w=im.width, h=im.height,
                 masked=im.getchannel('A').getextrema()[0] < 128)

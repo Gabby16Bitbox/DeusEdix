@@ -75,6 +75,20 @@ def arrays(path):
     return header, out
 
 
+def texdump(path):
+    """A picture UC_TEXDUMP wrote: the JSON line {width, height}, then the RGBA pixels (host/PROTOCOL.md)
+    -> (width, height, pixels). ValueError when the file is not one, OSError when there is no file."""
+    head, _, pixels = Path(path).read_bytes().partition(b'\n')
+    try:
+        size = json.loads(head)
+        w, h = int(size['width']), int(size['height'])
+    except (ValueError, KeyError, TypeError):
+        raise ValueError('%s: not a picture of UC_TEXDUMP' % Path(path).name) from None
+    if w <= 0 or h <= 0 or len(pixels) < w * h * 4:
+        raise ValueError('%s: the picture is cut short' % Path(path).name)
+    return w, h, pixels[:w * h * 4]
+
+
 def load_cmd(file):
     """The host command that loads a package: by name (found through the run's Paths) with OBJ LOAD, from a path
     with UC_LOADPKG (OBJ LOAD FILE= keeps only 80 characters of a path, UC_LOADPKG any)."""

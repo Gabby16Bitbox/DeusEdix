@@ -503,7 +503,8 @@ function renderDialogue(el, d) {
   bindFields(el, d, () => { $('#st-rad').style.display = d.start === 'near' ? '' : 'none'; });
   d.requires = d.requires || [];
   condList($('#st-req'), d.requires);
-  $('#st-owner').onchange = () => { d.owner = $('#st-owner').value; d.bind = bindOf(d.owner); changed(); };
+  // drawn again: the lines say who the speaker is, and the priority is among the speaker's dialogues
+  $('#st-owner').onchange = () => { d.owner = $('#st-owner').value; d.bind = bindOf(d.owner); changed(); render(); };
   $('#st-show').onclick = () => locate(d.owner);
   $('#st-pick').onclick = () => {
     const s = E().selected, a = s && s.userData && s.userData.actor;
