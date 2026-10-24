@@ -616,39 +616,17 @@ def actors(map_name):
     return out
 
 
-# The most used assets first (classes verified against the packages by sizes.query at first use)
-FAVOURITES = {
-    'Most used': ['CrateUnbreakableSmall', 'CrateUnbreakableMed', 'CrateUnbreakableLarge', 'CrateBreakableMedGeneral',
-                  'BoxSmall', 'BoxMedium', 'BoxLarge', 'Barrel1', 'BarrelFire', 'Trashbag', 'TrashCan3', 'OfficeChair',
-                  'Chair1', 'CouchLeather', 'Plant1', 'Lamp1', 'WaterCooler', 'VendingMachine', 'ComputerPersonal',
-                  'ComputerSecurity', 'Keypad1', 'SecurityCamera', 'FireExtinguisher', 'HKMarketLight', 'Van', 'MedKit',
-                  'Light', 'Spotlight'],
-}
-PALETTE = FAVOURITES          # (old name, still used by older code)
-NO_MODEL = ('Light', 'Spotlight', 'PathNode', 'PatrolPoint', 'WanderPoint', 'HidePoint', 'AmbientSound', 'UCSoundFX', 'Trigger',
-            'ZoneInfo', 'PrecipitationZone', 'SnowZone', 'WaterZone', 'SkyZoneInfo', 'UCTriggerBox', 'UCCutscene',
-            'UCTimer', 'UCEffectPoint')   # no 3D model: an icon (an effect point: its arrows)
-
-# Names of the categories (immediate parent class under the game's base classes)
-CATEGORY = {'DeusExDecoration': 'Decorations', 'ScriptedPawn': 'Characters', 'DeusExCarcass': 'Bodies',
-            'DeusExWeapon': 'Weapons', 'DeusExPickup': 'Pickups', 'Ammo': 'Ammo'}
-SUB = {'Containers': 'containers', 'Seat': 'seats', 'ElectronicDevices': 'electronics', 'Furniture': 'furniture',
-       'Lamp': 'lamps', 'Plant': 'plants', 'Vehicles': 'vehicles', 'HangingDecoration': 'hanging',
-       'InformationDevices': 'books, newspapers, datacubes', 'HumanMilitary': 'military', 'HumanCivilian': 'civilians',
-       'HumanThug': 'thugs', 'Animal': 'animals', 'Robot': 'robots', 'Trash': 'trash', 'Toilet': 'bathroom',
-       'Faucet': 'bathroom', 'Pickup': 'other', 'DeusExAmmo': '',
-       'OutdoorThings': 'outdoors', 'WashingtonDecoration': 'Washington', 'HongKongDecoration': 'Hong Kong',
-       'NewYorkDecoration': 'New York', 'AutoTurret': 'electronics', 'Button1': 'electronics', '': 'misc'}
-# palette caches made before the editor was in English
-OLD_NAMES = {'Decorazioni': 'Decorations', 'Personaggi': 'Characters', 'Corpi': 'Bodies', 'Armi': 'Weapons',
-             'Oggetti da raccogliere': 'Pickups', 'Munizioni': 'Ammo', 'contenitori': 'containers', 'sedute': 'seats',
-             'elettronica': 'electronics', 'mobili': 'furniture', 'lampade': 'lamps', 'piante': 'plants',
-             'veicoli': 'vehicles', 'appesi': 'hanging', 'libri, giornali, cubi dati': 'books, newspapers, datacubes',
-             'militari': 'military', 'civili': 'civilians', 'teppisti': 'thugs', 'animali': 'animals', 'robot': 'robots',
-             'rifiuti': 'trash', 'bagno': 'bathroom', 'altro': 'other', "all'aperto": 'outdoors', 'varie': 'misc'}
-HOOKS = ('RevDecoHook', 'RevPawnHook', 'RevCarcassHook')
-PALETTE_SKIP = ('Fishes', 'WeaponMod')
-SKIP_PARENTS = ('Projectile', 'Effects', 'Fragment', 'DataVaultImage', 'PlayerPawn', 'Carcass/Decoration')
+# How the Browser (Objects) sorts the game's classes: editor/config/palette.json, data rather than code (its "about"
+# says what each list does)
+PALETTE_CONFIG = json.loads((HERE / 'config' / 'palette.json').read_text(encoding='utf-8'))
+FAVOURITES = {'Most used': PALETTE_CONFIG['mostUsed']}
+NO_MODEL = tuple(PALETTE_CONFIG['noModel'])          # no 3D model: an icon (an effect point: its arrows)
+CATEGORY = PALETTE_CONFIG['categories']
+SUB = PALETTE_CONFIG['subcategories']
+HOOKS = tuple(PALETTE_CONFIG['hooks'])
+PALETTE_SKIP = tuple(PALETTE_CONFIG['skipClasses'])
+SKIP_PREFIXES = tuple(PALETTE_CONFIG['skipClassPrefixes'])
+SKIP_PARENTS = tuple(PALETTE_CONFIG['skipParents'])
 
 
 def catalog(log=print):
@@ -659,10 +637,10 @@ def catalog(log=print):
         path = CACHE / '_palette' / 'classes.json'
     if path.exists():
         out = json.loads(path.read_text(encoding='utf-8'))
-        for c in out:
-            c['cat'] = OLD_NAMES.get(c['cat'], c['cat'])
-            c['sub'] = OLD_NAMES.get(c['sub'], c['sub'])
-        return out
+        # a list made with other categories (an older editor's, in Italian, or before palette.json changed) is made again
+        known = set(CATEGORY.values()) | {p['name'] for p in kit.extra_packages()}
+        if all(c.get('cat') in known for c in out):
+            return out
     path.parent.mkdir(parents=True, exist_ok=True)
     s = kit.Session([], 'editor-classes')
     try:
@@ -677,7 +655,7 @@ def catalog(log=print):
         name, pkg, flags, draw, mesh = c['class'], c['package'], c['flags'], c['drawType'], c['mesh']
         parents = c['parents']
         label = (c['itemName'] or c['familiarName']).strip().strip('"').strip()
-        if name in PALETTE_SKIP or name.startswith('WeaponNPC'):
+        if name in PALETTE_SKIP or name.startswith(SKIP_PREFIXES):
             continue                     # crash the editor when placed (flock spawner, NPC-only weapons)
         chain = '/'.join(parents)
         if flags & 0x201 or any(k in chain for k in SKIP_PARENTS) and 'DeusExCarcass' not in parents:
@@ -706,8 +684,7 @@ def catalog(log=print):
 
 
 # weapons only creatures and robots use (a dog's bite, a spider bot's discharge): not things to give
-NPC_ONLY = re.compile(r'Bite|Bump|Scratch|Swipe|Spit|Jump|SpiderBot|RobotMachinegun|RobotRocket|MJ12Rocket|MJ12Commando|'
-                      r'LaserEyes|PolyFlags')
+NPC_ONLY = re.compile('|'.join(re.escape(name) for name in PALETTE_CONFIG['npcOnlyWeapons']))
 # the game's placeholder names ("DEFAULT DECORATION NAME - REPORT THIS AS A BUG"), as app.js gameName()
 PLACEHOLDER_NAME = re.compile(r'DEFAULT\s+\w+\s+NAME|REPORT THIS AS A BUG', re.I)
 
