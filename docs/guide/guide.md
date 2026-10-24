@@ -1799,9 +1799,9 @@ DeusEdix maps and mods use them to find their way.
 
 To uninstall DeusEdix, use **Start > Uninstall DeusEdix**, Windows' installed apps, or run the installer again
 and choose **Uninstall**. It always takes DeusEdix's lines out of the games' settings and removes the workspace
-and the caches. It also asks about two things, both kept unless you tick them: everything else DeusEdix put
-into the games (the maps, saves and mods it installed, and DeusEdixNav, which mods made with DeusEdix need), and
-your projects (with the mods you exported to `Documents\DeusEdix Mods`).
+and the caches. It also asks whether to remove everything else DeusEdix put into the games (the maps, saves and
+mods it installed, and DeusEdixNav, which mods made with DeusEdix need); that is kept unless you tick it. Your
+projects are never removed: they stay in the `Projects` folder for a later install.
 
 ## Local geometry (Experimental)
 

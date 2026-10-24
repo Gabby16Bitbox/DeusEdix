@@ -7,10 +7,10 @@
                                          itself when Edge WebView2 is missing or under Wine; DEUSEDIX_BROWSER=1)
     deusedix-cli.exe --setup | --build | --install | --find-game
     deusedix-cli.exe --install-native    DeusEdixNav into every game's System (the installer)
-    deusedix-cli.exe --uninstall-cleanup [--game-files] [--projects]
+    deusedix-cli.exe --uninstall-cleanup [--game-files]
                                          the uninstaller: the games' settings as they were; with --game-files
-                                         also the maps, mods and DeusEdixNav it put into the games; with
-                                         --projects the user's projects too
+                                         also the maps, mods and DeusEdixNav it put into the games (the user's
+                                         projects are never removed)
     deusedix-cli.exe --set-game <Deus Ex folder>
 
 The editor's code is not inside the program: it sits next to it (tools\\mapkit, src\\DeusEdix), in the
@@ -527,14 +527,13 @@ def cli(args):
             ok = False
         finally:
             workspace.remove_workspace(say)
-        # what the user chose in the uninstaller, each on its own (one that stops does not stop the other)
-        for flag, step in (('--game-files', workspace.remove_game_files), ('--projects', workspace.remove_projects)):
-            if flag in args:
-                try:
-                    ok = step(say)[0] and ok
-                except Exception as e:
-                    say(flag, 'stopped:', e)
-                    ok = False
+        # what the user chose in the uninstaller
+        if '--game-files' in args:
+            try:
+                ok = workspace.remove_game_files(say)[0] and ok
+            except Exception as e:
+                say('--game-files stopped:', e)
+                ok = False
         # the uninstaller names this file when something stayed (a running game, a locked file)
         try:
             Path(os.environ.get('TEMP') or '.', 'DeusEdix-uninstall.log').write_text('\n'.join(report) + '\n',

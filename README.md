@@ -43,8 +43,8 @@ characters' route finding) into each game's `System` folder.
 
 Uninstalling (Start > Uninstall DeusEdix, or the installer itself when DeusEdix is already installed) takes
 DeusEdix's lines out again and removes the workspace and the caches. It asks whether to remove everything
-else it put into the games (installed maps, saves and mods, DeusEdixNav) and your projects; both stay unless
-you tick them.
+else it put into the games (installed maps, saves and mods, DeusEdixNav); that stays unless you tick it. Your
+projects are never removed.
 
 The editor has an interactive tutorial (Help > Interactive tutorial) and a full guide (Help > Guide,
 also in [docs/guide/guide.md](docs/guide/guide.md)).

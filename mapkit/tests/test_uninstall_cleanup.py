@@ -1,6 +1,6 @@
 """The installer puts DeusEdixNav into every game's System, and the uninstaller can take out everything DeusEdix put
 into the games (25 Oct 2026): DeusEdix's own folders, files, ini lines and Play sections go; another mod's lines,
-the games' own files and whatever a link points to stay."""
+the games' own files and whatever a link points to stay. The user's projects are never among the choices."""
 import importlib.util
 import json
 import os
@@ -141,25 +141,6 @@ class Cleanup(unittest.TestCase):
             ok, lines = self.w.remove_game_files()
         self.assertFalse(ok)
         self.assertTrue((self.system('vanilla') / 'DeusEx.ini.bak_projects').exists())
-
-    def test_projects_go_but_one_kept_elsewhere_stays(self):
-        projects = self.s.PROJECT / 'Projects'
-        (projects / 'p1/maps').mkdir(parents=True)
-        elsewhere = self.root / 'My project'
-        elsewhere.mkdir()
-        (projects / 'registry.json').write_text(json.dumps({'version': 1, 'projects': [
-            {'id': 'p1', 'path': str(projects / 'p1')}, {'id': 'p2', 'path': str(elsewhere)}]}))
-        exports = self.root / 'Documents/DeusEdix Mods'
-        exports.mkdir(parents=True)
-        (exports / 'Mine-1.0.dxmod').write_bytes(b'zip')
-        with patch.dict(sys.modules, {'mods': types.SimpleNamespace(EXPORTS=exports)}), \
-                patch.dict(os.environ, {'DEUSEDIX_PROJECTS_DIR': ''}):
-            ok, lines = self.w.remove_projects()
-        self.assertTrue(ok, lines)
-        self.assertFalse(projects.exists())
-        self.assertFalse(exports.exists())
-        self.assertTrue(elsewhere.is_dir())
-        self.assertIn(str(elsewhere), '\n'.join(lines))
 
 
 if __name__ == '__main__':

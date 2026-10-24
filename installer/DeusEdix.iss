@@ -91,7 +91,7 @@ var
   Understood: TNewCheckBox;
   GamePage: TInputDirWizardPage;
   GameStatus: TNewStaticText;
-  RemoveGameFiles, RemoveProjects: Boolean;   { the uninstaller's choices }
+  RemoveGameFiles: Boolean;   { the uninstaller's choice }
 
 function AskWhatToRemove(): Boolean; forward;
 
@@ -404,32 +404,37 @@ begin
   Result.Caption := Caption;
 end;
 
-{ The uninstaller's question: what to remove besides the program and the games' settings lines. False: Cancel }
+{ The uninstaller's question: what to remove besides the program and the games' settings lines. The user's
+  projects are never among the choices: a click too many must not delete anyone's work. False: Cancel }
 function AskWhatToRemove(): Boolean;
 var
   Form: TSetupForm;
-  Intro, GameNote, ProjectsNote: TNewStaticText;
-  GameFiles, Projects: TNewCheckBox;
+  Intro, GameNote, Kept: TNewStaticText;
+  GameFiles: TNewCheckBox;
   Ok, Cancel: TNewButton;
+  Folder: String;
 begin
   { sizes scaled here once (ScaleX/ScaleY), so the form keeps them as given }
   Form := CreateCustomForm(ScaleX(480), ScaleY(300), True, True);
   try
     Form.Caption := 'Uninstall DeusEdix';
     Intro := AddText(Form, ScaleX(16), ScaleY(16), 'DeusEdix will be removed, and the lines it added to the ' +
-      'games'' settings (DeusEx.ini, Revision.ini) taken out. What else should go?');
+      'games'' settings (DeusEx.ini, Revision.ini) taken out.');
 
-    GameFiles := AddCheck(Form, Intro.Top + Intro.Height + ScaleY(16), 'Everything DeusEdix put into the games');
+    GameFiles := AddCheck(Form, Intro.Top + Intro.Height + ScaleY(16), 'Also everything DeusEdix put into the games');
     GameNote := AddText(Form, ScaleX(34), GameFiles.Top + GameFiles.Height, 'The maps, saves and mods it ' +
-      'installed, and DeusEdixNav in their System folders. Mods made with DeusEdix stop working without it.');
+      'installed there, and DeusEdixNav in their System folders. Mods made with DeusEdix stop working without it.');
 
-    Projects := AddCheck(Form, GameNote.Top + GameNote.Height + ScaleY(12), 'My projects too');
-    ProjectsNote := AddText(Form, ScaleX(34), Projects.Top + Projects.Height, 'The maps, stories, characters ' +
-      'and models you made, and the mods you exported (Documents\DeusEdix Mods). They are deleted for good: ' +
-      'leave this unticked to keep them for a later install.');
-    ProjectsNote.Font.Color := clRed;
+    try
+      Folder := ExpandConstant('{app}') + '\Projects';
+    except
+      Folder := 'the Projects folder next to DeusEdix';         { the setup's preview has no app folder yet }
+    end;
+    Kept := AddText(Form, ScaleX(16), GameNote.Top + GameNote.Height + ScaleY(16), 'Your projects stay where ' +
+      'they are (' + Folder + '), with your maps, stories, characters and models, and so do the mods you ' +
+      'exported: a later install finds them again.');
     { as tall as what it says, the buttons under it }
-    Form.ClientHeight := ProjectsNote.Top + ProjectsNote.Height + ScaleY(64);
+    Form.ClientHeight := Kept.Top + Kept.Height + ScaleY(64);
 
     Ok := TNewButton.Create(Form);
     Ok.Parent := Form;
@@ -453,7 +458,6 @@ begin
 
     Result := Form.ShowModal() = mrOk;
     RemoveGameFiles := GameFiles.Checked;
-    RemoveProjects := Projects.Checked;
   finally
     Form.Free();
   end;
@@ -464,7 +468,6 @@ function InitializeUninstall(): Boolean;
 begin
   Result := True;
   RemoveGameFiles := False;
-  RemoveProjects := False;
   if not UninstallSilent() then
     Result := AskWhatToRemove();
 end;
@@ -480,8 +483,6 @@ begin
     Params := '--uninstall-cleanup';
     if RemoveGameFiles then
       Params := Params + ' --game-files';
-    if RemoveProjects then
-      Params := Params + ' --projects';
     if Exec(ExpandConstant('{app}\deusedix-cli.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code) and
         (Code <> 0) and not UninstallSilent() then
       MsgBox('Some of what DeusEdix put into the games could not be removed (is a game running?). ' +

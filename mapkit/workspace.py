@@ -571,25 +571,6 @@ def remove_game_files(log=None):
     return ok, lines
 
 
-def remove_projects(log=None):
-    """The uninstaller's "my projects too": the projects folder next to the program, with its registry, and the mods
-    exported from them (Documents\\DeusEdix Mods). A project the registry keeps somewhere else is left where it
-    is, and named. -> (ok, lines)"""
-    lines = []
-    say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
-    root = Path(os.environ.get('DEUSEDIX_PROJECTS_DIR') or PROJECT / 'Projects')
-    try:
-        registry = json.loads((root / 'registry.json').read_text(encoding='utf-8'))
-        elsewhere = [Path(p['path']) for p in registry.get('projects', []) if isinstance(p, dict)
-                     and isinstance(p.get('path'), str) and not Path(p['path']).resolve().is_relative_to(root.resolve())]
-    except (OSError, ValueError, AttributeError):
-        elsewhere = []
-    for path in elsewhere:
-        say('kept, outside the projects folder:', path)
-    import mods
-    ok = _remove(root, say)
-    return _remove(mods.EXPORTS, say) and ok, lines
-
 
 def _is_link(path):
     """A junction or a symbolic link (a reparse point): removing it removes the link, never what it points to."""
