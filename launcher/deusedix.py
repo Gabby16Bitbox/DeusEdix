@@ -30,7 +30,7 @@ STEAM = {'Deus Ex: Game of the Year Edition on Steam': 'https://store.steampower
          'Deus Ex: Game of the Year Edition on GOG': 'https://www.gog.com/en/game/deus_ex',
          'Deus Ex: Revision on Steam': 'https://store.steampowered.com/app/397550/'}
 STORES = ('https://store.steampowered.com/', 'https://www.gog.com/')
-VERSION = '0.1.41'
+VERSION = '0.1.42'
 
 
 def trace(*a):
