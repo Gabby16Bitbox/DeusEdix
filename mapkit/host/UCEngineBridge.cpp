@@ -298,9 +298,11 @@ static int classIs(AActor* a, FName name) {
 // by name, or "@<Class>": the first actor of that class (or a subclass); "@LevelInfo" is the map's own
 // (after MAP NEW the level's actors are not named as in the saved map)
 static AActor* findActor(const TCHAR* name) {
+    // a name known in advance is made once, at the first call (the name table is up by then); intrinsic: never dropped
+    static const FName LevelInfo(TEXT("LevelInfo"), FNAME_Intrinsic);
     FName key = knownName(name[0] == '@' ? name + 1 : name);
     if (key == NAME_None) return NULL;
-    if (name[0] == '@' && key == knownName(TEXT("LevelInfo"))) return GEditor->Level->GetLevelInfo();
+    if (name[0] == '@' && key == LevelInfo) return GEditor->Level->GetLevelInfo();
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = levelActor(i);
         if (a && (name[0] == '@' ? classIs(a, key) : a->GetFName() == key)) return a;
@@ -309,8 +311,9 @@ static AActor* findActor(const TCHAR* name) {
 }
 
 // The level's actors by name, for a command that looks up many: one pass, then each lookup is a hash (findActor
-// walks the list each time). The names are not kept between commands: the engine drops a name from its table
-// once nothing uses it, and its number can then be given to another.
+// walks the list each time). Made per command rather than kept up to date: actors enter the level by many ways
+// (MAP LOAD, imports, pastes, the engine's own spawns), and one pass costs about a millisecond on Battery Park.
+// Nor are names kept between commands: the engine drops a name from its table once nothing uses it.
 class ActorsByName {
     std::unordered_map<INT, AActor*> actors;
 public:
@@ -2072,17 +2075,20 @@ struct NavHeight { FString name; FLOAT z; };
 static std::vector<NavHeight> navTemp;
 static int dropNavTemp() {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
-    static const TCHAR* skipped[] = { TEXT("PlayerStart"), TEXT("Teleporter"), TEXT("LiftCenter"), TEXT("LiftExit"),
-                                      TEXT("InventorySpot"), TEXT("WarpZoneMarker"), TEXT("ButtonMarker"), TEXT("TriggerMarker") };
-    std::vector<FName> skip;
-    for (int k = 0; k < ARRAY_COUNT(skipped); k++) skip.push_back(knownName(skipped[k]));
+    // the classes left alone, made once at the first call like findActor's LevelInfo
+    static const FName skip[] = {
+        FName(TEXT("PlayerStart"), FNAME_Intrinsic), FName(TEXT("Teleporter"), FNAME_Intrinsic),
+        FName(TEXT("LiftCenter"), FNAME_Intrinsic), FName(TEXT("LiftExit"), FNAME_Intrinsic),
+        FName(TEXT("InventorySpot"), FNAME_Intrinsic), FName(TEXT("WarpZoneMarker"), FNAME_Intrinsic),
+        FName(TEXT("ButtonMarker"), FNAME_Intrinsic), FName(TEXT("TriggerMarker"), FNAME_Intrinsic),
+    };
     navTemp.clear();
     int checked = 0;
     for (int i = 0; i < GEditor->Level->Actors.Num(); i++) {
         AActor* a = GEditor->Level->Actors(i);
         if (!a || !a->IsA(ANavigationPoint::StaticClass())) continue;
         int other = 0;
-        for (size_t k = 0; k < skip.size() && !other; k++) other = skip[k] != NAME_None && classIs(a, skip[k]);
+        for (int k = 0; k < ARRAY_COUNT(skip) && !other; k++) other = classIs(a, skip[k]);
         if (other) continue;
         checked++;
         Utf8 name(a->GetName());
