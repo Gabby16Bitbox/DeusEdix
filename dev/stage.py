@@ -145,9 +145,12 @@ def main():
         f.unlink()
     copy_code(HERE / 'mapkit', kit)
     shutil.rmtree(kit / 'host', ignore_errors=True)               # the source of the host is not needed to run
+    shutil.rmtree(kit / 'native', ignore_errors=True)             # nor DeusEdixNav's: its built files are in bin
     (kit / 'bin').mkdir(parents=True, exist_ok=True)
     shutil.copy2(a.host, kit / 'bin' / 'UCMapKitHost.exe')
     shutil.copy2(Path(a.host).with_name('UCEngineBridge.dll'), kit / 'bin' / 'UCEngineBridge.dll')   # its engine bridge
+    for name in ('DeusEdixNav.u', 'DeusEdixNav.dll'):            # the walkable area's routes in C++ (native/README.md)
+        shutil.copy2(Path(a.host).with_name(name), kit / 'bin' / name)
     shutil.copy2(HERE / 'ue1pkg.py', out / 'tools' / 'ue1pkg.py')
     copy_runtime(out)
     for name in ('README.md', 'NOTICE.md'):
