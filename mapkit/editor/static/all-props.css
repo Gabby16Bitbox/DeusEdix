@@ -1,0 +1,7 @@
+/* the Inspector's All properties (all-props.js): name on the left, UnrealEd's text on the right, 22px rows */
+#details .ap-list { display:flex; flex-direction:column; gap:2px; max-height:420px; overflow:auto; }
+#details .ap-group { padding:6px 0 2px; font-size:11px; font-weight:600; color:var(--heading); text-transform:none; }
+#details .ap-row { display:flex; align-items:center; gap:6px; min-height:22px; margin:0; }
+#details .ap-row .ap-name { flex:0 0 42%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim); font-size:11px; }
+#details .ap-row.ap-set .ap-name { color:var(--acc); }
+#details .ap-row > input, #details .ap-row > select { flex:1; min-width:0; height:22px; padding:0 6px; box-sizing:border-box; }

@@ -630,7 +630,7 @@ SKIP_PARENTS = tuple(PALETTE_CONFIG['skipParents'])
 
 
 def catalog(log=print):
-    """Every actor class of the game and the mod that can be placed and has a 3D model (UC_CLASSES),
+    """Every actor class of the game and the editor's package that can be placed and has a 3D model (UC_CLASSES),
     with its English name from the game (ItemName / FamiliarName) and its collision size."""
     path = CACHE / '_classes.json'              # the project's own (its package, its other mods' packages)
     if not path.exists() and (CACHE / '_palette' / 'classes.json').exists():

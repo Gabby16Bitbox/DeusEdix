@@ -1,4 +1,4 @@
-"""Existing maps in the map editor: the mod's copies in maps\\ (made in UnrealEd or by Codex: the
+"""Existing maps in the map editor: the project's copies in maps\\ (made in UnrealEd or by Codex: the
 Hotel, the Helibase, Tong's base...) and the original Revision maps.
 
 No map script and no markup: the editor shows the .dx itself, its objects are edited by name and
@@ -8,8 +8,8 @@ designer, with the lamps and props standing on them).
 The source is never changed by a build: edits (maps\\<map>.edits.json next to the map scripts) are
 applied to a private copy (tools\\mapkit\\out\\<map>.dx) by the headless SDK editor: UC_SET / UC_DEL,
 imported actors and blocks, then BSP, lighting and paths only when geometry or lights changed.
-Installing puts the result in maps\\ (UnatcoMaps in the game: the original stays as it is), after
-checking that nobody (Codex) changed the mod's copy in the meantime; the edits are then part of the
+Installing puts the result in maps\\ (settings.MAPS_DIR in the game: the original stays as it is), after
+checking that nobody (Codex) changed the project's copy in the meantime; the edits are then part of the
 map and the edits file starts again empty.
 """
 import hashlib
@@ -70,7 +70,7 @@ def script_maps():
 
 
 def listing():
-    """Maps the editor can open without a script: the mod's copies first, then the originals."""
+    """Maps the editor can open without a script: the project's copies first, then the originals."""
     made = script_maps()
     mod = sorted(p.stem for p in MOD_MAPS.glob('*.dx') if p.stem not in made)
     game = sorted(p.stem for p in GAME_MAPS.glob('*.dx') if p.stem not in made and p.stem not in mod
@@ -81,7 +81,7 @@ def listing():
 
 
 def source(map_name):
-    """The map as it is now: the mod's copy if there is one, otherwise the original."""
+    """The map as it is now: the project's copy if there is one, otherwise the original."""
     info_path = _info_path(map_name)
     info = json.loads(info_path.read_text(encoding='utf-8')) if info_path.exists() else {}
     authoring = _authoring(map_name) or info.get('authoring')
@@ -319,7 +319,7 @@ def unnested(structs, unnest):
 
 
 def reference(map_name, log=print):
-    """An ORIGINAL game map (never the mod's copy) as a library of pieces: its automatic structures,
+    """An ORIGINAL game map (never the project's copy) as a library of pieces: its automatic structures,
     cached as the editor map 'ref_<map>'. Returns (cache name, cache folder, structures)."""
     import data
     key = 'ref_' + map_name
@@ -411,7 +411,7 @@ def build(map_name, log=print, options=None):
     structs = unnested(info.get('structures', {}), edits.get('unnest'))     # taken apart in the editor (Un-nest)
     lines = rebuild.report(options)
     folder = kit.new_run([src], 'dxedit-' + map_name)
-    # the mod's package too: objects of its classes (UCTextBlock, UCCustom* characters) are imported later
+    # the editor's package too: objects of its classes (UCTextBlock, UCCustom* characters) are imported later
     cmds = [r'MAP LOAD FILE="..\Input\%s"' % src.name, 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE]
     if any(b.get('sign') for b in edits.get('boxes') or []):
         cmds.append('OBJ LOAD FILE="CoreTexMetal.utx"')     # the iron frame of the signs (textures.SIGN_FRAME)
@@ -548,7 +548,7 @@ def build(map_name, log=print, options=None):
     for a in behaviours.blocks(edits):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += behaviours.report(edits)
-    # the interactions (when this happens, do that): UCLink actors of the mod (links.py)
+    # the interactions (when this happens, do that): UCLink actors of the editor's package (links.py)
     for a in links.blocks(edits):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += links.report(edits)
@@ -663,7 +663,7 @@ def build(map_name, log=print, options=None):
     if disabled:
         lights = nav = True             # inactive lights and collision must not survive in baked data
         lines += ['  EDIT disabled in game: ' + name for name in sorted(disabled)]
-    if any(re.match(r'(Light|Volume|bSpecialLit)', k) for p in (edits.get('props') or {}).values() for k in p):
+    if any(re.match(r'(Light|Volume|bSpecialLit)', k) for p in list((edits.get('props') or {}).values()) + list((edits.get('rawprops') or {}).values()) for k in p):
         lights = True                          # a light changed in the Properties panel: the lighting is made again
     lines += props.report(edits)
     stages = rebuild.plan(options, geometry=geometry, lights=lights, paths=nav,
@@ -732,7 +732,7 @@ def build(map_name, log=print, options=None):
 
 
 def install(map_name):
-    """Put the private build in maps\\ (the game reads it from UnatcoMaps): refused when the mod's copy
+    """Put the private build in maps\\ (the game reads it from settings.MAPS_DIR): refused when the project's copy
     changed after the build (somebody else edited it). The previous copy goes to maps\\backup and the
     edits, now part of the map, are archived."""
     import player_profiles

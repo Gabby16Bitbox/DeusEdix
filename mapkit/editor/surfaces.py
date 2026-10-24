@@ -16,7 +16,7 @@ def _package_command(name, kit, settings):
     """
     linked = {getattr(settings, key, '') for key in
               ('PACKAGE', 'MODELS_PACKAGE', 'SOUNDS_PACKAGE', 'SCRIPTS_PACKAGE')}
-    linked.add('UnatcoVoices')
+    linked.add(getattr(settings, 'VOICES_PACKAGE', ''))
     own = any(name.casefold() == p.casefold() for p in linked if p)
     code = None
     if own:
@@ -93,7 +93,11 @@ def load_commands(edits, local_package=None):
 
 
 MODES = {'floor', 'wall', 'tile', 'tile-u', 'tile-v', 'cylinder', 'pan', 'scale',
-         'rotate', 'flip-u', 'flip-v', 'texture', 'shadows'}
+         'rotate', 'flip-u', 'flip-v', 'texture', 'shadows', 'flags'}
+# flags [set, clear]: the Surface panel's Look (UnrealEd's surface properties); the host takes these bits only
+FLAGS = {'invisible': 0x1, 'masked': 0x2, 'translucent': 0x4, 'modulated': 0x40, 'fake_backdrop': 0x80, 'two_sided': 0x100,
+         'no_smooth': 0x800, 'special_lit': 0x100000, 'unlit': 0x400000, 'mirror': 0x8000000}
+FLAG_MASK = sum(FLAGS.values())
 
 
 def commands(edits):
@@ -121,6 +125,10 @@ def commands(edits):
         elif mode == 'shadows':
             if len(args) != 1 or args[0] not in ('low', 'normal', 'high'):
                 raise ValueError('Shadow detail must be Low, Normal or High.')
+        elif mode == 'flags':
+            if (len(args) != 2 or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in args)
+                    or (args[0] | args[1]) & ~FLAG_MASK or args[0] & args[1]):
+                raise ValueError('Surface flags: set and clear are bits of the Look list, never the same one.')
         elif mode == 'texture':
             if len(args) != 1 or not isinstance(args[0], str) or not re.fullmatch(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*', args[0]) or len(args[0]) > 240:
                 raise ValueError('Choose a loaded texture by its package and name.')

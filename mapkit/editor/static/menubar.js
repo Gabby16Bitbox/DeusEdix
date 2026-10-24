@@ -25,7 +25,8 @@ const ACTIONS = [
   ['move', 'Move tool', 'W', 'edit'], ['rotate', 'Rotate tool', 'E', 'edit'], ['scale', 'Scale tool', 'R', 'edit'],
   ['snap', 'Grid snap on / off', 'G', 'edit'], ['drop', 'Drop to floor / Stick to surface (the mode chosen last)', 'End', 'edit'], ['focus', 'Focus the selection', 'F', 'edit'],
   ['block', 'Add a block', 'B', 'edit'], ['paths', 'AI paths', 'P', 'edit'], ['light', 'Lighting of the view', 'L', 'edit'],
-  ['faces', 'Face selection on / off', 'Q', 'edit'],
+  ['faces', 'Face selection on / off', 'Q', 'edit'], ['vertices', 'Edit vertices of a block on / off', 'V', 'edit'],
+  ['measure', 'Measure distances on / off', 'M', 'edit'],
   ['nest', 'Nest the selection', 'Ctrl+G', 'edit'], ['unnest', 'Un-nest', 'Ctrl+Shift+G', 'edit'],
   ['help', 'Quick help', 'H', 'edit'],
   ['fwd', 'Fly forward', 'W', 'fly'], ['back', 'Fly back', 'S', 'fly'], ['left', 'Fly left', 'A', 'fly'],
@@ -165,6 +166,12 @@ const MENUS = [
     { label: 'Rotate tool', key: 'rotate', run: () => press('rotate') },
     { label: 'Scale tool', key: 'scale', run: () => press('scale') },
     { label: 'Face selection', key: 'faces', checked: () => !!ed()?.surfaceTools.mode, run: () => press('faces') },
+    { label: 'Edit vertices', key: 'vertices', map: true, checked: () => !!ed()?.vertexEdit?.active, run: () => press('vertices') },
+    { label: 'Select all of this class', map: true, run: () => ed()?.selectAllOfClass() },
+    // UnrealEd's brush clipping, on the editor's blocks (brush-ops.js)
+    { label: 'Clip block', map: true, run: () => ed()?.armClip() },
+    { label: 'Intersect blocks', map: true, run: () => ed()?.intersectBlocks() },
+    { label: 'Deintersect blocks', map: true, run: () => ed()?.deintersectBlocks() },
     { label: 'Grid snap', key: 'snap', run: () => press('snap') },
     // Drop to floor / Stick to surface: the one checked is what End (and the Drop button) does
     { label: 'Drop to floor', get key() { return ed()?.placeMode === 'stick' ? '' : 'drop'; }, checked: () => ed()?.placeMode !== 'stick', run: () => ed()?.placeSelected('drop') },
@@ -182,6 +189,12 @@ const MENUS = [
     { label: 'Frame selection', key: 'focus', map: true, run: () => press('focus') },
     { label: 'Show all objects', map: true, run: () => ed()?.showAllObjects() },
     { label: 'Unlock all objects', map: true, run: () => ed()?.unlockAllObjects() },
+    sep,
+    { label: 'Measure', key: 'measure', map: true, checked: () => !!ed()?.measure?.active, run: () => press('measure') },
+    { label: 'Keep this view (Ctrl+1…9, back with 1…9)', map: true, run: () => ed()?.keepView('1') },
+    // UnrealEd's orthographic views, each a pane at the right of the 3D view (ortho-views.js); off at first
+    ...[['top', 'Top view'], ['front', 'Front view'], ['side', 'Side view']].map(([k, label]) => ({
+      label, checked: () => !!ed()?.orthoViews?.has(k), run: () => ed()?.orthoViews?.toggle(k) })),
     sep,
     { label: 'Full screen', run: () => (desktop() ? window.pywebview.api.fullscreen()
       : (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen())) },
@@ -219,6 +232,7 @@ const MENUS = [
     sep,
     { label: 'Add a block', key: 'block', run: () => press('block') },
     { label: 'Add a hole', run: click('addhole') },
+    { label: '2D Shape Editor...', map: true, run: () => ed()?.shapeEditor?.open() },
     { label: 'Draw wall', map: true, run: () => ed()?.startDraw('wall') },
     { label: 'Draw road', map: true, run: () => ed()?.startDraw('road') },
     { label: 'Draw floor', map: true, run: () => ed()?.startDraw('floor') },

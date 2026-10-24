@@ -588,7 +588,7 @@ class Scene:
                 self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
             report += _ms.report(edits)
         if edits.get('anims') or edits.get('props') or edits.get('added'):
-            # what the characters do when not busy (editor/anims.py): UCAnimSet actors of the mod
+            # what the characters do when not busy (editor/anims.py): UCAnimSet actors of the editor's package
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
             import anims as _anims
@@ -596,7 +596,7 @@ class Scene:
                 self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
             report += _anims.report(edits)
         if edits.get('behave') or edits.get('player_move'):
-            # the characters' behaviours, JC's movement (editor/behaviours.py): UCBehave, UCPlayerMove of the mod
+            # the characters' behaviours, JC's movement (editor/behaviours.py): UCBehave, UCPlayerMove of the editor's package
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
             import behaviours as _behaviours
@@ -612,7 +612,7 @@ class Scene:
             self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
             report.append('  EDIT zone %s %s' % (a['cls'], a['name']))
         if edits.get('links') or edits.get('usable') or edits.get('objectTags'):
-            # the interactions (when this happens, do that): UCLink actors of the mod (editor/links.py),
+            # the interactions (when this happens, do that): UCLink actors of the editor's package (editor/links.py),
             # and a UCUsable for every object JC can use (Properties > Usable)
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
@@ -1139,7 +1139,7 @@ class Scene:
         for p in self.packages:
             cmds.append('OBJ LOAD FILE="%s.utx"' % p)
         cmds += self.extra_obj
-        # the mod's classes (UCTextBlock, the Character Creator's UCCustom*...): their package has to be
+        # the editor's classes (UCTextBlock, the Character Creator's UCCustom*...): their package has to be
         # loaded before the actors are imported, or the import skips them without a word
         if settings.STANDALONE and not any(re.match(r'Begin Actor Class=(?:\w+\.)?UCBoot ', a) for a in self.actors):
             # DeusEdix: the actor that starts the editor's story, texts and characters' fates in the game
@@ -1289,7 +1289,7 @@ class Scene:
                 traces.close()
             if traces.reused and not traces.traced:
                 print('  brushes as in the last build: %d drop/snap places reused, no trace session' % traces.reused)
-        if changes.get('props') or changes.get('documents'):
+        if changes.get('props') or changes.get('rawprops') or changes.get('documents'):
             import sys as _sys
             _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
             self.prop_edits = changes

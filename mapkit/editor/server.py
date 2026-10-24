@@ -1,4 +1,4 @@
-"""DeusEdix, the map editor for Deus Ex and Revision : a local web app (http://localhost:8790).
+"""DeusEdix, the map editor for Deus Ex and Revision: a local web app (http://localhost:8790).
 
     tools\\mapkit\\.venv\\Scripts\\python.exe tools\\mapkit\\editor\\server.py     (or "Editor mappe.bat")
 
@@ -799,6 +799,13 @@ class Handler(BaseHTTPRequestHandler):
                 # packages of other mods the editor loads too (editor/packages.py)
                 import packages
                 return self._send(200, packages.listing())
+            if u.path == '/api/class_props':
+                # All properties: every property of a class, as UnrealEd's Properties window (props.class_props)
+                try:
+                    with LOCK:
+                        return self._send(200, props.class_props(q.get('cls', ''), log=lambda *a: None))
+                except ValueError as e:
+                    return self._send(400, dict(error=str(e)))
             if u.path == '/api/props':
                 # the Properties panel of a class: fields, kinds, class defaults (editor/props.py)
                 items = data.items()
@@ -812,7 +819,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/story':
                 # the dialogues and events of the map written in the editor (tools/mapkit/story.py)
                 map_name = map_of(q['script'])
-                # objects JC can receive in a dialogue: weapons, ammo, pickups of the game and the mod
+                # objects JC can receive in a dialogue: weapons, ammo, pickups of the game and the editor's package
                 items = data.items()
                 return self._send(200, dict(map=map_name, story=story.load(map_name), flags=story.known_flags(),
                                             cls=story.class_name(map_name), code=story.code(map_name), items=items))
@@ -1147,7 +1154,7 @@ class Handler(BaseHTTPRequestHandler):
                                     base64.b64decode(body['data']), body.get('group') or 'UCAnim', body.get('props'))
                 return self._send(200, dict(ok=True))
             if u.path == '/api/studio_pack':
-                # UCAnims.u: the models with the Studio's animations, installed when the game is closed
+                # settings.ANIMS_PACKAGE: the models with the Studio's animations, installed when the game is closed
                 with LOCK:
                     ok, lines = anims.pack(log=lambda *a: None)
                 return self._send(200, dict(ok=ok, lines=lines))
@@ -1229,7 +1236,7 @@ class Handler(BaseHTTPRequestHandler):
                     project_server.ensure_runtime()
                     return self._send(200, tutorial.start(build, session=body.get('session')))
             if u.path == '/api/story_apply':
-                # stories -> UnrealScript, compiled with the mod; installed if the game is closed
+                # stories -> UnrealScript, compiled with the editor's package; installed if the game is closed
                 with LOCK:
                     if game_running():
                         return self._send(400,dict(ok=False,lines=['Close %s before applying conversation or voice changes.' % settings.PROFILE['short']]))
@@ -1279,7 +1286,7 @@ class Handler(BaseHTTPRequestHandler):
                     except ValueError as e:
                         return self._send(400, dict(error=str(e)))
             if u.path in ('/api/model_import', '/api/model_delete'):
-                # a 3D model from a file made into the mod's UCModels package, or taken away
+                # a 3D model from a file made into the package settings.MODELS_PACKAGE, or taken away
                 import models
                 with LOCK:
                     try:

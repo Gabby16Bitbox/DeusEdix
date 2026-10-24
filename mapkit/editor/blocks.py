@@ -46,6 +46,23 @@ def shape_of(b):
     return s if s in SHAPES else 'box'
 
 
+def verts_of(b):
+    """Edit vertices (V in the editor): the block's own corners, each a share of its box (0..1 per axis, so the box
+    still moves, stretches and turns it); the brush is their convex hull, as UnrealEd's vertex editing of a brush
+    that stays convex. None for a block without them, and for water, portals, moving blocks and signs."""
+    v = b.get('verts')
+    if not isinstance(v, list) or len(v) < 4 or b.get('mover') or b.get('water') or b.get('portal') or b.get('sign'):
+        return None
+    lo, hi = b['lo'], b['hi']
+    pts = []
+    for p in v:
+        try:
+            pts.append(tuple(lo[k] + float(p[k]) * (hi[k] - lo[k]) for k in range(3)))
+        except (TypeError, ValueError, IndexError):
+            return None
+    return pts if len(set(pts)) >= 4 else None
+
+
 def options(b):
     """sides, hollow (wall thickness, 0 = solid), top (cone), align: the block's own or the defaults."""
     def num(k, d, lo, hi):
@@ -180,6 +197,9 @@ def wrap_round(pieces, c, outer, inner=None):
 def brushes(b, mats, name):
     """The block's brushes before its turn (geom.rotate_brush turns them about its centre): one, or the convex
     pieces of a hollow one."""
+    pts = verts_of(b)
+    if pts:                           # its corners moved one by one (Edit vertices)
+        return [geom.hull(pts, mats, name)]
     lo, hi = tuple(b['lo']), tuple(b['hi'])
     s = shape_of(b)
     o = options(b)

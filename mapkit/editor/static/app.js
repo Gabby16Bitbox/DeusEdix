@@ -23,6 +23,8 @@ import { isCylinder, updateCollisionVolume } from './collision-volume.js';
 import { createProjectHub, projectStorageKey, readProjectMapPrefs, unsavedProjectTools, isCustomProject, isTrainingProject } from './projects.js';
 import { mountStateField, parseFate, stateLabel } from './state-editor.js';
 import { characterSections, playerSection } from './behaviours.js';
+import { allPropsSection } from './all-props.js';
+import { createOrthoViews } from './ortho-views.js';
 import { mountPlayStates } from './play-state.js';
 import { editorIcon } from './editor-icons.js';
 import { drawText, fontFamilies, fontOptions, importFont } from './text-style.js';
@@ -43,7 +45,11 @@ import { createSkyTool } from './sky-tool.js';
 import { createMapPose } from './map-pose.js';
 import { createViewportToolbar } from './viewport-toolbar.js';
 import { createTexturePicker } from './texture-picker.js';
-import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions } from './block-shapes.js';
+import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions, blockPoints } from './block-shapes.js';
+import { createVertexEditor } from './vertex-edit.js';
+import { createShapeEditor } from './shape-editor.js';
+import { createMeasure } from './measure.js';
+import { split as splitPoints, intersect as intersectPoints, subtract as subtractPoints } from './brush-ops.js';
 import { createSceneTextures } from './scene-textures.js';
 
 import { withPublishedLayout, exerciseOnly } from './published-layout.js';
@@ -76,6 +82,10 @@ let autosave = null;
 let gameView = null;
 let undo = [], dirty = false, selected = null, placing = null, snap = true;
 let vpBar = null;                  // the 3D view's toolbar (viewport-toolbar.js)
+let orthoViews = null;             // View > Top / Front / Side view (ortho-views.js)
+let vertexEdit = null;             // Edit vertices of a block (vertex-edit.js)
+let shapeEditor = null;            // Tools > 2D Shape Editor (shape-editor.js)
+let measure = null;                // View > Measure (measure.js)
 let showIcons = true;              // the icons of lights, AI paths and logic points (its last button)
 try { showIcons = localStorage.getItem('deusedix.viewIcons') !== '0'; } catch { /* no storage */ }
 let soundBrowser = null, soundCat = null;
@@ -120,6 +130,7 @@ scene.add(outline);
 
 function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;                     // hidden for now: an aspect of 0 would leave the camera broken (fov 180)
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   // the game's field of view is horizontal (86 degrees in Gabby's settings); three.js wants the vertical one
@@ -127,6 +138,9 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
+// the panels around the view change its size without resizing the window (a panel shown or hidden, the orthographic
+// views' column): the view follows its own size
+new ResizeObserver(() => { resize(); wake(); }).observe(canvas);
 // the side panels get wider or narrower by dragging their inner edge, the browser at the bottom
 // taller or lower by dragging its top edge (remembered in this browser)
 for (const [id, side, min, max] of [['lgrip', 'lw', 200, 520], ['rgrip', 'rw', 240, 600], ['bgrip', 'bh', 90, 760]]) {
@@ -217,8 +231,8 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 const clock = new THREE.Clock();
-let PACKAGE = 'UnatcoContinues';        // the editor's own package (the server says which: settings.py)
-let MODELS_PKG = 'UCModels';            // the imported models' package (settings.py)
+let PACKAGE = 'DeusEdix';               // the editor's own package (the server says which: settings.py)
+let MODELS_PKG = 'DeusEdixModels';      // the imported models' package (settings.py)
 // what the player reads for it: a project's package has a made-up name (DXP_<id>Models), so say "your models"
 const modelsWhere = () => (/^DXP_/i.test(MODELS_PKG) ? "this project's own models" : `the package ${MODELS_PKG}`);
 let STANDALONE = false;                 // DeusEdix installed: no UNATCO route, no mission states of the mod
@@ -258,7 +272,9 @@ function animate(now) {
     if (!p.parent) collisionVolumes.delete(p);
     else updateCollisionVolume(p, actorProp);
   }
+  orthoViews?.render();              // the orthographic panes first: they borrow a corner of this canvas
   renderer.render(scene, camera);
+  measure?.update();
   updateLinkEdges();
 }
 
@@ -1116,7 +1132,7 @@ async function applyTexture(ctx, png, to, document = null) {
 
 let builtScale = {};                     // scale of each object in the map as last built (the edits it had)
 let builtBoxes = new Map();              // the blocks as the map shown was built: name -> their shape and place
-const boxSig = (b) => JSON.stringify([b.lo, b.hi, b.rot || null, b.tex || '', blockShape(b), !!b.solid, !!b.hole]);
+const boxSig = (b) => JSON.stringify([b.lo, b.hi, b.rot || null, b.tex || '', blockShape(b), !!b.solid, !!b.hole, b.verts || null]);
 const blockLooks = new Map();            // a block's texture before a Rebuild: map|texture -> {map, tile, masked}
 let lastPlacingMove = null;              // the pointer's last move while placing (R re-turns the ghost there)
 let lastBlockTex = 'flatconcrete_a';    // the texture of the next block made with the Hierarchy's +
@@ -1990,6 +2006,8 @@ function menuFor(spec, surface = null) {
   }
   const actOnSelection = (fn) => () => { if (!several) specSelect(spec); return fn(); };
   items.push({ label: 'Focus', key: 'F', run: () => { if (!several) specSelect(spec); focusSelected(); } });
+  const ofClass = !several && objOf(spec)?.userData?.actor;
+  if (ofClass) items.push({ label: `Select all ${clsShown(ofClass.cls)}`, run: () => selectAllOfClass(ofClass.cls) });
   items.push({ label: 'Duplicate', key: 'Ctrl+D', off: locked, run: actOnSelection(duplicateSelected) });
   items.push({ label: 'Copy', key: 'Ctrl+C', run: actOnSelection(copySelected) });
   if (spec.startsWith('n:') || spec.startsWith('s:') || several)
@@ -2715,6 +2733,7 @@ canvas.addEventListener('pointerdown', e => {
   if (e.button === 0 && !placing && !lkPicking && (surfaceTools.mode || (e.altKey && !tc.axis)) && selected) select(null);
 }, true);
 function mouseRay(e) {
+  if (e.ray) return e.ray;                  // a click in an orthographic view (ortho-views.js) brings its own
   const r = canvas.getBoundingClientRect();
   ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
   return ray;
@@ -2723,6 +2742,8 @@ function visibleHits(hits, pickable = false) {
   return hits.filter((h) => { let o = h.object; while (o) { if (!o.visible || (pickable && keyOf(o) && objectLocked(o))) return false; o = o.parent; } return true; });
 }
 function pick(e) {
+  if (measure?.active) return void measure.click(e);            // Measure: a click is a point
+  if (vertexEdit?.active) return void vertexEdit.click(e);      // Edit vertices: a click picks a corner
   if (textureTransfer?.armed) return void textureTransfer.paint(e);
   if (routeTest) return routeClick(e);       // Test a route: the clicks are its places
   const r = mouseRay(e);
@@ -2764,6 +2785,14 @@ canvas.addEventListener('dblclick', (e) => {
 });
 
 function isStruct(p) { return p && p.userData.kind === 'structure'; }
+// UnrealEd's Select All <class>: every object of the map of that class that can be picked (not hidden, not locked)
+function selectAllOfClass(cls) {
+  if (!cls) { status('Select an object first: then every object of its class is picked.', 'warn'); return; }
+  const list = proxies.children.filter((p) => p.userData.actor && p.userData.actor.cls === cls && p.visible && !objectHidden(p) && !objectLocked(p));
+  if (!list.length) { status(`No ${clsShown(cls)} that can be picked here.`, 'warn'); return; }
+  if (list.length === 1) select(list[0]); else setMulti(list);
+  status(`${list.length} ${clsShown(cls)} selected.`, 'ok');
+}
 
 // ---------------------------------------------------------------- several objects at once
 // Ctrl+click or Shift+click adds or takes away an object (in the 3D view; Shift+click in the Hierarchy picks
@@ -2824,6 +2853,7 @@ function marqueeSelect(x0, y0, x1, y1) {
 }
 
 function select(p, keepInspector = false) {
+  if (vertexEdit?.active && p !== vertexEdit.block) vertexEdit.exit(false);     // another object: Edit vertices ends
   hierFolderOn = null;
   soundBrowser?.clearSelection(false);
   surfaceTools.clear();
@@ -3859,8 +3889,8 @@ $('#bchars').onclick = () => window.__characters && window.__characters.open();
 
 // ---------------------------------------------------------------- Models: every 3D model of the game, and imported ones
 // The Models tab lists every mesh the game can load, by package (editor/models.py: the game, HDTP, Revision,
-// other mods' packages, the mod's UCModels). A package's models are exported the first time it is opened.
-// A model is placed as a UCMeshDeco of the mod: its Mesh, a collision cylinder round it, a PrePivot that
+// other mods' packages, the imported ones' MODELS_PKG). A package's models are exported the first time it is opened.
+// A model is placed as a UCMeshDeco of the editor's package: its Mesh, a collision cylinder round it, a PrePivot that
 // centres it; at the size the game uses it (the DrawScale of the game's object that has it).
 let modelList = null, modelReplace = null;
 const modelOpen = new Set(), modelPkgs = {}, meshModels = {}, meshTex = {};
@@ -4025,7 +4055,7 @@ async function placeModel(mesh, btn, extra = null) {
 
 // ---------------------------------------------------------------- Import a 3D model (glTF/GLB, FBX, OBJ, DAE)
 // Read here by three.js, turned into Unreal's axes and units, centred, and sent as triangles (UVs on their
-// corners, as Unreal's files keep them) with their pictures; the server makes it a mesh of UCModels with
+// corners, as Unreal's files keep them) with their pictures; the server makes it a mesh of MODELS_PKG with
 // the game's own importer (editor/models.py).
 const MODEL_MAX_TRIS = 30000;
 const importBox = $('#mimportbox');
@@ -4504,7 +4534,7 @@ async function openImport() {
       model, as the game keeps its own, and a placed model loops the one you choose.</div>
     <div class="row"><input type="file" id="mifile" multiple accept=".glb,.gltf,.fbx,.obj,.mtl,.dae,.bin,.png,.jpg,.jpeg,.tga,.bmp,.webp" style="flex:1;min-width:0"></div>
     <div id="miview" style="margin:6px 0"></div><div id="miopts"></div>
-    ${mine.length ? '<div class="hint" style="margin:10px 0 2px;font-weight:600">Your models</div>' + mine.map((m) => `<div class="row"><span style="flex:1">${escapeHtml(m.name)} <span class="hint" style="margin:0">${m.tris} triangles${m.source ? ' · ' + escapeHtml(m.source) : ''}</span></span><button data-midel="${escapeHtml(m.name)}" title="Take it out of UCModels (maps that use it lose it)">Delete</button></div>`).join('') : ''}`;
+    ${mine.length ? '<div class="hint" style="margin:10px 0 2px;font-weight:600">Your models</div>' + mine.map((m) => `<div class="row"><span style="flex:1">${escapeHtml(m.name)} <span class="hint" style="margin:0">${m.tris} triangles${m.source ? ' · ' + escapeHtml(m.source) : ''}</span></span><button data-midel="${escapeHtml(m.name)}" title="Take it out of ${escapeHtml(MODELS_PKG)} (maps that use it lose it)">Delete</button></div>`).join('') : ''}`;
   $('#miclose').onclick = closeImport;
   for (const b of importBox.querySelectorAll('[data-midel]')) b.onclick = async () => {
     if (!confirm(`Delete the model ${b.dataset.midel}? The maps that use it lose it.`)) return;
@@ -4992,7 +5022,7 @@ function hierRangeTo(key) {
     }
   });
 }
-// a class as DeusEdix shows it: its classes still carry UNATCO Continues' "UC" (renamed later: ROADMAP)
+// a class as DeusEdix shows it: its runtime classes still carry the "UC" prefix (renamed later)
 // a class as people read it: no package (a script of Tools > Scripts is "Pkg.Name", a project's Pkg a made-up id)
 function clsShown(c) { const s = String(c || '').split('.').pop(); return STANDALONE ? s.replace(/^UC(?=[A-Z])/, '') : s; }
 function hierLabel(a) {
@@ -5311,6 +5341,130 @@ function renameFolder(id) {
   input.addEventListener('dblclick', (e) => e.stopPropagation());
   input.addEventListener('blur', () => done(true));
 }
+// where the view looks: the floor there (game units), else a point ahead; spread: how wide the thing put there is
+function floorAhead(spread = 128) {
+  const r = new THREE.Raycaster();
+  r.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const hit = visibleHits(r.intersectObjects(world.children, true))[0];
+  const at = hit && hit.distance < 4000 ? hit.point.clone() : camera.position.clone().addScaledVector(r.ray.direction, Math.max(600, spread * 2));
+  const u = UE(at);
+  if (snap) for (const k of [0, 1]) u[k] = Math.round(u[k] / 8) * 8;
+  return u;
+}
+// the 2D Shape Editor's convex pieces (each a list of points in the game's units) as blocks with their own corners,
+// in one nest (one undo); hole: they cut instead of adding
+function addShapeBlocks(pieces, { hole = false, tex = '', label = 'Shape' } = {}) {
+  if (!mapName || !pieces.length) return;
+  pushUndo();
+  const names = [];
+  for (const pts of pieces) {
+    if (!pts.every((p) => p.every(Number.isFinite))) continue;
+    const lo = [0, 1, 2].map((k) => Math.min(...pts.map((p) => p[k]))), hi = [0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k])));
+    if ([0, 1, 2].some((k) => hi[k] - lo[k] < 0.5)) continue;
+    const b = { name: nextName('UCEditBox'), shape: 'box', lo: lo.map(r1), hi: hi.map(r1), tex: tex || lastBlockTex, solid: true,
+      verts: pts.map((p) => p.map((v, k) => Math.round((v - lo[k]) / (hi[k] - lo[k]) * 10000) / 10000)) };
+    if (hole) b.hole = true;
+    edits.boxes.push(b);
+    names.push('b:' + b.name);
+  }
+  if (tex) lastBlockTex = tex;
+  const folder = currentFolder() && nestById(currentFolder());
+  let n = null;
+  if (names.length > 1) { n = newNest(label, names); if (folder) folder.items.push('n:' + n.id); }
+  else if (folder) folder.items.push(...names);
+  setDirty();
+  rebuildProxies();
+  if (n) selectNest(n.id); else select(proxies.children.find((q) => q.userData.box && 'b:' + q.userData.box.name === names[0]) || null);
+  status(`${label}: ${names.length} block${names.length === 1 ? '' : 's'}${hole ? ' cutting' : ''} added, in one nest. Rebuild puts ${names.length === 1 ? 'it' : 'them'} in the game.`, 'ok');
+}
+// ---------------------------------------------------------------- Clip, Intersect, Deintersect (brush-ops.js)
+// a block's corners in the world, in the game's units (null: water, portals, moving blocks, signs, hollow shapes)
+function blockWorld(p) {
+  const b = p?.userData.box, pts = b && blockPoints(b);
+  if (!pts) return null;
+  const size = [0, 1, 2].map((k) => Math.max(1, b.hi[k] - b.lo[k]));
+  p.updateMatrixWorld(true);
+  return pts.map((q) => UE(p.localToWorld(new THREE.Vector3(q[0] / size[0], q[2] / size[2], q[1] / size[1]))).map((v) => Math.round(v * 100) / 100));
+}
+const selectedBlocks = () => (selected === groupPivot ? members() : selected ? [selected] : []).filter((p) => p.userData.kind === 'box' && blockWorld(p));
+// blocks replaced by convex pieces (one undo): each piece a block with its own corners, the first block's texture and
+// kind, in its nest; a turned block's turn is in the corners now
+function replaceBlocks(olds, pieces, what) {
+  const tpl = olds[0].userData.box, gone = new Set(olds.map((p) => p.userData.box.name)), host = parentNest('b:' + tpl.name);
+  pushUndo();
+  edits.boxes = edits.boxes.filter((b) => !gone.has(b.name));
+  for (const n of nests()) n.items = n.items.filter((k) => !(k.startsWith('b:') && gone.has(k.slice(2))));
+  const keys = [];
+  for (const pts of pieces) {
+    const lo = [0, 1, 2].map((k) => Math.min(...pts.map((p) => p[k]))), hi = [0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k])));
+    const b = { name: nextName('UCEditBox'), shape: 'box', lo: lo.map(r1), hi: hi.map(r1), tex: tpl.tex, solid: tpl.solid !== false,
+      verts: pts.map((p) => p.map((v, k) => Math.round((v - lo[k]) / (hi[k] - lo[k]) * 10000) / 10000)) };
+    if (tpl.hole) b.hole = true;
+    edits.boxes.push(b);
+    keys.push('b:' + b.name);
+  }
+  if (host) host.items.push(...keys);
+  dropEmptyNests();
+  setDirty();
+  rebuildProxies();
+  const ps = proxies.children.filter((q) => q.userData.box && keys.includes('b:' + q.userData.box.name));
+  if (ps.length > 1) setMulti(ps); else select(ps[0] || null);
+  status(`${what}: ${olds.length} block${olds.length === 1 ? '' : 's'} into ${ps.length}. Rebuild puts ${ps.length === 1 ? 'it' : 'them'} in the game.`, 'ok');
+}
+// Clip: the selected blocks cut in two by a plane (three's axes: a point on it, its normal)
+function clipBlocks(n, at) {
+  const nU = [n.x, n.z, n.y], atU = UE(at), olds = [], pieces = [];
+  for (const p of selectedBlocks()) {
+    if (!requireUnlocked(p)) return;
+    const parts = splitPoints(blockWorld(p), nU, atU);
+    if (parts.length < 2) continue;
+    olds.push(p);
+    pieces.push(...parts);
+  }
+  if (!olds.length) { status('Clip: the line does not cross the selected block.', 'warn'); return; }
+  replaceBlocks(olds, pieces, 'Clip');
+}
+// Intersect / Deintersect: the block picked last cuts the others (what they share with it / what is outside it)
+function cutBlocks(keepInside) {
+  const blocks = selectedBlocks();
+  if (blocks.length < 2) { status(`${keepInside ? 'Intersect' : 'Deintersect'}: select two blocks or more (Ctrl+click); the one picked last cuts the others.`, 'warn'); return; }
+  if (blocks.some((p) => !requireUnlocked(p))) return;
+  const cutter = blocks[blocks.length - 1], c = blockWorld(cutter), olds = [], pieces = [];
+  for (const p of blocks.slice(0, -1)) {
+    const res = keepInside ? [intersectPoints(blockWorld(p), c)].filter(Boolean) : subtractPoints(blockWorld(p), c);
+    olds.push(p);
+    pieces.push(...res);
+  }
+  if (keepInside && !pieces.length) { status('Intersect: the blocks do not overlap.', 'warn'); return; }
+  replaceBlocks(olds, pieces, keepInside ? 'Intersect' : 'Deintersect');
+}
+function armClip() {
+  if (!selectedBlocks().length) { status('Clip: select a block first (water, portals, moving blocks, signs and hollow shapes cannot be cut).', 'warn'); return; }
+  orthoViews.armClip((n, at) => clipBlocks(n, at));
+  status('Clip: click two points in the Top, Front or Side view; the line between them cuts the block in two (Esc: no cut).', 'ok');
+}
+// ---------------------------------------------------------------- camera bookmarks (per map, in this browser)
+function viewsKey() { return projectStorageKey('views:' + (script || ''), projectContext); }
+function readViews() { try { return JSON.parse(localStorage.getItem(viewsKey()) || '{}') || {}; } catch (e) { return {}; } }
+function keepView(n) {
+  const all = readViews();
+  all[n] = { p: camera.position.toArray().map(r1), yaw: cam.yaw, pitch: cam.pitch };
+  try { localStorage.setItem(viewsKey(), JSON.stringify(all)); } catch (e) { status('This browser keeps no bookmarks (storage is off).', 'warn'); return; }
+  status(`View ${n} kept: press ${n} to come back here.`, 'ok');
+}
+function goToView(n) {
+  const v = readViews()[n];
+  if (!v) { status(`No view ${n} in this map yet: Ctrl+${n} keeps where the view is.`, 'warn'); return; }
+  camera.position.fromArray(v.p);
+  cam.yaw = v.yaw; cam.pitch = v.pitch;
+  wake();
+  status(`View ${n}.`);
+}
+// the first thing a click's ray meets (Measure)
+function firstHit(e) {
+  const hit = visibleHits(mouseRay(e).intersectObjects([...world.children, ...proxies.children], true))[0];
+  return hit ? hit.point.clone() : null;
+}
 // a cube, a wedge or a cylinder where the view looks (on the floor there), into the folder chosen
 function createSolid(shape) {
   const s = 128, r = new THREE.Raycaster();
@@ -5600,7 +5754,7 @@ $('#addhole').onclick = () => {
 // Like Premiere's Motion (rows Position, Rotation, Scale with their keys) and Unity's Animation window (a
 // timeline with a playhead). With the panel open, what is moved with the gizmo becomes a key at the playhead.
 // Doors, elevators and moving blocks keep the engine's own keys (up to 8: who stands on them moves with
-// them); every other object is moved by the mod's UCMotion. Interactions play them (Play its animation,
+// them); every other object is moved by the editor's UCMotion. Interactions play them (Play its animation,
 // Play it backwards, Stop) and can start when one has finished.
 const ANIM_CURVES = [[0, 'Linear', 'Straight to the next key at one speed'], [1, 'Smooth', 'Through this key without slowing down'],
   [2, 'Ease in', 'At rest at this key: it starts slowly from it'], [3, 'Ease out', 'It slows down to a stop at the next key'],
@@ -6130,7 +6284,7 @@ function unsetProp(a, key) {               // back to the map's own value (or th
 // what behaviours.js needs of the editor (Movement, Tactics, Player movement)
 const behaveApi = {
   get edits() { return edits; }, actorProp, setProp, unsetProp, pushUndo, setDirty, status, UE, requireUnlocked,
-  section: (key, title, body, open) => inspectorSection(key, title, body, open),
+  section: (key, title, body, open) => inspectorSection(key, title, body, open), api,
 };
 function previewPropertySlider(p) {
   updateScriptTagField(p.userData.actor);
@@ -6264,7 +6418,7 @@ function drawLinks(p, links) {
 // ---------------------------------------------------------------- animations of the characters
 // The model of a character class with every frame of its animations (editor/anims.py, host UC_ANIMDUMP).
 // The Properties choose what they do when not busy (edits.anims[name] = {idle, rate, loc}; a patrol
-// point's PatrolAnim), the mod's UCAnimSet makes it happen in the game, ▶ plays it here on the character.
+// point's PatrolAnim), the editor's UCAnimSet makes it happen in the game, ▶ plays it here on the character.
 const animInfo = {}, animData = {};
 function animsOf(cls, mesh = '') {         // A visual replacement has its own animation sequences.
   const key = mesh ? 'mesh:' + mesh : cls;
@@ -7495,7 +7649,7 @@ function loginsOf(a, fields) {
   return out;
 }
 // a change to the emails or bulletins of a computer (edits.texts): the computer then reads its texts
-// from the mod (TextPackage), a public terminal its own list of bulletins (bulletinTag)
+// from the editor's package (TextPackage), a public terminal its own list of bulletins (bulletinTag)
 function editTexts(a, fn) {
   pushUndo();
   edits.texts = edits.texts || {};
@@ -7943,6 +8097,7 @@ async function renderProps(p) {
     html += pm.html;
     wires.push(pm.wire);
   }
+  { const ap = allPropsSection(behaveApi, a, p); html += ap.html; wires.push(ap.wire); }    // UnrealEd's whole Properties
   if (links.length) {
     html += inspectorSection('connections', 'Connections', links.map((l, k) => `<div class="row"><span style="color:${l.dir === 'out' ? '#ffa040' : '#40c0ff'}">${l.dir === 'out' ? '→' : '←'} ${escapeHtml(l.why)}</span><a href="#" data-link="${k}" style="color:var(--accent, #5aa2ff)">${escapeHtml(l.name)}${NAMES[l.cls] ? ' (' + escapeHtml(NAMES[l.cls]) + ')' : ''}</a></div>`).join(''));
   }
@@ -7959,7 +8114,7 @@ let allMapNames = null;               // every map (Leads to of the map exits, N
 // ---------------------------------------------------------------- Interactions: when this happens, do that
 // Like Hammer's outputs and UEFN's direct event binding: no Tag or Event to write. A rule belongs to an object
 // ("When JC uses it") and does things to other objects, each after a delay (edits.links, editor/links.py; in
-// the game the mod's UCLink hooks itself to the object). Connect: click another object, and the rule is made
+// the game the editor's UCLink hooks itself to the object). Connect: click another object, and the rule is made
 // with what the two usually do together. Logic (top bar): every rule of the map, as sentences.
 const chainCache = {}, chainNow = {};
 function chainOf(cls) {
@@ -9385,7 +9540,8 @@ function showDetails(live) {
       </div></details>${inspectorSectionStart('block', 'Block settings', true)}
       <div class="row"><label>Texture</label><input id="btex" list="texlist" value="${b.tex}"></div>
       ${b.water || b.portal || b.mover || b.sign ? '' : `<div class="row"><label>Shape</label><select id="bshape" style="flex:1;min-width:0" title="A wedge is a ramp, high at its +X side: turn it with E. Resize a round one with R: an elliptic cylinder, an egg, a low dome">${BLOCK_SHAPES.map(([k, l]) => `<option value="${k}" ${k === blockShape(b) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
-      ${ROUND_SHAPES.includes(blockShape(b)) ? (() => { const o = blockOptions(b), s = blockShape(b); return `
+      ${blockPoints(b) ? `<div class="row"><button id="bverts" title="Move the block's corners one by one (V), as UnrealEd's vertex editing: it stays a convex shape">Edit vertices</button>${b.verts ? '<button id="bvreset" title="Its own box and shape again, the corners as they were">Reset corners</button>' : ''}</div>` : ''}
+      ${ROUND_SHAPES.includes(blockShape(b)) && !b.verts ? (() => { const o = blockOptions(b), s = blockShape(b); return `
       <div class="row"><label title="How many sides round (UnrealEd's Sides): more is rounder and heavier">Sides</label><input type="number" id="bsides" value="${o.sides}" min="3" max="64" step="1" style="width:70px"></div>
       <div class="row"><label title="Hollow: the wall's thickness (a pipe, a tower, a shell); 0 is solid. Made of convex pieces by itself">Hollow</label><input type="number" id="bhollow" value="${o.hollow}" min="0" step="4" style="width:70px"><span class="hint" style="margin:0">${o.hollow ? 'wall thickness' : 'solid'}</span></div>
       ${s === 'cone' ? `<div class="row"><label title="The top's radius, a share of the bottom's: 0 a point, more a cut cone (UnrealEd's cap)">Top %</label><input type="number" id="btop" value="${Math.round(o.top * 100)}" min="0" max="95" step="5" style="width:70px"></div>` : ''}
@@ -9543,6 +9699,8 @@ function showDetails(live) {
   for (const i of el.querySelectorAll('input:not(.sg)')) i.addEventListener('change', apply);
   // a block's menus apply at once too (Kind, Liquid, Sky were only read when a number changed)
   for (const id of ['#bshape', '#bkind', '#bliquid', '#bskyp']) if ($(id)) $(id).addEventListener('change', apply);
+  if ($('#bverts')) $('#bverts').onclick = () => vertexEdit?.enter(p);
+  if ($('#bvreset')) $('#bvreset').onclick = () => vertexEdit?.reset(p);
   if (d.kind === 'box' && d.box.sign) {
     // the sign's text, style and size: drawn again and imported again (the back stays on its wall)
     const b = d.box;
@@ -9800,6 +9958,9 @@ window.addEventListener('keydown', (e) => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && !(e.target.type === 'range' && e.ctrlKey && e.key.toLowerCase() === 'z')) return;
   const k = e.key.toLowerCase();
   if (e.ctrlKey && k === 's') { e.preventDefault(); save(); return; }
+  // camera bookmarks, as Unreal Editor's: Ctrl+1..9 (or Shift, in a browser that keeps Ctrl+digit) keeps the view, 1..9 goes back
+  const digit = /^Digit([1-9])$/.exec(e.code || '');
+  if (digit && mapName && !e.altKey) { e.preventDefault(); if (e.ctrlKey || e.shiftKey) keepView(digit[1]); else goToView(digit[1]); return; }
   if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) {
     e.preventDefault();
     if (redoStack.length) { undo.push(JSON.stringify(edits)); edits = JSON.parse(redoStack.pop()); afterHistory(); status('Redone.'); }
@@ -9824,14 +9985,16 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'r') setMode('scale');
   else if (k === 'g') { snap = !snap; applySnap(); vpBar?.refresh(); status('grid snap ' + (snap ? 'on' : 'off')); }
   else if (k === 'end') placeSelected();
-  else if (k === 'delete') { if (!selected && currentFolder()) deleteFolder(currentFolder()); else deleteSelected(); }
+  else if (k === 'delete') { if (vertexEdit?.active) vertexEdit.deleteChosen(); else if (!selected && currentFolder()) deleteFolder(currentFolder()); else deleteSelected(); }
+  else if (k === 'v') vertexEdit?.toggle(selected);
+  else if (k === 'm') measure?.toggle();
   else if (k === 'enter' && placing && placing.draw) finishDraw();
   else if (k === 'backspace' && placing && placing.draw) drawTools.undoPoint();
   else if ((k === 'escape' || k === 'enter') && placing && placing.route) endRoute();
   else if ((k === 'f2' || (k === 'enter' && !placing)) && currentFolder()) { e.preventDefault(); renameFolder(currentFolder()); }
   else if (k === 'escape' && lkPicking) { lkEndPick(); status('Cancelled.'); }
   else if (k === 'escape' && modelReplace) { cancelModelReplacement(); }
-  else if (k === 'escape') { cancelPlacing(); select(null); }
+  else if (k === 'escape') { if (measure?.active) measure.exit(); else if (vertexEdit?.active) vertexEdit.exit(); else { cancelPlacing(); select(null); } }
   else if (k === 'p') togglePaths();
   else if (k === 'q') surfaceTools.toggle();
   else if (k === 'b') startPlacing({ box: true, size: [128, 128, 16], tex: 'ClenGreyCncrt_A' }, $('#addbox'));
@@ -9851,6 +10014,39 @@ createTexturePicker({ api, getMapTextures: () => {
   for (const n of Object.keys((edits && edits.textures) || {})) out.unshift({ name: n, url: texUrl(n), size: '' });
   return out;
 } });
+orthoViews = createOrthoViews({
+  renderer, scene, canvas, tc, camera, forward, wake, SNAP, pick, requireUnlocked,
+  get selected() { return selected; },
+  snapOn: () => snap,
+  placing: () => !!placing,
+  busy: () => !mapName,
+  vertexEdit: () => vertexEdit,
+  // does the ray meet the selection (or one of the several objects selected)?
+  hitsSelection(ray) {
+    const own = selected === groupPivot ? new Set(members()) : new Set([selected]);
+    const hits = visibleHits(ray.intersectObjects([...proxies.children, ...world.children], true));
+    return hits.some((h) => { for (let o = h.object; o; o = o.parent) if (own.has(o)) return true; return false; });
+  },
+});
+shapeEditor = createShapeEditor({ floorAhead, addShapeBlocks, lastTexture: () => lastBlockTex });
+measure = createMeasure({ scene, camera, canvas, wake, status, UE, SNAP, firstHit, snapOn: () => snap });
+vertexEdit = createVertexEditor({
+  scene, camera, canvas, mainTc: tc, wake, SNAP, UE, select, status, requireUnlocked, pushUndo, setDirty,
+  snapOn: () => snap,
+  dropUndo: () => { undo.pop(); },
+  refreshBlock(b) {                       // the block drawn again from its edits, and selected
+    rebuildProxies();
+    const np = proxies.children.find((q) => q.userData.box === b) || null;
+    if (np) select(np);
+    return np;
+  },
+  preview(p, shares) {                    // its shape while corners move (the texture comes back at the end)
+    p.geometry.dispose();
+    p.geometry = blockGeometry(THREE, Object.assign({}, p.userData.box, { verts: shares }));
+    const edges = p.children.find((c) => c.isLineSegments);
+    if (edges) { edges.geometry.dispose(); edges.geometry = new THREE.EdgesGeometry(p.geometry); }
+  },
+});
 vpBar = createViewportToolbar({
   getLightMode: () => lightMode, setLightMode,
   getMode: () => tc.mode, setMode: (m) => setMode(m),
@@ -9889,6 +10085,12 @@ window.addEventListener('keyup', (e) => { const m = MOVE[e.code]; if (m) cam.key
 
 // for debugging from the browser console
 window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, renderer, SNAP, applySnap, placeSelected, mapPose,
+  get orthoViews() { return orthoViews; },
+  get vertexEdit() { return vertexEdit; },
+  get shapeEditor() { return shapeEditor; },
+  armClip: () => armClip(), intersectBlocks: () => cutBlocks(true), deintersectBlocks: () => cutBlocks(false),
+  selectAllOfClass: () => selectAllOfClass(selected?.userData?.actor?.cls),
+  get measure() { return measure; }, keepView, goToView,
   modelImport: { readModelFiles, modelPayload, bakeClips, isAnimatedRoot, clipFrames, skinSpread, simplifyModel, modelTris, modelParts },   // for tests: Import model's steps
   async usePlayerCharacter(id) {
     if (!mapName) throw new Error('Open a map first, then choose its player character.');

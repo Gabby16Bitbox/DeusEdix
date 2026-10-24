@@ -1,0 +1,18 @@
+/* Tools > 2D Shape Editor (shape-editor.js): a tool window as Weapons, DESIGN.md sizes */
+#shapeed { position:fixed; inset:40px 60px; z-index:21; display:none; background:var(--bg); border:1px solid var(--accent-border);
+  grid-template-columns:minmax(0,1fr) 240px; grid-template-rows:28px minmax(0,1fr); grid-template-areas:"top top" "grid side"; }
+#shapeed .se-top { grid-area:top; display:flex; align-items:center; gap:8px; padding:0 8px; background:var(--panel); border-bottom:1px solid var(--line); }
+#shapeed .se-top b { font-size:13px; font-weight:600; color:var(--heading); }
+#shapeed .se-sp { flex:1; }
+#shapeed .se-grid { grid-area:grid; width:100%; height:100%; display:block; min-height:0; outline:none; cursor:crosshair; touch-action:none; }
+#shapeed .se-side { grid-area:side; display:flex; flex-direction:column; gap:4px; padding:0 8px 8px; background:var(--panel); border-left:1px solid var(--line); overflow:auto; }
+#shapeed .se-h { padding:8px 0 2px; font-size:13px; font-weight:600; color:var(--heading); }
+#shapeed .se-row { display:flex; align-items:center; gap:4px; min-height:22px; color:var(--dim); }
+#shapeed .se-row > input, #shapeed .se-row > select { flex:1; min-width:0; }
+#shapeed .se-presets { flex-wrap:wrap; }
+#shapeed button, #shapeed select, #shapeed input { height:22px; padding:0 6px; line-height:20px; box-sizing:border-box; white-space:nowrap; }
+#shapeed .se-info { font-size:11px; color:var(--dim); min-height:30px; margin-top:6px; }
+#shapeed .se-info.bad { color:var(--bad); }
+#shapeed .se-rev { display:none; }
+#shapeed.revolve .se-rev { display:flex; }
+#shapeed.revolve .se-ex { display:none; }

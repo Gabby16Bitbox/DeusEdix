@@ -1,5 +1,16 @@
 // BSP faces are addressed by their source brush and polygon, not by the BSP's temporary index.
 // Edits are queued for Rebuild: UV changes require new lightmaps in Deus Ex.
+// the Look of a face: UnrealEd's surface properties (editor/surfaces.py FLAGS, the host's UC_SURFACE flags)
+const FLAGS = [[0x400000, 'Unlit', 'Full brightness, no light or shadow on it (screens, lamps, signs)'],
+  [0x4, 'Translucent', 'See-through, adding its colours (glass glare, holograms, light beams)'],
+  [0x2, 'Masked', 'Its texture\'s first colour is a hole (fences, grates, foliage)'],
+  [0x40, 'Modulated', 'Darkens and tints what is behind it (dirty glass, stains)'],
+  [0x100, 'Two-sided', 'Drawn from both sides'],
+  [0x8000000, 'Mirror', 'Reflects the room (a mirror, polished floors)'],
+  [0x1, 'Invisible', 'Not drawn, still solid (invisible walls)'],
+  [0x80, 'Fake backdrop', 'Shows the sky (the map\'s sky box) instead of its texture'],
+  [0x100000, 'Special lit', 'Lit only by lights set to Special Lit'],
+  [0x800, 'No smooth', 'Its texture pixels stay sharp (no filtering)']];
 export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, deselect, status, log, escapeHtml, textures,
   canShowPanel = () => true, canEditFace = () => true, onChange = () => {} }) {
   let faces = [], meshes = [], chosen = new Set(), overlays = [], mode = false;
@@ -28,6 +39,12 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
     for (const row of getEdits().surfaces || []) if (row.op === prop && row.targets.some(t => t.brush === f.brush && (t.poly === '*' || t.poly === f.poly))) value = row.args[0];
     return value;
   }
+  // a face's flags with the queued Look changes on top (in their order)
+  function flagsOf(f) {
+    let v = f.flags || 0;
+    for (const row of getEdits().surfaces || []) if (row.op === 'flags' && row.targets.some(t => t.brush === f.brush && (t.poly === '*' || t.poly === f.poly))) v = (v | row.args[0]) & ~row.args[1];
+    return v;
+  }
   function queue(op, args = [], targets = selected().map(target)) {
     if (!targets.length) return;
     if (op === 'texture' && (args.length !== 1 || typeof args[0] !== 'string' || args[0].length > 240 || !/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/.test(args[0]))) {
@@ -45,7 +62,8 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
     (edits.surfaces ||= []).push({ op, args, targets });
     setDirty();
     onChange(op);
-    log(`${op === 'shadows' ? 'Shadow detail: ' + args[0] : 'Surface ' + op}: ${targets.length} face target${targets.length === 1 ? '' : 's'}. Rebuild to apply${op === 'texture' ? '.' : ' and recalculate lighting.'}`);
+    const look = op === 'flags' ? FLAGS.filter(([bit]) => (args[0] | args[1]) & bit).map(([bit, label]) => (args[0] & bit ? '' : 'not ') + label).join(', ') : '';
+    log(`${op === 'shadows' ? 'Shadow detail: ' + args[0] : op === 'flags' ? 'Look: ' + look : 'Surface ' + op}: ${targets.length} face target${targets.length === 1 ? '' : 's'}. Rebuild to apply${op === 'texture' ? '.' : ' and recalculate lighting.'}`);
     if (chosen.size) panel();
     return true;
   }
@@ -68,6 +86,7 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
       <div class="hint">Alt+click to select · Shift to add/remove</div>
       <label class="surface-label" for="sf-texture">Texture${texture ? '' : ' (mixed)'}</label>
       <div class="row"><select id="sf-texture" aria-label="Surface texture"><option value="">Choose texture…</option>${options.map(t => `<option value="${escapeHtml(t)}" ${t === texture ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select><button id="sf-set-texture">Apply</button></div>
+      ${texture ? `<div class="row"><button id="sf-same" title="Every face of the map with this texture">Select same texture</button><button id="sf-replace" title="The texture chosen above on every face of the map that has ${escapeHtml(texture)}">Replace in whole map</button></div>` : ''}
       <label class="surface-label" for="sf-align">Align</label><div class="row"><select id="sf-align"><option value="floor">Floor</option><option value="wall">Wall</option><option value="tile">One Tile</option><option value="tile-u">One Tile U (keep proportions)</option><option value="tile-v">One Tile V (keep proportions)</option><option value="cylinder">Around a cylinder (all sides)</option></select><button id="sf-set-align">Align</button></div>
       <div id="sf-cylinder-hint" class="hint" hidden>Wraps all side faces of each brush. Requires a closed vertical outline and the same texture on every side.</div>
       <div class="surface-values"><label for="sf-pan-u">Pan U</label><input id="sf-pan-u" type="number" value="0" step="1" min="-32767" max="32767"><label for="sf-pan-v">Pan V</label><input id="sf-pan-v" type="number" value="0" step="1" min="-32767" max="32767"><button id="sf-pan">Pan</button></div>
@@ -76,15 +95,30 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
       <div class="row"><button data-sf-op="rotate">Rotate 90°</button><button data-sf-op="flip-u">Flip U</button><button data-sf-op="flip-v">Flip V</button></div>
       <label class="surface-label" for="sf-shadows">Shadows</label><select id="sf-shadows">${shadow ? '' : '<option value="">Mixed</option>'}${['low','normal','high'].map(s => `<option value="${s}" ${s === shadow ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select>
       <div class="hint">High: finer shadows, larger lightmaps.</div>
+      <label class="surface-label">Look</label>
+      <div class="surface-flags">${FLAGS.map(([bit, label, title]) => { const n = list.filter(f => flagsOf(f) & bit).length;
+        return `<label title="${escapeHtml(title)}"><input type="checkbox" data-sf-flag="${bit}" ${n === list.length ? 'checked' : ''} ${n && n < list.length ? 'data-mixed="1"' : ''}> ${label}</label>`; }).join('')}</div>
       <div class="surface-notice"><b>Save</b> stores edits. <b>Rebuild</b> applies them to the view and map.<br>${pending} stored operation${pending === 1 ? '' : 's'} on this selection.</div>
       <div class="row"><button id="sf-brush">Select whole brush</button><button id="sf-clear">Clear selection</button></div></div>`;
     const $ = id => document.getElementById(id);
     $('sf-set-texture').onclick = () => { const t = $('sf-texture').value; if (t) queue('texture', [t]); };
+    // the same texture in the whole map: picked, or replaced (one operation, one undo)
+    const sameIds = () => faces.map((f, i) => effective(f, 'texture') === texture ? i : -1).filter(i => i >= 0);
+    if ($('sf-same')) $('sf-same').onclick = () => { const ids = sameIds(); selectIds(ids); status(`${ids.length} face${ids.length === 1 ? '' : 's'} with ${texture}.`); };
+    if ($('sf-replace')) $('sf-replace').onclick = () => {
+      const t = $('sf-texture').value, ids = sameIds();
+      if (!t || t === texture) { status('Choose the new texture in the list first, then Replace in whole map.', 'warn'); return; }
+      if (queue('texture', [t], ids.map(i => target(faces[i])))) { selectIds(ids); status(`${texture} replaced by ${t} on ${ids.length} face${ids.length === 1 ? '' : 's'}: Rebuild to see it in the game.`, 'ok'); }
+    };
     $('sf-set-align').onclick = () => { const op = $('sf-align').value; queue(op, [], op === 'cylinder' ? [...new Set(list.map(f => f.brush))].map(brush => ({ brush, poly: '*' })) : list.map(target)); };
     $('sf-align').onchange = () => { $('sf-cylinder-hint').hidden = $('sf-align').value !== 'cylinder'; };
     for (const op of ['pan', 'scale']) $('sf-' + op).onclick = () => queue(op, [+$('sf-' + op + '-u').value, +$('sf-' + op + '-v').value]);
     for (const b of el.querySelectorAll('[data-sf-op]')) b.onclick = () => queue(b.dataset.sfOp);
     $('sf-shadows').onchange = () => { if ($('sf-shadows').value) queue('shadows', [$('sf-shadows').value]); };
+    for (const c of el.querySelectorAll('[data-sf-flag]')) {
+      if (c.dataset.mixed) c.indeterminate = true;
+      c.onchange = () => { const bit = +c.dataset.sfFlag; queue('flags', c.checked ? [bit, 0] : [0, bit]); };
+    }
     $('sf-brush').onclick = () => { const brushes = new Set(list.map(f => f.brush)); selectIds(faces.map((f, i) => brushes.has(f.brush) ? i : -1).filter(i => i >= 0)); };
     $('sf-clear').onclick = () => deselect();
   }

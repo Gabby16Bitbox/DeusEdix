@@ -48,6 +48,12 @@ function hullFaces(pts) {
   }
   return out;
 }
+// the faces of a convex hull, each {n: outward normal, pts}: Clip, Intersect, Deintersect (brush-ops.js)
+export function hullPolygons(pts) { return hullFaces(pts); }
+// the corners of a convex hull (a point pushed inside the others is no corner: it goes)
+export function hullCorners(pts) {
+  return [...new Map(hullFaces(pts).flatMap((f) => f.pts).map((q) => [q.join(), q])).values()];
+}
 // faces given as point lists, turned to face out from the middle of `all`
 function outward(polys) {
   const all = polys.flat(), c = [0, 1, 2].map((a) => all.reduce((s, q) => s + q[a], 0) / all.length), out = [];
@@ -165,8 +171,26 @@ function roundFaces(shape, size, o) {
 }
 
 // the faces about the block's centre, in the game's axes (outward normals)
+// Edit vertices (vertex-edit.js): the block's own corners, each a share of its box (as blocks.py verts_of), or null
+export function blockVerts(b) {
+  if (!b || !Array.isArray(b.verts) || b.verts.length < 4 || b.mover || b.water || b.portal || b.sign) return null;
+  return b.verts.every((v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)) ? b.verts : null;
+}
+// the corners the editor can move, in the block's own space (the game's axes, from its middle): its own ones, else
+// the shape's; null for a hollow shape (several pieces) and for water, portals, moving blocks and signs
+export function blockPoints(b) {
+  if (!b || b.mover || b.water || b.portal || b.sign) return null;
+  const size = [0, 1, 2].map((k) => Math.max(1, b.hi[k] - b.lo[k])), v = blockVerts(b);
+  if (v) return v.map((f) => f.map((x, k) => (x - 0.5) * size[k]));
+  const s = blockShape(b), o = blockOptions(b);
+  if (ROUND_SHAPES.includes(s) && o.hollow > 0 && o.hollow < Math.min(size[0], size[1]) / 2) return null;
+  return [...new Map(faces(s, size, b).flatMap((f) => f.pts).map((q) => [q.map((x) => Math.round(x * 1000) / 1000).join(), q])).values()];
+}
+
 function faces(shape, size, b = {}) {
   const [hx, hy, hz] = size.map((v) => v / 2);
+  const own = blockVerts(b);
+  if (own) return hullFaces(own.map((f) => f.map((x, k) => (x - 0.5) * size[k])));
   const o = blockOptions(b);
   if (shape === 'cone' || shape === 'sphere' || shape === 'dome' || (shape === 'cylinder' && (o.hollow > 0 && o.hollow < Math.min(hx, hy)))) return roundFaces(shape, size, o);
   if (shape === 'wedge') return [

@@ -14,7 +14,7 @@ import settings
 from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
-VERSION = 15               # 2: the Character Creator's classes (UCCustom*) of the mod; 3: lights; 4: map links; 5: texts; 6: computers
+VERSION = 15               # 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
                           # 14: timers (UCTimer) 15: effect points (UCEffectPoint)
                           # 7: patrol points (8: their animation) 9: sounds 10: sound effects, door sounds
 
@@ -23,7 +23,7 @@ VERSION = 15               # 2: the Character Creator's classes (UCCustom*) of t
 #        options (specialOptions of a computer) emails / bulletins (edits['texts'], made into map texts by comptexts.py)
 #        attitude(InitialAlliances entry for the Player) inventory(InitialInventory items)
 #        byte (0-255, a slider) lightcolor (LightHue with a colour picker that also sets LightSaturation)
-#        anim (an animation of the characters that use it: PatrolAnim, made real by the mod's UCAnimSet)
+#        anim (an animation of the characters that use it: PatrolAnim, made real by the editor's UCAnimSet)
 #        sound (a sound of the game, chosen and heard in the sound picker: editor/sounds.py)
 ORDERS = ['Standing', 'Wandering', 'Patrolling', 'Sitting', 'Dancing', 'Idle', 'Following']
 HIDE = {'UCTriggerBox': ('CollisionRadius', 'CollisionHeight', 'TriggerType')}
@@ -325,9 +325,65 @@ def commands(edits):
                 if base(key) in raw_strings and len(value) >= 2 and value[0] == value[-1] == '"':
                     value = value[1:-1]
                 cmds.append('UC_PROP %s %s %s' % (name, key, value))
-    return cmds
+    return cmds + raw_commands(edits)
 
 
 def report(edits):
     return ['  EDIT %s: %s' % (name, ', '.join('%s=%s' % kv for kv in sorted(props.items())))
-            for name, props in sorted((edits.get('props') or {}).items()) if props and name not in (edits.get('deleted') or {})]
+            for name, props in sorted((edits.get('props') or {}).items()) if props and name not in (edits.get('deleted') or {})] + \
+        ['  EDIT %s (All properties): %s' % (name, ', '.join('%s=%s' % kv for kv in sorted(props.items())))
+         for name, props in sorted((edits.get('rawprops') or {}).items()) if props and name not in (edits.get('deleted') or {})]
+
+
+# ---------------------------------------------------------------- All properties (the Inspector's last section)
+# Every property UnrealEd's Properties window shows for a class (host UC_CLASSPROPS), read once per class and kept
+# in cache/_palette/classprops. Edits: edits['rawprops'] = {actor: {property or property(index): value as UnrealEd
+# text}}, applied after the Properties panel's own (so they win), with the same UC_PROP.
+CLASSPROPS = CACHE.parent / 'classprops'
+CLASSPROPS_VERSION = 1
+RAW_KEY = re.compile(r'[A-Za-z_]\w{0,63}(\(\d{1,2}\))?')
+
+
+def class_props(cls, log=print):
+    """{'cls', 'props': [{name, index, type, group, default}], 'enums': {name: [values]}} of an actor class."""
+    if not re.fullmatch(r'\w{1,127}', cls or ''):
+        raise ValueError('Invalid class name.')
+    path = CLASSPROPS / (cls + '.json')
+    if path.exists():
+        d = json.loads(path.read_text(encoding='utf-8'))
+        if d.get('version') == CLASSPROPS_VERSION:
+            return d
+    s = kit.Session([], 'editor-classprops')
+    try:
+        weather = ['OBJ LOAD FILE="Precipitation.u"'] if 'weather' in settings.FEATURES else []
+        s.batch(['OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + ['OBJ LOAD FILE="%s"' % p for p in settings.GAME_LOADS]
+                + weather + [r'UC_CLASSPROPS ..\Output\classprops.jsonl %s' % cls])
+        rows = kit.rows(s.folder / 'Output' / 'classprops.jsonl')
+    finally:
+        s.close()
+    props, enums = [], {}
+    for row in rows:
+        if row['kind'] == 'enum':
+            enums[row['property']] = row['values']
+        else:
+            props.append(dict(name=row['name'], index=row['index'], type=row['type'], group=row['category'],
+                              default=row['default']))
+    if not props:
+        raise ValueError('The game does not know the class %s (or it has nothing to set).' % cls)
+    d = dict(version=CLASSPROPS_VERSION, cls=cls, props=props, enums=enums)
+    CLASSPROPS.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(d), encoding='utf-8')
+    return d
+
+
+def raw_commands(edits):
+    """UC_PROP for every property set in All properties (one line each, no line breaks in a value)."""
+    cmds = []
+    for name, props in sorted((edits.get('rawprops') or {}).items()):
+        if name in (edits.get('deleted') or {}) or not re.fullmatch(r'\w+', name) or not isinstance(props, dict):
+            continue
+        for key, value in sorted(props.items()):
+            value = str(value).replace('\r', ' ').replace('\n', ' ').strip()
+            if RAW_KEY.fullmatch(key) and value and len(value) <= 2000:
+                cmds.append('UC_PROP %s %s %s' % (name, key, value))
+    return cmds
