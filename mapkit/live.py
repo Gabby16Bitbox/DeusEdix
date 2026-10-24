@@ -68,6 +68,23 @@ def running():
     return bool(_session().processes.list())
 
 
+# the folders DeusEdix makes in the game for itself (workspace.GAME_FOLDERS): the only ones Play removes a save from
+OWN_GAME_FOLDERS = ('DeusEdixProjects', 'DeusEdixMaps', 'DeusEdixMods')
+
+
+def _own_saved_state(map_name):
+    """The saved state of `map_name` that Play removes so that the map opens as built (Save\\Current\\<map>.dxs),
+    or None. Only a managed project's game saves into a folder of DeusEdix's (MAPS_DIR\\Save, its SavePath while
+    it is active: project_game.activate); any other workspace's game saves into the player's own Save folder,
+    whose Current is their game in progress: never touched (24 Oct 2026)."""
+    if not getattr(settings, 'MANAGED_PROJECT', False):
+        return None
+    path = (settings.MAPS_DIR / 'Save' / 'Current' / (map_name + '.dxs')).resolve()
+    if not any(path.is_relative_to((REV / name).resolve()) for name in OWN_GAME_FOLDERS):
+        return None
+    return path
+
+
 def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='external'):
     snapshot = {}
 
@@ -90,8 +107,9 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
         STATE.update(seq=0, command_written=False, maps=set())
         if live_mode:
             _write_cmd([])
-        save_root = settings.MAPS_DIR / 'Save' if getattr(settings, 'MANAGED_PROJECT', False) else REV / 'Save'
-        (save_root / 'Current' / (map_name + '.dxs')).unlink(missing_ok=True)
+        stale = _own_saved_state(map_name)
+        if stale is not None:
+            stale.unlink(missing_ok=True)
 
     def dispatch(token):
         url = launch + MUTATOR + '?DeusEdixSession=' + token
