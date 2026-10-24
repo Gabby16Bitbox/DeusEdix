@@ -50,6 +50,8 @@ import { createVertexEditor } from './vertex-edit.js';
 import { createShapeEditor } from './shape-editor.js';
 import { createMeasure } from './measure.js';
 import { split as splitPoints, intersect as intersectPoints, subtract as subtractPoints } from './brush-ops.js';
+import { mirrorPoint, mirrorBlock, mirrorDrawing, mirrorMotion, faceMirrored } from './mirror.js';
+import { VIEW_MODES, createViewModes } from './view-modes.js';
 import { createSceneTextures } from './scene-textures.js';
 
 import { withPublishedLayout, exerciseOnly } from './published-layout.js';
@@ -600,6 +602,7 @@ async function loadGeometry(url, structs) {
     if (!(grp.flags & (PF.translucent | PF.modulated))) worldMeshes.push(mesh);
   }
   surfaceTools.load(g.faces || [], faceMeshes);
+  viewModes.reset();                        // Wireframe, BSP cuts, Zones: of the geometry just loaded
 }
 
 // ---------------------------------------------------------------- lighting of the view: Unlit / Shaded / Lit
@@ -680,8 +683,8 @@ function setMeshLight(mesh, tint) {
 }
 // Holes are cut by the engine at Rebuild (a subtract brush). Until then the 3D view hides the walls, floors and
 // ceilings inside every hole block, live while it is moved or resized (Gabby, 17 Oct 2026: "how can I see the
-// hole?"). Only the map's surfaces (not the objects): a copy of their material that drops the pixels inside the
-// holes' boxes. The faces of the hole's sides come with the rebuild; they lie on the box, which is not cut.
+// hole?"). Only the map's surfaces and what is drawn (not the objects): a copy of their material that drops the
+// pixels inside the holes' boxes. The faces of the hole's sides come with the rebuild; they lie on the box, which is not cut.
 const HOLE_MAX = 16;
 const HOLE = { n: { value: 0 }, min: { value: Array.from({ length: HOLE_MAX }, () => new THREE.Vector3()) },
   max: { value: Array.from({ length: HOLE_MAX }, () => new THREE.Vector3()) } };
@@ -725,6 +728,10 @@ function updateHoleCut() {
   const changed = (n > 0) !== (HOLE.n.value > 0);
   HOLE.n.value = n;
   if (changed) applyLighting();                     // the map's surfaces take (or leave) their cutting copies
+  // the holes cut what is drawn too (editor/drawn.py): its outline shows them before the Rebuild, also once redrawn
+  if (n) for (const p of proxies.children) {
+    if (p.userData.kind === 'drawn') p.traverse((o) => { if (o.isMesh && !derivedSet.has(o.material)) o.material = holeCutMaterial(o.material); });
+  }
 }
 // the light on every vertex of an object part, as the engine does it: the ambient of the object, plus
 // each light that sees the object's centre, with its falloff, its angle on the vertex's normal (smooth
@@ -833,7 +840,25 @@ function applyLighting() {
   const gain = $('#lightgain');
   if (gain) { gain.style.display = lightMode === 'lit' ? '' : 'none'; gain.value = lightGain; }
 }
+// UnrealEd's views of the map (view-modes.js) are in the lighting's menu, as in UnrealEd's list of view modes; the
+// lighting chosen before comes back with the textured world
+const viewModes = createViewModes(THREE, {
+  load: () => api('/api/views?script=' + encodeURIComponent(script)),
+  place: (name) => {
+    if (!name) return { holder: world, center: [0, 0, 0], turn: null };
+    const st = structures[name];
+    return st?.built ? { holder: st.obj, center: st.center, turn: rotations.pose(st.placement).invert() } : null;
+  },
+  worldMeshes: () => { const out = []; world.traverse((o) => { if (o.isMesh && (o.userData.world || o.userData.sky)) out.push(o); }); return out; },
+});
+function setViewMode(mode) {
+  viewModes.set(mode).catch((e) => status('View: ' + e.message, 'warn'));
+  vpBar?.refresh();
+  if (mode) status(`${mapName}: ${VIEW_MODES.find(([k]) => k === mode)[1]} of the last rebuild`, 'ok');
+}
 function setLightMode(mode) {
+  if (VIEW_MODES.some(([k]) => k === mode)) return setViewMode(mode);
+  if (viewModes.mode) setViewMode(null);
   lightMode = mode;
   try { localStorage.setItem('ucmap.light', mode); } catch (e) { /* no storage */ }
   applyLighting();
@@ -3521,6 +3546,13 @@ function clipboardItem(p) {
     props: { ...(/Light$/.test(a.cls) ? lightProps(a) : {}), ...original.props, ...edits.props?.[a.name] }, state,
     exportActor: d.source === 'map' ? a.name : null });
 }
+// a map object's properties as the map has them (the server reads them from the last build)
+async function withMapProps(it, sourceScript) {
+  if (!it.exportActor) return;
+  const base = await api('/api/copy?script=' + encodeURIComponent(sourceScript), { actor: it.exportActor });
+  it.props = { ...base.props, ...it.props };
+  delete it.exportActor;
+}
 function copySelected() {
   const seq = ++clipboardSequence, sourceScript = script, generation = mapGeneration;
   const storageKey = projectStorageKey('clipboard', projectContext);
@@ -3535,11 +3567,7 @@ function copySelected() {
       const anchor = items.reduce((c, it) => c.map((v, i) => v + it.loc[i] / items.length), [0, 0, 0]);
       busy('Copying...');
       for (const it of items) {
-        if (it.exportActor) {
-          const base = await api('/api/copy?script=' + encodeURIComponent(sourceScript), { actor: it.exportActor });
-          it.props = { ...base.props, ...it.props };
-          delete it.exportActor;
-        }
+        await withMapProps(it, sourceScript);
         if (it.exportName) {
           // Optional portable fallback. Local copy/paste never depends on a
           // Rebuild and never substitutes stale, baked geometry for a live pose.
@@ -3688,6 +3716,74 @@ function pasteLegacyClipboard() {
   }
 }
 $('#paste').onclick = pasteClipboard;
+
+// ---------------------------------------------------------------- UnrealEd's clipboard (T3D text)
+// Edit > Copy as T3D: the selection on the system clipboard as UnrealEd's Edit > Paste takes it (and copied for the
+// editor too, so Ctrl+V here still pastes it whole). What UnrealEd's Edit > Copy put there comes in with Edit > Paste
+// T3D or Ctrl+V: brushes as blocks, actors as objects, at their places in its map (editor/t3d_clipboard.py).
+const isT3D = (text) => /^\s*Begin (Map|Actor)\b/.test(text || '');
+let lastT3D = null;                       // the T3D this editor put on the clipboard: Ctrl+V pastes its own copy
+async function copyAsT3D() {
+  const all = selected === groupPivot ? members() : selected ? [selected] : [];
+  if (!all.length) { status('Copy as T3D: select what to copy first.', 'warn'); return; }
+  if (!await copySelected()) return;
+  busy('Copying as T3D...');
+  try {
+    const items = all.map(clipboardItem);
+    for (const it of items) await withMapProps(it, script);
+    // drawings go across as the build makes them: cut by the holes of the map
+    const out = await api('/api/t3d_export', { items, holes: edits.boxes.filter((b) => b.hole) });
+    if (out.skipped.length) log(out.skipped.map((s) => 'Copy as T3D: ' + s), 'warn');
+    if (!out.text) { status('Nothing to copy as T3D (see Messages).', 'warn'); return; }
+    await navigator.clipboard.writeText(out.text);
+    lastT3D = out.text;
+    status(`Copied as T3D: Edit > Paste in UnrealEd puts it at the same place.${out.skipped.length ? ' Some things were left out (see Messages).' : ''}`, 'ok');
+  } catch (e) { status('Copy as T3D failed: ' + e.message, 'warn'); } finally { busy(''); }
+}
+async function pasteT3D(text) {
+  if (!script || gameView?.active) return;
+  if (text === undefined) {
+    try { text = await navigator.clipboard.readText(); }
+    catch (e) { status('Paste T3D: the clipboard cannot be read from the menu here; press Ctrl+V instead.', 'warn'); return; }
+  }
+  let got;
+  try { got = await api('/api/t3d_import', { text }); } catch (e) { status('Paste T3D: ' + e.message, 'warn'); return; }
+  const left = [...got.skipped, ...got.notes];
+  if (left.length) log(left.map((s) => 'Paste T3D: ' + s), 'warn');
+  if (!got.boxes.length && !got.added.length) { status('Nothing pasted from the T3D (see Messages).', 'warn'); return; }
+  const news = [];
+  pushUndo();
+  for (const b of got.boxes) { b.name = nextName('UCEditBox'); edits.boxes.push(b); news.push('b:' + b.name); }
+  for (const a of got.added) {
+    const e = { name: nextName('UCEdit'), cls: a.cls, loc: a.loc, rot: a.rot, props: a.props, kind: addedKind(a.cls),
+      radius: +a.props.CollisionRadius || 16, height: +a.props.CollisionHeight || 16 };
+    edits.added.push(e); news.push('a:' + e.name);
+  }
+  setDirty(); rebuildProxies(); selectKeys(news);
+  status(`Pasted ${news.length} from the T3D, at their places in UnrealEd's map.${got.skipped.length ? ` ${got.skipped.length} left out (see Messages).` : ''} Rebuild builds the blocks.`, 'ok');
+}
+// Ctrl+C and Ctrl+V go through the browser's copy and paste events, which reach the system clipboard without asking
+// for permission: Ctrl+C leaves a line there (so that older T3D is not pasted in its place), Ctrl+V pastes T3D copied
+// in UnrealEd, else the editor's own copy. If the event does not come, the keys work on the editor's copy alone.
+let clipboardKey = null;
+function expectClipboardEvent(kind, fallback) {
+  clipboardKey = kind;
+  setTimeout(() => { if (clipboardKey === kind) { clipboardKey = null; fallback(); } });
+}
+document.addEventListener('copy', (e) => {
+  if (clipboardKey !== 'copy') return;
+  clipboardKey = null;
+  e.preventDefault();
+  if (selected) e.clipboardData.setData('text/plain', 'DeusEdix: copied in the map editor (Edit > Copy as T3D copies for UnrealEd)');
+  copySelected();
+});
+document.addEventListener('paste', (e) => {
+  if (clipboardKey !== 'paste') return;
+  clipboardKey = null;
+  e.preventDefault();
+  const text = e.clipboardData.getData('text/plain');
+  if (isT3D(text) && text !== lastT3D) pasteT3D(text); else pasteClipboard();
+});
 
 // ---------------------------------------------------------------- Play from here
 // The game opens on the installed map with JC standing on the floor below the camera, looking where
@@ -5437,6 +5533,64 @@ function cutBlocks(keepInside) {
   }
   if (keepInside && !pieces.length) { status('Intersect: the blocks do not overlap.', 'warn'); return; }
   replaceBlocks(olds, pieces, keepInside ? 'Intersect' : 'Deintersect');
+}
+// ---------------------------------------------------------------- Order: to first / to last (UnrealEd's Order menu)
+// The blocks are built in the order of edits.boxes, as UnrealEd builds its brushes: a hole cuts the solid blocks
+// before it, a solid block fills the holes before it. (Detail blocks are added after every hole, as UnrealEd adds
+// semisolid brushes: a hole never cuts them, whatever the order.)
+function buildOrder(b) {
+  return { at: edits.boxes.indexOf(b) + 1, of: edits.boxes.length };
+}
+function orderBlocks(first) {
+  const picked = (selected === groupPivot ? members() : selected ? [selected] : []).filter((p) => p.userData.kind === 'box');
+  if (!picked.length) { status(`Order: select a block or a hole first.`, 'warn'); return; }
+  if (picked.some((p) => !requireUnlocked(p))) return;
+  const names = new Set(picked.map((p) => p.userData.box.name));
+  const moved = edits.boxes.filter((b) => names.has(b.name)), rest = edits.boxes.filter((b) => !names.has(b.name));
+  pushUndo();
+  edits.boxes = first ? [...moved, ...rest] : [...rest, ...moved];
+  setDirty();
+  showDetails();
+  status(`Order: ${moved.length === 1 ? moved[0].name + ' is' : moved.length + ' blocks are'} built ${first ? 'first' : 'last'} now. Rebuild applies it.`, 'ok');
+}
+// ---------------------------------------------------------------- Mirror X / Y / Z (UnrealEd's Transform > Mirror)
+// The selection mirrored about its middle (where the gizmo is) along one of the game's axes (mirror.js): blocks and
+// drawings take their mirror image, objects face the mirrored way (a model is never drawn mirrored), pieces of the
+// map move to their mirrored place as they are (their shape is the map's own). Their animations go with them.
+function mirrorSelection(axis) {
+  const picked = (selected === groupPivot ? members() : selected ? [selected] : []).filter(Boolean);
+  if (!picked.length) { status('Mirror: select what to mirror first.', 'warn'); return; }
+  if (picked.some((p) => !requireUnlocked(p))) return;
+  const carried = new Set(picked.filter(isStruct).map((p) => p.userData.name));      // they carry their own objects
+  const list = picked.filter((p) => !(p.userData.actor && p.userData.source === 'map' && carried.has(actorStruct[p.userData.actor.name])));
+  // a drawing stands on its floor: mirrored on Z it would hang under it
+  const flat = axis === 2 ? list.filter((p) => p.userData.kind === 'drawn') : [];
+  const todo = list.filter((p) => !flat.includes(p));
+  if (!todo.length) { status('Mirror Z: a drawing stands on its floor, mirror it on X or Y.', 'warn'); return; }
+  const about = UE(selected.position), single = selected === groupPivot ? null : selected.userData;
+  pushUndo();
+  for (const p of todo) {
+    const d = p.userData, name = d.box?.name || d.actor?.name;
+    if (d.kind === 'box') Object.assign(d.box, mirrorBlock(d.box, axis, about));
+    else if (d.kind === 'drawn') Object.assign(d.drawn, mirrorDrawing(d.drawn, axis, about));
+    else if (isStruct(p)) {
+      const ms = beginStructMove(p);
+      p.position.copy(T(mirrorPoint(UE(p.position), axis, about)));
+      followStructure(ms);
+      commitStructure(ms, true);
+    } else if (d.actor) {
+      p.position.copy(T(mirrorPoint(UE(p.position), axis, about)));
+      setObjectRotation(p, faceMirrored(objectRotation(p), axis));
+      commit(p);
+    }
+    if (name && edits.motions?.[name]) edits.motions[name] = mirrorMotion(edits.motions[name], axis, d.kind === 'box');
+  }
+  rebuildProxies();                      // blocks and drawings shown from their new numbers, the selection kept
+  if (single?.drawn) select(proxies.children.find((q) => q.userData.drawn === single.drawn) || null);
+  setDirty();
+  showDetails();
+  const left = flat.length ? ` ${flat.length} drawing${flat.length === 1 ? ' stays' : 's stay'} as before (mirror drawings on X or Y).` : '';
+  status(`Mirror ${'XYZ'[axis]}: ${todo.length === 1 ? 'mirrored' : todo.length + ' things mirrored'} about the middle of the selection.${left} Ctrl+Z undoes.`, 'ok');
 }
 function armClip() {
   if (!selectedBlocks().length) { status('Clip: select a block first (water, portals, moving blocks, signs and hollow shapes cannot be cut).', 'warn'); return; }
@@ -8259,7 +8413,7 @@ function lkActText(x) {
   const s = lkActText1(x);
   if (!x.targetTag) return s;
   const t = `objects tagged ${x.targetTag} `;
-  return s.startsWith(t) ? t + s.slice(t.length).replace(/^(\w+?)(?:(?<=(?:sh|ch|x|ss))es|s)/, '$1') : s;
+  return s.startsWith(t) ? t + s.slice(t.length).replace(/^(\w+?)(?:(?<=(?:sh|ch|x|ss))es|s)\b/, '$1') : s;
 }
 function lkActText1(x) {
   if (x.area) return `${lkVerbLabel(x.verb, x.area.kind).toLowerCase()}: ${x.area.members.length} saved ${x.area.kind === 'character' ? 'characters' : x.area.kind === 'light' ? 'lights' : 'objects'}${x.area.dynamic ? ` + newcomers within ${x.area.radius} units` : ''}`;
@@ -9551,6 +9705,7 @@ function showDetails(live) {
         <option value="hole" ${b.hole && !b.water ? 'selected' : ''}>Hole</option>
         <option value="mover" ${b.mover ? 'selected' : ''}>Moving block</option>
         <option value="water" ${b.water ? 'selected' : ''}>Water</option><option value="portal" ${b.portal ? 'selected' : ''}>Zone portal</option></select></div>
+      ${(() => { const o = buildOrder(b); return `<div class="row"><label title="Blocks are built in this order, as UnrealEd builds its brushes: a hole cuts the solid blocks built before it, a solid block fills the holes before it">Build order</label><span class="hint" style="margin:0 6px 0 0">${o.at} of ${o.of}</span><button id="bfirst" ${o.at === 1 ? 'disabled' : ''}>To first</button><button id="blast" ${o.at === o.of ? 'disabled' : ''}>To last</button></div>`; })()}
       ${b.water ? `<div class="row"><label>Liquid</label><select id="bliquid" style="flex:1;min-width:0">${Object.entries(LIQUIDS).map(([k, l]) => `<option value="${k}" ${k === (b.water.kind || 'water') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="row"><label title="Units under the top of the block">Surface</label><input type="number" id="bbelow" value="${b.water.below ?? 16}" step="4" style="width:70px"><span class="hint" style="margin:0">under the top</span></div>
         <div class="row"><label style="width:auto" title="Off: the water fills a basin the map already has (its block shows where)"><input type="checkbox" id="bcarve" ${b.hole ? 'checked' : ''}> cut a pool into the floor</label></div>
@@ -9559,7 +9714,7 @@ function showDetails(live) {
       ${b.portal ? '<div class="hint" style="margin:0 0 4px">An invisible sheet that separates two zones (a doorway, a corridor). Close a room with portals in all its openings, then put a Zone of Objects &gt; Zones inside it: its light, fog, sound, damage and gravity are only there. Messages say after Rebuild if a zone leaks.</div>' : ''}
       ${b.hole && !b.water ? `<div class="row"><label style="width:auto" title="Its top shows the sky (the map gets a sky box if it has none)"><input type="checkbox" id="bsky" ${b.sky ? 'checked' : ''}> open to the sky</label>
         ${b.sky ? `<select id="bskyp" style="flex:1;min-width:0" title="The sky of the map (when it has no sky of its own); Map > Sky &amp; time of day makes one of yours">${(edits.level || {}).skyLook ? `<option value="mine" ${(edits.level || {}).sky === 'mine' ? 'selected' : ''}>Your sky (Map &gt; Sky &amp; time of day)</option>` : ''}${Object.entries(SKIES).map(([k, l]) => `<option value="${k}" ${k === ((edits.level || {}).sky || 'hongkong') ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>` : ''}
-      ${b.hole ? '<div class="hint" style="margin:0 0 4px">A hole cuts the walls, floors and ceilings it touches at Rebuild; its sides take its texture. To make a room, a hole the size of the room next to an existing one, then a doorway between them.</div>' : ''}
+      ${b.hole ? '<div class="hint" style="margin:0 0 4px">A hole cuts the walls, floors and ceilings it touches at Rebuild: those of the map, the solid blocks built before it (Build order) and what is drawn (Tools &gt; Draw); detail blocks stay whole, as in UnrealEd. Its sides take its texture. To make a room, a hole the size of the room next to an existing one, then a doorway between them.</div>' : ''}
       ${b.hole && Math.min(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1]) >= 160 && b.hi[2] - b.lo[2] >= 128 ? '<div class="row"><button id="blight" title="A new room is dark: a light in the middle, under its ceiling, as wide as the room">Light it</button><span class="hint" style="margin:0">a room made by a hole is dark until it has a light</span></div>' : ''}
       <datalist id="texlist">${texList.map((t) => `<option value="${t}">`).join('')}</datalist></div></details>`;
     if (b.sign) {
@@ -9700,6 +9855,8 @@ function showDetails(live) {
   // a block's menus apply at once too (Kind, Liquid, Sky were only read when a number changed)
   for (const id of ['#bshape', '#bkind', '#bliquid', '#bskyp']) if ($(id)) $(id).addEventListener('change', apply);
   if ($('#bverts')) $('#bverts').onclick = () => vertexEdit?.enter(p);
+  if ($('#bfirst')) $('#bfirst').onclick = () => orderBlocks(true);
+  if ($('#blast')) $('#blast').onclick = () => orderBlocks(false);
   if ($('#bvreset')) $('#bvreset').onclick = () => vertexEdit?.reset(p);
   if (d.kind === 'box' && d.box.sign) {
     // the sign's text, style and size: drawn again and imported again (the back stays on its wall)
@@ -9969,8 +10126,8 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && k === 'z') { e.preventDefault(); if (undo.length) { redoStack.push(JSON.stringify(edits)); edits = JSON.parse(undo.pop()); afterHistory(); } return; }
   if (e.ctrlKey && k === 'g') { e.preventDefault(); if (e.shiftKey) unnestSelection(); else nestSelection(); return; }
   if (e.ctrlKey && k === 'd') { e.preventDefault(); duplicateSelected(); return; }
-  if (e.ctrlKey && k === 'c') { e.preventDefault(); copySelected(); return; }
-  if (e.ctrlKey && k === 'v') { e.preventDefault(); pasteClipboard(); return; }
+  if (e.ctrlKey && k === 'c') { expectClipboardEvent('copy', copySelected); return; }
+  if (e.ctrlKey && k === 'v') { expectClipboardEvent('paste', pasteClipboard); return; }
   if (placing && placing.draw && drawTools.key(e.key)) { e.preventDefault(); return; }   // stairs, roof: [ ] , .
   // R while placing an object: a quarter turn more (it keeps the turn for the next ones of the same kind)
   if (k === 'r' && !e.ctrlKey && placing && !placing.draw && !placing.route && !placing.box && !placing.hole) {
@@ -10048,7 +10205,7 @@ vertexEdit = createVertexEditor({
   },
 });
 vpBar = createViewportToolbar({
-  getLightMode: () => lightMode, setLightMode,
+  getLightMode: () => viewModes.mode || lightMode, setLightMode,
   getMode: () => tc.mode, setMode: (m) => setMode(m),
   getSnap: () => snap, setSnap: (on) => { snap = on; applySnap(); status('grid snap ' + (snap ? 'on' : 'off')); },
   getSteps: () => SNAP,
@@ -10089,6 +10246,12 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   get vertexEdit() { return vertexEdit; },
   get shapeEditor() { return shapeEditor; },
   armClip: () => armClip(), intersectBlocks: () => cutBlocks(true), deintersectBlocks: () => cutBlocks(false),
+  orderBlocks: (first) => orderBlocks(first),
+  mirrorSelection: (axis) => mirrorSelection(axis),
+  copyAsT3D: () => copyAsT3D(),
+  setViewMode: (mode) => setViewMode(mode),
+  get viewMode() { return viewModes.mode; },
+  pasteT3D: () => pasteT3D(),
   selectAllOfClass: () => selectAllOfClass(selected?.userData?.actor?.cls),
   get measure() { return measure; }, keepView, goToView,
   modelImport: { readModelFiles, modelPayload, bakeClips, isAnimatedRoot, clipFrames, skinSpread, simplifyModel, modelTris, modelParts },   // for tests: Import model's steps

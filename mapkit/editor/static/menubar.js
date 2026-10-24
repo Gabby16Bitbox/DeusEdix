@@ -128,8 +128,10 @@ function themes() {
     label, checked: () => ($('#uitheme') || {}).value === v,
     run: () => { const t = $('#uitheme'); if (t) { t.value = v; t.dispatchEvent(new Event('change')); } } }));
 }
-const lightItem = (mode, label) => ({ label, checked: () => ($('#lightmode') || {}).value === mode,
+const lightItem = (mode, label) => ({ label, checked: () => !ed()?.viewMode && ($('#lightmode') || {}).value === mode,
   run: () => { const s = $('#lightmode'); s.value = mode; s.dispatchEvent(new Event('change')); } });
+// UnrealEd's views of the map (view-modes.js): the lighting items bring the textured world back
+const viewItem = (mode, label) => ({ label, map: true, checked: () => ed()?.viewMode === mode, run: () => ed()?.setViewMode(mode) });
 const MENUS = [
   ['File', [
     { label: 'Projects...', run: () => window.__projects?.show() },
@@ -156,6 +158,9 @@ const MENUS = [
     sep,
     { label: 'Copy', key: 'copy', run: () => press('copy') },
     { label: 'Paste', key: 'paste', run: () => press('paste') },
+    // UnrealEd's clipboard: T3D text both ways (Ctrl+V also takes T3D copied in UnrealEd)
+    { label: 'Copy as T3D (UnrealEd)', map: true, run: () => ed()?.copyAsT3D() },
+    { label: 'Paste T3D (UnrealEd)', map: true, run: () => ed()?.pasteT3D() },
     { label: 'Duplicate', key: 'duplicate', run: () => press('duplicate') },
     { label: 'Delete', key: 'delete', run: () => press('delete') },
     sep,
@@ -172,6 +177,13 @@ const MENUS = [
     { label: 'Clip block', map: true, run: () => ed()?.armClip() },
     { label: 'Intersect blocks', map: true, run: () => ed()?.intersectBlocks() },
     { label: 'Deintersect blocks', map: true, run: () => ed()?.deintersectBlocks() },
+    // UnrealEd's Order: the blocks are built in their order (a hole cuts the solid blocks before it)
+    { label: 'Order: to first', map: true, run: () => ed()?.orderBlocks(true) },
+    { label: 'Order: to last', map: true, run: () => ed()?.orderBlocks(false) },
+    // UnrealEd's Transform > Mirror, about the middle of the selection (mirror.js)
+    { label: 'Mirror X', map: true, run: () => ed()?.mirrorSelection(0) },
+    { label: 'Mirror Y', map: true, run: () => ed()?.mirrorSelection(1) },
+    { label: 'Mirror Z', map: true, run: () => ed()?.mirrorSelection(2) },
     { label: 'Grid snap', key: 'snap', run: () => press('snap') },
     // Drop to floor / Stick to surface: the one checked is what End (and the Drop button) does
     { label: 'Drop to floor', get key() { return ed()?.placeMode === 'stick' ? '' : 'drop'; }, checked: () => ed()?.placeMode !== 'stick', run: () => ed()?.placeSelected('drop') },
@@ -181,6 +193,7 @@ const MENUS = [
   ]],
   ['View', [
     lightItem('shaded', 'Shaded'), lightItem('lit', 'Game lighting'), lightItem('unlit', 'Unlit'),
+    viewItem('wire', 'Wireframe'), viewItem('cuts', 'BSP cuts'), viewItem('zones', 'Zones'),
     { label: 'Next lighting', key: 'light', run: () => press('light') },
     sep,
     { label: 'AI paths', key: 'paths', checked: () => !!document.getElementById('pathsbtn')?.classList.contains('on'), run: click('pathsbtn') },

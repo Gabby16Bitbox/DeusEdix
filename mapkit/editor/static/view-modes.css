@@ -1,0 +1,8 @@
+/* View > Zones (view-modes.js): the zones' colours and names, in the 3D view's bottom left corner */
+#zone-legend { position:fixed; left:calc(var(--lw, 0px) + 12px); bottom:calc(var(--bh, 0px) + 12px); z-index:4; max-height:40vh;
+  overflow:auto; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:6px;
+  font-size:12px; color:var(--text); max-width:280px; }
+#zone-legend b { display:block; margin-bottom:4px; color:var(--heading); font-weight:600; }
+#zone-legend div { display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#zone-legend span { flex:none; width:12px; height:12px; border-radius:2px; }
+body.no-map #zone-legend { display:none; }

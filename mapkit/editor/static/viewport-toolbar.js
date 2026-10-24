@@ -79,9 +79,10 @@ export function createViewportToolbar(api) {
     <button data-vp="icons" title="Icons of lights, AI paths and logic points" aria-label="Icons">${icon('icons')}</button>
     <span class="vp-menu" data-combo="nav"><button data-vp="nav" aria-haspopup="true" aria-label="Navigation"
       title="Navigation: AI paths (the nodes' network) and the walkable area, each shown or hidden; Test route; Fill AI paths">${icon('nav')}</button></span>
-    <span class="vp-shading"><select class="vp-lighting" data-vp="lighting" aria-label="View shading"
-      title="View shading (L): Shaded = editor lights; Lit = game lighting from the last rebuild; Unlit = textures without lighting">
-      <option value="shaded">Shaded</option><option value="lit">Lit</option><option value="unlit">Unlit</option></select></span>`;
+    <span class="vp-shading"><select class="vp-lighting" data-vp="lighting" aria-label="View: lighting, or an UnrealEd view"
+      title="View (L: the lighting): Shaded = editor lights; Lit = game lighting from the last rebuild; Unlit = textures without lighting; UnrealEd's Wireframe, BSP cuts and Zones of the last rebuild">
+      <option value="shaded">Shaded</option><option value="lit">Lit</option><option value="unlit">Unlit</option>
+      <optgroup label="UnrealEd views"><option value="wire">Wireframe</option><option value="cuts">BSP cuts</option><option value="zones">Zones</option></optgroup></select></span>`;
   document.body.appendChild(bar);
   // it sits in the 3D view's top left corner, wherever the docked panels put the view, and wraps when narrow
   const view = document.querySelector('#view');
