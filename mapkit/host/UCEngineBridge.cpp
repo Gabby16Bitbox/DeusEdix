@@ -230,30 +230,41 @@ static int patchExport(const char* module, const char* symbol, const unsigned ch
     return 1;
 }
 
-// Revision's WinDrvLite.dll (its window and input driver) stops LIGHT APPLY: the temporary viewport the lighting
-// build opens fails the check(!IsTemporary) of UWindowsViewportLite::OpenWindow. The fix turns the conditional
-// jump over that assertion into an unconditional one, so a temporary viewport opens like any other. It is made in
-// this process's memory only, never in the game's file, and only when the bytes around it are the known build's:
-//   +0x1647E  39 7D 0C            cmp  [ebp+0Ch], edi      the IsTemporary argument
-//   +0x16481  74 18  ->  EB 18    je   -> jmp  +18h        over the assertion
-//   +0x16483  68 E6 00 00 00      push 0E6h                the assertion's failure call begins
-// With another build of the DLL nothing is changed and LIGHT APPLY is refused (runCommand).
-static const DWORD WinDrvLiteCheck = 0x1647E;               // the cmp, from the DLL's base
+// LIGHT APPLY opens a temporary viewport, which Revision's WinDrvLite.dll (its window and input driver) refuses with
+// check(!IsTemporary) in UWindowsViewportLite::OpenWindow. patchTemporaryViewport() lets it open like any other;
+// 0 when the DLL is not the known build, and exec() then refuses LIGHT APPLY.
 static int temporaryViewportReady = 1;
+
+// The known build's code at the check, from the DLL's base.
+static const DWORD AssertionOffset = 0x1647E;
+static const BYTE AssertionCode[] = {
+    0x39, 0x7D, 0x0C,                 // cmp  [ebp+0Ch], edi   is the IsTemporary argument false?
+    0x74, 0x18,                       // je   +18h             then jump over the assertion
+    0x68, 0xE6, 0x00, 0x00, 0x00,     // push 0E6h             (the assertion's failure call begins)
+};
+static const int JumpOpcode = 3;      // the je, in AssertionCode
+static const BYTE Je = 0x74, Jmp = 0xEB;
+
 static int patchTemporaryViewport() {
     BYTE* base = (BYTE*)GetModuleHandleA("WinDrvLite.dll");
-    if (!base) return 1;                                     // the original game's WinDrv.dll: nothing to fix
+    // the original game's WinDrv.dll has no such check
+    if (!base) return 1;
     IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
-    static const BYTE before[] = { 0x39, 0x7D, 0x0C }, after[] = { 0x18, 0x68, 0xE6, 0x00, 0x00, 0x00 };
-    const BYTE je = 0x74, jmp = 0xEB;
-    if (nt->OptionalHeader.SizeOfImage < WinDrvLiteCheck + sizeof(before) + 1 + sizeof(after)) return 0;
-    BYTE* jump = base + WinDrvLiteCheck + sizeof(before);
-    if (memcmp(jump - sizeof(before), before, sizeof(before)) || memcmp(jump + 1, after, sizeof(after))) return 0;
-    if (*jump == jmp) return 1;                              // a copy of the DLL fixed on disk (UnrealEd's)
-    if (*jump != je) return 0;
+    if (nt->OptionalHeader.SizeOfImage < AssertionOffset + sizeof(AssertionCode)) return 0;
+    BYTE* code = base + AssertionOffset;
+    BYTE* jump = code + JumpOpcode;
+
+    // Every byte as in the known build, the jump as it ships (je) or already fixed on disk (jmp: UnrealEd's copy).
+    BYTE expected[sizeof(AssertionCode)];
+    memcpy(expected, AssertionCode, sizeof(expected));
+    expected[JumpOpcode] = *jump == Jmp ? Jmp : Je;
+    if (memcmp(code, expected, sizeof(expected))) return 0;
+    if (*jump == Jmp) return 1;
+
+    // je -> jmp, always over the assertion: in this process's memory only, never in the game's file.
     DWORD old;
     if (!VirtualProtect(jump, 1, PAGE_EXECUTE_READWRITE, &old)) return 0;
-    *jump = jmp;
+    *jump = Jmp;
     VirtualProtect(jump, 1, old, &old);
     FlushInstructionCache(GetCurrentProcess(), jump, 1);
     say("UCMapKit|patched|WinDrvLite.dll|temporary lighting viewport (memory only)");
@@ -2252,9 +2263,9 @@ static int start(const UCHostApi* host) {
     temporaryViewportReady = patchTemporaryViewport();
     // Headless, the editor engine's Draw would paint its viewports through UnrealEd's front-end, which is not
     // there (it crashed on the toolbar buttons of LIGHT APPLY's viewport): Draw returns at once.
-    // void __thiscall UEditorEngine::Draw(UViewport*, int, unsigned char*, int*): ret 16, its four arguments
-    static const unsigned char ret16[3] = { 0xC2, 0x10, 0x00 };
-    patchExport("Editor.dll", "?Draw@UEditorEngine@@UAEXPAVUViewport@@HPAEPAH@Z", ret16, 3);
+    // void __thiscall UEditorEngine::Draw(UViewport*, int, unsigned char*, int*)
+    static const unsigned char returnAtOnce[] = { 0xC2, 0x10, 0x00 };     // ret 10h: pops its four arguments
+    patchExport("Editor.dll", "?Draw@UEditorEngine@@UAEXPAVUViewport@@HPAEPAH@Z", returnAtOnce, sizeof(returnAtOnce));
     return 1;
 }
 

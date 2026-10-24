@@ -93,7 +93,7 @@ Two fixes, both made only in the process's own memory, never in a file:
 2. **Revision's `WinDrvLite.dll` accepts temporary viewports.** Its `UWindowsViewportLite::OpenWindow`
    asserts `!IsTemporary`, which stops `LIGHT APPLY`. The fix turns one conditional jump over that
    assertion into an unconditional one, and only when the surrounding bytes are those of the known
-   build. The instructions are listed above `patchTemporaryViewport()`. With another build of the
+   build. The instructions it expects are in `AssertionCode`, one per line. With another build of the
    DLL nothing is changed, and `LIGHT APPLY` is refused with a message.
 
 ## Security
