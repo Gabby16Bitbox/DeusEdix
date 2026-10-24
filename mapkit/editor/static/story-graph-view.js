@@ -1,8 +1,10 @@
 // The Story's Graph view of a dialogue, as articy:draft shows a flow: each step a node (a line in the colour of who
 // speaks, JC's answers with an arrow from each, conditions with Yes and No), the arrows where it goes on. Drag a node
 // to move it, drag from a dot to connect it or, on empty space, to add the next step there; double-click the empty
-// space to add a step on its own. The selected node is edited at the side with the List view's own fields; Play-test
-// runs the dialogue there as the game would (story-sim.js), lighting the node it is at. The model: story-graph.js.
+// space to add a step on its own. A line or an answer is written in the node itself (double-click it: Enter goes on to
+// the next line, Tab changes who says it), each line with the face of who speaks; everything else of the selected
+// node is at the side, with the List view's own fields. Play-test runs the dialogue there as the game would
+// (story-sim.js), lighting the node it is at. The model: story-graph.js.
 import { END, graphOf, ensureIds, connect, connectStart, insertAt, remove } from './story-graph.js';
 import { createPlay, answerConditions, conditionsOf } from './story-sim.js';
 
@@ -32,6 +34,11 @@ const STYLE = `
 .sg-node .h { display:flex; align-items:center; gap:6px; padding:5px 9px 3px; color:#8b93a3; font-size:11px; cursor:move; }
 .sg-node .h b { color:#d9dde5; font-weight:600; font-size:12px; }
 .sg-node .h .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+.sg-node .h .face, .sg-play .face { width:30px; height:30px; flex:none; border-radius:5px; background:#11141a center/cover no-repeat; border:1px solid var(--who, #343a46); }
+.sg-node .h .face.none { display:flex; align-items:center; justify-content:center; font-size:11px; color:#d9dde5; background:#2a303b; }
+.sg-node .h .who { cursor:pointer; } .sg-node .h .who:hover { text-decoration:underline; }
+.sg-node .sg-edit { display:block; width:calc(100% - 18px); margin:0 9px 8px; min-height:40px; resize:none; overflow:hidden; font:inherit; line-height:1.35; color:#fff; background:#11141a; border:1px solid #5aa2ff; border-radius:5px; padding:4px 6px; }
+.sg-node .row .sg-edit { margin:0; width:100%; min-height:22px; }
 .sg-node .h .tag { margin-left:auto; font-size:10px; color:#ffb347; }
 .sg-node .t { padding:0 9px 8px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; }
 .sg-node .t.empty { color:#6c7586; font-style:italic; }
@@ -58,7 +65,8 @@ const STYLE = `
 .sg { container-type:inline-size; }
 @container (max-width:720px) { .sg-main { flex-direction:column; } .sg-canvas { min-height:300px; } .sg-side { width:auto; max-height:46%; border-left:0; border-top:1px solid #2c313b; } }
 .sg-side h5 { margin:2px 0 6px; font-size:12px; color:#8b93a3; text-transform:uppercase; letter-spacing:.05em; }
-.sg-play .say { margin:6px 0; } .sg-play .say b { display:block; color:#ffb347; font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
+.sg-play .say { display:flex; gap:8px; margin:6px 0; } .sg-play .say .face { width:40px; height:40px; }
+.sg-play .say b { display:block; color:#ffb347; font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
 .sg-play .fx { color:#8b93a3; font-style:italic; font-size:11px; margin:3px 0; }
 .sg-play .fin { color:#8b93a3; border-top:1px solid #2c313b; padding-top:6px; margin-top:8px; }
 .sg-play .ans { display:block; width:100%; text-align:left; margin:4px 0; }
@@ -69,9 +77,10 @@ const STYLE = `
 let styled = false;
 
 // dialogue: {steps, owner...}; layout: {node id: [x, y]} (kept in the story, not compiled); speaker(step) ->
-// {name, colour}; summary(step) -> the text of a node that is not a line; inspect(el, index): the List view's fields of
+// {name, colour}; speakers(): [{who, name}] who can say a line; face(step) -> a Promise of the picture of who says it
+// (null: none); summary(step) -> the text of a node that is not a line; inspect(el, index): the List view's fields of
 // step `index` in el; changed(): the story was edited; newStep(type, who): a step of that kind
-export function createGraphView({ host, dialogue: d, layout, speaker, summary, inspect, changed, newStep, menu }) {
+export function createGraphView({ host, dialogue: d, layout, speaker, speakers, face, summary, inspect, changed, newStep, menu }) {
   if (!styled) { const s = document.createElement('style'); s.textContent = STYLE; document.head.appendChild(s); styled = true; }
   host.innerHTML = `<div class="sg"><div class="sg-bar">
       <button data-add="line" title="A line after the selected step (Enter)">+ Line</button>
@@ -84,12 +93,13 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
       <button data-do="fit" title="See the whole dialogue (F)">Fit</button>
       <button data-do="play" class="primary" title="Play the dialogue here, as the game will">▶ Play-test</button></div>
     <div class="sg-main"><div class="sg-canvas" tabindex="0"><div class="sg-world"><svg class="sg-edges" width="1" height="1"></svg></div>
-      <div class="sg-hint">Drag a dot to connect or to add the next step · double-click to add · wheel to zoom · Delete removes</div></div>
+      <div class="sg-hint">Double-click a line to write it (Enter: next line, Tab: who speaks) · drag a dot to connect or add · wheel to zoom</div></div>
       <div class="sg-side"></div></div></div>`;
   const canvas = host.querySelector('.sg-canvas'), world = host.querySelector('.sg-world'), svg = host.querySelector('.sg-edges');
   const side = host.querySelector('.sg-side');
   let view = { x: 40, y: 30, k: 1 }, selected = null, graph = null, playing = null, undo = [], fitted = false;
-  let drag = null, menuEl = null;
+  let drag = null, menuEl = null, writing = null;      // writing: the line or answer being written in its node
+  const faces = new Map();                      // who -> the picture of their face (null: none), once known
   const steps = () => (d.steps = d.steps || []);
   const nodeEl = (id) => world.querySelector(`.sg-node[data-id="${CSS.escape(id)}"]`);
 
@@ -110,7 +120,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     if (kind === 'end') return `<div class="sg-node end${far ? ' far' : ''}" data-id="${esc(n.id)}">${s.type === 'goto' ? 'Continues in ' + esc(s.conversation) : 'End'}</div>`;
     if (kind === 'line') {
       const who = speaker(s);
-      body = `<div class="h"><i class="dot" style="background:${who.colour}"></i><b>${esc(who.name)}</b>${s.voice ? '<span title="Has a recorded voice">🎙</span>' : ''}${warn ? `<span class="tag">${esc(warn)}</span>` : ''}</div>
+      body = `<div class="h">${faceHtml(s, who)}<b class="who" title="Who says it: click to choose">${esc(who.name)}</b>${s.voice ? '<span title="Has a recorded voice">🎙</span>' : ''}${warn ? `<span class="tag">${esc(warn)}</span>` : ''}</div>
         <div class="t${s.text ? '' : ' empty'}">${esc(s.text || 'Double-click to write the line')}</div>${n.outs.map(port).join('')}`;
       return `<div class="sg-node line${far ? ' far' : ''}${warn ? ' warn' : ''}" data-id="${esc(n.id)}" style="--who:${who.colour}">${body}</div>`;
     }
@@ -121,6 +131,18 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     if (kind === 'choice' || n.outs.length > 1) body += n.outs.map((o) => `<div class="row"><span>${esc(o.text || '…')}</span>${port(o)}</div>`).join('');
     else body += n.outs.map(port).join('');
     return `<div class="sg-node ${kind}${far ? ' far' : ''}${warn ? ' warn' : ''}" data-id="${esc(n.id)}">${body}</div>`;
+  }
+  // the face of who says a line: its picture once known (asked for the first time it is drawn), else their initials
+  function faceHtml(s, who) {
+    const key = s.who || 'npc';
+    if (!faces.has(key)) {
+      faces.set(key, null);
+      face(s).then((url) => { if (url) { faces.set(key, url); draw(); } });
+    }
+    const url = faces.get(key);
+    if (url) return `<i class="face" style="background-image:url('${url}')"></i>`;
+    const initials = who.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+    return `<i class="face none">${esc(initials)}</i>`;
   }
   function problemOf(n) {
     const s = n.step;
@@ -158,6 +180,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     return out;
   }
   function draw() {
+    if (writing) return;                         // the node being written keeps its field
     graph = graphOf(steps());
     place();
     const startAt = graph.start && layout[graph.start] ? layout[graph.start] : [0, 70];
@@ -238,7 +261,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     }
     select(id);
     draw();
-    focusText();
+    if (step.type === 'line') write(id); else focusText();
   }
   function addFirst(s, step) { s.unshift(step); return insertedId(s, step); }
   function addApart(s, step) {                    // a step on its own: after an End, nothing falls into it
@@ -252,6 +275,58 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     return s && s.type === 'line' ? (s.who === 'jc' ? 'npc' : 'jc') : 'npc';
   }
   function focusText() { requestAnimationFrame(() => side.querySelector('textarea, input[type=text]')?.focus()); }
+
+  // ---------------------------------------------------------------- writing in the node
+  // `which`: 'text' (a line) or an answer's number. Enter: the next line (or the next answer), Shift+Enter: a new line in
+  // the text, Tab: another speaker for the line, Esc or a click elsewhere: done.
+  function write(id, which = 'text') {
+    const s = steps().find((x) => x.id === id), el = nodeEl(id);
+    if (!s || !el) return;
+    const spot = which === 'text' ? el.querySelector('.t') : el.querySelectorAll('.row')[which]?.querySelector('span');
+    if (!spot) return;
+    const box = document.createElement('textarea');
+    box.className = 'sg-edit';
+    box.value = (which === 'text' ? s.text : s.options[which].text) || '';
+    box.placeholder = which === 'text' ? 'What they say' : 'What JC can answer';
+    spot.replaceWith(box);
+    const fit = () => { box.style.height = 'auto'; box.style.height = box.scrollHeight + 'px'; edges(); };
+    fit();
+    writing = box;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+    const keep = () => {
+      const v = box.value;
+      if (which === 'text') { if (v !== (s.text || '')) { s.text = v; changed(); } }
+      else if (v !== (s.options[which].text || '')) { s.options[which].text = v; changed(); }
+    };
+    const done = (then) => { keep(); writing = null; draw(); showSide(); if (then) then(); else canvas.focus({ preventScroll: true }); };
+    box.oninput = fit;
+    box.onblur = () => { if (writing === box) done(() => {}); };
+    box.onmousedown = (e) => e.stopPropagation();
+    box.onkeydown = (e) => {
+      e.stopPropagation();                       // the graph's own keys (Delete, Enter) are not for the text
+      if (e.key === 'Escape') { e.preventDefault(); done(); }
+      else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (which === 'text') return done(() => add('line', id));
+        const next = which + 1;
+        if (next >= s.options.length && s.options.length < 6) { s.options.push({ text: '', goto: '' }); changed(); }
+        done(() => { if (next < s.options.length) write(id, next); });
+      } else if (e.key === 'Tab' && which === 'text') {
+        e.preventDefault();
+        const list = speakers(), at = list.findIndex((x) => x.who === (s.who || 'npc'));
+        s.who = list[(at + (e.shiftKey ? list.length - 1 : 1)) % list.length].who;
+        changed();
+        done(() => write(id));
+      }
+    };
+  }
+  // the speaker of a line, chosen on the node
+  function chooseSpeaker(e, id) {
+    const s = steps().find((x) => x.id === id);
+    menuAt(e, null, ([who]) => { if (s.who !== who) { s.who = who; changed(); draw(); showSide(); } },
+      speakers().map((x) => [x.who, x.name]));
+  }
 
   // a node put at `at` between others: the step it now leads to, if in the way, goes down under it
   function makeRoom(id) {
@@ -324,7 +399,11 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
   }
   function showPlay() {
     const p = playing, st = p.run.state, w = p.wait;
-    const say = (e) => e.type === 'line' ? `<div class="say"><b>${esc(speaker({ type: 'line', who: e.who }).name)}</b>${esc(e.text)}</div>` : `<div class="fx">${esc(e.text)}</div>`;
+    const say = (e) => {
+      if (e.type !== 'line') return `<div class="fx">${esc(e.text)}</div>`;
+      const url = faces.get(e.who || 'npc');
+      return `<div class="say">${url ? `<i class="face" style="background-image:url('${url}')"></i>` : ''}<div><b>${esc(speaker({ type: 'line', who: e.who }).name)}</b>${esc(e.text)}</div></div>`;
+    };
     let html = `<h5>Play-test</h5><div class="sg-play">${p.log.map(say).join('')}`;
     if (w?.type === 'choice' && !w.options.length) html += "<div class=\"fin\">JC's answers here have no text yet: the game shows none.</div>";
     if (w?.type === 'choice') html += w.options.map((o) => `<button class="ans" data-ans="${o.k}" ${o.shown ? '' : 'disabled title="Its conditions do not match now: the game does not show it"'}>${o.k + 1}. ${esc(o.text)}</button>`).join('');
@@ -348,7 +427,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
   }
 
   // ---------------------------------------------------------------- the quick menu: what to add
-  function menuAt(e, note, onPick) {
+  function menuAt(e, note, onPick, items = menu) {
     menuEl?.remove();
     menuEl = document.createElement('div');
     menuEl.className = 'sg-menu';
@@ -356,7 +435,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     menuEl.style.left = (e ? e.clientX - r.left : 20) + 'px';
     menuEl.style.top = (e ? e.clientY - r.top : 20) + 'px';
     menuEl.innerHTML = note ? `<div class="tip" style="max-width:240px;margin:4px 6px">${esc(note)}</div>`
-      : menu.map((m) => (m === '-' ? '<hr>' : `<button data-pick="${m[0]}" data-who="${m[2] || ''}">${esc(m[1])}</button>`)).join('');
+      : items.map((m) => (m === '-' ? '<hr>' : `<button data-pick="${m[0]}" data-who="${m[2] || ''}">${esc(m[1])}</button>`)).join('');
     canvas.appendChild(menuEl);
     const room = [canvas.clientWidth - menuEl.offsetWidth - 6, canvas.clientHeight - menuEl.offsetHeight - 6];
     menuEl.style.left = Math.max(4, Math.min(room[0], menuEl.offsetLeft)) + 'px';
@@ -372,6 +451,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
     closeMenu();
     canvas.focus({ preventScroll: true });
     const port = e.target.closest('.sg-port'), node = e.target.closest('.sg-node');
+    if (e.target.closest('.who') && e.button === 0) { select(node.dataset.id); chooseSpeaker(e, node.dataset.id); e.preventDefault(); return; }
     if (port && e.button === 0) {
       const from = node.dataset.id, which = port.dataset.port;
       drag = { kind: 'link', from, port: which === 'start' || which === 'next' || which === 'jump' ? which : +which, x: e.clientX, y: e.clientY };
@@ -427,7 +507,8 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
       layout[id] = far ? [at[0] - W / 2, at[1]] : [layout[was.from]?.[0] ?? 0, (layout[was.from]?.[1] ?? 0) + 120];
       graph = graphOf(steps());
       makeRoom(id);
-      select(id); draw(); focusText();
+      select(id); draw();
+      if (step.type === 'line') write(id); else focusText();
     });
     edges();
   };
@@ -442,7 +523,14 @@ export function createGraphView({ host, dialogue: d, layout, speaker, summary, i
   }, { passive: false });
   canvas.addEventListener('dblclick', (e) => {
     const node = e.target.closest('.sg-node');
-    if (node && node.dataset.id !== '@start') { select(node.dataset.id); focusText(); return; }
+    if (node && node.dataset.id !== '@start') {
+      select(node.dataset.id);
+      const row = e.target.closest('.row'), s = steps().find((x) => x.id === node.dataset.id);
+      if (s?.type === 'line' && !row) write(node.dataset.id);
+      else if (s?.type === 'choice' && row) write(node.dataset.id, [...node.querySelectorAll('.row')].indexOf(row));
+      else focusText();
+      return;
+    }
     if (node) return;
     const at = toWorld(e);
     menuAt(e, null, ([type, who]) => { const step = newStep(type, who || 'npc'); const id = edit((s) => addApart(s, step)); layout[id] = [at[0] - W / 2, at[1]]; select(id); draw(); focusText(); });

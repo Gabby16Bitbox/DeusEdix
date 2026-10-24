@@ -4975,6 +4975,57 @@ async function renderThumb(obj, wait = true) {
   if (parent) parent.add(obj); else thumbScene.remove(obj);
   return url;
 }
+// ---------------------------------------------------------------- the speakers' faces in the Story
+// A face for each speaker of a dialogue (story-graph-view.js), as articy shows one on every line: the game's own
+// InfoLink portrait when it has one for that character (InfoPortraits.<bind name>, or <bind name>_1 when it has
+// several: Paul), else the head of their model as it stands in the map (JC, not in the map: the model of his class),
+// drawn with the browser's previews' light. One for each speaker of a map, kept while the page is open.
+const portraits = new Map();
+let portraitIndex = null;                     // {lower-case texture name: full name} of the portrait packages
+function portraitOf({ actor = '', bind = '', cls = '' } = {}) {
+  const key = [mapName, actor, bind, cls].join('|');
+  if (!portraits.has(key)) portraits.set(key, findPortrait(actor, bind, cls).catch(() => null));
+  return portraits.get(key);
+}
+async function findPortrait(actor, bind, cls) {
+  if (bind) {
+    portraitIndex = portraitIndex || api('/api/texture_index').then((idx) => Object.fromEntries((idx.packages || [])
+      .filter((pkg) => /Portraits$/i.test(pkg.name)).flatMap((pkg) => pkg.textures.map(([short, full]) => [short.toLowerCase(), full]))));
+    const index = await portraitIndex, ref = index[bind.toLowerCase()] || index[bind.toLowerCase() + '_1'];
+    if (ref) {
+      const info = await api('/api/texture_source?tex=' + encodeURIComponent(ref) + '&script=' + encodeURIComponent(script)).catch(() => null);
+      if (info && info.url) return info.url;
+    }
+  }
+  let model = actor && proxies.children.find((q) => q.userData.actor?.name === actor)?.userData.model;
+  if (!model && cls) { await loadPaletteModel(cls); model = modelFor({ cls }, 'palette', true); }
+  return model ? renderHead(model) : null;
+}
+// the head of a character's model, from the front (an actor looks along its own +X: three's +x), as a 96 px picture
+async function renderHead(model) {
+  for (let i = 0; i < 150 && !texturesReady(model); i++) await new Promise((r) => setTimeout(r, 60));
+  const parent = model.parent;
+  thumbScene.add(model);
+  const box = new THREE.Box3().setFromObject(model);
+  let url = null;
+  if (!box.isEmpty()) {
+    const c = box.getCenter(new THREE.Vector3()), h = box.max.y - box.min.y;
+    const head = new THREE.Vector3(c.x, box.max.y - h * 0.075, c.z), size = h * 0.21;
+    thumbR.setSize(96, 96);
+    thumbCam.aspect = 1;
+    thumbCam.position.set(head.x + size * 2.8, head.y + size * 0.05, head.z);
+    thumbCam.near = 0.5; thumbCam.far = size * 20;
+    thumbCam.updateProjectionMatrix();
+    thumbCam.lookAt(head);
+    thumbR.render(thumbScene, thumbCam);
+    url = thumbR.domElement.toDataURL('image/png');
+    thumbR.setSize(176, 168);
+    thumbCam.aspect = 176 / 168;
+    thumbCam.updateProjectionMatrix();
+  }
+  if (parent) parent.add(model); else thumbScene.remove(model);
+  return url;
+}
 function serverThumb(cls) {
   return new Promise((res) => {
     const img = new Image();
@@ -10357,7 +10408,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   selectedLoc() { return selected && selected.userData.actor ? UE(selected.position) : null; },
   cameraPoint(dist) { const v = camera.position.clone().add(forward().multiplyScalar(dist)); return UE(v); },
   setLightGain(g) { lightGain = g; flushLightGain(); },
-  startPlacing(item) { startPlacing(item); }, refreshPalette() { buildPalette(); }, log, loadFactions, updateCustom, renderThumb,
+  startPlacing(item) { startPlacing(item); }, refreshPalette() { buildPalette(); }, log, loadFactions, updateCustom, renderThumb, portraitOf,
   get palette() { return palette; }, animsChanged, applyTexture,
   useStudioAnim(name, anim) {                // the Studio gives one of its animations to a character of this map
     const a = allActors().find((x) => x.name === name), q = proxyOf(name);

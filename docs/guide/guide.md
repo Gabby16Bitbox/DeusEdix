@@ -1594,7 +1594,13 @@ from each one, conditions with *Yes* and *No*; the arrows show where the dialogu
 
 - **Drag the dot** under a step onto another step to connect them, or onto empty space to add the next
   step there (a menu offers every kind). **Double-click** empty space for a step on its own.
-- **Enter** adds the next line, said by the other speaker, ready to write. **Delete** removes a step:
+- **Double-click a line** to write it in the node itself: **Enter** goes on to the next line, said by the
+  other speaker; **Shift+Enter** starts a new row of text; **Tab** gives the line to another speaker; **Esc** is
+  done. Double-click one of JC's answers to write it there too: Enter goes to the next answer (from the last one,
+  a new answer). A click on the name in a line chooses who says it.
+- Every line shows the face of who says it: the game's own InfoLink portrait when the character has one
+  (Alex Jacobson, Paul...), else a picture of the head of their model in the map, made by the editor.
+- **Enter** on a selected step adds the next line, said by the other speaker, ready to write. **Delete** removes a step:
   what led to it goes on to where it went. **Ctrl+Z** undoes. **Fit** shows the whole dialogue,
   **Tidy** lays it out again.
 - The selected step is edited at the side, with the same fields as in the List. Steps nothing reaches

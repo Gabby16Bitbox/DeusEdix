@@ -838,6 +838,16 @@ function speakerOf(d, s) {
   const hue = [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
   return { name: a ? a.label || a.bind || a.name : name || '?', colour: who === 'npc' ? '#afa9ec' : `hsl(${hue} 55% 68%)` };
 }
+// whose face a line shows (app.js portraitOf): the character in the map, its conversation name (the game's InfoLink
+// portraits are named after it), its class; JC, not in the map: JCDouble, the game's character with his look (the
+// player's own class is not one the editor can place)
+function faceOf(d, s) {
+  const who = String(s.who || 'npc');
+  if (who === 'jc') return { bind: 'JCDenton', cls: 'JCDouble' };
+  const name = who === 'npc' ? d.owner : who.replace(/^actor:/, '');
+  const a = talkers().find((x) => x.name === name);
+  return { actor: name, bind: (a && a.bind) || (who === 'npc' ? d.bind : '') || '', cls: (a && a.cls) || '' };
+}
 // what a step that is not a line does, in a few words (the text of its node)
 function stepSummary(s) {
   const yes = (c) => (/^UCFate/i.test(c.flag || '') ? stateLabel(c, true, allMaps || []) : `${c.flag || '?'} is ${c.is === false ? 'No' : 'Yes'}`);
@@ -885,6 +895,9 @@ function showGraph(host, d) {
   graphView = createGraphView({
     host, dialogue: d, layout, changed,
     speaker: (s) => speakerOf(d, s),
+    speakers: () => [{ who: 'npc', name: speakerOf(d, { who: 'npc' }).name }, { who: 'jc', name: 'JC Denton' },
+      ...talkers().filter((a) => a.kind === 'pawn' && a.name !== d.owner).map((a) => ({ who: 'actor:' + a.name, name: actorLabel(a) }))],
+    face: (s) => E()?.portraitOf?.(faceOf(d, s)) || Promise.resolve(null),
     summary: { title: (s) => STEP_TYPES[s.type] || s.type, text: stepSummary },
     inspect: (el, i) => renderSteps(el, d, i),
     newStep,
