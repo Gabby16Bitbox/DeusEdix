@@ -2,6 +2,7 @@ import {configureStateEditor, mountStateField} from './state-editor.js';
 import {stateLabel, normalizeCatalog} from './state-model.js';
 import {collectDraftStates, conditionProblems, conditionRows, removeCondition} from './story-state.js';
 import {createSaveQueue} from './save-state.js';
+import {createGraphView} from './story-graph-view.js';
 // "Story" panel of the map editor: dialogues attached to the characters and objects of the map, InfoLinks
 // (one-way radio calls) and the events of the mission. Saved in tools/mapkit/story/<map>.json; "Apply in game" turns them into
 // UnrealScript (tools/mapkit/story.py), compiles the mod and installs it.
@@ -97,6 +98,12 @@ const css = `
 #story .st-condition-list > .tip { font-size:11px; margin:3px 0; }
 #story .st-choice-req { flex-basis:100%; }
 #story .st-choice-advanced { flex-basis:100%; }
+#story .st-seg { display:inline-flex; }
+#story .st-dset > summary { cursor:pointer; color:#8b93a3; padding:4px 0 6px; }
+#story .st-dset > summary b { color:#d9dde5; }
+#story .st-seg button { border-radius:0; margin:0; }
+#story .st-seg button:first-child { border-radius:5px 0 0 5px; } #story .st-seg button:last-child { border-radius:0 5px 5px 0; margin-left:-1px; }
+#story .st-seg button.on { background:#22314a; border-color:#5aa2ff; color:#d9dde5; }
 #story .st-state-catalog > details { padding:7px 0; border-bottom:1px solid var(--line); }
 #story .st-state-catalog summary { cursor:pointer; }
 #story .st-state-catalog code { display:block; overflow-wrap:anywhere; font-size:11px; color:var(--dim); }
@@ -225,10 +232,19 @@ function areaOf(name) {
   for (const s of Object.values(E().structures || {})) if ((s.actors || []).includes(name)) return String(s.label || '').split(/[(:]/)[0].trim();
   return '';
 }
+// an actor as people read it: its name in the game ("Brother Anselm"), where it is; the map's own name of it
+// (UCEdit5) only to tell apart two with the same name
 function actorLabel(a) {
   if (!a) return '?';
-  const area = areaOf(a.name);
-  return `${a.name}${a.label ? ' (' + a.label + ')' : ''}${a.bind ? ' · ' + a.bind : ''}${area ? ' — ' + area : ''}`;
+  const name = a.label || a.bind || a.name, area = areaOf(a.name);
+  const twin = talkers().some((b) => b.name !== a.name && (b.label || b.bind || b.name) === name);
+  return `${name}${area ? ' — ' + area : ''}${twin ? ' (' + a.name + ')' : ''}`;
+}
+// who a dialogue belongs to, for the list: the character's name, JC himself, or nobody yet
+function ownerName(d) {
+  if (!d.owner) return 'no speaker yet';
+  if (d.owner === '@player') return 'JC (the player)';
+  return speakerOf(d, { who: 'npc' }).name;
 }
 function bindOf(name) {
   const a = talkers().find((x) => x.name === name);
@@ -253,7 +269,7 @@ function labelsOf(d) { return (d.steps || []).filter((s) => s.type === 'label' &
 function renderLists() {
   window.__gamecons?.renderStoryList();
   refreshFlags();
-  $('#st-dlist').innerHTML = story.dialogues.map((d, i) => `<button class="it ${current && current.kind === 'd' && current.i === i ? 'on' : ''}" data-d="${i}">${esc(d.title || d.id)}<small>${esc(d.owner || 'nobody')} · ${plural((d.steps || []).filter((s) => s.type === 'line').length, 'line')}</small></button>`).join('')
+  $('#st-dlist').innerHTML = story.dialogues.map((d, i) => `<button class="it ${current && current.kind === 'd' && current.i === i ? 'on' : ''}" data-d="${i}">${esc(d.title || d.id)}<small>${esc(ownerName(d))} · ${plural((d.steps || []).filter((s) => s.type === 'line').length, 'line')}</small></button>`).join('')
     || '<div class="tip">No dialogues yet.</div>';
   $('#st-ilist').innerHTML = story.infolinks.map((il, i) => `<button class="it ${current && current.kind === 'i' && current.i === i ? 'on' : ''}" data-i="${i}">${esc(il.title || il.id)}<small>${esc(il.name || il.caller || '?')} · ${plural((il.lines || []).length, 'line')}</small></button>`).join('')
     || '<div class="tip">No InfoLinks yet.</div>';
@@ -472,6 +488,8 @@ function condList(el, list, options={}) {
 
 // ---------------------------------------------------------------- dialogue editor
 function render() {
+  graphView?.destroy();
+  graphView = null;
   renderLists();
   const el = $('#st-edit');
   if (!current) { el.innerHTML = '<div class="tip">Pick a dialogue, an InfoLink or an event on the left, or create a new one. For a character\'s dialogues you can also select them in the scene and press "Dialogues" in the right panel.</div>'; return; }
@@ -485,7 +503,9 @@ function render() {
 
 function renderDialogue(el, d) {
   const ts = talkers();
-  el.innerHTML = `
+  // in the Graph view its settings are one line (a click shows them): the graph has the room
+  const gist = `<b>${esc(d.title || 'Untitled')}</b> · ${esc(speakerOf(d, { who: 'npc' }).name)} · ${d.start === 'near' ? 'when JC gets close' : 'when JC talks to them'}${(d.requires || []).length ? ' · only if…' : ''}`;
+  el.innerHTML = `<details class="st-dset" ${graphMode() && !settingsOpen ? '' : 'open'}><summary>${gist}</summary>
     <div class="f"><label>Title</label><input type="text" data-k="title" value="${esc(d.title)}"></div>
     <div class="f"><label>Speaker</label><select id="st-owner">${ts.map((a) => `<option value="${esc(a.name)}" ${a.name === d.owner ? 'selected' : ''}>${esc(actorLabel(a))}</option>`).join('')}</select>
       <button id="st-show">Show in scene</button><button id="st-pick" title="Select the character in the scene, then press here">Use selection</button></div>
@@ -495,12 +515,15 @@ function renderDialogue(el, d) {
     <div class="f" style="align-items:flex-start"><label>Only if</label><div id="st-req" style="flex:1"></div></div>
     <div class="f"><label>Priority</label><button id="st-up" title="Before the speaker's dialogue above it">▲</button><button id="st-down" title="After the speaker's dialogue below it">▼</button>
       <span class="tip" style="margin:0">${esc(prioText(d))}</span></div>
-    <div class="tip">Lines play in order. A choice jumps to a label; "End of dialogue" closes the dialogue (put one at the end of every branch).</div>
+    </details>
+    <div class="f"><span class="st-seg"><button data-view="graph" class="${graphMode() ? 'on' : ''}" title="Each step a node, the arrows where it goes on">Graph</button><button data-view="list" class="${graphMode() ? '' : 'on'}" title="The steps in order: a choice jumps to a label">List</button></span>
+      <span style="flex:1"></span><button id="st-deld" class="bad">Delete dialogue</button></div>
+    ${graphMode() ? '<div id="st-graph"></div>' : `<div class="tip">Lines play in order. A choice jumps to a label; "End of dialogue" closes the dialogue (put one at the end of every branch).</div>
     <div id="st-steps"></div>
     <div class="f"><button data-addstep="line">+ Line</button><button data-addstep="choice">+ JC's answers</button>
-      <select id="st-more"><option value="">+ more...</option>${Object.entries(STEP_TYPES).filter(([k]) => !['line', 'choice'].includes(k)).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
-      <span style="flex:1"></span><button id="st-deld" class="bad">Delete dialogue</button></div>`;
+      <select id="st-more"><option value="">+ more...</option>${Object.entries(STEP_TYPES).filter(([k]) => !['line', 'choice'].includes(k)).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>`}`;
   bindFields(el, d, () => { $('#st-rad').style.display = d.start === 'near' ? '' : 'none'; });
+  el.querySelector('.st-dset').ontoggle = (e) => { if (graphMode()) settingsOpen = e.target.open; };
   d.requires = d.requires || [];
   condList($('#st-req'), d.requires);
   // drawn again: the lines say who the speaker is, and the priority is among the speaker's dialogues
@@ -512,11 +535,12 @@ function renderDialogue(el, d) {
     d.owner = a.name; d.bind = bindOf(a.name); changed(); render();
   };
   for (const b of el.querySelectorAll('[data-addstep]')) b.onclick = () => addStep(d, b.dataset.addstep);
-  $('#st-more').onchange = () => { if ($('#st-more').value) addStep(d, $('#st-more').value); };
+  if ($('#st-more')) $('#st-more').onchange = () => { if ($('#st-more').value) addStep(d, $('#st-more').value); };
+  for (const b of el.querySelectorAll('[data-view]')) b.onclick = () => { setGraphMode(b.dataset.view === 'graph'); render(); };
   $('#st-deld').onclick = () => { if (!confirm(`Delete the dialogue "${d.title || d.id}"?`)) return; story.dialogues.splice(current.i, 1); current = null; changed(); render(); };
   $('#st-up').onclick = () => moveDialogue(d, -1);
   $('#st-down').onclick = () => moveDialogue(d, 1);
-  renderSteps($('#st-steps'), d);
+  if (graphMode()) showGraph($('#st-graph'), d); else renderSteps($('#st-steps'), d);
   if (d.replaces) {
     $('#st-owner').closest('.f').hidden = true;
     el.querySelector('[data-k="start"]').closest('.f').hidden = true;
@@ -534,7 +558,7 @@ function renderDialogue(el, d) {
     };
     $('#st-original-view').onclick = () => window.__story.showOriginal(d.original.path);
     $('#st-original-restore').onclick = () => restoreOriginal(d.original.path);
-    if (d.disabled) { $('#st-steps').hidden=true; $('#st-more').closest('.f').hidden=true; }
+    if (d.disabled) { for (const part of [$('#st-steps'), $('#st-graph'), $('#st-more')?.closest('.f')]) if (part) part.hidden = true; }
   }
 }
 
@@ -692,16 +716,18 @@ function wireVoices(el, ctx, redraw) {
   }
 }
 
-function renderSteps(el, d) {
+function renderSteps(el, d, only) {
   const ts = talkers();
   const steps = d.steps || [];
+  const again = () => renderSteps(el, d, only), alone = only !== undefined;
   const field=(s,k,label,type='text')=>`<label>${label} <input type="${type}" data-k="${k}" value="${esc(s[k] ?? '')}"></label>`;
   const tick=(s,k,label)=>`<label><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}> ${label}</label>`;
   const select=(s,k,options)=>`<select data-k="${k}">${options.map(([v,label])=>`<option value="${v}" ${s[k]===v?'selected':''}>${label}</option>`).join('')}</select>`;
   el.innerHTML = steps.map((s, i) => {
+    if (alone && i !== only) return '';
     let body = '';
     if (s.type === 'line') {
-      body = `<div class="f"><select data-k="who"><option value="npc" ${s.who === 'npc' ? 'selected' : ''}>speaker (${esc(d.owner || '?')})</option><option value="jc" ${s.who === 'jc' ? 'selected' : ''}>JC</option>
+      body = `<div class="f"><select data-k="who"><option value="npc" ${s.who === 'npc' ? 'selected' : ''}>${esc(ownerName(d))} (the speaker)</option><option value="jc" ${s.who === 'jc' ? 'selected' : ''}>JC</option>
         ${s.who && !['npc','jc'].includes(s.who) && !s.who.startsWith('actor:') ? `<option selected value="${esc(s.who)}">${esc(s.who)} (original binding)</option>` : ''}
         ${ts.filter((a) => a.name !== d.owner && a.kind === 'pawn').map((a) => `<option value="actor:${esc(a.name)}" ${s.who === 'actor:' + a.name ? 'selected' : ''}>${esc(actorLabel(a))}</option>`).join('')}</select>
         ${locButton(`data-loc="${i}"`)}
@@ -752,23 +778,25 @@ function renderSteps(el, d) {
     if (['flag','if'].includes(s.type) && s.requires?.length) body=`<div class="st-native-req"></div>${s.type==='if'?`<div class="f">if all match, go to ${labelSelect(d,s.goto)}</div>`:''}`;
     if (s.type==='goal') body+=`<div class="f">${tick(s,'secondary','Secondary goal')}</div>`;
     const here = insertFor === d && insertAt === i + 1;
+    const order = alone ? '' : `<button data-ins="${i}" title="${here ? 'New steps go here, after this one: click again to add them at the end' : 'Add the next steps here, after this one'}" ${here ? 'style="color:var(--acc)"' : ''}>＋</button>
+      <button data-up="${i}" title="up">↑</button><button data-down="${i}" title="down">↓</button><button data-x="${i}" title="remove">✕</button>`;
     return `<div class="card ${s.type}${here ? ' st-insert' : ''}" data-s="${i}"><div class="ch"><b>${STEP_TYPES[s.type] || s.type}</b>
-      <button data-ins="${i}" title="${here ? 'New steps go here, after this one: click again to add them at the end' : 'Add the next steps here, after this one'}" ${here ? 'style="color:var(--acc)"' : ''}>＋</button>
-      <button data-up="${i}" title="up">↑</button><button data-down="${i}" title="down">↓</button><button data-x="${i}" title="remove">✕</button></div>${body}</div>`;
+      ${order}</div>${body}</div>`;
   }).join('') || '<div class="tip">Nothing yet: add a line.</div>';
   steps.forEach((s, i) => {
     const card = el.querySelector(`[data-s="${i}"]`);
+    if (!card) return;
     if (s.type === 'choice') (s.options || []).forEach((o, k) => {
       bindFields(card.querySelector(`[data-o="${k}"]`), o);
       condList(card.querySelector(`[data-oreq="${k}"]`),o.requires || [],{primary:o,expiration:true,onList:list=>{o.requires=list;}});
     });
     else if (s.type === 'do') { s.do = s.do || []; renderActions(card.querySelector('.st-doacts'), s.do); }
-    else bindFields(card, s, s.type === 'label' ? () => renderSteps(el, d) : null);
+    else bindFields(card, s, s.type === 'label' ? again : null);
     if (card.querySelector('.st-native-req')) condList(card.querySelector('.st-native-req'),s.requires,{mode:s.type==='flag'?'set':'check',expiration:true,minimum:1});
     else if (['flag','if'].includes(s.type)) stateField(card.querySelector('.st-state-field'),s,s.type==='flag'?'set':'check');
     const random=card.querySelector('[data-random-labels]'); if(random) random.oninput=()=>{s.labels=random.value.split('\n').map(x=>x.trim()).filter(Boolean);changed();};
   });
-  wireVoices(el, { kind: 'd', d }, () => renderSteps(el, d));
+  wireVoices(el, { kind: 'd', d }, again);
   for (const b of el.querySelectorAll('[data-loc]')) b.onclick = () => {
     const who = String(steps[+b.dataset.loc].who || 'npc');
     if (who === 'jc') { log('JC is the player: he is not a character placed in the map.', 'warn'); return; }
@@ -778,22 +806,93 @@ function renderSteps(el, d) {
     const i = +b.dataset.ins;
     if (insertFor === d && insertAt === i + 1) { insertAt = null; insertFor = null; }
     else { insertAt = i + 1; insertFor = d; }
-    renderSteps(el, d);
+    again();
   };
   if (insertFor !== d) { insertAt = null; insertFor = null; }
-  for (const b of el.querySelectorAll('[data-up]')) b.onclick = () => { const i = +b.dataset.up; if (i > 0) { [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; changed(); renderSteps(el, d); } };
-  for (const b of el.querySelectorAll('[data-down]')) b.onclick = () => { const i = +b.dataset.down; if (i < steps.length - 1) { [steps[i + 1], steps[i]] = [steps[i], steps[i + 1]]; changed(); renderSteps(el, d); } };
-  for (const b of el.querySelectorAll('[data-x]')) b.onclick = () => { steps.splice(+b.dataset.x, 1); changed(); renderSteps(el, d); };
+  for (const b of el.querySelectorAll('[data-up]')) b.onclick = () => { const i = +b.dataset.up; if (i > 0) { [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; changed(); again(); } };
+  for (const b of el.querySelectorAll('[data-down]')) b.onclick = () => { const i = +b.dataset.down; if (i < steps.length - 1) { [steps[i + 1], steps[i]] = [steps[i], steps[i + 1]]; changed(); again(); } };
+  for (const b of el.querySelectorAll('[data-x]')) b.onclick = () => { steps.splice(+b.dataset.x, 1); changed(); again(); };
   for (const b of el.querySelectorAll('[data-oadd]')) b.onclick = () => {
     const s = steps[+b.dataset.oadd];
     s.options.push({ text: '', goto: addBranch(d) });
-    changed(); renderSteps(el, d);
+    changed(); again();
   };
   for (const b of el.querySelectorAll('[data-ox]')) b.onclick = () => {
     const [i, k] = b.dataset.ox.split(':').map(Number);
     steps[i].options.splice(k, 1);
-    changed(); renderSteps(el, d);
+    changed(); again();
   };
+}
+
+// ---------------------------------------------------------------- the Graph view (story-graph-view.js)
+let graphView = null, settingsOpen = false;
+const VIEW_KEY = 'deusedix.storyView';
+function graphMode() { try { return localStorage.getItem(VIEW_KEY) !== 'list'; } catch (_) { return true; } }
+function setGraphMode(on) { try { localStorage.setItem(VIEW_KEY, on ? 'graph' : 'list'); } catch (_) { /* no storage: this session only */ } }
+// who says a line: a short name and a colour (JC blue, the dialogue's speaker violet, any other one their own)
+function speakerOf(d, s) {
+  const who = String(s.who || 'npc');
+  if (who === 'jc') return { name: 'JC Denton', colour: '#5aa2ff' };
+  const name = who === 'npc' ? d.owner : who.replace(/^actor:/, '');
+  const a = talkers().find((x) => x.name === name);
+  const hue = [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  return { name: a ? a.label || a.bind || a.name : name || '?', colour: who === 'npc' ? '#afa9ec' : `hsl(${hue} 55% 68%)` };
+}
+// what a step that is not a line does, in a few words (the text of its node)
+function stepSummary(s) {
+  const yes = (c) => (/^UCFate/i.test(c.flag || '') ? stateLabel(c, true, allMaps || []) : `${c.flag || '?'} is ${c.is === false ? 'No' : 'Yes'}`);
+  const all = (list) => list.map(yes).join(' and ');
+  switch (s.type) {
+    case 'if': return 'Only if ' + all(s.requires?.length ? s.requires : [s]);
+    case 'flag': return (s.requires?.length ? s.requires : [s]).map((c) => `${c.flag || '?'} = ${c.is === false ? 'No' : 'Yes'}`).join(', ');
+    case 'goal': return `${s.done ? 'Completed' : 'New'}: ${s.text || s.goal || '?'}`;
+    case 'give': return `${s.count || 1} × ${String(s.item || '?').split('.').pop()}`;
+    case 'credits': return `${+s.amount >= 0 ? '+' : ''}${+s.amount || 0} credits`;
+    case 'skillpoints': return `+${+s.amount || 0} skill points`;
+    case 'checkitem': return `JC carries ${String(s.item || '?').split('.').pop()}`;
+    case 'checkvalue': return `${{ EP_Credits: 'Credits', EP_Health: 'Health', EP_SkillPoints: 'Skill points' }[s.valueType || 'EP_Credits']} ${{ EC_Less: '<', EC_LessEqual: '≤', EC_Equal: '=', EC_GreaterEqual: '≥', EC_Greater: '>' }[s.condition || 'EC_GreaterEqual']} ${+s.amount || 0}`;
+    case 'random': return `${(s.labels || []).length} ways, one at random`;
+    case 'trigger': return `Tag ${s.tag || '?'}`;
+    case 'note': return s.text || '';
+    case 'do': return (s.do || []).map((a) => ACTION_TYPES[a.type] || a.type).join(', ') || 'Nothing yet';
+    case 'animation': return s.sequence || '';
+    case 'trade': return s.actor || '';
+    default: return '';
+  }
+}
+// a new step of a kind, as the Graph view adds it (its arrows are made there)
+function newStep(type, who = 'npc') {
+  const s = { type };
+  if (type === 'line') Object.assign(s, { who, text: '' });
+  if (type === 'choice') s.options = [{ text: '', goto: '' }, { text: '', goto: '' }];
+  if (type === 'flag') Object.assign(s, { flag: '', is: true });
+  if (type === 'if') Object.assign(s, { flag: '', is: true, goto: '' });
+  if (type === 'goal') Object.assign(s, { goal: '', text: '', done: false });
+  if (type === 'give') Object.assign(s, { item: '', count: 1 });
+  if (type === 'credits' || type === 'skillpoints') s.amount = 0;
+  if (type === 'checkitem') Object.assign(s, { item: '', goto: '' });
+  if (type === 'checkvalue') Object.assign(s, { valueType: 'EP_Credits', condition: 'EC_GreaterEqual', amount: 0, goto: '' });
+  if (type === 'random') s.labels = ['', ''];
+  if (type === 'note') s.text = '';
+  if (type === 'trigger') s.tag = '';
+  if (type === 'do') s.do = [];
+  return s;
+}
+function showGraph(host, d) {
+  story.layout = story.layout || {};
+  const layout = story.layout[d.id] = story.layout[d.id] || {};
+  const owner = speakerOf(d, { who: 'npc' }).name;
+  graphView = createGraphView({
+    host, dialogue: d, layout, changed,
+    speaker: (s) => speakerOf(d, s),
+    summary: { title: (s) => STEP_TYPES[s.type] || s.type, text: stepSummary },
+    inspect: (el, i) => renderSteps(el, d, i),
+    newStep,
+    menu: [['line', 'Line: ' + owner], ['line', 'Line: JC', 'jc'], ['choice', "JC's answers"], '-',
+      ['if', 'Condition (flags)'], ['checkitem', 'Check inventory'], ['checkvalue', 'Check credits, health or skill points'], ['random', 'Random branch'], '-',
+      ['flag', 'Change state'], ['goal', 'Goal'], ['give', 'Give JC an item'], ['credits', 'Give or take credits'], ['skillpoints', 'Award skill points'],
+      ['note', 'Datavault note'], ['trigger', 'Trigger an event (Tag)'], ['do', 'Actions when it ends'], '-', ['end', 'End of dialogue']],
+  });
 }
 
 // ---------------------------------------------------------------- InfoLink editor

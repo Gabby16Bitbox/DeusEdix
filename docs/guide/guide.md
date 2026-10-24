@@ -1586,6 +1586,24 @@ closed; it takes a few seconds).
 Everything is checked before it is applied: an empty line, an answer that leads nowhere or a
 missing character are listed under the panel.
 
+### Dialogues as a graph, and Play-test
+
+A dialogue opens as a **Graph** (the **List** button shows the same steps in order). Each step is a
+node: a line in the colour of who speaks (JC blue, the character violet), JC's answers with an arrow
+from each one, conditions with *Yes* and *No*; the arrows show where the dialogue goes on.
+
+- **Drag the dot** under a step onto another step to connect them, or onto empty space to add the next
+  step there (a menu offers every kind). **Double-click** empty space for a step on its own.
+- **Enter** adds the next line, said by the other speaker, ready to write. **Delete** removes a step:
+  what led to it goes on to where it went. **Ctrl+Z** undoes. **Fit** shows the whole dialogue,
+  **Tidy** lays it out again.
+- The selected step is edited at the side, with the same fields as in the List. Steps nothing reaches
+  are faded; a step with a problem (an empty line, an answer that goes nowhere) is marked.
+
+**Play-test** plays the dialogue in the editor as the game will: choose JC's answers, and the step it
+is at lights up. At the side, the state it reads (flags, credits, health, skill points, what JC
+carries): change it and the dialogue starts again with it. Answers the game would hide are greyed.
+
 ### Dialogues
 
 A dialogue belongs to a character or an object. It starts **when JC talks to them** (a click) or
