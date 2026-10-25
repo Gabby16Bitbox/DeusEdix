@@ -161,7 +161,7 @@ class TutorialRouteTests(unittest.TestCase):
         # here previously concealed a missing import that broke every real save.
         selected = ast.Module(body=[node for node in tree.body if
             (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names) or
-            (isinstance(node, ast.Import) and any(alias.name in ('object_tags', 'player_profiles') for alias in node.names))], type_ignores=[])
+            (isinstance(node, ast.Import) and any(alias.name in ('object_tags', 'player_profiles', 'local_guard') for alias in node.names))], type_ignores=[])
         # the production imports of the validators the save route calls (player_profiles: 24 Oct 2026)
         with patch.dict(sys.modules, {'object_tags': TAG_VALIDATION, 'player_profiles': types.SimpleNamespace(validate_edits=Mock())}):
             exec(compile(selected, str(SOURCE), 'exec'), self.namespace)
@@ -180,6 +180,8 @@ class TutorialRouteTests(unittest.TestCase):
         handler.path = path
         handler.headers = Message()
         handler.headers['Content-Length'] = str(len(raw))
+        handler.headers['Host'] = '127.0.0.1:8790'           # the editor's own (local_guard refuses any other)
+        handler.server = types.SimpleNamespace(server_port=8790)
         if token is not None:
             handler.headers['X-DeusEdix-Tutorial'] = token
         handler.rfile = io.BytesIO(raw)

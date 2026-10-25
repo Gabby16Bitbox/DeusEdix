@@ -64,6 +64,7 @@ import play_preview  # noqa: E402
 import player_start  # noqa: E402
 import mods  # noqa: E402
 import agent_bridge  # noqa: E402
+import local_guard  # noqa: E402
 
 PORT = int(os.environ.get('DEUSEDIX_PORT') or 8790)      # DeusEdix's launcher picks a free one
 STATIC = HERE / 'static'
@@ -537,7 +538,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _foreign(self):
+        """A request addressed to another host (DNS rebinding) or sent by another site's page: refused here, before
+        anything else (local_guard)."""
+        if local_guard.host_allowed(self.headers.get('Host'), self.server.server_port) and \
+                local_guard.origin_allowed(self.headers.get('Origin')):
+            return False
+        self._send(403, dict(error='Refused: not a request of this PC.'))
+        return True
+
     def do_GET(self):
+        if self._foreign():
+            return
         path = urlparse(self.path).path
         try:
             if path == '/alive':                       # a page of DeusEdix in the web browser is open (browser_session)
@@ -926,6 +938,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(500, {'error': str(e), 'trace': traceback.format_exc()[-1500:]})
 
     def do_POST(self):
+        if self._foreign():
+            return
         path = urlparse(self.path).path
         if path == '/bye':                             # ...and it went away (sendBeacon carries no session header)
             import browser_session
@@ -1010,7 +1024,8 @@ class Handler(BaseHTTPRequestHandler):
         Tools > AI assistant... (allowed, when an assistant last called, the command that starts the MCP server)."""
         if path == '/api/agent/status':
             last = agent_bridge.CALLS.last_call
-            return dict(allowed=agent_bridge.allowed(), lastCall=None if last is None else round(time.time() - last),
+            return dict(allowed=agent_bridge.allowed(), advanced=agent_bridge.advanced(),
+                        lastCall=None if last is None else round(time.time() - last),
                         command=settings.python() + [str(settings.APP_ROOT / 'tools' / 'mapkit' / 'deusedix_mcp.py')])
         if not agent_bridge.allowed():
             return dict(off=True)
@@ -1034,6 +1049,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, agent_bridge.CALLS.call(str(body.get('op', '')), body.get('args') or {}, timeout))
         except agent_bridge.PageClosed as exc:
             return self._send(409, dict(error=str(exc), code='page_closed'))
+        except PermissionError as exc:                  # an advanced tool, not allowed by the user
+            return self._send(403, dict(error=str(exc)))
         except TimeoutError as exc:
             return self._send(504, dict(error=str(exc)))
 

@@ -14,6 +14,9 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'editor'))
+import local_guard  # noqa: E402  (the real one: these requests carry the editor's own address)
 
 HERE=Path(__file__).resolve().parent
 SOURCE=HERE/'staged/editor/server.py'
@@ -27,7 +30,7 @@ class RouteTests(unittest.TestCase):
         self.graph=types.SimpleNamespace(status=lambda:{'state':'idle'},start=self.start)
         namespace=dict(BaseHTTPRequestHandler=BaseHTTPRequestHandler,json=json,urlparse=urlparse,parse_qs=parse_qs,
                        re=re,mimetypes=mimetypes,threading=threading,traceback=traceback,LOCK=threading.RLock(),
-                       project_server=self.project,mission_graph=self.graph)
+                       project_server=self.project,mission_graph=self.graph,local_guard=local_guard)
         tree=ast.parse(SOURCE.read_text(encoding='utf-8-sig'))
         node=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Handler')
         exec(compile(ast.Module(body=[node],type_ignores=[]),str(SOURCE),'exec'),namespace)
@@ -35,6 +38,7 @@ class RouteTests(unittest.TestCase):
     def request(self,path,body=None,method='POST',auth=True,length=None):
         h=object.__new__(self.handler);h.path=path;raw=json.dumps(body if body is not None else {}).encode()
         h.headers=Message();h.headers['Content-Length']=str(len(raw) if length is None else length)
+        h.headers['Host']='127.0.0.1:8790';h.server=types.SimpleNamespace(server_port=8790)   # the editor's own address
         if auth:h.headers['X-DeusEdix-Session']='good'
         h.rfile=io.BytesIO(raw);output=[];h._send=lambda status,payload,*args:output.append((status,payload))
         getattr(h,'do_'+method)();self.assertEqual(len(output),1);self.ensure.assert_not_called();return output[0]

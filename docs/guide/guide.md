@@ -1916,14 +1916,33 @@ ask again saying yes. Its tools:
 |---|---|
 | `editor_state`, `list_maps`, `open_map` | what is open, unsaved changes, the selection, the last messages; open a map (with unsaved changes only if told to save or to discard them) |
 | `find_objects`, `get_object`, `select_objects` | the map's objects by text, class or distance; one object's properties; select them and bring the camera there |
-| `place_object`, `move_object`, `set_properties`, `delete_objects` | as the Objects browser, the gizmo and the Inspector do |
+| `find_classes`, `find_textures` | what can be placed (as the Objects browser lists it), the game's textures by name |
+| `place_object`, `move_object`, `set_properties`, `delete_objects` | as the Objects browser, the gizmo and the Inspector do; a block (`cls` "block") and a drawn piece's settings and textures too |
+| `draw` | a wall, road, floor or ceiling through its points, stairs or a roof from A to B, as **Map > Draw** |
+| `batch` | several of these in one call, in order, stopping at the first that fails |
 | `undo`, `redo`, `save`, `rebuild` | as **Ctrl+Z**, **Ctrl+Y**, **Save** and **Rebuild** |
-| `view` | a picture of the 3D view, from where the camera is, from a point towards another, or framing an object |
+| `view` | a picture of the 3D view, from where the camera is, from a point towards another, or framing an object; without the gizmo and icons, Lit, Unlit or Shaded |
 | `story_list`, `story_get`, `story_write`, `story_play` | the map's dialogues, one with its graph, change one or make a new one, **Play-test** it with flags and answers |
-| `run_js`, `project_api` | the editor's page and the project's server, for what the other tools do not do |
+| `run_js`, `project_api` | advanced: the editor's page and the project's server, for what the other tools do not do |
 
-The connection stays on your PC: the editor's address and its session are in `assistant.json` in your
-`AppData\Local\DeusEdix` folder, written only while assistants are allowed.
+**Advanced tools.** `run_js` (JavaScript in the editor's page) and `project_api` sending changes to the project's
+server can do whatever the editor can. They work only while **Also allow advanced tools** is ticked in the same
+window; otherwise `project_api` only reads. Keep them off unless you need them: an assistant reads the text of maps,
+dialogues and mods, and text written by someone else could try to steer it ("prompt injection"). Without them, the
+worst such text could make it do is an undoable, unsaved change.
+
+**What keeps it safe.**
+- The editor answers this PC only. It listens on `127.0.0.1`, and it refuses any request addressed to another
+  name or sent by another site's page. A web page cannot reach it, even one that points its own name at your PC
+  (DNS rebinding).
+- Every request needs the session of the editor that is running, a new random one each time it starts.
+- The editor's address and session are in `assistant.json` in your `AppData\Local\DeusEdix` folder, only while
+  assistants are allowed. Unticking the box deletes them, and the editor checks the box at every call, not only
+  the file.
+- Each tool tells the assistant what it does. One that reads can be let through. One that loses or overwrites
+  something (deleting, saving, Rebuild, discarding changes, rewriting a dialogue) is marked, so an assistant like
+  Claude Code asks you first.
+- While the assistant works, a badge in the corner of the editor says what it is doing.
 
 ## Local geometry (Experimental)
 

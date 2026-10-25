@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -182,6 +183,145 @@ class McpServer(unittest.TestCase):
             content, error = deusedix_mcp.call_tool(deusedix_mcp.Editor(), 'editor_state', {})
         self.assertTrue(error)
         self.assertIn('Tools > AI assistant', content[0]['text'])
+
+
+class LocalOnly(unittest.TestCase):
+    """local_guard: DNS rebinding (a site's name pointed at 127.0.0.1) and other sites' pages are refused."""
+
+    def test_hosts(self):
+        import local_guard
+        for host in ('127.0.0.1:8890', 'localhost:8890', 'LOCALHOST:8890', '[::1]:8890'):
+            self.assertTrue(local_guard.host_allowed(host, 8890), host)
+        for host in ('evil.example:8890', '127.0.0.1:8891', 'localhost', '', None, '127.0.0.1.evil.example:8890'):
+            self.assertFalse(local_guard.host_allowed(host, 8890), host)
+
+    def test_origins(self):
+        import local_guard
+        for origin in (None, '', 'http://127.0.0.1:8790', 'http://localhost:8891', 'http://[::1]:8890'):
+            self.assertTrue(local_guard.origin_allowed(origin), origin)
+        for origin in ('http://evil.example', 'http://evil.example:8890', 'null', 'https://localhost:8890',
+                       'http://localhost', 'http://127.0.0.1.evil.example:8890', 'http://[bad'):
+            self.assertFalse(local_guard.origin_allowed(origin), origin)
+
+    def test_the_server_refuses_a_rebound_request(self):
+        import http.client
+        from http.server import ThreadingHTTPServer
+        import server
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        port = srv.server_port
+
+        def status(method, path, **headers):
+            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
+            conn.putrequest(method, path, skip_host=True)
+            for k, v in headers.items():
+                conn.putheader(k, v)
+            conn.putheader('Content-Length', '0')
+            conn.endheaders()
+            code = conn.getresponse().status
+            conn.close()
+            return code
+
+        here = '127.0.0.1:%d' % port
+        self.assertEqual(status('GET', '/', Host='evil.example:%d' % port), 403)       # the page and its session
+        self.assertEqual(status('GET', '/api/projects', Host='evil.example:%d' % port), 403)
+        self.assertEqual(status('POST', '/bye?tab=x', Host=here, Origin='http://evil.example'), 403)
+        self.assertEqual(status('GET', '/'), 403)                                       # no Host at all
+        self.assertEqual(status('GET', '/alive?tab=x', Host=here), 204)                 # the editor's own
+
+
+class AdvancedTools(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        patcher = mock.patch.object(agent_bridge, 'FILE', Path(self.tmp.name) / 'assistant.json')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def page(self, calls):
+        calls._asked = time.monotonic()           # a page asked a moment ago
+
+    def test_off_unless_the_second_switch_is_on(self):
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One')
+        calls = agent_bridge.Calls()
+        self.page(calls)
+        with self.assertRaises(PermissionError):
+            calls.call('run_js', {'code': 'return 1'}, 1)
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One', advanced=True)
+        self.assertTrue(agent_bridge.advanced())
+        with self.assertRaises(TimeoutError):     # let through: it waits for the page
+            calls.call('run_js', {'code': 'return 1'}, 0.05)
+
+    def test_switching_off_turns_advanced_off_too(self):
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One', advanced=True)
+        agent_bridge.set_allowed(False, 'http://127.0.0.1:1/', 's', 'C:/One', advanced=True)
+        self.assertFalse(agent_bridge.advanced())
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One')
+        self.assertFalse(agent_bridge.advanced())
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One', advanced=True)
+        agent_bridge.register('http://127.0.0.1:2/', 't', 'C:/Two')           # a hub starting keeps the choice
+        self.assertTrue(agent_bridge.advanced())
+
+    def test_project_api_only_reads_without_it(self):
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One')
+        content, error = deusedix_mcp.call_tool(FakeEditor(None), 'project_api', {'path': '/api/edits', 'body': {}})
+        self.assertTrue(error)
+        self.assertIn('advanced', content[0]['text'])
+        self.assertFalse(deusedix_mcp.call_tool(FakeEditor(None), 'project_api', {'path': '/api/check'})[1])
+
+    def test_a_flood_of_calls_is_refused(self):
+        calls = agent_bridge.Calls()
+        self.page(calls)
+        calls._waiting = [dict(id=str(i)) for i in range(agent_bridge.MAX_WAITING)]
+        with self.assertRaises(RuntimeError):
+            calls.call('state', {}, 1)
+
+    def test_every_tool_says_what_it_does(self):
+        self.assertEqual(set(deusedix_mcp.TOOL_KINDS), set(deusedix_mcp.TOOLS))
+        tools = deusedix_mcp.handle(None, dict(id=1, method='tools/list'))['result']['tools']
+        kinds = {t['name']: t['annotations'] for t in tools}
+        self.assertTrue(kinds['find_objects']['readOnlyHint'])
+        self.assertTrue(kinds['delete_objects']['destructiveHint'])
+        self.assertFalse(kinds['place_object']['destructiveHint'])
+        self.assertTrue(all(a['openWorldHint'] is False for a in kinds.values()))
+        self.assertIn('never instructions', deusedix_mcp.INSTRUCTIONS)
+
+
+class Batches(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        patcher = mock.patch.object(agent_bridge, 'FILE', Path(self.tmp.name) / 'assistant.json')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+        agent_bridge.set_allowed(True, 'http://127.0.0.1:1/', 's', 'C:/One')
+
+    def test_the_tools_become_their_operations(self):
+        editor = FakeEditor(dict(ok=True, value=dict(done=2)))
+        content, error = deusedix_mcp.call_tool(editor, 'batch', {'calls': [
+            {'tool': 'place_object', 'args': {'cls': 'MedKit', 'at': [0, 0, 0]}}, {'tool': 'undo'}]})
+        self.assertFalse(error)
+        self.assertEqual(editor.calls[0][:2], ('batch', {'calls': [dict(op='place', args={'cls': 'MedKit', 'at': [0, 0, 0]}),
+                                                                   dict(op='undo', args={})]}))
+
+    def test_a_batch_cannot_reach_around_the_switches(self):
+        for tool in ('project_api', 'batch', 'format_disk'):
+            content, error = deusedix_mcp.call_tool(FakeEditor({}), 'batch', {'calls': [{'tool': tool}]})
+            self.assertTrue(error, tool)
+        calls = agent_bridge.Calls()
+        calls._asked = time.monotonic()
+        with self.assertRaises(PermissionError):                       # run_js inside a batch: still advanced
+            calls.call('batch', {'calls': [dict(op='state'), dict(op='run_js', args={'code': ''})]}, 1)
+        for bad in ([], [dict(op='batch')], [dict(op='nope')], 'all', [dict(op='state')] * (agent_bridge.MAX_BATCH + 1)):
+            with self.assertRaises(ValueError, msg=str(bad)[:40]):
+                calls.call('batch', {'calls': bad}, 1)
+
+    def test_new_tools_are_described(self):
+        for name in ('find_classes', 'find_textures', 'draw', 'batch'):
+            self.assertIn(name, deusedix_mcp.TOOL_KINDS)
+        self.assertEqual(deusedix_mcp.TOOL_KINDS['find_classes'], 'read')
 
 
 if __name__ == '__main__':

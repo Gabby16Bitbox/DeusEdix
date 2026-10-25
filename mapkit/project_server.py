@@ -390,5 +390,6 @@ def api(path, body=None):
         return SUPERVISOR.close()
     if path == '/api/projects/assistant':          # Tools > AI assistant...: the user's switch
         import agent_bridge
-        return agent_bridge.set_allowed(body.get('allow') is True, HOME_URL, SESSION, settings.APP_ROOT)
+        return agent_bridge.set_allowed(body.get('allow') is True, HOME_URL, SESSION, settings.APP_ROOT,
+                                        advanced=body.get('advanced') is True)
     raise ValueError('Unknown project action.')

@@ -5,6 +5,7 @@
 // keeps the same list (agent_bridge.OPS).
 import * as THREE from 'three';
 import { ensureIds, graphOf } from './story-graph.js';
+import { DRAW_DEFAULTS } from './draw-tools.js';
 import { createPlay } from './story-sim.js';
 
 const E = () => window.__editor, K = () => window.__editor?.agentKit;
@@ -174,12 +175,73 @@ const OPS = {
   },
   set({ name, props }) {
     const k = need(), a = k.allActors().find((x) => x.name === name);
-    if (!a) throw new Error(`${name}: no object with properties of that name (blocks: move_object for their size, run_js for the rest).`);
+    if (!a) return setPiece(k, name, props);
     for (const [key, v] of Object.entries(props)) { if (v === null) k.unsetProp(a, key); else k.setProp(a, key, String(v)); }
     k.rebuildProxies();
     const p = k.proxyOf(name);
     if (p) k.select(p); else k.showDetails();
     return OPS.object({ name });
+  },
+  classes({ text = '', category = '', limit = 40 }) {
+    const k = need(), t = text.toLowerCase(), c = category.toLowerCase();
+    const byClass = new Map();                   // one entry a class, with every category it is in ("Most used" too)
+    for (const cat of K().palette()) for (const it of cat.items || []) {
+      const key = it.cls + '|' + it.name;
+      if (!byClass.has(key)) byClass.set(key, { cls: it.cls, name: it.name, categories: [] });
+      byClass.get(key).categories.push(cat.category);
+    }
+    const hits = [...byClass.values()].filter((it) => (!t || `${it.cls} ${it.name}`.toLowerCase().includes(t))
+      && (!c || it.categories.some((x) => String(x).toLowerCase().includes(c))));
+    return { count: hits.length, classes: hits.slice(0, Math.max(1, Math.min(300, limit))),
+      categories: k.palette().map((cat) => cat.category), blocks: 'place_object with cls "block" (size, tex) makes a block' };
+  },
+  async textures({ text = '', limit = 40 }) {
+    need();
+    const t = text.toLowerCase(), index = await K().api('/api/texture_index');
+    const hits = (index.packages || []).flatMap((pkg) => pkg.textures.map(([name, ref]) => ({ name, ref, package: pkg.name })))
+      .filter((x) => !t || `${x.name} ${x.package}`.toLowerCase().includes(t));
+    return { count: hits.length, textures: hits.slice(0, Math.max(1, Math.min(300, limit))) };
+  },
+  // a wall, road, floor, ceiling (points along it / round it), stairs or a roof (A and B), as Map > Draw makes them
+  draw({ kind, points, closed = false, settings = {} }) {
+    const k = need(), ed = E(), defaults = DRAW_DEFAULTS[kind];
+    if (!defaults) throw new Error(`kind: one of ${Object.keys(DRAW_DEFAULTS).join(', ')}.`);
+    const two = kind === 'stairs' || kind === 'roof', least = kind === 'floor' || kind === 'ceiling' ? 3 : 2;
+    if (!Array.isArray(points) || points.some((q) => !Array.isArray(q) || q.length !== 3 || q.some((v) => !Number.isFinite(+v))))
+      throw new Error('points: a list of [x, y, z].');
+    if (two ? points.length !== 2 : points.length < least) throw new Error(two ? `${kind}: two points, A and B.` : `${kind}: at least ${least} points.`);
+    const unknown = Object.keys(settings).filter((key) => !(key in defaults));
+    if (unknown.length) throw new Error(`Not settings of a ${kind}: ${unknown.join(', ')} (its settings: ${Object.keys(defaults).join(', ')}).`);
+    const used = new Set((ed.edits.drawn || []).map((x) => x.name));
+    let i = 0;
+    while (used.has('UCDrawn' + i)) i++;
+    const r1p = (v) => Math.round(+v * 10) / 10;
+    const piece = { name: 'UCDrawn' + i, kind, pts: points.map((q) => [r1p(q[0]), r1p(q[1])]), z: r1p(points[0][2]), ...settings };
+    if (closed && (kind === 'wall' || kind === 'road')) piece.closed = true;
+    if (two && points[1][2] !== points[0][2]) piece.rise = r1p(points[1][2] - points[0][2]);
+    k.pushUndo();
+    (ed.edits.drawn = ed.edits.drawn || []).push(piece);
+    k.setDirty(); k.rebuildProxies();
+    const p = proxyNamed(piece.name);
+    if (p) k.select(p);
+    return OPS.object({ name: piece.name });
+  },
+  // several calls in one: in order, each as on its own; it stops at the first that fails
+  async batch({ calls }) {
+    need();
+    const results = [];
+    for (const [index, { op, args = {} }] of calls.entries()) {
+      const fn = OPS[op];
+      if (!fn || op === 'batch') return { done: index, results, error: { index, message: `Not a call a batch can make: ${op}` } };
+      const { pending, asked } = answering(args, () => fn(args));
+      try {
+        const value = await pending;
+        results.push(asked.length ? { value, asked } : value);
+      } catch (e) {
+        return { done: index, results, error: { index, message: e?.message || String(e), asked } };
+      }
+    }
+    return { done: calls.length, results };
   },
   delete({ names }) {
     const k = need(), deleted = [], kept = [];
@@ -204,8 +266,13 @@ const OPS = {
     const after = document.getElementById('log')?.children.length || 0;
     return { messages: messages(Math.max(0, after - before)), dirty: E().dirty };
   },
-  async view({ from, look_at: lookAt, focus, width = 960, keep = false }) {
-    const k = need(), shot = k.viewShot({ from, lookAt, focus: focus ? proxyOrFail(focus) : null, keep });
+  async view({ from, look_at: lookAt, focus, width = 960, keep = false, clean = true, mode }) {
+    const k = need(), before = k.lightMode;
+    if (mode && !['lit', 'unlit', 'shaded'].includes(mode)) throw new Error('mode: lit, unlit or shaded.');
+    if (mode && mode !== before) { k.setLightMode(mode); await new Promise((r) => requestAnimationFrame(() => r())); }
+    let shot;
+    try { shot = k.viewShot({ from, lookAt, focus: focus ? proxyOrFail(focus) : null, keep, clean }); }
+    finally { if (mode && mode !== before) k.setLightMode(before); }
     const image = await scaled(shot.url, Math.max(160, Math.min(1600, width | 0 || 960)));
     return { image, camera: shot.camera, yaw: shot.yaw, pitch: shot.pitch };
   },
@@ -265,24 +332,63 @@ const OPS = {
   async run_js({ code }) { return await new AsyncFunction(code)(); },
 };
 
-// one call: the editor's own confirm() questions are answered (args.confirm, else no) and told in the answer
-async function run({ op, args }) {
-  const fn = OPS[op];
-  if (!fn) return { ok: false, error: `This page cannot do "${op}": reload it (it may be older than the server).` };
+// start(): a call's own first steps, the editor's confirm() questions they ask answered (args.confirm, else no) and
+// kept in `asked`. Only those: one asked later, while it saves or loads, may come from the user's own click, and the
+// user answers it. {pending: its promise, asked}
+function answering(args, start) {
   const asked = [], saved = [window.confirm, window.alert, window.prompt];
   window.confirm = (q) => { asked.push(String(q)); return args.confirm === true; };
   window.alert = (q) => { asked.push(String(q)); };
   window.prompt = (q) => { asked.push(String(q)); return null; };
+  let pending;
+  try { pending = Promise.resolve(start()); } catch (e) { pending = Promise.reject(e); } finally { [window.confirm, window.alert, window.prompt] = saved; }
+  return { pending, asked };
+}
+// a block's or a drawn piece's fields, as their panels set them (their size: move_object; null: back to the default)
+function setPiece(k, name, props) {
+  const ed = E(), b = (ed.edits.boxes || []).find((x) => x.name === name), d = (ed.edits.drawn || []).find((x) => x.name === name);
+  if (!b && !d) throw new Error(`${name}: nothing of that name in the map (find_objects gives the names).`);
+  const allowed = b ? ['tex', 'solid'] : [...Object.keys(DRAW_DEFAULTS[d.kind] || {}), 'closed'];
+  const unknown = Object.keys(props).filter((key) => !allowed.includes(key));
+  if (unknown.length) throw new Error(`Not fields of ${name}: ${unknown.join(', ')} (it has: ${allowed.join(', ')}${b ? '; its size and place: move_object' : ''}).`);
+  k.pushUndo();
+  for (const [key, v] of Object.entries(props)) { if (v === null) delete (b || d)[key]; else (b || d)[key] = v; }
+  k.setDirty(); k.rebuildProxies();
+  const p = proxyNamed(name);
+  if (p) k.select(p);
+  return OPS.object({ name });
+}
+
+// one call, told in the corner while it runs
+async function run({ op, args }) {
+  const fn = OPS[op];
+  if (!fn) return { ok: false, error: `This page cannot do "${op}": reload it (it may be older than the server).` };
+  working(op);
+  const { pending, asked } = answering(args || {}, () => fn(args || {}));
   try {
-    let value = await fn(args || {});
+    let value = await pending;
     value = JSON.parse(JSON.stringify(value ?? null));
     if (asked.length) value = value && typeof value === 'object' && !Array.isArray(value) ? Object.assign(value, { asked }) : { value, asked };
     return { ok: true, value };
   } catch (e) {
     return { ok: false, error: (e?.message || String(e)) + (asked.length ? ` (the editor asked: ${asked.join(' | ')})` : '') };
   } finally {
-    [window.confirm, window.alert, window.prompt] = saved;
+    working(null);
   }
+}
+// what the assistant is doing, in a corner of the editor: the user always sees when it acts
+let badge = null, badgeTimer = 0;
+function working(op) {
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.className = 'agent-badge'; badge.setAttribute('role', 'status');
+    badge.style.cssText = 'position:fixed;right:12px;bottom:34px;z-index:50;padding:4px 10px;border-radius:12px;font-size:11px;'
+      + 'background:var(--panel, #1b1f27);color:var(--ink, #e8e8e8);border:1px solid var(--accent, #d9b45a);pointer-events:none;';
+    document.body.appendChild(badge);
+  }
+  clearTimeout(badgeTimer);
+  if (op) { badge.textContent = `AI assistant: ${op.replace(/_/g, ' ')}`; badge.hidden = false; }
+  else badgeTimer = setTimeout(() => { badge.hidden = true; }, 1500);
 }
 
 async function loop() {
@@ -322,14 +428,19 @@ async function render() {
   $('main').innerHTML = `<label class="as-switch"><input type="checkbox" id="as-allow" ${info.allowed ? 'checked' : ''}> Let an AI assistant use this editor</label>
     <p class="as-note">An assistant connected through MCP (Claude Code, or any other MCP client) can then look at the open map and change it
       as you would: its changes are unsaved and undoable (Ctrl+Z) until it, or you, saves. It works on the project open here.</p>
-    ${info.allowed ? `<p class="as-state">${esc(seen)}</p>` : ''}
+    ${info.allowed ? `<label class="as-switch as-adv"><input type="checkbox" id="as-advanced" ${info.advanced ? 'checked' : ''}> Also allow advanced tools</label>
+    <p class="as-note">Advanced tools run JavaScript in the editor's page and send any request to the project's server: whatever the editor can do.
+      Text in maps, dialogues and mods made by other people could steer an assistant, so allow them only while you need them.</p>
+    <p class="as-state">${esc(seen)}</p>` : ''}
     <label for="as-cmd">To connect Claude Code, run this once in a terminal:</label>
     <div class="as-row"><input type="text" id="as-cmd" readonly value="${esc(command)}"><button type="button" id="as-copy">Copy</button></div>
     <p class="as-note">Other assistants: start <code>${esc(info.command.map(quote).join(' '))}</code> as an MCP server (stdio).</p>`;
-  $('#as-allow').onchange = async (e) => {
-    try { await call('/api/projects/assistant', { allow: e.target.checked }); } catch (err) { e.target.checked = !e.target.checked; alert(err.message); }
+  const update = async (e, body) => {
+    try { await call('/api/projects/assistant', body); } catch (err) { e.target.checked = !e.target.checked; alert(err.message); }
     render();
   };
+  $('#as-allow').onchange = (e) => update(e, { allow: e.target.checked });
+  if ($('#as-advanced')) $('#as-advanced').onchange = (e) => update(e, { allow: true, advanced: e.target.checked });
   $('#as-copy').onclick = () => { navigator.clipboard?.writeText(command); $('#as-copy').textContent = 'Copied'; };
 }
 function open() {
@@ -340,6 +451,7 @@ function open() {
     const css = document.createElement('style');
     css.textContent = `.assistant-dialog main { max-width:560px; }
       .assistant-dialog .as-switch { display:flex; gap:8px; align-items:center; font-weight:600; margin:4px 0 8px; }
+      .assistant-dialog .as-adv { font-weight:400; margin-top:10px; }
       .assistant-dialog .as-note { color:var(--dim); font-size:11px; margin:6px 0 10px; }
       .assistant-dialog .as-state { color:var(--ok); margin:0 0 10px; }
       .assistant-dialog .as-bad { color:var(--bad); }

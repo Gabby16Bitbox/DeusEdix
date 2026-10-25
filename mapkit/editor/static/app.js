@@ -10435,9 +10435,14 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
     animsChanged();
   } };
 // a picture of the 3D view (an assistant's view, agent.js): from where the camera is, from `from` looking at
-// `lookAt`, or framing the object `focus` from the camera's side; the camera goes back unless `keep`
-function viewShot({ from, lookAt, focus, keep = false } = {}) {
+// `lookAt`, or framing the object `focus` from the camera's side; the camera goes back unless `keep`. clean: without
+// the editor's own marks (the gizmo, the selection's outlines, the icons of lights, sounds and triggers, AI paths)
+const viewportIconsIn = (root) => { const out = []; root.traverse((o) => { if (o.userData.viewportIcon) out.push(o); }); return out; };
+function viewShot({ from, lookAt, focus, keep = false, clean = false } = {}) {
   const pos = camera.position.clone(), yaw = cam.yaw, pitch = cam.pitch;
+  const marks = clean ? [tc, outline, multiBoxes, pathLines, routeLines, ...viewportIconsIn(proxies)] : [];
+  const shown = marks.map((o) => o.visible);
+  for (const o of marks) o.visible = false;
   if (from) camera.position.copy(T(from));
   if (lookAt) {
     const d = T(lookAt).sub(camera.position);
@@ -10453,6 +10458,7 @@ function viewShot({ from, lookAt, focus, keep = false } = {}) {
   camera.lookAt(camera.position.clone().add(forward()));
   renderer.render(scene, camera);
   const url = renderer.domElement.toDataURL('image/jpeg', 0.86);      // before the next frame clears it
+  marks.forEach((o, i) => { o.visible = shown[i]; });
   const where = { camera: UE(camera.position), yaw: radToYaw(-cam.yaw), pitch: Math.round(cam.pitch * 1000) / 1000 };
   if (!keep) { camera.position.copy(pos); cam.yaw = yaw; cam.pitch = pitch; }
   wake();
@@ -10463,6 +10469,7 @@ window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorPro
   proxyOf, select, setMulti, focusSelected, deleteSelected, commit, rebuildProxies, showDetails, hierLabel, boxKind,
   placeOnRay, placeWith, startPlacing, cancelPlacing, undoStep, redoStep, viewShot, isCharacter,
   save: () => saveWorkspace(), openMap, mapList: () => mapList, palette: () => palette, chainOf: (cls) => chainNow[cls] || null,
+  get lightMode() { return lightMode; }, setLightMode, api,
   structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,
   get undoDepth() { return undo.length; }, get redoDepth() { return redoStack.length; }, get placing() { return placing; } };
 // the cutscene cameras (cutscene.js) use these

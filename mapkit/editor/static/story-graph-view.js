@@ -9,6 +9,9 @@ import { END, graphOf, ensureIds, connect, connectStart, insertAt, remove } from
 import { createPlay, answerConditions, conditionsOf } from './story-sim.js';
 
 const W = 236;                                   // a node's width; its height is its own
+// the colours of a node's ways on when it has several: answers and random branches one each, Yes / No green and red
+const WAYS = ['#5dcaa5', '#5aa2ff', '#e98bd5', '#ffb347', '#a58bff', '#7fd36b', '#ff8a80', '#4dd0e1'];
+const YES_NO = ['#6bcf7f', '#ff7b7b'];
 const GAP_X = 44, GAP_Y = 56;
 const UNDO = 60;
 const STYLE = `
@@ -20,8 +23,10 @@ const STYLE = `
 .sg-canvas.panning { cursor:grabbing; }
 .sg-world { position:absolute; left:0; top:0; transform-origin:0 0; }
 .sg-edges { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
-.sg-edges path { fill:none; stroke:#6c7586; stroke-width:1.6; }
-.sg-edges path.sel { stroke:#5aa2ff; stroke-width:2.2; }
+.sg-edges path { fill:none; stroke:var(--way, #6c7586); stroke-width:1.6; }
+.sg-edges path.sel { stroke:var(--way, #5aa2ff); stroke-width:2.4; }
+.sg-edges path.hot { stroke-width:3.2; filter:drop-shadow(0 0 3px var(--way, #5aa2ff)); }
+.sg-edges path.dim { opacity:.25; }
 .sg-edges path.broken { stroke:#ff6b6b; stroke-dasharray:5 4; }
 .sg-edges path.drag { stroke:#5aa2ff; stroke-dasharray:6 4; }
 .sg-edges text { fill:#8b93a3; font-size:11px; }
@@ -31,6 +36,7 @@ const STYLE = `
 .sg-node.seen { border-color:#ffd25a88; }
 .sg-node.far { opacity:.55; }
 .sg-node.warn { border-color:#ffb347; }
+.sg-node.hot { box-shadow:0 0 0 2px var(--way, #5aa2ff); }
 .sg-node .h { display:flex; align-items:center; gap:6px; padding:5px 9px 3px; color:#8b93a3; font-size:11px; cursor:move; }
 .sg-node .h b { color:#d9dde5; font-weight:600; font-size:12px; }
 .sg-node .h .dot { width:9px; height:9px; border-radius:50%; flex:none; }
@@ -42,7 +48,9 @@ const STYLE = `
 .sg-node .h .tag { margin-left:auto; font-size:10px; color:#ffb347; }
 .sg-node .t { padding:0 9px 8px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; }
 .sg-node .t.empty { color:#6c7586; font-style:italic; }
-.sg-node .row { position:relative; display:flex; align-items:center; gap:6px; padding:4px 22px 4px 9px; border-top:1px solid #2c313b; }
+.sg-node .row { position:relative; display:flex; align-items:center; gap:6px; padding:4px 14px 4px 12px; border-top:1px solid #2c313b; }
+.sg-node .row.way::before { content:''; position:absolute; left:3px; top:5px; bottom:5px; width:3px; border-radius:2px; background:var(--way); }
+.sg-node .row.way:hover { background:#262b35; }
 .sg-node .row span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sg-node.line { border-left:4px solid var(--who, #5aa2ff); }
 .sg-node.choice { border-left:4px solid #5dcaa5; }
@@ -54,7 +62,13 @@ const STYLE = `
 .sg-port:hover, .sg-port.free { border-color:#5aa2ff; }
 .sg-port.free::after { content:'+'; position:absolute; left:50%; top:50%; transform:translate(-50%,-56%); font-size:11px; line-height:1; color:#5aa2ff; }
 .sg-node > .sg-port { left:50%; bottom:-7px; margin-left:-7px; }
-.sg-node .row > .sg-port { right:4px; top:50%; margin-top:-7px; }
+/* where the arrows into a node arrive (articy's input pin), over their ends */
+.sg-in { position:absolute; left:50%; top:-8px; margin-left:-7px; width:10px; height:10px; border-radius:50%; background:#15181e; border:2px solid #8b93a3; z-index:1; pointer-events:none; }
+.sg-node.hot > .sg-in { border-color:var(--way); background:color-mix(in srgb, var(--way) 45%, #15181e); box-shadow:0 0 6px var(--way); }
+/* on the node's right edge, as articy's pins: its arrow leaves sideways, never under the other answers */
+.sg-node .row > .sg-port { right:-8px; top:50%; margin-top:-7px; }
+.sg-node .row.way > .sg-port { border-color:var(--way); background:color-mix(in srgb, var(--way) 40%, #1f232b); }
+.sg-node .row.way > .sg-port.free { background:#1f232b; }
 .sg-menu { position:absolute; z-index:5; background:#232833; border:1px solid #3a4150; border-radius:6px; padding:4px; box-shadow:0 8px 22px #000a; min-width:180px; max-height:calc(100% - 8px); overflow:auto; }
 .sg-menu button { display:block; width:100%; text-align:left; padding:4px 8px; border:0; background:transparent; }
 .sg-menu button:hover { background:#2d3442; }
@@ -117,20 +131,25 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
     const port = (o) => `<i class="sg-port${o.to === null ? ' free' : ''}" data-port="${o.port}" title="${o.to === null ? 'Drag to connect, or click to add the next step' : 'Drag to connect elsewhere'}"></i>`;
     const warn = problemOf(n);
     let body;
-    if (kind === 'end') return `<div class="sg-node end${far ? ' far' : ''}" data-id="${esc(n.id)}">${s.type === 'goto' ? 'Continues in ' + esc(s.conversation) : 'End'}</div>`;
+    if (kind === 'end') return `<div class="sg-node end${far ? ' far' : ''}" data-id="${esc(n.id)}"><i class="sg-in"></i>${s.type === 'goto' ? 'Continues in ' + esc(s.conversation) : 'End'}</div>`;
     if (kind === 'line') {
       const who = speaker(s);
-      body = `<div class="h">${faceHtml(s, who)}<b class="who" title="Who says it: click to choose">${esc(who.name)}</b>${s.voice ? '<span title="Has a recorded voice">🎙</span>' : ''}${warn ? `<span class="tag">${esc(warn)}</span>` : ''}</div>
+      body = `<i class="sg-in"></i><div class="h">${faceHtml(s, who)}<b class="who" title="Who says it: click to choose">${esc(who.name)}</b>${s.voice ? '<span title="Has a recorded voice">🎙</span>' : ''}${warn ? `<span class="tag">${esc(warn)}</span>` : ''}</div>
         <div class="t${s.text ? '' : ' empty'}">${esc(s.text || 'Double-click to write the line')}</div>${n.outs.map(port).join('')}`;
       return `<div class="sg-node line${far ? ' far' : ''}${warn ? ' warn' : ''}" data-id="${esc(n.id)}" style="--who:${who.colour}">${body}</div>`;
     }
     const title = { choice: "JC's answers", cond: 'Condition' }[kind] || summary.title(s);
-    body = `<div class="h"><b>${esc(title)}</b>${warn ? `<span class="tag">${esc(warn)}</span>` : ''}</div>`;
+    body = `<i class="sg-in"></i><div class="h"><b>${esc(title)}</b>${warn ? `<span class="tag">${esc(warn)}</span>` : ''}</div>`;
     if (kind !== 'choice') body += `<div class="t">${esc(summary.text(s))}</div>`;
     // one way on: a dot under the node; several (answers, Yes and No): a row each, its dot at its end
-    if (kind === 'choice' || n.outs.length > 1) body += n.outs.map((o) => `<div class="row"><span>${esc(o.text || '…')}</span>${port(o)}</div>`).join('');
+    if (kind === 'choice' || n.outs.length > 1) body += n.outs.map((o, i) => `<div class="row way" data-port="${o.port}" style="--way:${wayColour(n, i)}"><span>${esc(o.text || '…')}</span>${port(o)}</div>`).join('');
     else body += n.outs.map(port).join('');
     return `<div class="sg-node ${kind}${far ? ' far' : ''}${warn ? ' warn' : ''}" data-id="${esc(n.id)}">${body}</div>`;
+  }
+  // the colour of a node's way on number i: only nodes with several have one (WAYS, YES_NO)
+  function wayColour(n, i) {
+    if (n.outs.length < 2 && n.step.type !== 'choice') return '';
+    return ['choice', 'random'].includes(n.step.type) ? WAYS[i % WAYS.length] : YES_NO[i] || WAYS[i % WAYS.length];
   }
   // the face of who says a line: its picture once known (asked for the first time it is drawn), else their initials
   function faceHtml(s, who) {
@@ -192,26 +211,56 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
     edges();
     if (!fitted) { fit(); fitted = true; }
   }
-  // the arrows: from a dot to the top of the node it goes to (to the End under it when the dialogue ends there)
+  // the arrows: from a dot to the pin at the top of the node it goes to (to the End beside or under it when the dialogue ends
+  // there). A dot under a node goes down. A row's dot, on the node's right edge, goes out sideways into a lane of its
+  // own beside the node, down it past the node's bottom, then on to where it goes: in its colour, never under a node.
   function edges(extra = '') {
     const at = (el) => { let x = 0, y = 0; for (let e = el; e && e !== world; e = e.offsetParent) { x += e.offsetLeft; y += e.offsetTop; } return [x, y]; };
     let paths = '';
-    const curve = ([x1, y1], [x2, y2]) => `M${x1},${y1} C${x1},${y1 + Math.max(40, (y2 - y1) / 2)} ${x2},${y2 - Math.max(40, (y2 - y1) / 2)} ${x2},${y2}`;
-    const lines = [[ '@start', 'start', graph.start ]];
-    for (const n of graph.nodes) for (const o of n.outs) lines.push([n.id, o.port, o.to, o.broken]);
-    for (const [from, port, to, broken] of lines) {
+    const down = ([x1, y1], [x2, y2]) => `M${x1},${y1} C${x1},${y1 + Math.max(40, (y2 - y1) / 2)} ${x2},${y2 - Math.max(40, (y2 - y1) / 2)} ${x2},${y2}`;
+    const side = ([x1, y1], [x2, y2], lane, below) => {
+      const turn = Math.min(10, lane - x1), bend = Math.max(30, (y2 - below) / 2);
+      return `M${x1},${y1} L${lane - turn},${y1} Q${lane},${y1} ${lane},${y1 + turn} L${lane},${below} `
+        + `C${lane},${below + bend} ${x2},${y2 - bend} ${x2},${y2}`;
+    };
+    const lines = [['@start', 'start', graph.start, false, '']];
+    for (const n of graph.nodes) n.outs.forEach((o, i) => lines.push([n.id, o.port, o.to, o.broken, wayColour(n, i), i]));
+    for (const [from, port, to, broken, colour, i = 0] of lines) {
       const src = nodeEl(from)?.querySelector(`.sg-port[data-port="${port}"]`);
       if (!src || to === null) continue;
-      const [px, py] = at(src), a = [px + 7, py + 7];
-      if (broken) { paths += `<path class="broken" d="M${a[0]},${a[1]} l0,30"></path>`; continue; }
-      if (to === END) { paths += `<path d="M${a[0]},${a[1]} l0,22"></path><text x="${a[0] - 10}" y="${a[1] + 36}">end</text>`; continue; }
+      const [px, py] = at(src), a = [px + 7, py + 7], row = !!src.closest('.row');
+      const attrs = `data-from="${esc(from)}" data-port="${port}" data-to="${esc(to)}"${colour ? ` style="--way:${colour}"` : ''}`;
+      if (broken) { paths += `<path class="broken" ${attrs} d="M${a[0]},${a[1]} ${row ? 'l30,0' : 'l0,30'}"></path>`; continue; }
+      if (to === END) {
+        paths += row ? `<path ${attrs} d="M${a[0]},${a[1]} l24,0"></path><text x="${a[0] + 28}" y="${a[1] + 4}">end</text>`
+          : `<path ${attrs} d="M${a[0]},${a[1]} l0,22"></path><text x="${a[0] - 10}" y="${a[1] + 36}">end</text>`;
+        continue;
+      }
       const dst = nodeEl(to);
       if (!dst) continue;
-      const [dx, dy] = at(dst);
-      paths += `<path class="${from === selected || to === selected ? 'sel' : ''}" d="${curve(a, [dx + dst.offsetWidth / 2, dy])}" marker-end="url(#sg-arrow)"></path>`;
+      const [dx, dy] = at(dst), b = [dx + dst.offsetWidth / 2, dy - 1];          // the middle of its pin
+      let d = down(a, b);
+      if (row) {                                     // its lane: the first answer's nearest the node
+        const box = nodeEl(from), [nx, ny] = at(box);
+        d = side(a, b, nx + box.offsetWidth + 16 + i * 9, ny + box.offsetHeight + 14 + i * 7);
+      }
+      paths += `<path class="${from === selected || to === selected ? 'sel' : ''}" ${attrs} d="${d}"></path>`;
     }
-    svg.innerHTML = `<defs><marker id="sg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6c7586"></path></marker></defs>${paths}${extra}`;
+    svg.innerHTML = paths + extra;
   }
+  // an answer (a Yes, a No...) under the mouse: its arrow and the node it goes to lit, the other arrows dimmed
+  function lightWay(row) {
+    for (const el of svg.querySelectorAll('path.hot, path.dim')) el.classList.remove('hot', 'dim');
+    for (const el of world.querySelectorAll('.sg-node.hot')) { el.classList.remove('hot'); el.style.removeProperty('--way'); }
+    const node = row?.closest('.sg-node');
+    if (!node) return;
+    const mine = (el) => el.dataset.from === node.dataset.id && el.dataset.port === row.dataset.port;
+    for (const el of svg.querySelectorAll('path[data-from]')) el.classList.add(mine(el) ? 'hot' : 'dim');
+    const edge = [...svg.querySelectorAll('path[data-from]')].find(mine), to = edge && nodeEl(edge.dataset.to);
+    if (to) { to.classList.add('hot'); to.style.setProperty('--way', row.style.getPropertyValue('--way')); }
+  }
+  world.addEventListener('pointerover', (e) => { if (!drag && !writing) lightWay(e.target.closest('.row.way')); });
+  world.addEventListener('pointerleave', () => lightWay(null));
   function setView() { world.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.k})`; }
   function fit() {
     const pts = graph.nodes.map((n) => layout[n.id]);
