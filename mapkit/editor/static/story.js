@@ -3,6 +3,7 @@ import {stateLabel, normalizeCatalog} from './state-model.js';
 import {collectDraftStates, conditionProblems, conditionRows, removeCondition} from './story-state.js';
 import {createSaveQueue} from './save-state.js';
 import {createGraphView} from './story-graph-view.js';
+import {mountConditions} from './conditions.js';
 // "Story" panel of the map editor: dialogues attached to the characters and objects of the map, InfoLinks
 // (one-way radio calls) and the events of the mission. Saved in tools/mapkit/story/<map>.json; "Apply in game" turns them into
 // UnrealScript (tools/mapkit/story.py), compiles the mod and installs it.
@@ -487,6 +488,20 @@ function condList(el, list, options={}) {
   };
   el.querySelector('[data-add]').onclick=()=>{list.push({flag:'',is:true});options.onList?.(list);changed();const fields=condList(el,list,options);refreshFlags();fields.at(-1)?.open();};
   return fields;
+}
+
+// An event's conditions: every kind (conditions.js), as the Interactions' rules have. A dialogue's stay states
+// (condList): the game checks those itself.
+function eventConditions(el, e) {
+  const list = e.requires || [];
+  mountConditions(el, list, {
+    change: (mutate) => { e.requires = list; mutate(); changed(); eventConditions(el, e); refreshFlags(); },
+    mountState: (host, value, onChange) => mountStateField(host, value, { onChange }),
+    items, characters: pawns().map((a) => ({ name: a.name, label: actorLabel(a) })),
+    counters: stateCatalog().filter((f) => f.type === 'int').map((f) => f.flag),
+    empty: 'No conditions: it happens as soon as its "when" does.',
+    max: Infinity,                        // the Story compiles any number (conditions.unreal); a rule takes 8
+  });
 }
 
 // ---------------------------------------------------------------- dialogue editor
@@ -1019,7 +1034,7 @@ function renderEvent(el, e) {
   };
   $('#st-wt').onchange = () => { w.type = $('#st-wt').value; changed(); wf(); };
   wf();
-  condList($('#st-req'), e.requires);
+  eventConditions($('#st-req'), e);
   renderActions($('#st-acts'), e.do);
   $('#st-dele').onclick = () => { if (!confirm(`Delete the event "${e.title || e.id}"?`)) return; story.events.splice(current.i, 1); current = null; changed(); render(); };
 }

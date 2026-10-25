@@ -22,9 +22,6 @@ export const BLOCK_VERBS = {
   effect: ['An effect on it (mist, sparks, light...)', 'any'],
 };
 
-export const TIMER_VERBS = ['timerstart', 'timerstop', 'timerpause', 'timerresume'];
-// the kinds of objects an effect can be put on (Interactions: LK_FOR of app.js)
-export const EFFECT_ON = ['door', 'camera', 'alarm', 'item', 'object', 'keypad', 'computer', 'other'];
 
 export const EFFECT_KINDS = [
   ['mist', 'Mist pouring out'], ['smoke', 'Smoke rising'], ['sparks', 'Sparks'], ['fire', 'Fire'],

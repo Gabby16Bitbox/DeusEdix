@@ -4,10 +4,16 @@ to an object, do these things", without writing a Tag or an Event by hand. Saved
 edits['links'] = [{
     'id': 'L1', 'src': '<actor name>' ('' for the start of the map), 'when': WHEN, 'option': 0 (a computer's
     special option), 'near': 256 (when = 'near'), 'once': False, 'at': [x, y, z] (where the source is),
+    'port': 'Sabotaged' (when = 'output': which output of a script, Tools > Scripts),
+    'requires': [<conditions: conditions.py>],   # all must hold when it fires, or it does nothing that time
     'label': 'When JC uses Button1: open the door DeusExMover3',     # the sentence of the editor
     'do': [{'verb': VERB, 'target': '<actor name>' or '', 'delay': 0.0, 'a': '', 'b': '', 'c': ''}, ...]}]
 
-Each one becomes a UCLink actor of the mod (src/UnatcoContinues/Classes/UCLink.uc): it hooks itself to its
+The outputs and inputs each kind of object offers, and how the game hears each output, are data:
+config/logic.json (logic_catalog.py). editor/LOGIC.md describes the whole: rules, conditions, scripts as blocks,
+the logic log.
+
+Each one becomes a UCLink actor of the editor's package (src/<settings.PACKAGE>/Classes/UCLink.uc): it hooks itself to its
 object when the map starts (the object's Event becomes the link's Tag, the old event is still triggered)
 and runs its actions, each after its delay. Lights a link turns on or off become non-static.
 
@@ -29,21 +35,15 @@ a hostage to free in time):
 import re
 import math
 import activation
+import conditions
+import gametext
+import logic_catalog
 import object_tags
 
-# what can start an interaction: its label in the editor, and how the link hears it
-WHEN = {
-    'opened': 'Event', 'closed': 'Event', 'destroyed': 'Event', 'used': 'Event', 'code': 'Event',
-    'wrongcode': 'FailEvent', 'option': 'Option', 'enter': 'Event', 'laser': 'Event', 'alarm': 'Event',
-    'dies': 'Event', 'any': 'Event', 'picked': 'watch', 'gone': 'watch', 'near': 'watch', 'start': 'start',
-    'leave': 'Event', 'animdone': 'Motion', 'cutstart': 'CutStart', 'cutdone': 'CutEnd',
-    'npcused': 'NpcUse', 'finished': 'TimerDone', 'stopped': 'TimerStop', 'arrived': 'watch',
-}
-VERBS = {'open', 'close', 'toggle', 'lock', 'unlock', 'blow', 'key', 'attack', 'hostile', 'friend', 'neutral',
-         'stand', 'wander', 'follow', 'goto', 'run', 'leave', 'appear', 'lighton', 'lightoff', 'lighttoggle',
-         'hide', 'show', 'on', 'off', 'explode', 'sound', 'message', 'goal', 'note', 'flag', 'travel',
-         'anim', 'animback', 'animstop', 'cutplay', 'cutstop',
-         'timerstart', 'timerstop', 'timerpause', 'timerresume', 'npcuse', 'effect'}
+# what can start an interaction (how the link hears it) and what one can do: the logic catalogue's
+WHEN = {when: entry['hears'] for when, entry in logic_catalog.OUTPUTS.items()}
+VERBS = set(logic_catalog.INPUTS)
+OPTIONS = 4                                  # a computer's special options (Computers.specialOptions[4])
 EFFECTS = ('mist', 'smoke', 'sparks', 'fire', 'blinklight', 'pulse', 'off')
 LIGHT_VERBS = {'lighton', 'lightoff', 'lighttoggle'}
 MAX_ACTS = 24
@@ -81,39 +81,41 @@ def area_fields(area):
 
 def _name(s):
     s = str(s or '').strip()
-    return s if re.fullmatch(r'\w+', s) else ''
+    return s if re.fullmatch(r'\w+', s, re.ASCII) else ''          # the map's names are ASCII
 
 
 def _text(s):
-    """A string value of the T3D (no quotes or bars inside: they end the value or the field)."""
-    s = str(s or '').replace('\r', ' ').replace('\n', ' ').replace('"', "'").replace('|', '/')
-    return s.encode('latin1', 'replace').decode('latin1')
+    """A text the game shows (gametext.plain), with no quotes or bars inside: they end the value or the field. Written
+    into the T3D through _quoted."""
+    return gametext.plain(str(s or '').replace('\r', ' ').replace('\n', ' ')).replace('"', "'").replace('|', '/')
+
+
+def _quoted(s):
+    """A string property of the T3D: in quotes, its backslashes as the engine's reader takes them (gametext.t3d)."""
+    return '"%s"' % gametext.t3d(s)
+
+
+def _game_name(s, fallback='X'):
+    """A state's, a counter's or a goal's name as the Story and the conditions write it (conditions.ident); none
+    stays none, and the game says so (UCLink: fail noname, for a state, a counter and a goal)."""
+    return conditions.ident(s, fallback) if str(s or '').strip() else ''
+
+
+def option_of(link):
+    """A computer's special option: 0 to OPTIONS - 1 (its Tag and its property must name the same one)."""
+    try:
+        return max(0, min(OPTIONS - 1, int(link.get('option') or 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def tag_of(link, usable=()):
+    """The Tag the link waits for: the one its object's event becomes (config/logic.json), or UCLW_<id> for a link
+    that is watched or set off directly (near, the map's start, a script's output)."""
     src, when = _name(link.get('src')), link.get('when')
-    how = WHEN.get(when)
     if when == 'used' and src in usable:       # JC has finished using it: its UCUsable triggers this
         return 'UCL_%s_Used' % src
-    if how == 'Event':
-        return 'UCL_' + src
-    if how == 'FailEvent':
-        return 'UCL_%s_Fail' % src
-    if how == 'Option':
-        return 'UCL_%s_Opt%d' % (src, int(link.get('option') or 0))
-    if how == 'Motion':                        # the end of its animation: the UCMotion's Event
-        return 'UCL_%s_Anim' % src
-    if how == 'CutStart':                      # a cutscene (UCCutscene) triggers these itself
-        return 'UCL_%s_Start' % src
-    if how == 'CutEnd':
-        return 'UCL_%s_End' % src
-    if how == 'NpcUse':                        # a character has used it (UCNpcUse triggers it)
-        return 'UCL_%s_Npc' % src
-    if how == 'TimerDone':                     # a timer (UCTimer) triggers these itself
-        return 'UCL_%s_Done' % src
-    if how == 'TimerStop':
-        return 'UCL_%s_Stop' % src
-    return 'UCLW_' + _name(link.get('id') or 'x')
+    return logic_catalog.tag(when, src, option_of(link)) or 'UCLW_' + _name(link.get('id') or 'x')
 
 
 def act_string(a):
@@ -139,10 +141,16 @@ def act_string(a):
         fields += [kind if kind in EFFECTS else 'mist', '%g' % _secs(a.get('b'), 0), _text(a.get('c')).lower()]
     elif verb == 'timerstart':                  # a: seconds of this run (empty: the timer's own)
         fields += ['%g' % _secs(a.get('a'), 0) if _secs(a.get('a'), 0) > 0 else '', '', '']
+    elif verb == 'input':                       # a script's input (a), its arguments (b: "Seconds=10;Mode=red")
+        fields += [_name(a.get('a')), _args(a.get('b')), '']
+    elif verb == 'count':                       # a counter (a) changes by b, or is set to b (c = 'set')
+        fields += [_game_name(a.get('a')), '%d' % _whole(a.get('b'), 1), 'set' if a.get('c') == 'set' else '']
+    elif verb == 'floor':                       # an elevator goes to its floor a (its sequence: SetSeq)
+        fields += ['%d' % max(0, _whole(a.get('a'), 0)), '', '']
     else:
         fields += [_text(a.get(k)) for k in ('a', 'b', 'c')]
-        if verb in ('flag', 'goal'):            # the names of the Story (story.ident): no spaces
-            fields[3] = re.sub(r'\W', '_', fields[3].strip())
+        if verb in ('flag', 'goal'):            # the names of the Story and of the conditions (conditions.ident)
+            fields[3] = _game_name(a.get('a'), 'G' if verb == 'goal' else 'X')
     area = area_data(a)
     if area is not None:
         fields += area_fields(area) + [_name(a.get('_group'))]
@@ -153,6 +161,24 @@ def act_string(a):
     if len(result) > 900:
         raise ValueError('Interaction text is too long for the engine; shorten this action')
     return result
+
+
+def _args(v):
+    """A script input's arguments, "Key=Value;Key=Value": no bars or quotes (they end a field or the value)."""
+    pairs = []
+    for part in str(v or '').split(';'):
+        key, _, value = part.partition('=')
+        if _name(key):
+            pairs.append('%s=%s' % (_name(key), _text(value).strip()))
+    return ';'.join(pairs)
+
+
+def _whole(v, default):
+    """A whole number the game's int holds (a counter's change, a floor)."""
+    try:
+        return max(-2 ** 31, min(2 ** 31 - 1, int(float(v))))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 def _secs(v, default):
@@ -174,7 +200,7 @@ def usable_entries(edits, deleted=()):
 
 def usable_block(name, u):
     """The UCUsable actor of one usable object."""
-    props = {'Tag': 'UCU_' + name, 'Target': '"%s"' % name, 'UseText': '"%s"' % _text(u.get('text') or 'Use'),
+    props = {'Tag': 'UCU_' + name, 'Target': '"%s"' % name, 'UseText': _quoted(_text(u.get('text') or 'Use')),
              'UseTime': '%.6f' % _secs(u.get('secs'), 0), 'Uses': str(max(0, int(_secs(u.get('uses'), 0)))),
              'UseEvent': 'UCL_%s_Used' % name}
     if u.get('crouch'):
@@ -185,7 +211,7 @@ def usable_block(name, u):
         if u.get('consume'):
             props['bConsume'] = 'True'
         if u.get('needtext'):
-            props['NeedText'] = '"%s"' % _text(u['needtext'])
+            props['NeedText'] = _quoted(_text(u['needtext']))
     if u.get('hidden'):
         props['bHiddenAtStart'] = 'True'
     at = u.get('at') if isinstance(u.get('at'), list) and len(u['at']) == 3 else [0, 0, 0]
@@ -198,6 +224,8 @@ def valid(link):
         return False
     if WHEN[when] != 'start' and not _name(link.get('src')):
         return False
+    if WHEN[when] == 'port' and not _name(link.get('port')):     # a script's output: which one
+        return False
     return any(str(a.get('verb')) in VERBS for a in link.get('do') or [])
 
 
@@ -209,9 +237,18 @@ def blocks(edits):
     usable = usable_entries(edits, deleted)
     for name, u in usable.items():
         out.append(usable_block(name, u))
+    names = set()
     for link in edits.get('links') or []:
         if not valid(link) or link.get('src') in deleted:
             continue
+        rule = _name(link.get('id'))
+        if not rule or rule in names:          # the actor's name and the logic log's: one per rule
+            raise ValueError('Each interaction needs its own id (letters, digits, underscores): %r' % link.get('id'))
+        names.add(rule)
+        try:
+            reqs = conditions.check(link.get('requires'), limit=conditions.MAX_CONDITIONS)
+        except ValueError as exc:               # name the rule: the Rebuild stops on it
+            raise ValueError('Interaction %s (%s): %s' % (rule, _text(link.get('label') or link.get('src')), exc)) from exc
         acts = [a for a in link.get('do') or [] if str(a.get('verb')) in VERBS
                 and not (a.get('target') and a['target'] in deleted)
                 and not (a.get('verb') == 'npcuse' and (not _name(a.get('a')) or a['a'] in deleted))]
@@ -221,11 +258,16 @@ def blocks(edits):
         if not acts:
             continue
         acts.sort(key=lambda a: float(a.get('delay') or 0))       # the link waits from one to the next
-        props = {'Tag': tag_of(link, usable), 'When': link['when'], 'Label': '"%s"' % _text(link.get('label') or link['when'])}
+        props = {'Tag': tag_of(link, usable), 'When': link['when'], 'Rule': '"%s"' % rule,
+                 'Label': _quoted(_text(link.get('label') or link['when']))}
         if _name(link.get('src')):
             props['Source'] = '"%s"' % _name(link['src'])
         if link['when'] == 'option':
-            props['Option'] = str(max(0, min(3, int(link.get('option') or 0))))
+            props['Option'] = str(option_of(link))
+        if WHEN[link['when']] == 'port':
+            props['Port'] = '"%s"' % _name(link['port'])
+        for i, c in enumerate(reqs):
+            props['Cond(%d)' % i] = '"%s"' % conditions.encode(c)
         if link['when'] == 'near':
             props['NearDist'] = '%.6f' % max(32.0, float(link.get('near') or 256))
         if link.get('once'):
@@ -233,7 +275,7 @@ def blocks(edits):
         for i, a in enumerate(acts[:MAX_ACTS]):
             area = a.get('area')
             if area and area['members']:
-                stem = 'UCLG_' + _name(link.get('id') or str(len(out))) + '_' + str(i)
+                stem = 'UCLG_' + rule + '_' + str(i)
                 chunks = [area['members'][j:j + 128] for j in range(0, len(area['members']), 128)]
                 for j, members in enumerate(chunks):
                     group_props = {'Member(%d)' % k: n for k, n in enumerate(members)}
@@ -242,8 +284,8 @@ def blocks(edits):
                     out.append(dict(cls='UCLinkGroup', name=stem + '_' + str(j),
                                     loc=list(area['at']), props=group_props))
                 a = dict(a, _group=stem + '_0')
-            props['Act(%d)' % i] = '"%s"' % act_string(a)
-        out.append(dict(cls='UCLink', name='UCLink_' + _name(link.get('id') or str(len(out))),
+            props['Act(%d)' % i] = _quoted(act_string(a))
+        out.append(dict(cls='UCLink', name='UCLink_' + rule,
                         loc=[float(v) for v in (link.get('at') or [0, 0, 0])][:3], props=props))
     return out
 

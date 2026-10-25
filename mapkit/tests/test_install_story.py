@@ -23,7 +23,7 @@ class InstallStory(unittest.TestCase):
             needs_build=Mock(side_effect=lambda: self.events.append('needs_build') or self.changed),
             install=Mock(side_effect=lambda: self.events.append('install') or (True, ['installed'])))
         self.run_ps = Mock(side_effect=lambda *a: self.events.append(a) or (self.built, ['compiled']))
-        story = types.SimpleNamespace(write_all=Mock(side_effect=lambda: self.events.append('story') or ['story of 01_Room']))
+        story = types.SimpleNamespace(write_all=Mock(side_effect=lambda current=None: self.events.append('story') or ['story of 01_Room']))
         self.ns = {'__name__': 'install_story_fixture', 'shutil': __import__('shutil'), 'subprocess': None,
                    'settings': types.SimpleNamespace(STANDALONE=True), 'PROJECT': root,
                    'data': types.SimpleNamespace(OUT=root / 'out'), 'story': story, 'run_ps': self.run_ps,
@@ -42,6 +42,7 @@ class InstallStory(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(self.events, ['story', 'needs_build', ('build.ps1', '-Isolated'), 'install'])
         self.assertIn('story of 01_Room', lines)
+        self.ns['story'].write_all.assert_called_with(current='01_Room')   # another map's draft does not stop it
 
     def test_nothing_changed_installs_without_compiling(self):
         self.changed = False

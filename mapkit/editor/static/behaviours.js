@@ -8,7 +8,7 @@ const AUGS = [['AugStealth', 'Run Silent'], ['AugSpeed', 'Speed Enhancement'], [
   ['AugDefense', 'Aggressive Defense'], ['AugEnviro', 'Environmental Resistance'], ['AugHealing', 'Regeneration'],
   ['AugHeartLung', 'Synthetic Heart'], ['AugPower', 'Power Recirculator'], ['AugShield', 'Energy Shield'], ['AugTarget', 'Targeting'],
   ['AugVision', 'Vision Enhancement'], ['AugAqualung', 'Aqualung'], ['AugEMP', 'EMP Shield'], ['AugLight', 'Light'], ['AugDrone', 'Spy Drone']];
-const SKILLS = [['SkillSwimming', 'Swimming'], ['SkillEnviro', 'Environmental Training'], ['SkillWeaponPistol', 'Weapons: Pistol'],
+export const SKILLS = [['SkillSwimming', 'Swimming'], ['SkillEnviro', 'Environmental Training'], ['SkillWeaponPistol', 'Weapons: Pistol'],
   ['SkillWeaponRifle', 'Weapons: Rifle'], ['SkillWeaponHeavy', 'Weapons: Heavy'], ['SkillWeaponLowTech', 'Weapons: Low-Tech'],
   ['SkillDemolition', 'Weapons: Demolition'], ['SkillMedicine', 'Medicine'], ['SkillComputer', 'Computer'], ['SkillLockpicking', 'Lockpicking'],
   ['SkillTech', 'Electronics']];

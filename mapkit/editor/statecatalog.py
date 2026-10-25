@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+import conditions
 import story
 
 
@@ -16,14 +17,15 @@ class _Index:
     def __init__(self):
         self.flags = {}
 
-    def add(self, flag, map_name, context, kind, label=None, source='project'):
+    def add(self, flag, map_name, context, kind, label=None, source='project', type='bool'):
+        """type: 'bool' for a state, 'int' for a counter (the game's integer flags)."""
         if not isinstance(flag, str) or not flag.strip():
             return
         flag = flag.strip()
         # UE names are case insensitive. Keep the author's spelling without creating
         # two suggestions for the same runtime flag.
         entry = self.flags.setdefault(flag.casefold(), dict(flag=flag, source=source,
-                                                          type='bool', uses=[]))
+                                                          type=type, uses=[]))
         if source == 'automatic':
             entry['source'] = source
         if label:
@@ -36,7 +38,7 @@ class _Index:
         for entry in entries:
             for use in entry['uses']:
                 self.add(entry['flag'], use['map'], use['context'], use['kind'],
-                         entry.get('label'), entry['source'])
+                         entry.get('label'), entry['source'], entry.get('type', 'bool'))
 
     def result(self):
         return sorted(self.flags.values(), key=lambda entry: entry['flag'].casefold())
@@ -58,6 +60,8 @@ def collect_story(value, map_name):
     def requirements(item, context, kind='read'):
         for condition in _items(item.get('requires')):
             flag(condition, context, kind)
+            if conditions.kind(condition) == 'counter':      # a counter condition of an event (conditions.py)
+                index.add(condition.get('counter'), map_name, context, kind, type='int')
 
     def actions(items, context):
         for action in _items(items):
@@ -110,14 +114,21 @@ def collect_story(value, map_name):
 
 
 def collect_edits(value, map_name):
-    """Index the same flag writes used by the Interactions inspector and Logic panel."""
+    """Index the states and counters the Interactions write (actions flag, count) and read (their conditions)."""
     index = _Index()
     if isinstance(value, dict):
         for link in _items(value.get('links')):
-            title = link.get('label') or link.get('id') or link.get('src') or 'Untitled'
+            context = 'Interaction: ' + str(link.get('label') or link.get('id') or link.get('src') or 'Untitled')
+            for condition in _items(link.get('requires')):
+                if conditions.kind(condition) == 'counter':
+                    index.add(condition.get('counter'), map_name, context, 'read', type='int')
+                elif conditions.kind(condition) == 'flag':
+                    index.add(condition.get('flag'), map_name, context, 'read')
             for action in _items(link.get('do')):
                 if action.get('verb') == 'flag':
-                    index.add(action.get('a'), map_name, 'Interaction: ' + str(title), 'write')
+                    index.add(action.get('a'), map_name, context, 'write')
+                elif action.get('verb') == 'count':
+                    index.add(action.get('a'), map_name, context, 'write', type='int')
     return index.result()
 
 

@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 
+import conditions as condition_model     # (conditions() below converts the game's)
+
 
 def truth(p, key, default=False):
     return str(p.get(key, str(default))).lower() == 'true'
@@ -113,9 +115,33 @@ def targets(s):
             [s.get('goto')] if kind in ('if','checkitem','checkvalue') else [s.get('fail')] if kind=='give' else [])
 
 
+def unnamed_states(data):
+    """An action that sets a state with no name, in an event, an InfoLink or a dialogue's 'do' step, would set the
+    hidden X_ every unnamed state shares: refused when building, naming where (story.js actionProblems says so at
+    Apply)."""
+    def check(actions, where):
+        for a in actions or []:
+            if not isinstance(a, dict):
+                continue
+            if a.get('type') == 'flag' and not str(a.get('flag') or '').strip():
+                raise ValueError('A state action with no state in ' + where)
+            if a.get('type') == 'do':
+                check(a.get('do'), where)
+    for e in data.get('events') or []:
+        check(e.get('do'), 'event ' + str(e.get('title') or e.get('id')))
+    for info in data.get('infolinks') or []:
+        check(info.get('do'), 'InfoLink ' + str(info.get('title') or info.get('id')))
+    for d in data.get('dialogues') or []:
+        if not d.get('disabled'):
+            for s in d.get('steps') or []:
+                if s.get('type') == 'do':
+                    check(s.get('do'), 'dialogue ' + str(d.get('title') or d.get('id')))
+
+
 def validate(data, complete=False):
     """Reject invalid overrides before saving or emitting executable source. Drafts may have empty fields."""
     import story
+    story.check_conditions(data, draft=not complete)     # the same condition model as the rules (conditions.py)
     seen=set()
     for d in data.get('dialogues') or []:
         name=d.get('replaces')
@@ -136,8 +162,12 @@ def validate(data, complete=False):
             for label in targets(s):
                 if label and str(label).casefold() not in labels and label not in d.get('originalMissingLabels',[]): raise ValueError('Unknown label '+str(label)+' in '+str(d.get('title',d.get('id'))))
             if kind=='random' and not 1<=len(targets(s))<=64: raise ValueError('A branch selection needs 1 to 64 labels.')
+            if kind in ('if','flag') and not str(s.get('flag') or '').strip() and not condition_model.complete(s.get('requires') or []):
+                raise ValueError('A state step with no state in '+str(d.get('title',d.get('id'))))
             if s.get('conversation') and not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+',s['conversation']):
                 raise ValueError('Invalid target conversation path.')
+    if complete:
+        unnamed_states(data)
     for line,_ in story.voiced_lines(data):
         voice=line.get('voice')
         if isinstance(voice,dict): voice_path(voice)

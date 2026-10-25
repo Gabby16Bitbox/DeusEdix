@@ -376,6 +376,13 @@ def class_props(cls, log=print):
     return d
 
 
+def forget_classes(classes):
+    """Forget what class_props knows of these classes (a script compiled again may have new settings)."""
+    for cls in classes:
+        if re.fullmatch(r'\w{1,127}', cls or ''):
+            (CLASSPROPS / (cls + '.json')).unlink(missing_ok=True)
+
+
 def raw_commands(edits):
     """UC_PROP for every property set in All properties (one line each, no line breaks in a value)."""
     cmds = []

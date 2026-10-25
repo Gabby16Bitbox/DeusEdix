@@ -1,4 +1,5 @@
 import {validFlagName} from './state-model.js';
+import {kindOf, conditionProblem} from './conditions.js';
 
 // Read the authored shape explicitly: native SetFlag lists are writes, whereas
 // choice requirements are reads even though both live inside dialogue steps.
@@ -6,11 +7,12 @@ const items = value => Array.isArray(value) ? value.filter(item => item && typeo
 
 export function collectDraftStates(story, map, {playedFlag, heardFlag}, links = []) {
   const entries = new Map();
+  // type: 'bool' for a state, 'int' for a counter (the rules' count action, counter conditions: conditions.js)
   function add(flag, context, kind = 'read', extra = {}) {
     if (typeof flag !== 'string' || !flag.trim()) return;
     flag = flag.trim();
     const key = flag.toLowerCase();
-    const entry = entries.get(key) || {flag, source: 'project', type: 'bool', uses: []};
+    const entry = entries.get(key) || {flag, source: 'project', type: extra.type || 'bool', uses: []};
     if (extra.source === 'automatic') entry.source = 'automatic';
     if (extra.label) entry.label = extra.label;
     const use = {map: String(map), context, kind};
@@ -18,7 +20,11 @@ export function collectDraftStates(story, map, {playedFlag, heardFlag}, links = 
     entries.set(key, entry);
   }
   const flag = (value, context, kind = 'read') => add(value.flag, context, kind);
-  const requirements = (value, context, kind = 'read') => items(value.requires).forEach(requirement => flag(requirement, context, kind));
+  // a state is read (or set, a flag step's); a counter condition reads a counter
+  const requirements = (value, context, kind = 'read') => items(value.requires).forEach(requirement => {
+    if (kindOf(requirement) === 'counter') add(requirement.counter, context, 'read', {type: 'int'});
+    else if (kindOf(requirement) === 'flag') flag(requirement, context, kind);
+  });
   function actions(value, context) {
     for (const action of items(value)) {
       if (action.type === 'flag') flag(action, context, 'write');
@@ -58,7 +64,11 @@ export function collectDraftStates(story, map, {playedFlag, heardFlag}, links = 
   }
   for (const link of items(links)) {
     const context = 'Interaction: ' + String(link.label || link.id || link.src || 'Untitled');
-    for (const action of items(link.do)) if (action.verb === 'flag') add(action.a, context, 'write');
+    requirements(link, context);
+    for (const action of items(link.do)) {
+      if (action.verb === 'flag') add(action.a, context, 'write');
+      if (action.verb === 'count') add(action.a, context, 'write', {type: 'int'});
+    }
   }
   return [...entries.values()].sort((a, b) => a.flag.toLowerCase().localeCompare(b.flag.toLowerCase()));
 }
@@ -71,9 +81,14 @@ export function conditionProblems(story) {
       if (!optional) problems.push(context + ': choose a state.');
     } else if (!validFlagName(name)) problems.push(context + ': invalid flag ID "' + name + '". Use letters, numbers and underscores.');
   }
-  function requirements(value, context) {
+  // a dialogue's requirements are states only; an event's may be any kind (conditions.js), each with its own check
+  function requirements(value, context, anyKind = false) {
     if (!Array.isArray(value.requires)) return;
-    value.requires.forEach((requirement, index) => check(requirement, context + ' · Condition ' + (index + 1)));
+    value.requires.forEach((requirement, index) => {
+      const where = context + ' · Condition ' + (index + 1);
+      if (!anyKind || kindOf(requirement) === 'flag') check(requirement, where);
+      else if (conditionProblem(requirement)) problems.push(where + ': ' + conditionProblem(requirement) + '.');
+    });
   }
   function actions(value, context) {
     for (const [index, action] of items(value).entries()) {
@@ -102,7 +117,7 @@ export function conditionProblems(story) {
   for (const info of items(story?.infolinks)) actions(info.do, 'InfoLink "' + String(info.title || info.id || 'Untitled') + '"');
   for (const event of items(story?.events)) {
     const context = 'Event "' + String(event.title || event.id || 'Untitled') + '"';
-    requirements(event, context);
+    requirements(event, context, true);
     if (event.when?.type === 'flag') check(event.when, context + ' · When');
     actions(event.do, context);
   }

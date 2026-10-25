@@ -49,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import settings  # noqa: E402
 import atomicfile  # noqa: E402
+import conditions  # noqa: E402
 
 KIT = Path(__file__).resolve().parent
 PROJECT = KIT.parents[1]
@@ -140,12 +141,7 @@ def code(map_name):
     return hashlib.sha1(map_name.lower().encode()).hexdigest()[:4]
 
 
-def ident(s, fallback='X'):
-    """A valid UnrealScript name."""
-    s = re.sub(r'\W', '_', str(s or '').strip())
-    if not s or s[0].isdigit():
-        s = fallback + '_' + s
-    return s[:60]
+ident = conditions.ident          # a valid UnrealScript name (the rules' conditions name states the same way)
 
 
 def lit(s):
@@ -200,17 +196,37 @@ def do_flag(map_name, d, st):
 
 
 def requires(lines, reqs, indent='\t\t\t'):
-    for r in reqs or []:
-        if r.get('flag'):
-            lines.append("%sc.Require('%s', %s);" % (indent, ident(r['flag']), 'True' if r.get('is', True) else 'False'))
+    """A dialogue's requirements: the game checks them itself (ConFlagRef), so they can only be states."""
+    for r in conditions.check(reqs, kinds=('flag',)):
+        lines.append("%sc.Require('%s', %s);" % (indent, ident(r['flag']), 'True' if r.get('is', True) else 'False'))
+
+
+def check_conditions(st, draft=False):
+    """Every condition of a story (conditions.py): an event's of any kind; a dialogue's, an answer's and a step's
+    states only (the game checks those itself, ConFlagRef). A draft may keep rows not filled in yet (unfinished):
+    generating the code refuses them. The error names the event or the dialogue."""
+    def checked(reqs, where, kinds=conditions.KINDS):
+        if draft and isinstance(reqs, list):
+            reqs = [c for c in reqs if not conditions.unfinished(c)]
+        try:
+            conditions.check(reqs, kinds=kinds)
+        except ValueError as exc:
+            raise ValueError('%s: %s' % (where, exc)) from exc
+
+    for e in st.get('events') or []:
+        checked(e.get('requires'), 'Event "%s"' % (e.get('title') or e.get('id')))
+    for d in st.get('dialogues') or []:
+        where = 'Dialogue "%s"' % (d.get('title') or d.get('id'))
+        checked(d.get('requires'), where, kinds=('flag',))
+        for step in d.get('steps') or []:
+            checked(step.get('requires'), where, kinds=('flag',))
+            for option in step.get('options') or []:
+                checked(option.get('requires'), where, kinds=('flag',))
 
 
 def cond(reqs):
-    parts = []
-    for r in reqs or []:
-        if r.get('flag'):
-            parts.append(('GetF(\'%s\')' if r.get('is', True) else '!GetF(\'%s\')') % ident(r['flag']))
-    return parts
+    """An event's requirements as UnrealScript expressions, all of which must hold (conditions.py: every kind)."""
+    return [conditions.unreal(r) for r in conditions.check(reqs)]
 
 
 def dialogue_code(map_name, d, binds):
@@ -268,7 +284,7 @@ def dialogue_code(map_name, d, binds):
                     args += ["'%s'" % ident(o['flag']), 'True' if o.get('is', True) else 'False']
                 L.append('\t\tc.Answer(%s);' % ', '.join(args))
                 L.append('\t\tc.AnswerDetails(%s, %d, %s);' % (lit(o.get('skill','')),int(o.get('skillLevel',0)),str(bool(o.get('displayAsSpeech')))))
-                for f in o.get('requires') or []:
+                for f in conditions.check(o.get('requires'), kinds=('flag',)):        # (rows never filled in: none)
                     L.append("\t\tc.AnswerFlag('%s', %s, %d);" % (ident(f['flag']),str(bool(f.get('is',True))),int(f.get('expiration',0))))
         elif t == 'give':
             item = str(st.get('item') or '').strip()
@@ -302,7 +318,7 @@ def dialogue_code(map_name, d, binds):
             L.append('\t\tc.RandomBegin(Self, %s, %s, %s);' % tuple(str(bool(st.get(k))) for k in ('cycle','once','shuffle')))
             L += ['\t\tc.RandomLabel(%s);' % original.ustr(label) for label in labels]
         if t in ('flag','if'):
-            for i,f in enumerate(st.get('requires') or []):
+            for i,f in enumerate(conditions.check(st.get('requires'), kinds=('flag',))):
                 L.append("\t\tc.LastFlags('%s', %s, %d, %s);" % (ident(f['flag']),str(bool(f.get('is',True))),int(f.get('expiration',0)),str(i==0)))
     L += ['\t\tc.Done();', "\t\tReplaceCon(A, '%s', c.con);" % cname if d.get('replaces') else '\t\tc.AttachTo(A);', '\t}']
     return L
@@ -469,9 +485,11 @@ def event_code(map_name, e, dialogues):
     return L
 
 
-def write_all():
+def write_all(current=None):
     """Every story -> its class; classes of stories that are now empty are removed. Returns the lines
-    of a report."""
+    of a report. A story that cannot be built (a condition not filled in yet...) stops it, naming its map, when it
+    is the map being played or installed (current) or when every map is built (current None: Export mod); another
+    map's keeps the class it had, and the report says why."""
     report = []
     import sys
     sys.path.insert(0,str(KIT/'editor'))
@@ -484,7 +502,15 @@ def write_all():
         if not (story.get('dialogues') or story.get('events') or story.get('infolinks')):
             continue
         out = CLASSES / (class_name(map_name) + '.uc')
-        out.write_bytes(generate(map_name, story).replace('\n', '\r\n').encode('latin1', 'replace'))
+        try:
+            code = generate(map_name, story)
+        except ValueError as exc:
+            if current is None or map_name.lower() == str(current).lower():
+                raise ValueError('Story of %s: %s' % (map_name, exc)) from exc
+            made.add(out.name)
+            report.append('story of %s not built again (%s): finish it in that map\'s Story' % (map_name, exc))
+            continue
+        out.write_bytes(code.replace('\n', '\r\n').encode('latin1', 'replace'))
         made.add(out.name)
         report.append('story of %s: %d dialogues, %d InfoLinks, %d events -> %s' % (
             map_name, len(story.get('dialogues') or []), len(story.get('infolinks') or []), len(story.get('events') or []),

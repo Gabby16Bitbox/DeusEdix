@@ -27,6 +27,7 @@ PYTHON.add('experimental_payload.py')
 PYTHON.add('atomicfile.py')
 PYTHON.add('mods.py')                    # Export mod... and the launcher's Mods (both games)
 PYTHON.add('signs.py')                   # signs drawn like the game's (the tutorial map and the maps use it)
+PYTHON.add('conditions.py')             # the rules' and the Story's conditions (links, story)
 PYTHON.update({'vec3.py', 'classtree.py'})   # the vector type (geom, blocks) and the class hierarchy (props, data)
 PYTHON.add('mover_transform.py')        # a mover moved or turned in the editor keeps its keys (scene, dxmaps)
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}

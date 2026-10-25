@@ -65,6 +65,7 @@ import player_start  # noqa: E402
 import mods  # noqa: E402
 import agent_bridge  # noqa: E402
 import local_guard  # noqa: E402
+import logic_catalog  # noqa: E402
 
 PORT = int(os.environ.get('DEUSEDIX_PORT') or 8790)      # DeusEdix's launcher picks a free one
 STATIC = HERE / 'static'
@@ -348,7 +349,7 @@ def prepare_play(script):
     import workspace
     require_player_start(script)
     play_preview.restore()
-    lines = story.write_all()
+    lines = story.write_all(current=map_of(script))
     if workspace.needs_build():
         ok, output = run_ps('build.ps1', '-Isolated')
         lines += output
@@ -381,7 +382,7 @@ def install_map(script):
         import workspace
         # the map's dialogues and events as the Story saved them, compiled when they changed, as Play does
         # (24 Oct 2026: a dialogue saved in the Story never reached the game installed with Install map)
-        pre += story.write_all()
+        pre += story.write_all(current=map_name)
         if workspace.needs_build():
             ok, output = run_ps('build.ps1', '-Isolated')
             pre += output
@@ -430,6 +431,18 @@ def view(script, cam):
 # the fonts the user imported (editor/static/text-style.js)
 FONTS = Path(__file__).resolve().parents[1] / 'fonts'
 FONT_TYPES = ('.ttf', '.otf', '.woff', '.woff2')
+
+def class_io_parts(cls):
+    """(class chain, ports) of a class for logic_catalog.io_for. The game's classes have their chain in the class
+    defaults; a class of Tools > Scripts has its own lineage (the scripts it extends, then a game class), and the ports
+    it and those scripts declare when it is a UCScript (scripts.lineage, ports_of)."""
+    import scripts as user_scripts
+    if not user_scripts.is_script_class(cls, generated=True):    # (a weapon of Tools > Weapons: its game class above)
+        return props.chain(cls, log=lambda *a: None), None
+    own, base = user_scripts.lineage(cls.rpartition('.')[2], generated=True)
+    chain = ['%s.%s' % (user_scripts.PACKAGE, n) for n in own] + props.chain(base, log=lambda *a: None)
+    return chain, user_scripts.ports_of(own) if 'UCScript' in chain else None
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -829,10 +842,12 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._send(400, dict(error=str(e)))
             if u.path == '/api/props':
-                # the Properties panel of a class: fields, kinds, class defaults (editor/props.py)
+                # the Properties panel of a class: fields, kinds, class defaults (editor/props.py), and what it offers
+                # to the rules (its outputs and inputs: logic_catalog)
                 items = data.items()
+                chain, ports = class_io_parts(q['cls'])
                 return self._send(200, dict(cls=q['cls'], fields=props.fields_for(q['cls'], log=lambda *a: None),
-                                            items=items, chain=props.chain(q['cls'], log=lambda *a: None)))
+                                            items=items, chain=chain, io=logic_catalog.io_for(chain, ports)))
             if u.path == '/api/navneeded':
                 # does the map send characters on the walkable area (navbake.py)? the page bakes it before a Rebuild
                 import navbake
@@ -1309,7 +1324,7 @@ class Handler(BaseHTTPRequestHandler):
                         maplinks.validate_travel(story_data=body['story'])
                         voiced = sounds.rekey(body['story'], log=lambda *a: None)
                         story.save(map_of(q['script']), body['story'])
-                    lines = voiced + story.write_all()
+                    lines = voiced + story.write_all(current=map_of(q['script']))
                     ok, out = run_ps('build.ps1', '-Isolated')
                     lines += out
                     if ok and not game_running():
@@ -1423,7 +1438,7 @@ class Handler(BaseHTTPRequestHandler):
                 name = str(body.get('name', ''))
                 if u.path == '/api/script_save':
                     user_scripts.save(name, str(body.get('text', '')))
-                    return self._send(200, dict(ok=True, name=name))
+                    return self._send(200, dict(ok=True, name=name, text=user_scripts.read(name)))   # as the game reads it
                 if u.path == '/api/script_new':
                     return self._send(200, dict(ok=True, name=name, text=user_scripts.new(name, str(body.get('kind', 'triggered')))))
                 user_scripts.delete(name)

@@ -741,6 +741,13 @@ and you see its code and the door it opens.
 No Tag or Event to write: at the top of an object's Properties, its **Interactions** say in plain words
 what happens when something happens to it.
 
+- **What it offers**: first, two rows of buttons. **When it...** lists what can happen to that object
+  (each with the number of its rules): click one to add a rule on it. **It can...** lists what a rule can
+  make it do (with the number of rules that do): click one, then the object that should make it happen.
+  Both come from the object's class, the way the game itself works: a keypad offers *the right code is
+  typed*, a beam *JC breaks its beam*, a camera nothing of its own (the game gives it no event). Things
+  the game cannot do are not offered: an elevator is not switched on, a trigger that only redirects
+  others (an alliance or an orders trigger) does not start rules.
 - **+ When it...**: what starts it. A door: *it has opened*, *it starts closing*, *it is blown up*. A
   button or any object JC uses: *JC uses it*. A keypad: *the right code is typed*, *a wrong code is
   typed*. A computer: *JC chooses an option of it* (write the text of the button on its screen and what
@@ -754,12 +761,22 @@ what happens when something happens to it.
     neutral, stand still, wander about, follow JC, walk or run to a place (click it), leave or come
     back (only when JC does not see them);
   - lights: turn on, turn off, turn on or off;
-  - cameras, turrets, alarms, lasers, sound effects: switch on, switch off, play it;
-  - any object: vanish, appear again, an explosion there (damage and radius), a sound from it.
+  - elevators: go to a floor (0 is where it starts);
+  - cameras, turrets, alarms, lasers: switch on, switch off; a sound effect: play it;
+  - objects, items, bodies, keypads, computers and alarm lights: vanish, appear again;
+  - most devices and objects (not characters, lights or lasers): an explosion there (damage and radius);
+    most things: a sound from it.
 
   Or without an object: a message on the screen, a goal (the same name completes it later), a note in
-  the DataVault, a flag (the Story's flags: an interaction can start a Story event), a sound (from an
-  object or in JC's head), take JC to another map.
+  the DataVault, a flag (the Story's flags: an interaction can start a Story event), a **counter** (add
+  to it, take from it, or set it: *the levers pulled*, *the guards down*), a sound (from an object or in
+  JC's head), take JC to another map.
+- **+ Only if...**: conditions, all of which must hold when it happens, or the rule does nothing that
+  time (it is not used up, even with *once*): a state (a flag) is yes or no, JC carries an item (or does
+  not), a character is alive (not killed nor knocked out), JC's skill is at least Trained, Advanced or
+  Master, a counter compared with a number, JC's credits. The Story's events take the same conditions.
+  The conditions are checked the moment it happens, before any rule acts: if one rule on a button adds 1
+  to a counter, another rule on the same button still sees the old number that time.
 - Every action has its **after ... s**: seconds from the moment the rule starts (the door opens, 2 s
   later the alarm sounds). **once**: only the first time.
 - **🔗 Connect to...**: click another object, and the rule is made with what the two usually do
@@ -1086,17 +1103,36 @@ models (no actor classes) add nothing to the palette.
 ## Scripts and the Console
 
 **Tools > Scripts...** writes UnrealScript inside the editor. A script is an invisible object placed
-in the map (it extends `UCScript`): **Started** runs when the map starts, **Triggered** when an
-interaction sets it off through its Tag, **Repeat** every few seconds. Helpers do the common things:
-the player, say a line, find an object, trigger a Tag, read and set flags, give an item. **Compile**
+in the map (it extends `UCScript`): **Started** runs when the map starts, **Triggered** when a rule
+switches it on (**Untriggered** when it switches it off), **Repeat** every few seconds. Helpers do the
+common things: the player, say a line, find an object, read and set flags, give an item. **Compile**
 builds the scripts' own package in a few seconds and lists the problems by line: click one to go
-there. **Place in map** puts the script in the level: give it a Tag in the Inspector and set it off with
-an **Interaction** like any object.
+there. **Place in map** puts the script in the level and asks at once what sets it off: click a button,
+a trigger, a timer... (or Esc, and connect it later like any object).
+
+**A script as a block.** A script can be a block the rules use like a door or a keypad: its **inputs**
+are what a rule can make it do, its **outputs** what it tells the rules. They are declared at the end
+of the script, in its `defaultproperties`:
+
+```unrealscript
+Inputs(0)=(Id="Start",Label="Start it",Args="Seconds")
+Outputs(0)=(Id="Done",Label="it is done")
+```
+
+and written in `Input(InputName, Args, Caller)` (a `switch` on the input's name; `ArgFloat(Args,
+"Seconds")` reads an argument) and with `Output("Done")`. Then the Interactions offer *Start it* as
+something to do to the script (with a field for each argument), and *it says "it is done"* as something
+that can happen to it. The template **A block** of **+ New** has both. A `var()` of the script is set
+per object in the Inspector.
 
 The **Console** (a tab next to the Browser, or **Window > Console**) shows the game's log while the
-game runs, as it is written: **Scripts** shows only the lines from scripts (`log()`) and from the
-Console, **Problems** only errors and warnings. During **Play**, the line at the bottom sends a
-command to the game's own console (`summon`, `set`, a cheat...).
+game runs, as it is written: **Logic** shows what the rules and the scripts do, in words (*▶ L3 When
+JC uses Button1: open Door3*, *→ open Door3*, *⏸ L4 did not run: only if JC carries Multitool, and that
+does not hold*); a name selects that object in the map, a rule's id goes to its object. **Scripts** shows
+only the lines from scripts (`log()`) and from the Console, **Problems** only errors and warnings.
+During **Play**, the line at the bottom sends a command to the game's own console (`summon`, `set`, a
+cheat...). The game runs a cheat (`god`, `summon`, `fly`...) only with its cheats on: the first one you type turns
+them on for that game, and the Console says so.
 
 ## Mods: export, install, play
 

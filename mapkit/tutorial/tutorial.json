@@ -303,7 +303,7 @@
   {
    "room": 11,
    "title": "Your first script",
-   "text": "Room 11, the code lab: for what the Interactions cannot say. Tools > Scripts..., name a new script and start from When triggered. Read it, change the Say line to something of yours, press Compile (Ctrl+B). Then Place in map, inside this room, and give it a Tag in the Inspector. It is UnrealScript, the game's own language. Errors point to their line. They are not personal.",
+   "text": "Room 11, the code lab: for what the Interactions cannot say. Tools > Scripts..., name a new script and start from When triggered. Read it, change the Say line to something of yours, press Compile (Ctrl+B). Then Place in map, inside this room. It is UnrealScript, the game's own language. Errors point to their line. They are not personal.",
    "check": "scriptplaced:11",
    "show": "room",
    "complete": "Compiled and placed. Somewhere a programmer felt a disturbance.",

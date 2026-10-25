@@ -18,13 +18,7 @@ import settings  # noqa: E402
 PACKAGE = settings.PACKAGE
 
 
-_PLAIN = {'“': '"', '”': '"', '‘': "'", '’': "'", '—': '-', '–': '-', '…': '...'}
-
-
-def plain(s):
-    """What the game's fonts have (Latin-1): typographic quotes and dashes made plain, the rest '?'."""
-    s = ''.join(_PLAIN.get(c, c) for c in str(s or ''))
-    return s.encode('latin1', 'replace').decode('latin1')
+from gametext import plain, t3d  # noqa: E402  (what the game's fonts have; a T3D string as the engine reads it)
 
 
 def mission(map_name):
@@ -63,7 +57,7 @@ def blocks(edits, map_name):
         nonlocal k
         k += 1
         text = plain(text)
-        quoted = '"%s"' % text.replace('\\', '\\\\').replace('"', '\\"')
+        quoted = '"%s"' % t3d(text)
         out.append(dict(cls='UCTextBlock', name='UCText%d' % k, loc=list(loc or [0, 0, 0]),
                         props={'TextName': name, 'Text': quoted}))
 

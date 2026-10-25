@@ -1,4 +1,4 @@
-"""Cutscenes made in the map editor: a "Cutscene camera" (a UCCutscene actor of the mod) and its timeline,
+"""Cutscenes made in the map editor: a "Cutscene camera" (a UCCutscene actor of the editor's package) and its timeline,
 like the camera paths of Premiere or of the Minecraft film mods. The camera flies through keys (where it is,
 where it looks, its roll and its zoom), each with a curve to the next one, cut into shots; subtitles, a fade
 from and to black, the black bars of a film. Interactions play it ("Play the cutscene") and act during it
@@ -18,17 +18,23 @@ edits['cutscenes'] = {'<UCCutscene actor name>': {
     'fadeIn': 0.5, 'fadeOut': 0.5, 'bars': True, 'skip': True, 'once': True, 'autoplay': False, 'showJC': True,
     'length': 0 (seconds; 0 or less than its keys and lines: until the last of them)}}
 
-In the game (src/UnatcoContinues/Classes/UCCutscene.uc) the values are the actor's own properties.
+In the game (src/<settings.PACKAGE>/Classes/UCCutscene.uc) the values are the actor's own properties.
 """
+import gametext
 
 MAX_KEYS = 48
 MAX_LINES = 24
 
 
 def _text(s):
-    """A string of the T3D: no double quotes or line breaks (they end the value)."""
-    s = str(s or '').replace('\r', ' ').replace('\n', ' ').replace('"', "'")
-    return s.encode('latin1', 'replace').decode('latin1')
+    """A text the game shows (gametext.plain), with no double quotes or line breaks (they end the value). Written
+    into the T3D through _quoted."""
+    return gametext.plain(str(s or '').replace('\r', ' ').replace('\n', ' ')).replace('"', "'")
+
+
+def _quoted(s):
+    """A string property of the T3D: in quotes, its backslashes as the engine's reader takes them (gametext.t3d)."""
+    return '"%s"' % gametext.t3d(s)
 
 
 def line_len(ln):
@@ -58,7 +64,7 @@ def props(edits, name):
     c = (edits.get('cutscenes') or {}).get(name)
     if not isinstance(c, dict):
         return {}
-    out = {'CutName': '"%s"' % _text(c.get('title') or name)}
+    out = {'CutName': _quoted(_text(c.get('title') or name))}
     keys = keys_of(c)
     for i, k in enumerate(keys):
         p, r = k['p'], (list(k.get('r') or [0, 0, 0]) + [0, 0, 0])[:3]
@@ -72,15 +78,15 @@ def props(edits, name):
     if c.get('straight'):
         out['bStraight'] = 'True'
     if str(c.get('look') or '').strip():
-        out['LookAt'] = '"%s"' % _text(c['look']).strip()
+        out['LookAt'] = _quoted(_text(c['look']).strip())
     lines = lines_of(c)
     for i, ln in enumerate(lines):
         out['LineT(%d)' % i] = '%.3f' % float(ln.get('t') or 0)
         out['LineD(%d)' % i] = '%.3f' % float(ln.get('d') or 0)
-        out['LineWho(%d)' % i] = '"%s"' % _text(ln.get('who'))
-        out['LineText(%d)' % i] = '"%s"' % _text(ln.get('text'))
+        out['LineWho(%d)' % i] = _quoted(_text(ln.get('who')))
+        out['LineText(%d)' % i] = _quoted(_text(ln.get('text')))
         if ln.get('snd'):
-            out['LineSnd(%d)' % i] = '"%s"' % _text(ln['snd'])
+            out['LineSnd(%d)' % i] = _quoted(_text(ln['snd']))
     out['NumLines'] = str(len(lines))
     out['Length'] = '%.3f' % length(c)
     out['FadeIn'] = '%.3f' % max(0.0, float(c.get('fadeIn', 0.5) or 0))

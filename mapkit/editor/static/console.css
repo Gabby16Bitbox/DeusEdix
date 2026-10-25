@@ -15,6 +15,10 @@
 #console .cn-row { padding:0 8px; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--dim); }
 #console .cn-row:hover { background:var(--hover); }
 #console .cn-script { color:var(--text); }
+#console .cn-logic { color:var(--text); }
+#console .cn-logic[data-logic="skip"], #console .cn-logic[data-logic="act"] { color:var(--dim); }
+#console .cn-logic[data-logic="fail"], #console .cn-logic[data-logic="hook"], #console .cn-logic[data-logic="noinput"] { color:var(--warn); }
+#console .cn-ref { color:var(--acc); text-decoration:none; } #console .cn-ref:hover { text-decoration:underline; }
 #console .cn-cmd { color:var(--acc); }
 #console .cn-warn { color:var(--warn); }
 #console .cn-bad { color:var(--bad); }

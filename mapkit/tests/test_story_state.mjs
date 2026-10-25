@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
-const model = await readFile(new URL('../editor/static/state-model.js', import.meta.url), 'utf8');
-const modelURL = 'data:text/javascript;base64,' + Buffer.from(model).toString('base64');
-const source = (await readFile(new URL('../editor/static/story-state.js', import.meta.url), 'utf8')).replace("'./state-model.js'", JSON.stringify(modelURL));
-const {collectDraftStates, conditionProblems, conditionRows, removeCondition} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+import {collectDraftStates, conditionProblems, conditionRows, removeCondition} from '../editor/static/story-state.js';
 
 const ids = {playedFlag: dialogue => (dialogue.replaces || 'UCEd1234_' + dialogue.id) + '_Played', heardFlag: info => 'UCEd1234_' + info.id + '_Heard'};
 const fixture = {

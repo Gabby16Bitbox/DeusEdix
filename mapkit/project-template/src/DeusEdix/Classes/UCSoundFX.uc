@@ -50,6 +50,13 @@ function Touch(Actor Other)
     Super.Touch(Other);          // its Event and its message, as every trigger
 }
 
+// a triggered sound (not on touch) says neither 'walks in' (Touch) nor 'walks out'
+function UnTouch(Actor Other)
+{
+    if (bOnTouch)
+        Super.UnTouch(Other);
+}
+
 function Trigger(Actor Other, Pawn EventInstigator)
 {
     if (EventInstigator != None)

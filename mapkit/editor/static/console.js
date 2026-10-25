@@ -1,6 +1,9 @@
 // The Console panel (a tab next to the Browser, like Unity's): the running game's log as it is written, and a
 // line for the game's own console while Play runs (server: /api/console_log, /api/console; in the game:
-// UCConsoleLink). Script lines (log() in UnrealScript) stand out; errors and warnings are coloured.
+// UCConsoleLink). Script lines (log() in UnrealScript) stand out; errors and warnings are coloured. The logic log
+// (what the rules and the scripts do, editor/LOGIC.md) reads as sentences: a name selects its object, a rule's id
+// opens its rule.
+import { LOGIC_TAG, parseLogicLine, logicSentence } from './logic-log.js';
 const root = document.getElementById('console');
 const css = document.createElement('link');
 css.rel = 'stylesheet';
@@ -11,6 +14,7 @@ root.innerHTML = `
   <div class="cn-bar">
     <div class="cn-filters" role="group" aria-label="Show">
       <button type="button" data-filter="all" class="on" title="Every line of the game's log">All</button>
+      <button type="button" data-filter="logic" title="What the rules (Interactions) and the scripts do: what ran, what did not and why">Logic</button>
       <button type="button" data-filter="script" title="Lines from scripts (log in UnrealScript) and from this Console">Scripts</button>
       <button type="button" data-filter="problems" title="Errors and warnings only">Problems <span class="cn-count" hidden></span></button>
     </div>
@@ -35,6 +39,7 @@ let historyAt = 0;
 try { history.push(...JSON.parse(localStorage.getItem('deusedix.console.history') || '[]').slice(-50)); historyAt = history.length; } catch (_) { /* no storage: no history */ }
 
 function kind(line) {
+  if (line.startsWith(LOGIC_TAG)) return 'logic';          // before 'bad': a rule's label may say "Error"
   if (/^DeusEdix console [<>]/.test(line) || line.startsWith('> ')) return 'cmd';
   if (/Ogg File: '\.\.\\Music\\Nothing'/.test(line)) return 'engine';     // Revision's "no music here": harmless
   if (/(^|\s)(Critical|Error)[:,]|\bError\b.*\.uc\(\d+\)|Accessed None|Infinite (script )?recursion|runaway loop/i.test(line)) return 'bad';
@@ -44,7 +49,8 @@ function kind(line) {
 }
 function visible(row) {
   const k = row.dataset.kind, q = find.value.trim().toLowerCase();
-  const passes = filter === 'all' || (filter === 'script' && (k === 'script' || k === 'cmd')) || (filter === 'problems' && (k === 'bad' || k === 'warn'));
+  const passes = filter === 'all' || (filter === 'script' && (k === 'script' || k === 'cmd')) || (filter === 'logic' && k === 'logic')
+    || (filter === 'problems' && (k === 'bad' || k === 'warn'));
   return passes && (!q || row.textContent.toLowerCase().includes(q));
 }
 function add(lines, own = false) {
@@ -56,7 +62,8 @@ function add(lines, own = false) {
     const k = own ? 'cmd' : kind(text);
     row.className = 'cn-row cn-' + k;
     row.dataset.kind = k;
-    row.textContent = text.replace(/^ScriptLog: /, '');
+    if (k === 'logic') logicRow(row, parseLogicLine(text), text);
+    else row.textContent = text.replace(/^ScriptLog: /, '');
     if (k === 'bad' || k === 'warn') problems++;
     row.hidden = !visible(row);
     frag.appendChild(row);
@@ -67,6 +74,37 @@ function add(lines, own = false) {
   count.textContent = problems;
   if (stick) out.scrollTop = out.scrollHeight;
 }
+// a line of the logic log: its mark, then its sentence; a name or a rule id is a link
+function logicRow(row, entry, text) {
+  if (!entry) { row.textContent = text.slice(LOGIC_TAG.length); row.title = 'A logic line this editor does not read'; return; }
+  const { mark, parts } = logicSentence(entry);
+  row.dataset.logic = entry.kind;
+  row.append(mark + ' ');
+  for (const part of parts) {
+    if (typeof part === 'string') { row.append(part); continue; }
+    const ref = document.createElement('a');
+    ref.href = '#';
+    ref.className = 'cn-ref';
+    if (part.rule) { ref.dataset.rule = part.rule; ref.dataset.map = entry.map || ''; ref.textContent = part.rule; ref.title = 'Open this rule'; }
+    else { ref.dataset.actor = part.name; ref.dataset.map = entry.map || ''; ref.textContent = part.name; ref.title = 'Select it in the map'; }
+    row.append(ref);
+  }
+}
+// a click on a name selects its object; on a rule's id, the object the rule belongs to (its Interactions show it)
+out.addEventListener('click', (e) => {
+  const ref = e.target.closest('.cn-ref');
+  if (!ref) return;
+  e.preventDefault();
+  const ed = window.__editor;
+  if (!ed) return;
+  // a line of another map (Play went on to it, or an earlier session): its names are not this map's objects
+  const sameMap = !ref.dataset.map || String(ed.mapName || '').toLowerCase() === ref.dataset.map.toLowerCase();
+  if (ref.dataset.actor && !sameMap) return ed.log?.(`${ref.dataset.actor} is in the map ${ref.dataset.map}`);
+  if (ref.dataset.actor) return ed.selectActor(ref.dataset.actor);
+  const rule = sameMap && (ed.edits.links || []).find((l) => l.id === ref.dataset.rule);
+  if (rule && rule.src) ed.selectActor(rule.src);
+  else if (rule) ed.log?.(`Rule ${rule.id}: ${rule.label || ''} (Map > Logic shows the rules of the map start)`);
+});
 function refilter() {
   for (const row of out.children) row.hidden = !visible(row);
   out.scrollTop = out.scrollHeight;

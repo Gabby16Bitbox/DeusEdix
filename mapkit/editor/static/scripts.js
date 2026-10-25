@@ -1,6 +1,7 @@
 // Tools > Scripts: write UnrealScript in the editor (server: editor/scripts.py). A script extends UCScript, an
-// invisible object placed in the map and set off by the Interactions through its Tag; Compile builds the
-// scripts' own package in a few seconds and lists the problems by line (click one to go there).
+// invisible object placed in the map, a block the rules (Interactions) use: they set it off, call the inputs it
+// declares, start on its outputs (editor/LOGIC.md). Compile builds the scripts' own package in a few seconds and
+// lists the problems by line (click one to go there).
 import { attachToolWindow } from './tool-window.js';
 
 const css = document.createElement('link');
@@ -56,7 +57,7 @@ function ensureDom() {
         <span class="sc-title">No script open</span><span class="sc-dirty" hidden>●</span><span style="flex:1"></span>
         <button type="button" class="sc-save" title="Save (Ctrl+S)">Save</button>
         <button type="button" class="sc-compile primary" title="Save every script and compile them (Ctrl+B)">Compile</button>
-        <button type="button" class="sc-place" title="Place this script in the map: give it a Tag in the Inspector and set it off with an Interaction">Place in map</button>
+        <button type="button" class="sc-place" title="Place this script in the map, then click what sets it off (a button, a trigger...)">Place in map</button>
         <button type="button" class="sc-delete" title="Delete this script">Delete</button>
       </div>
       <div class="sc-code">
@@ -144,8 +145,18 @@ async function openScript(name) {
 async function save(quiet) {
   if (!current) return true;
   try {
-    await api('/api/script_save', { name: current, text: $('.sc-text', el).value });
-    saved = $('.sc-text', el).value;
+    const area = $('.sc-text', el), sent = area.value;
+    const r = await api('/api/script_save', { name: current, text: sent });
+    // the file as the game reads it (typographic quotes and dashes made plain): what the editor shows too, unless
+    // something was typed meanwhile (it stays, and shows as not saved)
+    const back = typeof r?.text === 'string' ? r.text : sent;
+    if (area.value === sent && back !== sent.replace(/\r\n/g, '\n')) {
+      const from = area.selectionStart, to = area.selectionEnd;
+      area.value = back;
+      area.setSelectionRange(Math.min(from, back.length), Math.min(to, back.length));
+    }
+    saved = area.value === sent && back === sent.replace(/\r\n/g, '\n') ? sent : back;
+    portsChanged();                     // its declarations are read from the saved text, before any compile
     el._repaint();
     if (!quiet) output(`<div class="sc-ok">Saved ${current}.uc</div>`);
     return true;
@@ -174,6 +185,7 @@ async function compile() {
     const rows = problems.map((p, i) => `<div class="sc-prob sc-${p.kind}" data-i="${i}" title="${p.line ? 'Go to the line' : ''}">${p.script ? `<b>${esc(p.script)}</b>${p.line ? ` line ${p.line}` : ''}: ` : ''}${esc(p.message)}</div>`).join('');
     output(`<div class="${r.ok ? 'sc-ok' : 'sc-bad'}">${esc((r.lines || []).join(' '))}${r.note ? ' ' + esc(r.note) : ''}</div>${rows}`);
     for (const row of el.querySelectorAll('.sc-prob')) row.onclick = () => goTo(problems[+row.dataset.i]);
+    if (r.ok) portsChanged();
     el._repaint();
     if (!r.ok && problems[0]) goTo(problems[0]);
   } catch (e) { output(`<div class="sc-bad">${esc(e.message)}</div>`); }
@@ -206,15 +218,23 @@ function place() {
   close();
   window.__editor.placeClass(cls, current);
 }
+// the scripts' inputs and outputs may have changed: the editor asks for them again (its rules, the Inspector)
+function portsChanged() {
+  for (const name of info?.scripts || []) window.__editor?.forgetClass?.(`${info.package}.${name}`);
+}
 function help() {
   output(`<div class="sc-help-text">
-    <b>A script</b> is an invisible object of the map, written in UnrealScript. Write the events you need:
-    <code>Started()</code> once when the map is running, <code>Triggered(Other, EventInstigator)</code> when its Tag is set off
-    (an Interaction "triggers ...", a trigger, another script), <code>Repeat()</code> every <code>RepeatEvery</code> seconds.
-    Helpers: <code>Player()</code>, <code>Say("...")</code>, <code>Find('Tag')</code>, <code>FindNamed("Light29")</code>, <code>TriggerTag('Tag')</code>,
-    <code>GetFlag('Name')</code>, <code>SetFlag('Name', True)</code>, <code>Give(class'Medkit')</code>. <code>log("...")</code> writes to the Console.<br>
-    <b>Steps:</b> + New, change it, Compile (Ctrl+B), Place in map, give it a Tag in the Inspector, connect it with an Interaction, Rebuild, Play.
-    A <code>var()</code> value of your script (like <code>DoorTag</code>) can be set per object in the Inspector.</div>`);
+    <b>A script</b> is an invisible object of the map, written in UnrealScript: a block the rules use like a door or a keypad.
+    Write the events you need: <code>Started()</code> once when the map is running, <code>Triggered(Other, EventInstigator)</code>
+    when a rule switches it on, <code>Untriggered</code> when it switches it off, <code>Repeat()</code> every <code>RepeatEvery</code> seconds,
+    and <code>Input(InputName, Args, Caller)</code> for the inputs it declares.<br>
+    <b>Inputs and outputs</b> are declared in <code>defaultproperties</code>: <code>Inputs(0)=(Id="Start",Label="Start it",Args="Seconds")</code>,
+    <code>Outputs(0)=(Id="Done",Label="it is done")</code>. A rule calls an input (with its arguments: <code>ArgFloat(Args, "Seconds")</code>);
+    <code>Output("Done")</code> starts the rules on it. The template <i>A block</i> shows both.<br>
+    Helpers: <code>Player()</code>, <code>Say("...")</code>, <code>FindNamed("Light29")</code>, <code>GetFlag('Name')</code>, <code>SetFlag('Name', True)</code>,
+    <code>Give(class'Medkit')</code>. <code>log("...")</code> writes to the Console, where the Logic filter shows what the rules and scripts do.<br>
+    <b>Steps:</b> + New, change it, Compile (Ctrl+B), Place in map and click what sets it off, Rebuild, Play.
+    A <code>var()</code> value of your script can be set per object in the Inspector.</div>`);
 }
 async function open() {
   ensureDom();

@@ -1,8 +1,9 @@
 // DeusEdix map editor: 3D view of the last build, objects and structures moved like in UE5.
 // Unreal coordinates (X, Y, Z up, left-handed) <-> three.js (Y up): (x, y, z) -> (x, z, y).
 import { AREA_VERBS, areaMembers, areaRecipients } from './connect-area.js';
-import { BLOCK_WHEN, BLOCK_VERBS, TIMER_VERBS, EFFECT_ON, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
+import { BLOCK_WHEN, BLOCK_VERBS, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
   effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary } from './interaction-blocks.js';
+import { mountConditions, conditionText, conditionProblem, kindOf } from './conditions.js';
 import { createEffectPointGizmo, setEffectPointTilt, stepEffectPreviews, effectPreviewsActive, disposeEffectPoint, isEffectPoint,
   fxPreviewOf, fxPreviewKind, fxEffectsOn, FX_PREVIEW_KINDS } from './effect-point.js';
 import { PLACE_MODES, loadPlaceMode, savePlaceMode, placeModeLabel, normalToRotation, rotationToVector, stickPoint, isFloor, signedRot } from './surface-stick.js';
@@ -455,6 +456,7 @@ async function loadScene(s, resetCamera) {
     buildPalette();
     buildStructList();
     rebuildProxies();
+    lkFixLabels().catch(() => {});
     if (resetCamera) {
       const start = baseActors.find((a) => a.cls === 'PlayerStart');
       if (start) {                      // behind JC's start, looking the way he looks
@@ -6008,9 +6010,8 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     if (placing.preset && 'URL' in placing.preset) log('Map exit placed: choose where it leads in its Properties (Leads to).', 'ok');
     // a script of Tools > Scripts: what sets it off, asked at once (its icon is small to find again later)
     if (!quiet && /Scripts\.(?!UC[WA]_)\w+$/.test(placing.cls)) setTimeout(((scriptName) => () => {
-      const c = $('#lkconnect');
-      if (!c) return;
-      c.click();
+      if (!selected) return;
+      connectObject(selected, { asTarget: true });
       status(`Script ${scriptName} placed: now click what sets it off (a lever, a button, a trigger zone), or Esc to do it later (🔗 Connect to... in its Properties).`);
     })(placing.cls.split('.').pop()), 80);
     if (!quiet && (placing.cls === 'UCSoundFX' || placing.cls === 'AmbientSound')) {     // its sound, chosen at once
@@ -6517,13 +6518,20 @@ function frameBoth(a, b) {
   camera.position.copy(c.clone().addScaledVector(forward(), -r * 2.4));
 }
 const unquote = (v) => { v = String(v ?? ''); return v.length > 1 && v[0] === '"' && v[v.length - 1] === '"' ? v.slice(1, -1) : v; };
+// A string field of a struct (a computer's option, an account) as the engine's reader takes it (editor/gametext.py
+// t3d: it has no escaped quote, and a backslash starts a hex byte): a quote made ', a backslash doubled. structShown
+// is its text again, for the field that shows it.
+const structString = (v) => '"' + plainText(v).replace(/"/g, "'").replace(/\\/g, '\\\\') + '"';
+const structShown = (v) => unquote(v).replace(/\\(["\\])/g, '$1');      // (and the \" the editor wrote before)
 // (A="x",B=Class'Y',C=(X=1)) -> [[A, '"x"'], [B, "Class'Y'"], [C, '(X=1)']]
 function parseStruct(text) {
   const s = String(text || '').trim().replace(/^\(/, '').replace(/\)$/, '');
   const out = [];
   let depth = 0, q = false, cur = '';
+  let escaped = false;                      // a quote after an odd run of backslashes is inside the string
   for (const ch of s) {
-    if (ch === '"') q = !q;
+    if (ch === '"' && !escaped) q = !q;
+    escaped = q && ch === '\\' && !escaped;
     if (!q && ch === '(') depth++;
     if (!q && ch === ')') depth--;
     if (!q && depth === 0 && ch === ',') { out.push(cur); cur = ''; continue; }
@@ -6621,7 +6629,7 @@ function allActors() {                    // the map's actors; one added in the 
 }
 function tagDescription(a) {
   const chain = chainNow[a.cls] || [], l = liveLight(a);
-  let kind = lkCatOf(a);
+  let kind = tagCategoryOf(a);
   if (a.kind === 'light' || chain.includes('Light')) kind='light';
   else if (a.kind === 'pawn' || chain.includes('ScriptedPawn')) kind='character';
   if (chain.includes('PlayerPawn') || a.cls === 'PlayerStart') kind='player';
@@ -8167,8 +8175,8 @@ async function renderProps(p) {
       for (const [i, m] of rows) {
         const user = unquote(sget(m, 'userName') || ''), ev = String(sget(m, 'TriggerEvent') || 'None');
         html += `<div class="box" style="margin:4px 0;padding:6px">
-          <div class="row"><label style="width:62px">Button</label><input type="text" data-op="${i}" data-k="Text" value="${escapeHtml(unquote(sget(m, 'Text')))}" style="flex:1;min-width:0"><button data-opx="${i}" title="remove">✕</button></div>
-          <div class="row"><label style="width:62px">Message</label><input type="text" data-op="${i}" data-k="TriggerText" value="${escapeHtml(unquote(sget(m, 'TriggerText') || ''))}" placeholder="what the screen says when it is used" style="flex:1;min-width:0"></div>
+          <div class="row"><label style="width:62px">Button</label><input type="text" data-op="${i}" data-k="Text" value="${escapeHtml(structShown(sget(m, 'Text')))}" style="flex:1;min-width:0"><button data-opx="${i}" title="remove">✕</button></div>
+          <div class="row"><label style="width:62px">Message</label><input type="text" data-op="${i}" data-k="TriggerText" value="${escapeHtml(structShown(sget(m, 'TriggerText') || ''))}" placeholder="what the screen says when it is used" style="flex:1;min-width:0"></div>
           <div class="row"><label style="width:62px">Triggers</label><input type="text" data-op="${i}" data-k="TriggerEvent" value="${escapeHtml(ev === 'None' ? '' : ev)}" placeholder="the Tag of a door, an alarm..." style="flex:1;min-width:0"></div>
           <div class="row"><label style="width:62px">Account</label><select data-op="${i}" data-k="userName"><option value="">(every account)</option>${[...new Set(logins.concat(user ? [user] : []))].map((l) => `<option ${l === user ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
             <label style="width:auto"><input type="checkbox" data-op="${i}" data-k="bTriggerOnceOnly" ${String(sget(m, 'bTriggerOnceOnly')) === 'True' ? 'checked' : ''}> once</label></div></div>`;
@@ -8181,7 +8189,7 @@ async function renderProps(p) {
             const k = skey(m, x.dataset.k);
             if (k === skey(m, 'bTriggerOnceOnly')) m.set(k, x.checked ? 'True' : 'False');
             else if (k === skey(m, 'TriggerEvent')) m.set(k, x.value.trim().replace(/\W/g, '_') || 'None');
-            else m.set(k, JSON.stringify(plainText(x.value)));
+            else m.set(k, structString(x.value));
           }
           setProp(a, `${f.prop}(${i})`, structText([...m.entries()]));
         };
@@ -8331,7 +8339,7 @@ async function renderProps(p) {
       for (const [i, pairs] of rows) {
         const m = new Map(pairs);
         if (f.kind === 'inventory') html += `<div class="row" style="padding-left:8px">${itemSel(`${id}_${i}`, classRef(m.get('Inventory')))} × <input type="number" id="${id}_${i}n" value="${+m.get('Count') || 1}" min="1" style="width:46px"><button id="${id}_${i}x" title="remove">✕</button></div>`;
-        else html += `<div class="row" style="padding-left:8px;flex-wrap:wrap">${pairs.filter(([, val]) => val.startsWith('"') || /^-?\d/.test(val)).map(([k2, val]) => `<input type="text" data-sk="${k2}" data-row="${i}" value="${escapeHtml(unquote(val))}" placeholder="${escapeHtml(k2)}" title="${escapeHtml(k2)}" style="width:80px">`).join('')}<button id="${id}_${i}x" title="remove">✕</button></div>`;
+        else html += `<div class="row" style="padding-left:8px;flex-wrap:wrap">${pairs.filter(([, val]) => val.startsWith('"') || /^-?\d/.test(val)).map(([k2, val]) => `<input type="text" data-sk="${k2}" data-row="${i}" value="${escapeHtml(structShown(val))}" placeholder="${escapeHtml(k2)}" title="${escapeHtml(k2)}" style="width:80px">`).join('')}<button id="${id}_${i}x" title="remove">✕</button></div>`;
       }
       if (free !== undefined) html += `<div class="row" style="padding-left:8px"><button id="${id}_add">+ ${f.kind === 'inventory' ? 'item' : 'account'}</button></div>`;
       const emptyOf = (i) => f.kind === 'inventory' ? '(Inventory=None,Count=1)'
@@ -8345,7 +8353,7 @@ async function renderProps(p) {
           } else {
             for (const inp of box.querySelectorAll(`[data-row="${i}"]`)) inp.onchange = () => {
               const m = new Map(pairs);
-              for (const x of box.querySelectorAll(`[data-row="${i}"]`)) m.set(x.dataset.sk, String(m.get(x.dataset.sk) || '').startsWith('"') ? JSON.stringify(x.value) : (x.value || '0'));
+              for (const x of box.querySelectorAll(`[data-row="${i}"]`)) m.set(x.dataset.sk, String(m.get(x.dataset.sk) || '').startsWith('"') ? structString(x.value) : (x.value || '0'));
               setProp(a, key, structText([...m.entries()])); redraw();
             };
           }
@@ -8367,7 +8375,7 @@ async function renderProps(p) {
     html += fx.html;
     wires.push(fx.wire);
   }
-  if (lkCatOf(a) === 'object') {
+  if (tagCategoryOf(a) === 'object') {             // any object JC can use (the kinds as they always were)
     const us = usableSection(a, redraw);
     html += us.html;
     wires.push(us.wire);
@@ -8401,14 +8409,38 @@ let allMapNames = null;               // every map (Leads to of the map exits, N
 // ("When JC uses it") and does things to other objects, each after a delay (edits.links, editor/links.py; in
 // the game the editor's UCLink hooks itself to the object). Connect: click another object, and the rule is made
 // with what the two usually do together. Logic (top bar): every rule of the map, as sentences.
-const chainCache = {}, chainNow = {};
+const chainCache = {}, chainNow = {}, ioNow = {};
+let lkFreeVerbs = [];                        // the actions without an object (config/logic.json "free")
 function chainOf(cls) {
   if (!chainCache[cls]) chainCache[cls] = api('/api/props?cls=' + encodeURIComponent(cls))
-    .then((r) => { if (!propSchema[cls]) propSchema[cls] = r.fields || []; return (chainNow[cls] = r.chain || [cls]); })
-    .catch(() => (chainNow[cls] = [cls]));
+    .then((r) => {
+      if (!propSchema[cls]) propSchema[cls] = r.fields || [];
+      if (r.items?.length) propItems = r.items;                   // the game's items (the rules' "JC carries")
+      if (r.io) { ioNow[cls] = r.io; lkFreeVerbs = r.io.free || lkFreeVerbs; }
+      return (chainNow[cls] = r.chain || [cls]);
+    })
+    .catch(() => { delete chainCache[cls]; return (chainNow[cls] = [cls]); });     // asked again next time
   return chainCache[cls];
 }
-function lkCat(chain) {
+// A script compiled or saved again may declare other inputs and outputs (scripts.js): its class is asked for again,
+// and what shows its rules is drawn again with them.
+function forgetClass(cls) {
+  delete chainCache[cls];
+  chainOf(cls).then(() => {
+    if (logicBox.style.display === 'block') renderLogic();
+    if (selected) renderProps(selected);
+  });
+}
+// What an object offers to the rules: its family, its outputs (what can happen to it) and inputs (what a rule can
+// make it do), from its class (/api/props io: editor/logic_catalog.py, config/logic.json). Until its class is known,
+// nothing: every path that shows rules waits for chainOf first.
+const IO_LOADING = { family: 'other', outputs: [], inputs: [], default: '', labels: {}, args: {} };
+const lkIo = (a) => (a && ioNow[a.cls]) || IO_LOADING;
+const lkCatOf = (a) => lkIo(a).family;
+// The kind of object as the scripting tags have always named it (tagDescription): the first match of its class
+// chain, as UCObjectTag computes it in the game. The rules use the catalogue's families instead (lkIo).
+const tagCategoryOf = (a) => (a && a.cls === 'UCCutscene' ? 'cutscene' : isEffectPoint(a) ? 'effectpoint' : a && chainNow[a.cls] ? tagCategory(chainNow[a.cls]) : 'other');
+function tagCategory(chain) {
   const has = (c) => chain.includes(c);
   if (has('UCTimer')) return 'timer';
   if (has('DeusExMover')) return 'door';
@@ -8425,20 +8457,55 @@ function lkCat(chain) {
   if (has('DeusExDecoration')) return 'object';
   return 'other';
 }
-const lkCatOf = (a) => (a && a.cls === 'UCCutscene' ? 'cutscene' : isEffectPoint(a) ? 'effectpoint' : a && chainNow[a.cls] ? lkCat(chainNow[a.cls]) : 'other');
-// what can start a rule, for each kind of object (JC coming near works for most of them)
-const LK_EVENTS = {
-  door: ['opened', 'closed', 'destroyed'], keypad: ['code', 'wrongcode'], computer: ['option'], character: ['dies'],
-  laser: ['laser'], alarm: ['alarm'], camera: [], soundfx: ['enter', 'leave'], zone: ['enter', 'leave'], light: [], item: ['picked'],
-  object: ['used', 'gone'], other: ['any'], cutscene: ['cutstart', 'cutdone'],
-};
-// the building blocks (interaction-blocks.js): timers, characters using objects and getting somewhere
-LK_EVENTS.timer = ['finished', 'stopped'];
-LK_EVENTS.character.push('arrived');
-for (const k of ['object', 'keypad', 'computer', 'other']) LK_EVENTS[k].push('npcused');
-const lkEvents = (cat) => LK_EVENTS[cat].concat(['zone', 'soundfx', 'light', 'cutscene', 'timer'].includes(cat) ? [] : ['near']);
-// what can start a rule on this object: its kind's events, and the end of its animation
-const lkEventsOf = (a) => lkEvents(lkCatOf(a)).concat(a && (edits.motions || {})[a.name] ? ['animdone'] : []);
+// what can start a rule on this object: its outputs, and the end of its animation when it has one
+const lkTriggeredSound = (a) => !!a && lkIo(a).family === 'soundfx' && /^false$/i.test(String(actorProp(a, 'bOnTouch') ?? ''));
+const lkEventsOf = (a) => lkIo(a).outputs.filter((w) => !(lkTriggeredSound(a) && (w === 'enter' || w === 'leave')))
+  .concat(a && (edits.motions || {})[a.name] ? ['animdone'] : []);
+// A whole number as links.py builds it (_whole): empty is its default, a fraction is cut, int32 at most.
+function lkWholeOf(v, dflt) {
+  if (v === undefined || v === null || String(v).trim() === '') return dflt;
+  const n = Math.trunc(Number(v));
+  return Number.isFinite(n) ? Math.max(-2147483648, Math.min(2147483647, n)) : dflt;
+}
+// An elevator's floors as UCLink.Floor checks them: an ElevatorMover one per key (NumKeys, Mover's default 2), a
+// MultiMover its sequences 0-3 that have keys (SeqKey1..4(0); the default -1: none). lkFloorOk: n is one of them
+// (anything else is no elevator: true); lkFloorMax: the highest, or null.
+function lkElevator(a) {
+  const chain = a ? chainNow[a.cls] || [a.cls] : [];
+  return chain.some((c) => /(^|\.)MultiMover$/i.test(c)) ? 'multi' : chain.some((c) => /(^|\.)ElevatorMover$/i.test(c)) ? 'elevator' : '';
+}
+const lkKeys = (a) => +(actorProp(a, 'NumKeys') ?? 2) || 2;
+const lkSequence = (a, n) => +(actorProp(a, `SeqKey${n + 1}(0)`) ?? -1) >= 0;
+function lkFloorOk(a, n) {
+  if (lkElevator(a) === 'multi') return n >= 0 && n <= 3 && lkSequence(a, n);
+  if (lkElevator(a) === 'elevator') return n >= 0 && n < lkKeys(a);
+  return true;
+}
+function lkFloorMax(a) {
+  if (lkElevator(a) === 'multi') { for (let n = 3; n >= 0; n--) if (lkSequence(a, n)) return n; return null; }
+  return lkElevator(a) === 'elevator' ? lkKeys(a) - 1 : null;
+}
+// what a rule can make it do, and the first one offered ('input:<Id>': an input of a script)
+const lkInputsOf = (a) => lkIo(a).inputs;
+const lkDefaultOf = (a) => lkIo(a).default || lkIo(a).inputs[0] || 'on';
+// the select's value of a rule's output and of an action's input: a script's ports are 'output:<Id>' / 'input:<Id>'
+const lkWhenKey = (l) => (l.when === 'output' ? 'output:' + (l.port || '') : l.when);
+const lkVerbKey = (x) => (x.verb === 'input' ? 'input:' + (x.a || '') : x.verb);
+// a script's port as the script names it (its label, else its id)
+function lkPortLabel(name, key) {
+  const a = lkActor(name);
+  return (lkIo(a).labels || {})[key] || key.split(':')[1] || '?';
+}
+// sets an action's verb from a select's value (a script's input: verb input, a its id, b its arguments)
+function lkApplyVerb(x, key) {
+  if (key.startsWith('input:')) {
+    x.verb = 'input';
+    if (x.a !== key.slice(6)) { x.a = key.slice(6); x.b = ''; }
+  } else {
+    if (x.verb === 'input') { delete x.a; delete x.b; }
+    x.verb = key;
+  }
+}
 const lkTlOpen = new Set();
 const LK_WHEN = {
   opened: 'it has opened', closed: 'it starts closing', destroyed: 'it is blown up', used: 'JC uses it',
@@ -8447,6 +8514,7 @@ const LK_WHEN = {
   any: 'it triggers its event', picked: 'JC picks it up', gone: 'it is destroyed', near: 'JC comes near', start: 'the map starts',
   leave: 'JC walks out', animdone: 'its animation has finished',
   cutstart: 'it starts (each action at its second of the cutscene)', cutdone: 'it has ended (or was skipped)',
+  output: 'it says...',
 };
 Object.assign(LK_WHEN, BLOCK_WHEN);
 // what a rule can do: [label, kind of object it acts on ('' none)]
@@ -8462,26 +8530,12 @@ const LK_VERBS = {
   explode: ['An explosion there', 'any'], sound: ['Play a sound', ''], message: ['A message on the screen', ''],
   anim: ['Play its animation', 'any'], animback: ['Play it backwards', 'any'], animstop: ['Stop its animation', 'any'],
   goal: ['A goal', ''], note: ['A note in the DataVault', ''], flag: ['Set a state', ''], travel: ['Take JC to another map', ''],
+  count: ['Change a counter', ''], input: ['An input of the script', 'script'], floor: ['Go to a floor', 'elevator'],
   cutplay: ['Play the cutscene', 'cutscene'], cutstop: ['Stop the cutscene', 'cutscene'],
 };
 Object.assign(LK_VERBS, BLOCK_VERBS);
-const LK_FOR = {
-  door: ['open', 'close', 'toggle', 'lock', 'unlock', 'blow', 'key', 'sound', 'explode'],
-  character: ['attack', 'hostile', 'friend', 'neutral', 'stand', 'wander', 'follow', 'goto', 'run', 'leave', 'appear', 'sound'],
-  light: ['lighton', 'lightoff', 'lighttoggle'], camera: ['off', 'on', 'sound', 'explode'], alarm: ['on', 'off', 'sound', 'explode'],
-  laser: ['off', 'on', 'sound'], soundfx: ['on'], zone: ['on', 'off'], item: ['hide', 'show', 'sound', 'explode'],
-  object: ['hide', 'show', 'sound', 'explode'], keypad: ['hide', 'show', 'sound', 'explode'],
-  computer: ['hide', 'show', 'sound', 'explode'], other: ['on', 'off', 'sound', 'explode'], cutscene: ['cutplay', 'cutstop'],
-};
-LK_FOR.timer = [...TIMER_VERBS];
-LK_FOR.character.push('npcuse');
-for (const k of EFFECT_ON) LK_FOR[k].push('effect');
-LK_FOR.effectpoint = ['effect'];                // an Effect point (effect-point.js): where effects go
-LK_EVENTS.effectpoint = [];                     // (JC coming near still works)
-const LK_DEFAULT = { door: 'open', character: 'attack', light: 'lighttoggle', camera: 'off', alarm: 'on', laser: 'off', soundfx: 'on', zone: 'on', cutscene: 'cutplay', timer: 'timerstart', effectpoint: 'effect' };
-const LK_FREE = ['message', 'goal', 'note', 'flag', 'sound', 'travel'];
 function lkVerbLabel(v, cat) {
-  if (v === 'on') return { soundfx: 'Play it', zone: 'Activate it', alarm: 'Sound the alarm' }[cat] || 'Switch on';
+  if (v === 'on') return { soundfx: 'Play it', zone: 'Activate it', targettrigger: 'Activate it', alarm: 'Sound the alarm' }[cat] || 'Switch on';
   if (v === 'off') return { alarm: 'Stop the alarm', zone: 'Deactivate it' }[cat] || 'Switch off';
   return LK_VERBS[v] ? LK_VERBS[v][0] : v;
 }
@@ -8498,7 +8552,8 @@ function lkActor(name) {
   if (!chainNow.DeusExMover) chainOf('DeusExMover');
   return { name: b.name, cls: 'DeusExMover', box: true, loc: [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2) };
 }
-const LK_KIND = { door: 'door', light: 'light', zone: 'zone', soundfx: 'sound effect', keypad: 'keypad', laser: 'laser', alarm: 'alarm', timer: 'timer', effectpoint: 'effect point' };
+const LK_KIND = { door: 'door', light: 'light', zone: 'zone', soundfx: 'sound effect', keypad: 'keypad', laser: 'laser', beam: 'beam',
+  alarm: 'alarm', turret: 'turret', elevator: 'elevator', timer: 'timer', effectpoint: 'effect point', script: 'script' };
 function lkName(name) {
   const a = lkActor(name);
   if (!a) return name ? `${name} (missing)` : 'nothing';
@@ -8512,7 +8567,7 @@ function lkWhere(name) { const q = proxyOf(name); if (q) return UE(q.getWorldPos
 // the sentence of a rule, as the Logic panel and the game's log show it
 function lkOptionText(l) {
   const c = lkActor(l.src);
-  return c ? unquote(new Map(lkOptions(c)[+l.option || 0].pairs).get('Text') || '') : '';
+  return c ? structShown(new Map(lkOptions(c)[+l.option || 0].pairs).get('Text') || '') : '';
 }
 function lkWhenText(l) {
   const s = lkName(l.src);
@@ -8536,6 +8591,7 @@ function lkWhenText(l) {
     case 'animdone': return `When the animation of ${s} has finished`;
     case 'cutstart': return `When ${s} starts`;
     case 'cutdone': return `When ${s} has ended`;
+    case 'output': return `When ${s} says "${lkPortLabel(l.src, lkWhenKey(l))}"`;
     default: return blockWhenText(l.when, s) || `When ${s} triggers its event`;
   }
 }
@@ -8571,7 +8627,11 @@ function lkActText1(x) {
     case 'lighton': return `turn on ${t}`;
     case 'lightoff': return `turn off ${t}`;
     case 'lighttoggle': return `turn ${t} on or off`;
-    case 'on': return /Scripts\.\w+$/.test(lkActor(x.target)?.cls || '') ? `set off ${t}` : `${lkVerbLabel('on', lkCatOf(lkActor(x.target))).toLowerCase()}: ${t}`;
+    case 'on': return lkCatOf(lkActor(x.target)) === 'script' ? `set off ${t}` : `${lkVerbLabel('on', lkCatOf(lkActor(x.target))).toLowerCase()}: ${t}`;
+    case 'input': return `${t}: ${lkPortLabel(x.target, lkVerbKey(x))}${x.b ? ' (' + String(x.b).replace(/;/g, ', ') + ')' : ''}`;
+    case 'floor': return `${t} goes to floor ${Math.max(0, lkWholeOf(x.a, 0))}`;
+    case 'count': { const n = lkWholeOf(x.b, 1);
+      return x.c === 'set' ? `set the counter ${x.a || '?'} to ${n}` : `${n < 0 ? 'take' : 'add'} ${Math.abs(n)} ${n < 0 ? 'from' : 'to'} the counter ${x.a || '?'}`; }
     case 'off': return `${lkVerbLabel('off', lkCatOf(lkActor(x.target))).toLowerCase()}: ${t}`;
     case 'hide': return `${t} vanishes`;
     case 'show': return `${t} appears again`;
@@ -8590,10 +8650,14 @@ function lkActText1(x) {
     default: return blockActText(x, t, lkName, { point: lkCatOf(lkActor(x.target)) === 'effectpoint' }) || x.verb;
   }
 }
+// the names in a condition's sentence (conditions.js): the map's characters, the game's items, the states
+const lkCondNames = { actor: (n) => lkName(n), state: (c) => (parseFate(c.flag) ? stateLabel(c) : conditionText(c)),
+  item: (cls) => ((propItems || []).find((i) => i.cls === cls) || {}).name || String(cls).split('.').pop() };
 function lkSentence(l) {
   const acts = [...(l.do || [])].sort((x, y) => (+x.delay || 0) - (+y.delay || 0));
   const parts = acts.map((x) => (+x.delay > 0 ? `after ${+x.delay} s ` : '') + lkActText(x));
-  return `${lkWhenText(l)}: ${parts.join(', ') || 'nothing yet'}${l.once ? ' (only once)' : ''}`;
+  const reqs = (l.requires || []).map((c) => conditionText(c, lkCondNames));
+  return `${lkWhenText(l)}${reqs.length ? ', only if ' + reqs.join(' and ') : ''}: ${parts.join(', ') || 'nothing yet'}${l.once ? ' (only once)' : ''}`;
 }
 
 // the special options of a computer: [{i, pairs}] for its 4 slots
@@ -8605,7 +8669,7 @@ function lkOptions(c) {
 }
 function lkSetOption(c, i, key, text) {
   const m = new Map(lkOptions(c)[i].pairs);
-  m.set(key, JSON.stringify(String(text || '').replace(/"/g, "'")));
+  m.set(key, structString(text || ''));
   if (!m.has('Text')) m.set('Text', '""');
   if (!m.has('TriggerText')) m.set('TriggerText', '""');
   putProp(c, `specialOptions(${i})`, structText([...m.entries()]));
@@ -8626,8 +8690,8 @@ function lkAdd(src, when, target) {
   return l;
 }
 function lkNewAct(target, src) {
-  const cat = lkCatOf(target), verb = (edits.motions || {})[target.name] ? 'anim' : LK_DEFAULT[cat] || LK_FOR[cat][0];
-  const x = { verb, target: target.name, delay: 0 };
+  const x = { verb: '', target: target.name, delay: 0 };
+  lkApplyVerb(x, (edits.motions || {})[target.name] ? 'anim' : lkDefaultOf(target));
   lkDefaults(x, src);
   return x;
 }
@@ -8639,15 +8703,46 @@ function lkDefaults(x, src) {
   if ((x.verb === 'goto' || x.verb === 'run') && !x.at) { if (src) x.at = lkWhere(src.name); if (x.nav === undefined) x.nav = true; }
   if (x.verb === 'goal' && !x.a) x.a = 'Goal' + lkList().reduce((n, l) => n + (l.do || []).filter((y) => y.verb === 'goal').length, 1);
   if (x.verb === 'flag' && x.b === undefined) x.b = '1';
+  if (x.verb === 'count' && x.b === undefined) x.b = '1';
   blockDefaults(x);
+}
+// Every rule's sentence made again when a map opens, once its classes are known (as openLogic waits): a sentence
+// saved before 25 Oct 2026 could say "only if X" for a state that must be No, or another number than the game
+// uses. The next save keeps them (Rebuild saves first); nothing is marked changed.
+async function lkFixLabels() {
+  const generation = mapGeneration, list = lkList();
+  if (!list.length) return;
+  await Promise.all(list.flatMap((l) => [l.src, ...(l.do || []).map((x) => x.target)]).map((n) => lkActor(n)).filter(Boolean).map((x) => chainOf(x.cls)));
+  const comp = [...new Set(list.filter((l) => l.when === 'option').map((l) => lkActor(l.src)).filter(Boolean).map((c) => c.cls))];
+  await Promise.all(comp.map((c) => propSchema[c] ? null : api('/api/props?cls=' + encodeURIComponent(c)).then((r) => { propSchema[c] = r.fields || []; })));
+  if (generation !== mapGeneration) return;
+  for (const l of lkList()) l.label = lkSentence(l);
 }
 function lkChange(l, fn, redraw) {
   pushUndo();
   fn();
   if (l && lkList().includes(l)) l.label = lkSentence(l);
   setDirty();
-  redraw();
+  lkRefresh(redraw);
 }
+// What shows rules is drawn again: the caller's (the Properties) and the Logic panel when it is open, which shows
+// every rule (its rows act by index: a stale one would change the wrong action).
+function lkRefresh(redraw) {
+  redraw();
+  if (logicBox.style.display !== 'block') return;
+  if (lgPressed) lgPending = true;
+  else renderLogic();
+}
+let lgPressed = false, lgPending = false;
+// The Logic panel drawn again after a press in it: once the click has run, and not under a field or a list that
+// has just taken the focus (drawing would take it away): when it is left.
+function lkRenderLater() {
+  const el = document.activeElement;
+  if (el && logicBox.contains(el) && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName))
+    el.addEventListener('focusout', () => { if (lgPressed) lgPending = true; else setTimeout(lkRenderNow); }, { once: true });
+  else lkRenderNow();
+}
+function lkRenderNow() { if (logicBox.style.display === 'block') renderLogic(); }
 
 // picking an object (or a place) in the 3D view or the Hierarchy
 let lkPicking = null;
@@ -8790,27 +8885,31 @@ function lkUpdateAreaMarkers() {
 
 // one rule: "When ... : then ..." with its actions
 function lkRuleHtml(l, inPanel) {
-  const src = lkActor(l.src), cat = lkCatOf(src);
-  const evs = l.when === 'start' ? ['start'] : lkEventsOf(src).includes(l.when) ? lkEventsOf(src) : [l.when].concat(lkEventsOf(src));
+  const src = lkActor(l.src), cat = lkCatOf(src), cur = lkWhenKey(l);
+  const evs = l.when === 'start' ? ['start'] : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
+  const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(l.src, w)}"` : LK_WHEN[w] || w);
   let h = `<div class="lk-rule" data-lk="${escapeHtml(l.id)}">`;
   h += `<div class="row"><b>When</b>${inPanel && l.src ? `<a href="#" data-lkgo="${escapeHtml(l.src)}" title="Go to it">${escapeHtml(lkName(l.src))}</a>` : ''}
-    <select data-lkw style="flex:1 1 130px;min-width:0">${evs.map((w) => `<option value="${w}" ${w === l.when ? 'selected' : ''}>${escapeHtml(LK_WHEN[w] || w)}</option>`).join('')}</select>
+    <select data-lkw style="flex:1 1 130px;min-width:0">${evs.map((w) => `<option value="${escapeHtml(w)}" ${w === cur ? 'selected' : ''}>${escapeHtml(whenLabel(w))}</option>`).join('')}</select>
     <label style="width:auto" title="Only the first time"><input type="checkbox" data-lko ${l.once ? 'checked' : ''}> once</label>
     <button data-lkx title="Delete this rule">✕</button></div>`;
   if (l.when === 'option' && src) {
     const opts = lkOptions(src), cur = opts[+l.option || 0], m = new Map(cur.pairs);
     h += `<div class="row" style="padding-left:12px"><label style="width:auto">Button</label><select data-lkopt>${opts.map((o) => `<option value="${o.i}" ${o.i === (+l.option || 0) ? 'selected' : ''}>${o.i + 1}: ${escapeHtml(unquote(new Map(o.pairs).get('Text') || '') || '(empty)')}</option>`).join('')}</select>
-      <input type="text" data-lkot="Text" value="${escapeHtml(unquote(m.get('Text') || ''))}" placeholder="its text on the computer" style="flex:1;min-width:0"></div>
-      <div class="row" style="padding-left:12px"><label style="width:auto">Then it says</label><input type="text" data-lkot="TriggerText" value="${escapeHtml(unquote(m.get('TriggerText') || ''))}" placeholder="e.g. Door unlocked" style="flex:1;min-width:0"></div>`;
+      <input type="text" data-lkot="Text" value="${escapeHtml(structShown(m.get('Text') || ''))}" placeholder="its text on the computer" style="flex:1;min-width:0"></div>
+      <div class="row" style="padding-left:12px"><label style="width:auto">Then it says</label><input type="text" data-lkot="TriggerText" value="${escapeHtml(structShown(m.get('TriggerText') || ''))}" placeholder="e.g. Door unlocked" style="flex:1;min-width:0"></div>`;
   }
   if (l.when === 'near') h += `<div class="row" style="padding-left:12px"><label style="width:auto">within</label><input type="number" data-lkn value="${+l.near || 256}" step="32" min="32" style="width:70px"><span class="hint" style="margin:0">units (a door is 128 high)</span></div>`;
+  // the conditions: all must hold when it happens, or the rule does nothing that time (conditions.js, mounted by lkWire)
+  h += '<div class="lk-cond" data-lkcond></div>';
   (l.do || []).forEach((x, j) => {
-    const t = lkActor(x.target), tcat = x.target ? lkCatOf(t) : '';
+    const t = lkActor(x.target), tcat = x.target ? lkCatOf(t) : '', vcur = lkVerbKey(x);
     const animated = x.target && ((edits.motions || {})[x.target] || tcat === 'door');
-    const verbs = x.area ? AREA_VERBS[x.area.kind] : x.targetTag ? TAG_VERBS : x.target ? [...new Set((animated ? ['anim', 'animback', 'animstop'] : []).concat(LK_FOR[tcat] || LK_FOR.other))] : LK_FREE;
-    const vlist = verbs.includes(x.verb) ? verbs : [x.verb].concat(verbs);
+    const verbs = x.area ? AREA_VERBS[x.area.kind] : x.targetTag ? TAG_VERBS : x.target ? [...new Set((animated ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(t)))] : lkFreeVerbs;
+    const vlist = verbs.includes(vcur) ? verbs : [vcur].concat(verbs);
+    const verbLabel = (v) => (v.startsWith('input:') ? lkPortLabel(x.target, v) : lkVerbLabel(v, tcat));
     h += `<div class="lk-act"><div class="row"><span class="hint" style="margin:0">${j ? 'and' : 'then'}</span>
-      <select data-lkv="${j}" style="flex:1 1 120px;min-width:0">${vlist.map((v) => `<option value="${v}" ${v === x.verb ? 'selected' : ''}>${escapeHtml(lkVerbLabel(v, tcat))}</option>`).join('')}</select>
+      <select data-lkv="${j}" style="flex:1 1 120px;min-width:0">${vlist.map((v) => `<option value="${escapeHtml(v)}" ${v === vcur ? 'selected' : ''}>${escapeHtml(verbLabel(v))}</option>`).join('')}</select>
       <span style="white-space:nowrap"><label style="width:auto" title="Seconds after the start of the rule">after</label> <input type="number" data-lkd="${j}" value="${+x.delay || 0}" min="0" step="0.5" style="width:48px"> <span class="hint" style="margin:0">s</span></span>
       <button data-lka="${j}" title="Remove this action">✕</button></div>`;
     if (x.area) h += lkAreaHtml(x, j, l.src);
@@ -8832,12 +8931,19 @@ function lkRuleHtml(l, inPanel) {
     if (x.verb === 'message' || x.verb === 'note') h += row(arg('a', x.verb === 'note' ? 'What JC notes' : 'What appears on the screen'));
     if (x.verb === 'goal') h += row(`${arg('b', 'The goal, as JC reads it')}<label style="width:auto" title="Mark it as completed (the same name as when it was given)"><input type="checkbox" data-lkdone="${j}" ${x.c === 'done' ? 'checked' : ''}> completed</label>`) + row(`<label style="width:auto" title="The same name gives and completes the same goal">name</label>${arg('a', 'Goal1', 'width:110px')}`);
     if (x.verb === 'flag') h += `<div data-lkstate="${j}" style="margin:6px 0 6px 38px;min-width:0"></div>`;
+    if (x.verb === 'input') {                // the arguments the script's input takes (its Args)
+      const given = new Map(String(x.b || '').split(';').map((pair) => pair.split('=')).filter((kv) => kv[0]).map(([k, ...v]) => [k, v.join('=')]));
+      for (const key of (lkIo(t).args || {})[x.a] || [])
+        h += row(`<label style="width:auto">${escapeHtml(key)}</label><input type="text" data-lkiarg="${j}" data-k="${escapeHtml(key)}" value="${escapeHtml(given.get(key) || '')}" placeholder="its value (empty: the script's own)" style="flex:1;min-width:0">`);
+    }
+    if (x.verb === 'floor') h += row(`<label style="width:auto" title="Its sequence: 0 is where it starts">floor</label><input type="number" data-lkarg="${j}" data-k="a" value="${Math.max(0, lkWholeOf(x.a, 0))}" min="0"${lkFloorMax(t) !== null ? ` max="${lkFloorMax(t)}"` : ''} step="1" style="width:60px">`);
+    if (x.verb === 'count') h += row(`<label style="width:auto">counter</label>${arg('a', 'Levers', 'flex:1;min-width:0')}<label style="width:auto" title="Set the counter to the number instead of adding it"><input type="checkbox" data-lkset="${j}" ${x.c === 'set' ? 'checked' : ''}> set to</label><input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px">`);
     h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
     if (x.verb === 'travel') h += row(`<select data-lkarg="${j}" data-k="a" style="flex:1;min-width:0"><option value="">(choose a map)</option>${(allMapNames || []).map((m) => `<option ${m === x.a ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}${x.a && !(allMapNames || []).includes(x.a) ? `<option selected>${escapeHtml(x.a)}</option>` : ''}</select>${arg('b', 'arriving at (Tag)', 'width:100px')}`);
     h += '</div>';
   });
   h += `<div class="row"><select data-lkadd style="flex:1;min-width:0"><option value="">+ Then...</option><option value="@pick">something to an object (click it)...</option><option value="@area">a group within a radius…</option><option value="@tag">objects with a tag…</option>
-    <optgroup label="Without an object">${LK_FREE.map((v) => `<option value="${v}">${escapeHtml(LK_VERBS[v][0])}</option>`).join('')}</optgroup></select></div>`;
+    <optgroup label="Without an object">${lkFreeVerbs.map((v) => `<option value="${v}">${escapeHtml((LK_VERBS[v] || [v])[0])}</option>`).join('')}</optgroup></select></div>`;
   // the timeline of the rule (like Unity's Timeline): each action at its time, its length (an animation's)
   if ((l.do || []).length) {
     const dur = (x) => (/^anim(back)?$/.test(x.verb) ? Math.max(0.3, motionLength((edits.motions || {})[x.target]) || 1)
@@ -8877,7 +8983,9 @@ function lkWire(box, redraw) {
       window.addEventListener('pointerup', up);
     });
     el.querySelector('[data-lkw]').onchange = (e) => ch(() => {
-      l.when = e.target.value;
+      const key = e.target.value;
+      l.when = key.startsWith('output:') ? 'output' : key;
+      if (key.startsWith('output:')) l.port = key.slice(7); else delete l.port;
       if (l.when === 'near' && !l.near) l.near = 256;
       if (l.when === 'option' && src && l.option === undefined) l.option = 0;
     });
@@ -8888,11 +8996,35 @@ function lkWire(box, redraw) {
     const lo = el.querySelector('[data-lkopt]');
     if (lo) lo.onchange = () => ch(() => { l.option = +lo.value; });
     for (const t of q('[data-lkot]')) t.onchange = () => ch(() => lkSetOption(src, +l.option || 0, t.dataset.lkot, t.value));
-    for (const s of q('[data-lkv]')) s.onchange = () => ch(() => { const x = l.do[+s.dataset.lkv]; x.verb = s.value; lkDefaults(x, src); });
+    for (const s of q('[data-lkv]')) s.onchange = () => ch(() => { const x = l.do[+s.dataset.lkv]; lkApplyVerb(x, s.value); lkDefaults(x, src); });
+    // the conditions (conditions.js): l.requires is made with the first one, and goes with the last
+    const condHost = el.querySelector('[data-lkcond]');
+    if (condHost) {
+      const list = l.requires || [];
+      mountConditions(condHost, list, {
+        change: (mutate) => ch(() => { l.requires = list; mutate(); if (!list.length) delete l.requires; }),
+        mountState: (host, value, onChange) => mountStateField(host, value, { onChange }),
+        items: propItems || [],
+        characters: allActors().filter((a) => isCharacter(a) && !edits.deleted[a.name]).map((a) => ({ name: a.name, label: lkName(a.name) })),
+        counters: [...new Set(lkList().flatMap((r) => (r.do || []).filter((y) => y.verb === 'count' && y.a).map((y) => y.a)))],
+      });
+    }
+    for (const inp of q('[data-lkiarg]')) inp.onchange = () => ch(() => {
+      const x = act(inp), args = new Map(String(x.b || '').split(';').map((pair) => pair.split('=')).filter((kv) => kv[0]).map(([k, ...v]) => [k, v.join('=')]));
+      if (inp.value.trim()) args.set(inp.dataset.k, inp.value.trim().replace(/[;|"]/g, ',')); else args.delete(inp.dataset.k);
+      x.b = [...args].map(([k, v]) => `${k}=${v}`).join(';');
+    });
+    for (const c of q('[data-lkset]')) c.onchange = () => ch(() => { act(c).c = c.checked ? 'set' : ''; });
     for (const input of q('[data-lktag]')) input.onchange = () => { const tag=input.value.trim(); if (!validScriptTag(tag)) { input.setCustomValidity('Use 1-64 letters, digits or underscores.'); input.reportValidity(); return; } input.setCustomValidity(''); ch(() => { l.do[+input.dataset.lktag].targetTag=tag; }); };
     for (const d of q('[data-lkd]')) d.onchange = () => ch(() => { l.do[+d.dataset.lkd].delay = Math.max(0, Math.round((+d.value || 0) * 10) / 10); });
     for (const b of q('[data-lka]')) b.onclick = () => ch(() => { l.do.splice(+b.dataset.lka, 1); });
-    for (const inp of q('[data-lkarg]')) inp.onchange = () => ch(() => { l.do[+inp.dataset.lkarg][inp.dataset.k] = inp.value.trim(); });
+    for (const inp of q('[data-lkarg]')) inp.onchange = () => ch(() => {
+      const x = l.do[+inp.dataset.lkarg], k = inp.dataset.k;
+      let v = inp.value.trim();                // the numbers as the game will take them (cleared: 0)
+      if (x.verb === 'count' && k === 'b') v = String(lkWholeOf(v, 0));
+      else if (x.verb === 'floor' && k === 'a') v = String(Math.max(0, lkWholeOf(v, 0)));
+      x[k] = v;
+    });
     for (const host of q('[data-lkstate]')) {
       const x = l.do[+host.dataset.lkstate];
       mountStateField(host, { flag: x.a || '', is: x.b !== '0' }, { mode: 'set', onChange: value => ch(() => {
@@ -8910,7 +9042,7 @@ function lkWire(box, redraw) {
       const x = act(b);
       lkStartPick({ hint: x.verb === 'sound' ? 'Click the object the sound comes from' : `Click the object to ${lkVerbLabel(x.verb, '').toLowerCase()}`,
         accept: (o, chain) => (o.name === l.src && x.verb !== 'sound' ? 'That is the object of the rule itself: click another one.' : true),
-        done: (o) => ch(() => { const cat = lkCat(chainNow[o.cls] || [o.cls]); x.target = o.name; if (x.verb !== 'sound' && !(LK_FOR[cat] || LK_FOR.other).includes(x.verb)) { x.verb = LK_DEFAULT[cat] || LK_FOR[cat][0]; lkDefaults(x, src); } }) });
+        done: (o) => ch(() => { x.target = o.name; if (x.verb !== 'sound' && !lkInputsOf(o).includes(lkVerbKey(x))) { lkApplyVerb(x, lkDefaultOf(o)); lkDefaults(x, src); } }) });
     };
     // the object a character goes and uses; the colour and beep of a light effect
     for (const b of q('[data-lkuse]')) b.onclick = () => {
@@ -8955,32 +9087,35 @@ function lkWire(box, redraw) {
         l.do.push(x);
         if (v === 'sound') setTimeout(() => pickSound('', (name) => { if (name) lkChange(l, () => { x.a = name; }, redraw); }), 0);
       });
-      if (v === 'travel' && !allMapNames) api('/api/newmap_info').then((i) => { allMapNames = i.maps; redraw(); }).catch(() => {});
+      if (v === 'travel' && !allMapNames) api('/api/newmap_info').then((i) => { allMapNames = i.maps; lkRefresh(redraw); }).catch(() => {});
     };
   }
 }
 
-async function connectObject(p) {
+// asTarget: the selected object is what gets set off (a script just placed): the click picks what sets it off
+async function connectObject(p, { asTarget = false } = {}) {
   const a = p?.userData.actor;
   if (!a || selectionLocked(p)) return;
   await chainOf(a.cls);
   if (selected !== p || selectionLocked(p)) return;
   const cat = lkCatOf(a), evs = lkEventsOf(a), redraw = () => renderProps(p);
   lkStartPick({
-      hint: `Click the object ${hierLabel(a)} should act on (or the one that acts on it)`,
+      hint: asTarget ? `Click what sets ${hierLabel(a)} off (a lever, a button, a trigger zone...)` : `Click the object ${hierLabel(a)} should act on (or the one that acts on it)`,
       accept: (o) => (o.name === a.name ? 'Click another object.' : true),
-      done: (o) => {
-        const ocat = lkCatOf(o), oevs = lkEvents(ocat);
+      done: async (o) => {
+        await chainOf(o.cls);
+        const ocat = lkCatOf(o), oevs = lkEventsOf(o);
         // the one with an event acts on the other: a button on a door, a zone on a guard
         let from = a, to = o;
         if (!evs.length && oevs.length) { from = o; to = a; }
         if (cat === 'cutscene' && ocat !== 'cutscene' && oevs.length) { from = o; to = a; }
-        if (!lkEvents(lkCatOf(from)).length) { status(`Neither ${hierLabel(a)} nor ${hierLabel(o)} can start a rule: use the Logic panel ("When the map starts") or another object.`, 'warn'); return; }
-        const fevs = lkEvents(lkCatOf(from));
+        if (asTarget && oevs.length) { from = o; to = a; }
+        if (!lkEventsOf(from).length) { status(`Neither ${hierLabel(a)} nor ${hierLabel(o)} can start a rule: use the Logic panel ("When the map starts") or another object.`, 'warn'); return; }
+        const fevs = lkEventsOf(from);
         let when = fevs[0];
         if (lkCatOf(from) === 'door' && lkCatOf(to) !== 'door') when = 'opened';
         let made;
-        lkChange(null, () => { made = lkAdd(from, when, to); }, redraw);
+        lkChange(null, () => { made = lkAdd(from, when.startsWith('output:') ? 'output' : when, to); if (when.startsWith('output:')) { made.port = when.slice(7); made.label = lkSentence(made); } }, redraw);
         log(`${made.label}. Change what happens in the Properties of ${hierLabel(from)}; Rebuild to have it in the game.`, 'ok');
         if (from !== a) { const q2 = proxyOf(from.name); if (q2) select(q2); }
       } });
@@ -9014,24 +9149,55 @@ function usableSection(a, redraw) {
 
 // the Interactions section of the Properties of an object
 function lkSection(a, p, redraw) {
-  const cat = lkCatOf(a), evs = lkEventsOf(a);
+  const cat = lkCatOf(a), evs = lkEventsOf(a), ins = lkInputsOf(a);
   const own = lkList().filter((l) => l.src === a.name);
   const incoming = lkList().filter((l) => l.src !== a.name && (l.do || []).some((x) => x.target === a.name || x.area && lkAreaTargets(x, l.src).includes(a.name)));
+  const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(a.name, w)}"` : LK_WHEN[w] || w);
+  const inLabel = (v) => (v.startsWith('input:') ? lkPortLabel(a.name, v) : lkVerbLabel(v, cat));
+  // what it offers to the rules (config/logic.json): what can happen to it, with its rules on each; what it can do,
+  // with the rules that make it do so. A click on an output adds a rule on it; on an input, picks what does it.
+  const ruleCount = (n) => (n ? ` <b>${n}</b>` : '');
   let h = '';
+  if (evs.length) h += `<div class="lk-io"><span class="hint">When ${cat === 'character' ? 'they' : 'it'}...</span>${evs.map((w) => `<button class="lk-chip" data-lkout="${escapeHtml(w)}" title="Add a rule on this">${escapeHtml(whenLabel(w))}${ruleCount(own.filter((l) => lkWhenKey(l) === w).length)}</button>`).join('')}</div>`;
+  if (ins.length) h += `<div class="lk-io"><span class="hint">It can...</span>${ins.map((v) => `<button class="lk-chip lk-chip-in" data-lkinput="${escapeHtml(v)}" title="Click what makes it do this">${escapeHtml(inLabel(v))}${ruleCount(incoming.filter((l) => (l.do || []).some((x) => x.target === a.name && lkVerbKey(x) === v)).length)}</button>`).join('')}</div>`;
   h += own.map((l) => lkRuleHtml(l, false)).join('');
-  h += `<div class="row" style="flex-wrap:wrap;row-gap:3px">${evs.length ? `<select id="lkwhen" style="flex:1 1 130px;min-width:0"><option value="">+ When ${cat === 'character' ? 'they...' : 'it...'}</option>${evs.map((w) => `<option value="${w}">${escapeHtml(LK_WHEN[w])}</option>`).join('')}</select>` : '<span class="hint" style="margin:0;flex:1">It does nothing by itself: another object acts on it.</span>'}
+  h += `<div class="row" style="flex-wrap:wrap;row-gap:3px">${evs.length ? `<select id="lkwhen" style="flex:1 1 130px;min-width:0"><option value="">+ When ${cat === 'character' ? 'they...' : 'it...'}</option>${evs.map((w) => `<option value="${escapeHtml(w)}">${escapeHtml(whenLabel(w))}</option>`).join('')}</select>` : '<span class="hint" style="margin:0;flex:1">It does nothing by itself: another object acts on it.</span>'}
     </div>`;
   if (incoming.length) h += incoming.map((l) => `<div class="row lk-in"><span style="color:#6fdc8c">←</span><a href="#" data-lkin="${escapeHtml(l.id)}" title="Go to the object of this rule">${escapeHtml(lkSentence(l))}</a></div>`).join('');
   const wire = () => {
     const box = $('#propsec');
     lkWire(box, redraw);
     for (const g of box.querySelectorAll('[data-lkin]')) g.onclick = (e) => { e.preventDefault(); const l = lkGet(g.dataset.lkin); const q = l && proxyOf(l.src); if (q) { select(q); focusSelected(); } };
+    // a rule on one of its outputs (a script's: 'output:<Id>', its port)
+    const addOn = (key) => lkChange(null, () => {
+      const l = lkAdd(a, key.startsWith('output:') ? 'output' : key, null);
+      if (key.startsWith('output:')) { l.port = key.slice(7); l.label = lkSentence(l); }
+    }, redraw);
     const w = $('#lkwhen');
-    if (w) w.onchange = () => {
-      const when = w.value;
-      if (!when) return;
-      lkChange(null, () => { lkAdd(a, when, null); }, redraw);
-    };
+    if (w) w.onchange = () => { if (w.value) addOn(w.value); };
+    for (const b of box.querySelectorAll('[data-lkout]')) b.onclick = () => addOn(b.dataset.lkout);
+    // one of its inputs: click the object whose output does it (its first output starts the rule)
+    for (const b of box.querySelectorAll('[data-lkinput]')) b.onclick = () => lkStartPick({
+      hint: `Click what makes ${hierLabel(a)} ${inLabel(b.dataset.lkinput).toLowerCase()} (a button, a trigger, a timer...)`,
+      accept: (o) => (o.name === a.name ? 'Click another object.' : true),
+      done: async (o) => {
+        await chainOf(o.cls);
+        const outs = lkEventsOf(o);
+        if (!outs.length) { status(`${hierLabel(o)} cannot start a rule: click another object.`, 'warn'); return; }
+        let made;
+        lkChange(null, () => {
+          made = lkAdd(o, outs[0].startsWith('output:') ? 'output' : outs[0], null);
+          if (outs[0].startsWith('output:')) made.port = outs[0].slice(7);
+          const x = { verb: '', target: a.name, delay: 0 };
+          lkApplyVerb(x, b.dataset.lkinput);
+          lkDefaults(x, o);
+          made.do.push(x);
+          made.label = lkSentence(made);
+        }, redraw);
+        log(`${made.label}. Change it in the Properties of ${hierLabel(o)}.`, 'ok');
+        const x = made.do[made.do.length - 1];
+        if (x.verb === 'sound' && !x.a) pickSound('', (name) => { if (name) lkChange(made, () => { x.a = name; }, redraw); });
+      } });
 
   };
   return { html: inspectorSection('interactions', 'Interactions', h, own.length + incoming.length > 0), wire };
@@ -9064,6 +9230,15 @@ function lkDraw(a) {
 
 // Logic: every rule of the map as sentences, grouped by object, editable here too (like an event sheet)
 const logicBox = $('#logicbox');
+logicBox.addEventListener('pointerdown', () => { lgPressed = true; }, true);
+for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, () => {
+  lgPressed = false;
+  if (!lgPending) return;
+  lgPending = false;
+  setTimeout(lkRenderLater);                          // after the click it ends with
+}, true);
+// a list's own popup may keep the pointerup from the page: a choice or a key in the panel ends the press
+for (const type of ['change', 'keydown']) logicBox.addEventListener(type, () => { lgPressed = false; }, true);
 async function openLogic() {
   if (!allMapNames) { try { allMapNames = (await api('/api/newmap_info')).maps; } catch (e) { allMapNames = []; } }
   await Promise.all(lkList().flatMap((l) => [l.src, ...(l.do || []).map((x) => x.target)]).map((n) => lkActor(n)).filter(Boolean).map((x) => chainOf(x.cls)));
@@ -9073,6 +9248,7 @@ async function openLogic() {
   renderLogic();
 }
 function renderLogic() {
+  lgPending = false;
   const list = lkList();
   const groups = new Map();
   for (const l of list) { const k = l.when === 'start' ? '' : l.src; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
@@ -9085,10 +9261,10 @@ function renderLogic() {
   }
   logicBox.innerHTML = h;
   logicBox.style.display = 'block';
-  lkWire(logicBox, () => { renderLogic(); if (selected && selected.userData.actor) renderProps(selected); });
+  lkWire(logicBox, () => { if (selected && selected.userData.actor) renderProps(selected); });    // (the panel: lkRefresh)
   for (const g of logicBox.querySelectorAll('.lg-head [data-lkgo]')) g.onclick = (e) => { e.preventDefault(); const p = proxyOf(g.dataset.lkgo); if (p) { select(p); focusSelected(); } };
   $('#lgclose').onclick = () => { logicBox.style.display = 'none'; };
-  $('#lgstart').onclick = () => lkChange(null, () => { lkAdd(null, 'start', null); }, renderLogic);
+  $('#lgstart').onclick = () => lkChange(null, () => { lkAdd(null, 'start', null); }, () => {});
 }
 $('#logicbtn').onclick = () => (logicBox.style.display === 'block' ? (logicBox.style.display = 'none') : openLogic().catch((e) => log('Logic: ' + e.message, 'bad')));
 
@@ -9140,7 +9316,11 @@ function lkCheck(add) {
       if (x.area && !lkAreaTargets(x, l.src).length) add('warn', `Interaction "${say}": the area group currently has no recipients.`, who);
       if (edits.disabled?.[x.target]) { add('warn', `Interaction "${say}": ${x.target} is disabled in game.`, x.target); continue; }
       if (x.target && !lkActor(x.target)) add('error', `Interaction "${say}": ${x.target} is not in the map any more.`, who);
-      if (LK_VERBS[x.verb] && LK_VERBS[x.verb][1] && LK_VERBS[x.verb][1] !== 'any' && !x.target && !x.area) add('error', `Interaction "${say}": "${LK_VERBS[x.verb][0]}" has no object.`, who);
+      if (LK_VERBS[x.verb] && LK_VERBS[x.verb][1] && LK_VERBS[x.verb][1] !== 'any' && !x.target && !x.area && !x.targetTag) add('error', `Interaction "${say}": "${LK_VERBS[x.verb][0]}" has no object.`, who);
+      if (x.verb === 'count' && !String(x.a || '').trim()) add('error', `Interaction "${say}": the counter has no name.`, who);
+      if (x.verb === 'flag' && !String(x.a || '').trim()) add('error', `Interaction "${say}": no state chosen.`, who);
+      if (x.verb === 'floor' && lkActor(x.target) && !lkFloorOk(lkActor(x.target), Math.max(0, lkWholeOf(x.a, 0)))) add('error', `Interaction "${say}": ${x.target} has no floor ${Math.max(0, lkWholeOf(x.a, 0))}.`, who);
+      if (x.verb === 'goal' && !String(x.a || '').trim()) add('error', `Interaction "${say}": the goal has no name.`, who);
       if (x.verb === 'sound' && !x.a) add('warn', `Interaction "${say}": no sound chosen.`, who);
       if ((x.verb === 'message' || x.verb === 'note') && !x.a) add('warn', `Interaction "${say}": the text is empty.`, who);
       if (x.verb === 'travel' && !x.a) add('error', `Interaction "${say}": no map to go to.`, who);
@@ -9148,6 +9328,15 @@ function lkCheck(add) {
       if (x.verb === 'key' && x.target && lkActor(x.target) && !String(actorProp(lkActor(x.target), 'KeyIDNeeded') || '').replace(/^None$/i, '')) add('warn', `Interaction "${say}": ${x.target} needs no key (set "Key that opens it" in its Properties).`, who);
     }
     if (l.when === 'option' && lkActor(l.src) && propSchema[lkActor(l.src).cls] && !lkOptionText(l)) add('warn', `Interaction "${say}": the computer has no button for it (write its text).`, who);
+    if ((l.when === 'enter' || l.when === 'leave') && lkTriggeredSound(lkActor(l.src))) add('warn', `Interaction "${say}": this sound plays when a rule sets it off, not when JC walks in: it says neither walks in nor walks out (tick "Plays when JC walks in").`, who);
+    // its conditions (the Rebuild refuses one not filled in), and the ports of a script it uses (renamed, removed)
+    for (const c of l.requires || []) if (conditionProblem(c)) add('error', `Interaction "${say}": a condition is not finished (${conditionProblem(c)}).`, who);
+    const sio = ioNow[lkActor(l.src)?.cls];
+    if (l.when === 'output' && sio && !sio.outputs.includes(lkWhenKey(l))) add('error', `Interaction "${say}": the script has no output "${l.port}" any more.`, who);
+    for (const x of l.do || []) {
+      const tio = x.verb === 'input' && ioNow[lkActor(x.target)?.cls];
+      if (tio && !tio.inputs.includes(lkVerbKey(x))) add('error', `Interaction "${say}": ${x.target} has no input "${x.a}" any more.`, who);
+    }
   }
   if (window.__cutscene) window.__cutscene.check(add);
 }
@@ -10424,6 +10613,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   cameraPoint(dist) { const v = camera.position.clone().add(forward().multiplyScalar(dist)); return UE(v); },
   setLightGain(g) { lightGain = g; flushLightGain(); },
   startPlacing(item) { startPlacing(item); }, refreshPalette() { buildPalette(); }, log, loadFactions, updateCustom, renderThumb, portraitOf,
+  forgetClass,                            // a script compiled again: its ports are asked for again (scripts.js)
   get palette() { return palette; }, animsChanged, applyTexture,
   useStudioAnim(name, anim) {                // the Studio gives one of its animations to a character of this map
     const a = allActors().find((x) => x.name === name), q = proxyOf(name);

@@ -4,6 +4,9 @@
 // itself to its object when the map starts (it takes the object's Event, keeping the event
 // the object had: that one is triggered too), then runs its actions, each after its delay.
 //
+// The outputs each kind of object offers, and how each is heard, are the editor's tools\mapkit\editor\config\
+// logic.json; tools\mapkit\editor\LOGIC.md explains the whole (conditions, scripts as blocks, the logic log).
+//
 //   When     opened (has opened), closed (starts closing), destroyed (a door), leave (JC walks out of a
 //            trigger), animdone (the object's animation has finished), used (a button, any object JC uses), code,
 //            wrongcode (a keypad), option (a computer's special option), enter (a trigger zone),
@@ -12,17 +15,22 @@
 //            within NearDist), start (the map starts: no object), npcused (a character has used the
 //            object: UCNpcUse), finished / stopped (a timer, UCTimer, ran out / was stopped), arrived (a
 //            character sent with goto/run is there). "used" on an object made usable (UCUsable): when JC
-//            has finished using it (its UCUsable triggers the link, the link hooks nothing)
+//            has finished using it (its UCUsable triggers the link, the link hooks nothing); output (a
+//            script of Tools > Scripts says Port: UCScript.Output sets the link off)
+//   Cond[i]  the conditions: all must hold when it fires, or it does nothing that time (UCEditorStory.Holds)
 //   Act[i]   "delay|verb|target|a|b|c" (see DoAct)
 //
 // Every link of an object shares the Tag UCL_<object> (UCL_<object>_Fail for a keypad's wrong
 // code, UCL_<object>_Opt<n> for a computer's option); the editor makes them (editor\links.py).
-// It logs "UCLink <name> - <what it does>" in Revision.log every time it runs.
+// What it does goes to the logic log (Report): the editor's Console shows it while Play runs.
 //=============================================================================
 class UCLink extends UCEditorStory;
 
 var() string Source;          // the object (its name in the map); empty when When=start
 var() name   When;
+var() string Rule;            // the rule's id in the editor (the logic log names it)
+var() string Port;            // When=output: which output of the script
+var() string Cond[8];         // the conditions (UCEditorStory.Holds)
 var() int    Option;          // When=option: which special option of the computer (0-3)
 var() float  NearDist;        // When=near
 var() bool   bOnce;           // only the first time
@@ -31,6 +39,9 @@ var() string Act[24];
 
 var name  PassEvent;          // the object's own event before the link took it: triggered too
 var bool  bDone, bPolled, bWas, bHurry;
+var bool  bViaUnTrigger;      // When=code on a keypad that toggles door locks: heard by its UnTriggerEvent
+var DeusExMover PendingDoor;  // a door that triggered opened/destroyed: which one it was is known a tick later
+var Actor PendingBy;
 var int   Step;
 var float Waited, Delay;
 
@@ -39,7 +50,24 @@ var float Waited, Delay;
 function PostBeginPlay()
 {
 	Super.PostBeginPlay();
+	Disable('Tick');              // only while a door's event waits to be told apart (Trigger)
 	Hook();
+}
+
+// one line of the logic log about this rule: kind|map|rule|rest (editor/LOGIC.md)
+function Report(string kind, string rest)
+{
+	if (Rule != "")
+		LogicLine(kind $ "|" $ MapName() $ "|" $ Rule $ "|" $ rest);
+	else                          // a map built before rules had their id
+		LogicLine(kind $ "|" $ MapName() $ "|" $ Name $ "|" $ rest);
+}
+
+function string NameOf(Actor A)
+{
+	if (A == None)
+		return "";
+	return string(A.Name);
 }
 
 function Actor ActorCalled(string s)
@@ -63,7 +91,8 @@ function Hook()
 
 	if (Source == "" || When == 'start' || When == 'picked' || When == 'gone' || When == 'near'
 		|| When == 'cutstart' || When == 'cutdone'      // a cutscene (UCCutscene) triggers UCL_<name>_Start / _End
-		|| When == 'npcused' || When == 'finished' || When == 'stopped' || When == 'arrived')
+		|| When == 'npcused' || When == 'finished' || When == 'stopped' || When == 'arrived'
+		|| When == 'output')                            // a script's output (UCScript.Output) sets the link off
 		return;                                         // (UCNpcUse, UCTimer trigger their tags; arrived is watched)
 	if (When == 'used' && UsableOf(Source) != None)    // JC has finished using it: its UCUsable triggers this
 		return;
@@ -75,7 +104,18 @@ function Hook()
 	A = ActorCalled(Source);
 	if (A == None)
 	{
-		Log("UCLink" @ Name @ "- its object" @ Source @ "is not in the map");
+		Report("hook", Source $ "|missing");
+		return;
+	}
+	if (AimsItsEvent(A))
+	{
+		Report("hook", Source $ "|target");
+		return;
+	}
+	K = Keypad(A);
+	if (When == 'code' && K != None && K.bToggleLock)  // its Event names the doors its code unlocks: keep it
+	{
+		HookUnTrigger(K);
 		return;
 	}
 	if (When == 'wrongcode')
@@ -103,6 +143,44 @@ function Hook()
 	}
 }
 
+// Classes whose Event is the list of what they act on (config\logic.json "targettrigger", "switchtrigger"):
+// taking it would break them. Revision's other MoreTriggers never send their Event when JC walks in, only
+// untrigger it when he walks out ("moretrigger"): 'leave' is all a rule can hear from them. IsA by name: these
+// classes may not exist in the game the map is for.
+function bool AimsItsEvent(Actor A)
+{
+	if (AllianceTrigger(A) != None || OrdersTrigger(A) != None || InterpolateTrigger(A) != None || SequenceTrigger(A) != None
+		|| A.IsA('UnTrigger') || A.IsA('RevStateTrigger'))
+		return True;
+	if (A.IsA('ElevatorTrigger') || A.IsA('PawnAppearTrigger') || A.IsA('ActorAppearTrigger') || A.IsA('AnimTrigger')
+		|| A.IsA('AnimTweenBlendTrigger') || A.IsA('DamageTriggerDirect') || A.IsA('LOSHateTrigger')
+		|| A.IsA('PhysicsTrigger') || A.IsA('SkinColourTrigger') || A.IsA('TriggerTrigger') || A.IsA('UnlitTrigger'))
+		return True;
+	return A.IsA('MoreTriggers') && When != 'leave';
+}
+
+// A keypad that toggles door locks fires no event, but untriggers its UnTriggerEvent list on the right code
+// (Keypad.RunUntriggers): this link takes a free slot of that list.
+function HookUnTrigger(Keypad K)
+{
+	local int i;
+
+	for (i = 0; i < ArrayCount(K.UnTriggerEvent); i++)
+		if (K.UnTriggerEvent[i] == Tag)
+		{
+			bViaUnTrigger = True;
+			return;
+		}
+	for (i = 0; i < ArrayCount(K.UnTriggerEvent); i++)
+		if (K.UnTriggerEvent[i] == '')
+		{
+			K.UnTriggerEvent[i] = Tag;
+			bViaUnTrigger = True;
+			return;
+		}
+	Report("hook", Source $ "|noslot");
+}
+
 function HookMotion()
 {
 	local UCMotion Mo;
@@ -127,11 +205,48 @@ function Trigger(Actor Other, Pawn EventInstigator)
 	if (When == 'closed' || When == 'leave' || When == 'start' || When == 'picked' || When == 'gone' || When == 'near'
 		|| When == 'arrived')
 		return;
-	if (When == 'opened' && M != None && M.bDestroyed)
+	if ((When == 'opened' || When == 'destroyed') && M != None)
+	{
+		// a door blown up triggers its event before it is marked destroyed (DeusExMover.BlowItUp): tell them
+		// apart on the next tick
+		PendingDoor = M;
+		PendingBy = Who(Other, EventInstigator);
+		Enable('Tick');
 		return;
-	if (When == 'destroyed' && (M == None || !M.bDestroyed))
+	}
+	if (When == 'destroyed')
 		return;
-	Fire();
+	RunRule(Who(Other, EventInstigator));
+}
+
+// What set the rule off, for the logic log: the character using an object (UCNpcUse), the editor's own actor that
+// did it (a timer, a cutscene, a script: they pass JC along), else who did it when the game says, else what triggered.
+function Actor Who(Actor Other, Pawn EventInstigator)
+{
+	local Actor A;
+
+	if (UCNpcUse(Other) != None)
+	{
+		A = ActorCalled(UCNpcUse(Other).Who);
+		if (A != None)
+			return A;
+	}
+	if ((UCEditorStory(Other) != None && UCUsable(Other) == None) || UCScript(Other) != None)
+		return Other;                 // (a usable object is JC's own doing)
+	if (EventInstigator != None)
+		return EventInstigator;
+	return Other;
+}
+
+event Tick(float DeltaTime)
+{
+	local DeusExMover M;
+
+	M = PendingDoor;
+	PendingDoor = None;
+	Disable('Tick');
+	if (M != None && (When == 'destroyed') == M.bDestroyed)
+		RunRule(PendingBy);
 }
 
 function UnTrigger(Actor Other, Pawn EventInstigator)
@@ -141,16 +256,35 @@ function UnTrigger(Actor Other, Pawn EventInstigator)
 	if (PassEvent != '')
 		foreach AllActors(class'Actor', A, PassEvent)
 			A.UnTrigger(Other, EventInstigator);
-	if (When == 'closed' || When == 'leave')
-		Fire();
+	if (When == 'closed' || When == 'leave' || (When == 'code' && bViaUnTrigger && Keypad(Other) != None))
+		RunRule(Who(Other, EventInstigator));
 }
 
-function Fire()
+// The rule runs, unless it ran already (once), still runs (its delays), or a condition does not hold: a rule refused
+// by a condition is not used up. Each case goes to the logic log.
+// (not Fire: DeusEx has a class Fire, and Fire(x) would read as a cast to it)
+function RunRule(optional Actor By)
 {
-	if ((bOnce && bDone) || IsInState('Running'))
+	local int i;
+
+	if (bOnce && bDone)
+	{
+		Report("skip", "once|");
 		return;
+	}
+	if (IsInState('Running'))
+	{
+		Report("skip", "running|");
+		return;
+	}
+	for (i = 0; i < ArrayCount(Cond); i++)
+		if (Cond[i] != "" && !Holds(Cond[i]))
+		{
+			Report("skip", "cond|" $ Cond[i]);
+			return;
+		}
 	bDone = True;
-	Log("UCLink" @ Name @ "-" @ Label);
+	Report("fire", Source $ "|" $ When $ "|" $ NameOf(By) $ "|" $ Label);
 	GotoState('Running');
 }
 
@@ -167,7 +301,7 @@ function Hurry()
 function StartStory()
 {
 	if (When == 'start')
-		Fire();
+		RunRule();
 }
 
 // what has no event of its own: watched every half second, it runs when it becomes true
@@ -194,33 +328,15 @@ function TickStory()
 		bPolled = True;
 		bWas = bNow;
 		if (bNow && When != 'near' && When != 'arrived')
-			Log("UCLink" @ Name @ "- its object" @ Source @ "is not in the map");
+			Report("hook", Source $ "|missing");
 		return;
 	}
 	if (bNow && !bWas)
-		Fire();
+		RunRule();
 	bWas = bNow;
 }
 
-// ---------------------------------------------------------------- the actions
-function string Field(string s, int n)
-{
-	local int i;
-
-	while (n > 0)
-	{
-		i = InStr(s, "|");
-		if (i < 0)
-			return "";
-		s = Mid(s, i + 1);
-		n--;
-	}
-	i = InStr(s, "|");
-	if (i >= 0)
-		return Left(s, i);
-	return s;
-}
-
+// ---------------------------------------------------------------- the actions (Field: UCEditorStory)
 // Fixed recipients stay connected when they move. The checkbox adds current entrants,
 // evaluated when this action executes (including its delay), without double execution.
 function bool AreaKind(Actor A, string kind)
@@ -330,8 +446,18 @@ function DoAct(string s)
 	local Sound snd;
 	local name n;
 
-	if (Field(s, 6) == "group" || Field(s, 6) == "area+") { DoArea(s); return; }
-	if (Field(s, 6) == "tag") { DoTag(s); return; }
+	if (Field(s, 6) == "group" || Field(s, 6) == "area+")
+	{
+		Report("act", Field(s, 1) $ "|area " $ Field(s, 7));     // then one line for each object in it
+		DoArea(s);
+		return;
+	}
+	if (Field(s, 6) == "tag")
+	{
+		Report("act", Field(s, 1) $ "|tag " $ Field(s, 7));
+		DoTag(s);
+		return;
+	}
 	verb = Field(s, 1);
 	target = Field(s, 2);
 	a = Field(s, 3);
@@ -339,9 +465,10 @@ function DoAct(string s)
 	c = Field(s, 5);
 	P = Plr();
 	T = ActorCalled(target);
+	Report("act", verb $ "|" $ target $ "|" $ a);       // a: what it says or sets (a message, a counter...)
 	if (target != "" && T == None)
 	{
-		Log("UCLink" @ Name @ "-" @ verb @ ":" @ target @ "is not in the map any more");
+		Report("fail", verb $ "|" $ target $ "|missing");
 		return;
 	}
 	if (T != None)
@@ -422,7 +549,7 @@ function DoAct(string s)
 	{
 		snd = Sound(DynamicLoadObject(a, class'Sound', True));
 		if (snd == None)
-			Log("UCLink" @ Name @ "- no sound" @ a);
+			Report("fail", verb $ "|" $ a $ "|nosound");
 		else if (float(c) <= 0 && P != None)
 			P.PlaySound(snd, SLOT_None, FMax(0.1, float(b)),, 100000);
 		else if (T != None)
@@ -438,12 +565,18 @@ function DoAct(string s)
 		UCCutscene(T).Stop();
 	else if (verb == "message")
 		Message(a);
+	else if (verb == "goal" && a == "")
+		Report("fail", "goal||noname");
 	else if (verb == "goal")
 		Goal(StringToName(a), b, c == "done");
 	else if (verb == "note")
 		Note(a);
+	else if (verb == "flag" && a == "")
+		Report("fail", "flag||noname");
 	else if (verb == "flag")
 		SetF(StringToName(a), b != "0");
+	else if (verb == "count")                           // a counter changes by b, or is set to b
+		Count(StringToName(a), int(b), c == "set");
 	else if (verb == "travel")
 		TravelTo(a);
 	// timers, characters using objects, effects
@@ -453,8 +586,48 @@ function DoAct(string s)
 		NpcUse(target, a, float(b), c != "stand");
 	else if (verb == "effect" && T != None)
 		Effect(T, a, float(b), c);
+	// a script's input (Tools > Scripts): a virtual call, UCScript is in this package
+	else if (verb == "input" && UCScript(T) != None)
+		ScriptInput(UCScript(T), a, b);
+	else if (verb == "input")
+		Report("fail", verb $ "|" $ target $ "|noscript");
+	else if (verb == "floor")                           // an elevator goes to floor a (its sequence, as SequenceTrigger)
+		Floor(T, int(a));
 	else
-		Log("UCLink" @ Name @ "- cannot" @ verb @ target);
+		Report("fail", verb $ "|" $ target $ "|cannot");
+}
+
+// (SetSeq checks nothing: past its last key an ElevatorMover goes to its base, a MultiMover says it arrived)
+function Floor(Actor T, int n)
+{
+	if (ElevatorMover(T) != None && n >= 0 && n < ElevatorMover(T).NumKeys)
+		ElevatorMover(T).SetSeq(n);
+	else if (MultiMover(T) != None && n >= 0 && n < 4 && MultiMover(T).SeqKeys(n, 0) >= 0)
+		MultiMover(T).SetSeq(n);
+	else if (ElevatorMover(T) != None || MultiMover(T) != None)
+		Report("fail", "floor|" $ NameOf(T) $ "|nofloor");
+	else
+		Report("fail", "floor|" $ NameOf(T) $ "|cannot");
+}
+
+function Count(name counter, int n, bool bSet)
+{
+	if (counter == '')
+	{
+		Report("fail", "count||noname");
+		return;
+	}
+	if (bSet)
+		SetI(counter, n);
+	else
+		SetI(counter, GetI(counter) + n);
+}
+
+function ScriptInput(UCScript S, string inputName, string args)
+{
+	LogicLine("input|" $ MapName() $ "|" $ S.Name $ "|" $ inputName $ "|" $ args);
+	S.StartScript();              // a rule at the very start of the map: the script has its Started() first
+	S.Input(inputName, args, Self);
 }
 
 // ---------------------------------------------------------------- the editor's building blocks
@@ -475,7 +648,8 @@ function bool Arrived(ScriptedPawn sp)
 	local UCMark mark;
 	local UCNavRoute R;
 	local name t;
-	local bool bThere;
+	local bool bThere, bMark;
+	local vector spot;
 
 	if (sp == None || sp.Health <= 0)
 		return False;
@@ -486,8 +660,13 @@ function bool Arrived(ScriptedPawn sp)
 	if (t == '' || sp.OrderTag != t || (sp.Orders != 'GoingTo' && sp.Orders != 'RunningTo'))
 		return False;
 	foreach AllActors(class'UCMark', mark, t)
-		if (VSize((sp.Location - mark.Location) * vect(1,1,0)) <= sp.CollisionRadius + 48 && Abs(sp.Location.Z - mark.Location.Z) < 80)
+	{
+		bMark = True;
+		if (AtSpot(sp, mark.Location))
 			bThere = True;
+	}
+	if (!bMark && SentToAny(sp.Name, spot))          // after a load the mark (transient) is not made again yet
+		bThere = AtSpot(sp, spot);
 	return bThere && !sp.IsInState('GoingTo') && !sp.IsInState('RunningTo');
 }
 
@@ -532,10 +711,7 @@ function Effect(Actor T, string kind, float secs, string opts)
 		if (E.Target ~= string(T.Name) && (kind ~= "off" || E.Kind ~= kind))
 			E.Destroy();
 	if (kind ~= "off" || kind == "")
-	{
-		Log("UCLink" @ Name @ "- effects on" @ T.Name @ "stopped");
-		return;
-	}
+		return;                                         // every effect on it stopped
 	E = Spawn(class'UCEffect',,, T.Location);
 	if (E == None)
 		return;
@@ -592,7 +768,6 @@ function LightSet(Actor T, string mode)
 		if (Found != None && Found.OriginalType != LT_None) T.LightType = Found.OriginalType;
 		else T.LightType = LT_Steady;
 	}
-	Log("UCLink" @ Name @ "- light" @ T.Name @ mode);
 }
 
 function Boom(vector loc, float dmg, float radius)

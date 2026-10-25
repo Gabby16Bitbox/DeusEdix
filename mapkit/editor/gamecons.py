@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import kit
@@ -286,7 +287,8 @@ def catalog(package=None, log=print):
         text, audio = conversation_set(package)
         session.batch(['OBJ LOAD FILE="%s.u"' % text, 'OBJ LOAD FILE="%s.u"' % package,
                        r'UC_CONDUMP ..\Output\conversations.jsonl'])
-        rows = kit.rows(session.folder / 'Output' / 'conversations.jsonl')
+        dump = session.folder / 'Output' / 'conversations.jsonl'
+        rows = kit.rows(dump)
         result = normalize(rows)
         groups = {}
         for con in result['conversations']:
@@ -338,7 +340,7 @@ def catalog(package=None, log=print):
                       missingAudio=missing, sourceFiles=[p.name for p in files], soundPrefixes=prefixes)
         # Keep the full reflected dump separately for diagnostics and future event types.
         CACHE.mkdir(parents=True, exist_ok=True)
-        (CACHE / (package + '.jsonl')).write_text(dump, encoding='utf-8')
+        shutil.copyfile(dump, CACHE / (package + '.jsonl'))
         _write(path, result)
     finally:
         session.close()
