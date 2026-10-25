@@ -262,6 +262,9 @@ function locate(name) {
 function unpeek() { root.classList.remove('peek'); }
 function playedFlag(d) { return d.replaces ? `${d.replaces}_Played` : `UCEd${mapCode}_${ident(d.id)}_Played`; }
 function heardFlag(il) { return `UCEd${mapCode}_${ident(il.id)}_Heard`; }
+function blankDialogue(actorName) {
+  return { id: nextId('d', story.dialogues), title: actorName + '\'s dialogue', owner: actorName, bind: bindOf(actorName), start: 'talk', radius: 200, once: true, requires: [], steps: [{ type: 'line', who: 'npc', text: '' }, { type: 'line', who: 'jc', text: '' }] };
+}
 function nextId(prefix, list) { let i = 1; while (list.some((x) => x.id === prefix + i)) i++; return prefix + i; }
 function labelsOf(d) { return (d.steps || []).filter((s) => s.type === 'label' && s.name).map((s) => s.name); }
 
@@ -1233,6 +1236,24 @@ window.__story = {
   data: () => story,
   async open() { if (!(await ensure())) return; unpeek(); root.classList.add('open'); render(); await window.__gamecons?.load(); render(); },
   async showOriginal(path) { if (!(await ensure())) return; await window.__gamecons?.load(); current={kind:'o',path}; unpeek(); root.classList.add('open'); render(); },
+  ensure,
+  // an AI assistant's change of the story (agent.js): change(story) edits it, as the panel's fields do
+  async edit(change) {
+    if (!(await ensure())) throw Error('Open a map first.');
+    const value = change(story);
+    changed();
+    if (root.classList.contains('open')) render();
+    return value;
+  },
+  // a new dialogue for a character of the map (unsaved), as Story... on a character makes one
+  async newDialogue(actorName) {
+    if (!(await ensure())) throw Error('Open a map first.');
+    const d = blankDialogue(actorName);
+    story.dialogues.push(d);
+    changed();
+    if (root.classList.contains('open')) render();
+    return d;
+  },
   async openFor(actorName) {
     if (!(await ensure())) return;
     await window.__gamecons?.load();
@@ -1244,7 +1265,7 @@ window.__story = {
     if (i >= 0) current = { kind: 'd', i };
     else if (originals.length) current = { kind: 'o', path: originals.find(c=>c.properties.bnoninteractive !== 'True' && c.group !== 'AIBarks')?.path || originals[0].path };
     else {
-      story.dialogues.push({ id: nextId('d', story.dialogues), title: actorName + '\'s dialogue', owner: actorName, bind: bindOf(actorName), start: 'talk', radius: 200, once: true, requires: [], steps: [{ type: 'line', who: 'npc', text: '' }, { type: 'line', who: 'jc', text: '' }] });
+      story.dialogues.push(blankDialogue(actorName));
       current = { kind: 'd', i: story.dialogues.length - 1 };
       changed();
     }

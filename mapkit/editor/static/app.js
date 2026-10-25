@@ -389,7 +389,7 @@ async function clearMap() {
   disposeGroup(pathLines); disposeGroup(routeLines); disposeGroup(multiBoxes);
   world.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   world.clear(); for (const q of proxies.children) disposeEffectPoint(q); disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
-  script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); undo = []; dirty = false;
+  script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); undo = []; redoStack.length = 0; dirty = false;
   mapGeneration++;
   publishedLayout = null;
   bakedObjectTags = {};
@@ -440,7 +440,7 @@ async function loadScene(s, resetCamera) {
     builtBoxes = new Map((j.kind === 'script' || !j.kind || j.built ? edits.boxes || [] : []).map((b) => [b.name, boxSig(b)]));
     builtDrawn = new Map((j.kind === 'script' || !j.kind || j.built ? edits.drawn || [] : []).map((p) => [p.name, drawnSig(p)]));
     if (Array.isArray(edits.deleted)) edits.deleted = Object.fromEntries(edits.deleted.map((n) => [n, {}]));
-    undo = []; dirty = false; selected = null;
+    undo = []; redoStack.length = 0; dirty = false; selected = null;      // another map's redo would bring its edits here
     clearMaterials();
     // the sky colour Sky & time of day gave the background belongs to the map it was made on
     scene.background.set(getComputedStyle(document.documentElement).getPropertyValue('--viewport').trim() || '#0a0d16');
@@ -3116,6 +3116,16 @@ function pushUndo() {
   redoStack.length = 0;
 }
 function afterHistory() { rebuildProxies(); setDirty(); showDetails(); if (logicBox.style.display === 'block') renderLogic(); }
+function undoStep() {
+  if (!undo.length) return false;
+  redoStack.push(JSON.stringify(edits)); edits = JSON.parse(undo.pop()); afterHistory();
+  return true;
+}
+function redoStep() {
+  if (!redoStack.length) return false;
+  undo.push(JSON.stringify(edits)); edits = JSON.parse(redoStack.pop()); afterHistory();
+  return true;
+}
 
 // write the proxy's current transform into the edits
 function commit(p) {
@@ -5859,8 +5869,9 @@ function cancelPlacing() {
 function pendingSurfaces() {
   return proxies.children.filter((p) => p.userData.drawn || (p.userData.box && ['solid', 'detail', 'mover'].includes(boxKind(p.userData.box))));
 }
-function placeAt(e) {
-  const ray = mouseRay(e);
+function placeAt(e) { return placeOnRay(mouseRay(e)); }
+// where something being placed stands: on the first surface `ray` meets (on a floor, under a ceiling, against a wall)
+function placeOnRay(ray) {
   const hits = ray.intersectObjects(worldMeshes, false)
     .concat(ray.intersectObjects(pendingSurfaces(), true).filter((h) => h.object.isMesh && h.face))
     .sort((a, b) => a.distance - b.distance);
@@ -5904,9 +5915,13 @@ function prefabYaw(clip, n) {
 }
 function finishPlacing(e) {
   const r = placeAt(e);
-  if (!r) return;
+  if (r) placeWith(r, { shift: e.shiftKey });
+}
+// what a click of the placing mode does at the surface found (r: placeOnRay). shift: keep placing copies (Shift+click);
+// quiet: no questions afterwards (an assistant placing it, agent.js: a script's trigger, a sound are its properties)
+function placeWith(r, { shift = false, quiet = false } = {}) {
   if (placing.draw) {                      // one more point of a wall, road, floor or roof
-    if (drawTools.addPoint(UE(r.hit), e.shiftKey, r.n.y > 0.6) === 'done') finishDraw();
+    if (drawTools.addPoint(UE(r.hit), shift, r.n.y > 0.6) === 'done') finishDraw();
     return;
   }
   pushUndo();
@@ -5992,13 +6007,13 @@ function finishPlacing(e) {
     select(makeProxy(Object.assign({ kind: addedKind(placing.cls) }, e2, { light: isLight ? { hue: 32, sat: 160 } : null }), 'added'));
     if (placing.preset && 'URL' in placing.preset) log('Map exit placed: choose where it leads in its Properties (Leads to).', 'ok');
     // a script of Tools > Scripts: what sets it off, asked at once (its icon is small to find again later)
-    if (/Scripts\.(?!UC[WA]_)\w+$/.test(placing.cls)) setTimeout(((scriptName) => () => {
+    if (!quiet && /Scripts\.(?!UC[WA]_)\w+$/.test(placing.cls)) setTimeout(((scriptName) => () => {
       const c = $('#lkconnect');
       if (!c) return;
       c.click();
       status(`Script ${scriptName} placed: now click what sets it off (a lever, a button, a trigger zone), or Esc to do it later (🔗 Connect to... in its Properties).`);
     })(placing.cls.split('.').pop()), 80);
-    if (placing.cls === 'UCSoundFX' || placing.cls === 'AmbientSound') {     // its sound, chosen at once
+    if (!quiet && (placing.cls === 'UCSoundFX' || placing.cls === 'AmbientSound')) {     // its sound, chosen at once
       const prop = placing.cls === 'UCSoundFX' ? 'FXSound' : 'AmbientSound', who = e2, trig = e2.props.bOnTouch === 'False';
       const use = (name) => {
         if (!name) return;
@@ -6011,7 +6026,7 @@ function finishPlacing(e) {
       else pickSound('', use);
     }
   }
-  if (!e.shiftKey) cancelPlacing();          // Shift+click keeps placing copies
+  if (!shift) cancelPlacing();          // Shift+click keeps placing copies
 }
 $('#addbox').onclick = () => startPlacing({ box: true, size: [128, 128, 16], tex: 'ClenGreyCncrt_A' }, $('#addbox'));
 for (const b of document.querySelectorAll('[data-draw]')) b.onclick = () => startDraw(b.dataset.draw, b);
@@ -10236,10 +10251,10 @@ window.addEventListener('keydown', (e) => {
   if (digit && mapName && !e.altKey) { e.preventDefault(); if (e.ctrlKey || e.shiftKey) keepView(digit[1]); else goToView(digit[1]); return; }
   if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) {
     e.preventDefault();
-    if (redoStack.length) { undo.push(JSON.stringify(edits)); edits = JSON.parse(redoStack.pop()); afterHistory(); status('Redone.'); }
+    if (redoStep()) status('Redone.');
     return;
   }
-  if (e.ctrlKey && k === 'z') { e.preventDefault(); if (undo.length) { redoStack.push(JSON.stringify(edits)); edits = JSON.parse(undo.pop()); afterHistory(); } return; }
+  if (e.ctrlKey && k === 'z') { e.preventDefault(); undoStep(); return; }
   if (e.ctrlKey && k === 'g') { e.preventDefault(); if (e.shiftKey) unnestSelection(); else nestSelection(); return; }
   if (e.ctrlKey && k === 'd') { e.preventDefault(); duplicateSelected(); return; }
   if (e.ctrlKey && k === 'c') { expectClipboardEvent('copy', copySelected); return; }
@@ -10419,6 +10434,37 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
     setDirty();
     animsChanged();
   } };
+// a picture of the 3D view (an assistant's view, agent.js): from where the camera is, from `from` looking at
+// `lookAt`, or framing the object `focus` from the camera's side; the camera goes back unless `keep`
+function viewShot({ from, lookAt, focus, keep = false } = {}) {
+  const pos = camera.position.clone(), yaw = cam.yaw, pitch = cam.pitch;
+  if (from) camera.position.copy(T(from));
+  if (lookAt) {
+    const d = T(lookAt).sub(camera.position);
+    if (d.lengthSq() > 1e-6) { d.normalize(); cam.yaw = Math.atan2(d.z, d.x); cam.pitch = Math.asin(Math.max(-1, Math.min(1, d.y))); }
+  }
+  if (focus) {
+    const box = new THREE.Box3().setFromObject(focus);
+    if (!box.isEmpty()) {
+      const c = box.getCenter(new THREE.Vector3()), r = Math.max(48, box.getSize(new THREE.Vector3()).length() * 0.7);
+      camera.position.copy(c.clone().addScaledVector(forward(), -r * 1.6));
+    }
+  }
+  camera.lookAt(camera.position.clone().add(forward()));
+  renderer.render(scene, camera);
+  const url = renderer.domElement.toDataURL('image/jpeg', 0.86);      // before the next frame clears it
+  const where = { camera: UE(camera.position), yaw: radToYaw(-cam.yaw), pitch: Math.round(cam.pitch * 1000) / 1000 };
+  if (!keep) { camera.position.copy(pos); cam.yaw = yaw; cam.pitch = pitch; }
+  wake();
+  return Object.assign({ url }, where);
+}
+// what an AI assistant's calls use (agent.js): the editor's own steps, so that what it does is what a click does
+window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorProp, setProp, unsetProp, pushUndo, setDirty,
+  proxyOf, select, setMulti, focusSelected, deleteSelected, commit, rebuildProxies, showDetails, hierLabel, boxKind,
+  placeOnRay, placeWith, startPlacing, cancelPlacing, undoStep, redoStep, viewShot, isCharacter,
+  save: () => saveWorkspace(), openMap, mapList: () => mapList, palette: () => palette, chainOf: (cls) => chainNow[cls] || null,
+  structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,
+  get undoDepth() { return undo.length; }, get redoDepth() { return redoStack.length; }, get placing() { return placing; } };
 // the cutscene cameras (cutscene.js) use these
 window.__editor.cutKit = { T, UE, canvas, proxyOf, select, focusSelected, pushUndo, undoPop: () => undo.pop(), setDirty, allActors,
   hierLabel, isCharacter, status, log, lkList, lkStartPick, lkNewAct, lkSentence, lkActText, showDetails: () => showDetails(),

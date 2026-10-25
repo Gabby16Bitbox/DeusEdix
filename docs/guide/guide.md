@@ -1894,6 +1894,37 @@ and the caches. It also asks whether to remove everything else DeusEdix put into
 mods it installed, and DeusEdixNav, which mods made with DeusEdix need); that is kept unless you tick it. Your
 projects are never removed: they stay in the `Projects` folder for a later install.
 
+## AI assistant (MCP)
+
+An AI assistant can work in the editor with you: look at the open map, find objects, place and move them, change
+their properties, write and play-test dialogues, save and rebuild. It goes through **MCP** (Model Context
+Protocol), so any assistant that speaks it can connect: Claude Code, or another MCP client.
+
+1. **Tools > AI assistant...**: tick **Let an AI assistant use this editor**. Until you do, no assistant can reach
+   the editor; untick it and none can any more.
+2. Connect the assistant once. The same window shows the command for your PC, for Claude Code:
+   `claude mcp add deusedix -- "<DeusEdix>\deusedix-cli.exe" --run "<DeusEdix>\tools\mapkit\deusedix_mcp.py"`
+   Other assistants start the same command as an MCP server (stdio).
+3. Open a project and a map in DeusEdix and ask the assistant. The window says when it last called.
+
+What it does happens in the editor as if you clicked: you see it at once, it is **unsaved** and **Ctrl+Z** takes
+it back, until it or you save. It works on the project open in DeusEdix, and only while its page is open. When the
+editor would ask you to confirm (deleting objects a mission uses), the assistant is told the question and has to
+ask again saying yes. Its tools:
+
+| | |
+|---|---|
+| `editor_state`, `list_maps`, `open_map` | what is open, unsaved changes, the selection, the last messages; open a map (with unsaved changes only if told to save or to discard them) |
+| `find_objects`, `get_object`, `select_objects` | the map's objects by text, class or distance; one object's properties; select them and bring the camera there |
+| `place_object`, `move_object`, `set_properties`, `delete_objects` | as the Objects browser, the gizmo and the Inspector do |
+| `undo`, `redo`, `save`, `rebuild` | as **Ctrl+Z**, **Ctrl+Y**, **Save** and **Rebuild** |
+| `view` | a picture of the 3D view, from where the camera is, from a point towards another, or framing an object |
+| `story_list`, `story_get`, `story_write`, `story_play` | the map's dialogues, one with its graph, change one or make a new one, **Play-test** it with flags and answers |
+| `run_js`, `project_api` | the editor's page and the project's server, for what the other tools do not do |
+
+The connection stays on your PC: the editor's address and its session are in `assistant.json` in your
+`AppData\Local\DeusEdix` folder, written only while assistants are allowed.
+
 ## Local geometry (Experimental)
 
 Enable **Settings > Editing > Local geometry (Experimental)**, then choose **Map > Local geometry (Experimental)** or the same command in the Rebuild menu. The tool opens a separate window with a private copy of the map currently shown. Rebuild normally first if you want to include saved editor changes; those changes are not applied automatically inside this tool. The temporary tutorial does not use it.

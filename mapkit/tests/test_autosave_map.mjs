@@ -30,7 +30,7 @@ function setup({ automaticResponses = false } = {}) {
   const context = vm.createContext({
     script: 'map_a', mapName: '01_A', projectContext: { id: 'project-a', kind: 'custom' },
     mapGeneration: 1, edits: { moved: { Crate0: [1, 2, 3] } }, editRevision: 1,
-    dirty: true, mapLoading: false, lastEditingInput: 0, projectHub: { visible: false },
+    dirty: true, mapLoading: false, lastEditingInput: 0, projectHub: { visible: false }, gameView: null, openingExperimentalBsp: false,
     tc: { dragging: false }, inspectorDrag: null, propertySlider: null, moveStart: null, placing: null,
     tutorialSession: { revision: 1 }, mapSaveQueue: createSaveQueue(), autosave: null,
     window: { __story: story, __menubar: { prefs: {} }, __projectNavigation: false },

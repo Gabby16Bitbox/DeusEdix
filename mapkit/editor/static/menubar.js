@@ -242,6 +242,7 @@ const MENUS = [
     { label: 'Import a mod...', run: () => window.__modImport?.open() },
     { label: 'Scripts...', map: true, run: () => window.__scriptsPanel?.open() },
     { label: 'Import assets...', run: () => { window.__workspace?.show('browser'); click('bimportany')(); } },
+    { label: 'AI assistant...', run: () => window.__assistant?.open() },
     sep,
     { label: 'Add a block', key: 'block', run: () => press('block') },
     { label: 'Add a hole', run: click('addhole') },

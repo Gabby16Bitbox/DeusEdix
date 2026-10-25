@@ -31,6 +31,7 @@ function setup(){
  vm.runInContext('let copyInFlight = null, clipboardSequence = 0, clipboardPastes = null; const clipClone=value=>JSON.parse(JSON.stringify(value));',c);
  for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','livePose','showPose','objectRotation','clipboard','clipboardItem','copySelected','clipboardPasteDelta'])vm.runInContext(fn(name),c);
  vm.runInContext('async '+fn('pasteClipboard'),c);
+ vm.runInContext('async '+fn('withMapProps'),c);           // copySelected's map properties (0.1.48)
  vm.runInContext(fn('nextPid'),c);
  c.pastePoint=()=>{throw Error('Camera must not be used when pasting in the source map');};
  c.nextName=prefix=>{let n=0;const used=[...c.edits.added,...c.edits.boxes].map(e=>e.name);while(used.includes(prefix+n))n++;return prefix+n;};
@@ -171,6 +172,9 @@ test('real keyboard handler: Ctrl+C / Ctrl+V and one Ctrl+Z restore the selectio
  Object.assign(c,{window:{addEventListener:(type,fn)=>{if(type==='keydown')onKey=fn;}},document:{querySelector:()=>null},
    projectHub:null,textureTransfer:null,propertySlider:null,inspectorDrag:null,cam:{look:false},undo:[],redoStack:[],afterHistory(){}});
  c.pushUndo=()=>{c.undo.push(JSON.stringify(c.edits));history.push(clone(c.edits));};
+ // the keys' own steps: undo/redo as functions, Ctrl+C/V waiting for the browser's clipboard event (none in node: the fallback at once)
+ for(const name of ['undoStep','redoStep'])vm.runInContext(fn(name),c);
+ c.expectClipboardEvent=(kind,fallback)=>fallback();
  const start=source.indexOf('window.addEventListener(\'keydown\'',source.indexOf('// ---------------------------------------------------------------- keyboard'));
  const end=source.indexOf("$('#lightmode').onchange",start);vm.runInContext(source.slice(start,end),c);
  const key=(key,tagName='BODY')=>onKey({key,ctrlKey:true,target:{tagName},preventDefault(){}});

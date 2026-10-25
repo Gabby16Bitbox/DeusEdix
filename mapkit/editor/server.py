@@ -63,6 +63,7 @@ import rebuild as rebuild_options  # noqa: E402
 import play_preview  # noqa: E402
 import player_start  # noqa: E402
 import mods  # noqa: E402
+import agent_bridge  # noqa: E402
 
 PORT = int(os.environ.get('DEUSEDIX_PORT') or 8790)      # DeusEdix's launcher picks a free one
 STATIC = HERE / 'static'
@@ -72,6 +73,7 @@ LIVE = {'shown': None, 'n': 0}
 # after map for minutes the first time, starts no more maps meanwhile (24 Oct 2026: a Save waited 2 minutes)
 WAITING = {'n': 0}
 WAITING_GUARD = threading.Lock()
+AGENT_MAX = 24 * 1024 * 1024       # an assistant's call or the page's answer (a picture of the view: a few MB at most)
 
 
 class UserTurn:
@@ -556,6 +558,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, project_server.api(path))
             if path == '/api/mods':                    # the mods installed in both games (app level)
                 return self._send(200, dict(mods=mods.installed(), folder=str(mods.EXPORTS)))
+            if path == '/api/assistant/target' and not project_server.WORKER:     # deusedix_mcp.py: the open project
+                return self._send(*project_server.assistant_target())
+            if path in ('/api/agent/next', '/api/agent/status') and project_server.WORKER:
+                return self._send(200, self._agent_GET(path))
             if not project_server.WORKER and path.startswith('/api/'):
                 if path == '/api/map_browser':
                     return self._send(200, dict(maps=[], missions=newmap.MISSIONS, standalone=settings.STANDALONE, project=None))
@@ -958,6 +964,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._mods_POST(path)
             if not project_server.WORKER:
                 return self._send(409, dict(error='Choose a project first.'))
+            if path in ('/api/agent/call', '/api/agent/result'):
+                # not an operation of the project: a call waits for the page, which makes its own requests
+                return self._agent_POST(path)
             if path == '/api/missiongraph/scan':
                 # Analysis never saves maps or compiles the project runtime.
                 n = int(self.headers.get('Content-Length', 0) or 0)
@@ -995,6 +1004,38 @@ class Handler(BaseHTTPRequestHandler):
                 return self._project_POST()
         except (ValueError, RuntimeError, OSError) as exc:
             return self._send(409, project_server.error_payload(exc))
+
+    def _agent_GET(self, path):
+        """The editor's page: the next call of an AI assistant (a long poll, agent_bridge), or the state of
+        Tools > AI assistant... (allowed, when an assistant last called, the command that starts the MCP server)."""
+        if path == '/api/agent/status':
+            last = agent_bridge.CALLS.last_call
+            return dict(allowed=agent_bridge.allowed(), lastCall=None if last is None else round(time.time() - last),
+                        command=settings.python() + [str(settings.APP_ROOT / 'tools' / 'mapkit' / 'deusedix_mcp.py')])
+        if not agent_bridge.allowed():
+            return dict(off=True)
+        return agent_bridge.CALLS.next() or {}
+
+    def _agent_POST(self, path):
+        """An assistant's call (deusedix_mcp.py), waiting for the page to run it; or the page's answer to one."""
+        n = int(self.headers.get('Content-Length', 0) or 0)
+        if not 0 <= n <= AGENT_MAX:
+            return self._send(400, dict(error='Invalid assistant request.'))
+        body = json.loads(self.rfile.read(n) or b'{}')
+        if not isinstance(body, dict) or not isinstance(body.get('args', {}), dict):
+            return self._send(400, dict(error='Invalid assistant request.'))
+        if path == '/api/agent/result':
+            return self._send(200, dict(ok=agent_bridge.CALLS.result(str(body.get('id', '')), body.get('ok') is True,
+                                                                     body.get('value'), body.get('error', ''))))
+        if not agent_bridge.allowed():
+            return self._send(403, dict(error='AI assistants are not allowed in this DeusEdix: Tools > AI assistant...'))
+        timeout = min(max(float(body.get('timeout') or 60), 1.0), 900.0)
+        try:
+            return self._send(200, agent_bridge.CALLS.call(str(body.get('op', '')), body.get('args') or {}, timeout))
+        except agent_bridge.PageClosed as exc:
+            return self._send(409, dict(error=str(exc), code='page_closed'))
+        except TimeoutError as exc:
+            return self._send(504, dict(error=str(exc)))
 
     def _mods_POST(self, path):
         """Projects > Mods: install a .dxmod (its bytes, ?replace=1 to update), play, uninstall, show a file."""
@@ -1527,6 +1568,8 @@ def main():
     srv = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     url = 'http://localhost:%d/' % port
     project_server.HOME_URL = 'http://127.0.0.1:%d/' % port
+    if not project_server.WORKER:      # findable by an AI assistant again, if the user allowed them before
+        agent_bridge.register(project_server.HOME_URL, project_server.SESSION, settings.APP_ROOT)
     print('DeusEdix map editor: %s  (close this window to stop it)' % url, flush=True)
     if '--no-browser' not in sys.argv:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
@@ -1535,6 +1578,7 @@ def main():
     finally:
         srv.server_close()
         if not project_server.WORKER:
+            agent_bridge.unregister(settings.APP_ROOT)
             project_server.SUPERVISOR.shutdown()
 
 

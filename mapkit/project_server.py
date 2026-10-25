@@ -354,6 +354,18 @@ class Supervisor:
 
 
 SUPERVISOR = Supervisor()
+
+
+def assistant_target():
+    """(code, body) for deusedix_mcp.py: the server of the project open in this hub, whose page runs its calls."""
+    import agent_bridge
+    if not agent_bridge.allowed():
+        return 403, dict(error='AI assistants are not allowed in this DeusEdix: Tools > AI assistant...')
+    worker = SUPERVISOR.active
+    if not worker or worker['process'].poll() is not None:
+        return 200, dict(project=None)
+    return 200, dict(project=dict(id=worker['project'].get('id'), name=worker['project'].get('name')),
+                     url=worker['url'], session=worker['session'])
 if not WORKER:
     atexit.register(SUPERVISOR.shutdown)
 
@@ -376,4 +388,7 @@ def api(path, body=None):
         return SUPERVISOR.open(info)
     if path == '/api/projects/close':
         return SUPERVISOR.close()
+    if path == '/api/projects/assistant':          # Tools > AI assistant...: the user's switch
+        import agent_bridge
+        return agent_bridge.set_allowed(body.get('allow') is True, HOME_URL, SESSION, settings.APP_ROOT)
     raise ValueError('Unknown project action.')
