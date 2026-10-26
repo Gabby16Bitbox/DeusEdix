@@ -103,6 +103,7 @@ function ensureDom() {
   $('.sc-place', el).onclick = () => place();
   $('.sc-delete', el).onclick = () => remove();
   $('.sc-help', el).onclick = () => help();
+  $('.sc-close', el).onclick = () => close();
   $('.sc-import', el).onclick = () => window.__modImport?.open();
   $('.sc-new', el).addEventListener('submit', (e) => { e.preventDefault(); create(); });
   el._repaint = repaint;
