@@ -264,7 +264,7 @@ function bool Closes(byte which, int c)
 function float Slope(byte which, int i, int c)
 {
 	local int n, ia, ib;
-	local float ta, tb;
+	local float ta, tb, SpeedIn, SpeedOut, Most;
 	local byte eIn, eOut;
 	local bool bIn, bOut;
 
@@ -293,7 +293,16 @@ function float Slope(byte which, int i, int c)
 	if (bOut && eOut == 0)                  // before a straight step: into it with its speed
 		return (Comp(which, ib, c) - Comp(which, i, c)) / FMax(0.001, KeyT(which, ib) + tb - KeyT(which, i));
 	if (bIn && bOut && eIn != 4)
-		return (Comp(which, ib, c) - Comp(which, ia, c)) / FMax(0.001, KeyT(which, ib) + tb - KeyT(which, ia) - ta);
+	{
+		// smooth on both sides: where it turns back it stops, else at most three times either side's speed
+		// (Fritsch-Carlson: the curve never goes past a key; the editor's preview does the same)
+		SpeedIn = (Comp(which, i, c) - Comp(which, ia, c)) / FMax(0.001, KeyT(which, i) - KeyT(which, ia) - ta);
+		SpeedOut = (Comp(which, ib, c) - Comp(which, i, c)) / FMax(0.001, KeyT(which, ib) + tb - KeyT(which, i));
+		if (SpeedIn * SpeedOut <= 0)
+			return 0;
+		Most = 3 * FMin(Abs(SpeedIn), Abs(SpeedOut));
+		return FClamp((Comp(which, ib, c) - Comp(which, ia, c)) / FMax(0.001, KeyT(which, ib) + tb - KeyT(which, ia) - ta), -Most, Most);
+	}
 	if (bIn && bOut)                        // after a hold it jumps here and goes on
 		return (Comp(which, ib, c) - Comp(which, i, c)) / FMax(0.001, KeyT(which, ib) + tb - KeyT(which, i));
 	return 0;                               // the first key and the last: at rest

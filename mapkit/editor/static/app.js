@@ -7501,8 +7501,9 @@ function motionOf(name, create) {
 }
 function motionLength(m) { return m ? Math.max(0, ...['pos', 'rot', 'scale'].flatMap((k) => (m[k] || []).map((x) => +x.t || 0))) : 0; }
 // The keys, as UCMotion moves an object in the game: through a smooth key with the speed its neighbours give (a
-// Catmull-Rom spline in time), along a Linear step with its speed; at rest at the first and the last key (a loop
-// whose last key is its first goes on through it), at an Ease in, at the key an Ease out goes to, at a Hold.
+// Catmull-Rom spline in time, held back so it never goes past a key: Fritsch-Carlson), along a Linear step with its
+// speed; at rest at the first and the last key (a loop whose last key is its first goes on through it), at a key
+// where the motion turns back, at an Ease in, at the key an Ease out goes to, at a Hold.
 function animComp(k, c) { return Array.isArray(k.v) ? +k.v[c] : +k.v; }
 function animCloses(keys, c, loop, len) {
   const n = keys.length;
@@ -7519,7 +7520,14 @@ function animSlope(keys, i, c, loop, len) {     // UCMotion.Slope: how fast comp
   if (eOut === 2 || eOut === 4 || (bIn && eIn === 3)) return 0;
   if (bIn && eIn === 0) return (V(i) - V(ia)) / Math.max(0.001, Tm(i) - Tm(ia) - ta);
   if (bOut && eOut === 0) return (V(ib) - V(i)) / Math.max(0.001, Tm(ib) + tb - Tm(i));
-  if (bIn && bOut && eIn !== 4) return (V(ib) - V(ia)) / Math.max(0.001, Tm(ib) + tb - Tm(ia) - ta);
+  if (bIn && bOut && eIn !== 4) {
+    // smooth on both sides: where it turns back it stops, else at most three times either side's speed (uneven keys
+    // made the plain spline go back past its start before moving on)
+    const speedIn = (V(i) - V(ia)) / Math.max(0.001, Tm(i) - Tm(ia) - ta), speedOut = (V(ib) - V(i)) / Math.max(0.001, Tm(ib) + tb - Tm(i));
+    if (speedIn * speedOut <= 0) return 0;
+    const most = 3 * Math.min(Math.abs(speedIn), Math.abs(speedOut));
+    return Math.max(-most, Math.min(most, (V(ib) - V(ia)) / Math.max(0.001, Tm(ib) + tb - Tm(ia) - ta)));
+  }
   if (bIn && bOut) return (V(ib) - V(i)) / Math.max(0.001, Tm(ib) + tb - Tm(i));
   return 0;
 }
