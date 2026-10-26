@@ -48,6 +48,21 @@ export function bakeProps(anim, rig, boneIndex, poseAt, worldOf) {
   return tracks;
 }
 
+// The palette's triangles in our axes: y and z swapped (Unreal is z up) mirror the model, so the corners go 0, 2, 1
+// to keep the game's winding, as studio.js draws the characters; in the game's order the outside of a one-sided part
+// was the culled side, and a prop (a table lamp) looked cut open and lit from inside
+export function gameTriangles(posUE, uvGame) {
+  const pos = new Float32Array(posUE.length), uv = new Float32Array(uvGame.length);
+  for (let t = 0; t < posUE.length / 9; t++) {
+    [0, 2, 1].forEach((c, j) => {
+      const from = 9 * t + 3 * c, to = 9 * t + 3 * j;
+      pos[to] = posUE[from]; pos[to + 1] = posUE[from + 2]; pos[to + 2] = posUE[from + 1];
+      uv[6 * t + 2 * j] = uvGame[6 * t + 2 * c]; uv[6 * t + 2 * j + 1] = uvGame[6 * t + 2 * c + 1];
+    });
+  }
+  return { pos, uv };
+}
+
 export function createPropPreview(scene, textures, onError) {
   const root = new THREE.Group(); scene.add(root);
   const models = new Map();
@@ -67,11 +82,10 @@ export function createPropPreview(scene, textures, onError) {
       const group = new THREE.Group();
       for (const part of data.parts) {
         if (part.flags & 1) continue;
-        const a = part.pos, pos = new Float32Array(a.length);
-        for (let i = 0; i < a.length; i += 3) { pos[i] = a[i]; pos[i + 1] = a[i + 2]; pos[i + 2] = a[i + 1]; }
+        const { pos, uv } = gameTriangles(part.pos, part.uv);
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(part.uv, 2)); g.computeVertexNormals();
+        g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.computeVertexNormals();
         const opts = { color: 0xffffff, side: part.flags & 256 ? THREE.DoubleSide : THREE.FrontSide };
         const png = textures()[part.tex]?.png;
         if (png) {
