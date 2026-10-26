@@ -74,7 +74,7 @@ input, select, textarea { accent-color:var(--acc); }
 input::placeholder, textarea::placeholder { color:var(--dim); opacity:.8; }
 :is(button, select, input, textarea, summary, a):focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
 input:focus, textarea:focus { border-color:var(--accent-border); }
-input[type=number] { font-variant-numeric:tabular-nums; }
+input:is([type=number], [data-expr]) { font-variant-numeric:tabular-nums; }
 /* Sliders, airy and glassy (Gabby, 18 Oct 2026): a thin see-through track lit in the accent up to the value
    (--fill, range-fill.js) and a low, faded thumb that brightens under the pointer and while dragged. The thumb's
    colours are mixed with the panel, not see-through: the track must not show through it. */
@@ -195,7 +195,7 @@ button:disabled { opacity:.4; }
 .row > label { font-size:11px; }
 .row.slider-row { display:grid; grid-template-columns:minmax(0,1fr) 58px; gap:2px 8px; margin:9px 0; }
 .slider-row > label { grid-column:1; grid-row:1; align-self:center; }
-.slider-row > input[type=number] { grid-column:2; grid-row:1; padding:3px 6px; height:26px; }
+.slider-row > input:is([type=number], [data-expr]) { grid-column:2; grid-row:1; padding:3px 6px; height:26px; }
 .slider-row > input[type=range] { grid-column:1 / -1; grid-row:2; width:100%; min-width:0; height:24px; touch-action:none; cursor:ew-resize; }
 #log { background:var(--field); border:1px solid var(--line); padding:8px; font-size:11px; line-height:1.6; border-radius:var(--radius-card); }
 #log:empty { display:none; }
@@ -257,6 +257,22 @@ button:disabled { opacity:.4; }
 #hier .drop-after { background-position:0 100% !important; }
 @keyframes hier-flash { 0%, 55% { outline-color:var(--acc); } 100% { outline-color:transparent; } }
 #hier .hier-flash { outline:2px solid transparent; outline-offset:-2px; animation:hier-flash 2.2s ease-out 1; }
+/* the folder new things go in (right click on a folder > New objects go here, as Unity's default parent): bold in the
+   list, and named in a light banner over it, with a small × that clears it */
+#hier summary.hier-default > .hl { font-weight:700; color:var(--heading); }
+.hier-default-bar { display:flex; align-items:center; gap:4px; margin:0 8px 5px; padding:1px 2px 1px 5px; min-height:22px;
+  border:1px solid var(--accent-border); border-radius:var(--radius-row); background:var(--accent-soft); color:var(--dim); font-size:11px; line-height:16px; }
+.hier-default-bar[hidden] { display:none; }
+.hier-default-bar .hier-icon { display:inline-flex; width:14px; height:14px; flex:none; }
+.hier-default-bar .hier-icon svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.hier-default-bar button { height:18px; min-height:18px; padding:0 2px; border:0; background:none; font:inherit; }
+.hier-default-bar .hier-default-name { flex:0 1 auto; min-width:48px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; color:var(--heading); font-weight:600; }
+.hier-default-bar .hier-default-what { flex:1 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hier-default-bar .hier-default-name:hover { background:none; text-decoration:underline; }
+.hier-default-bar .hier-default-what.shut { color:var(--warn); }
+.hier-default-bar .hier-default-clear { flex:none; display:inline-flex; align-items:center; justify-content:center; width:18px; color:var(--dim); border-radius:var(--radius-row); }
+.hier-default-bar .hier-default-clear:hover { color:var(--text); background:var(--hover); }
+.hier-default-bar .hier-default-clear svg { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
 /* the Inspector of a sign (app.js) */
 #details .sg-panel textarea { width:100%; min-width:0; resize:vertical; font:inherit; color:inherit; background:var(--field); border:1px solid var(--line); border-radius:var(--radius-control); padding:4px 6px; }
 #details .sg-panel .row { flex-wrap:wrap; gap:4px; }

@@ -9,7 +9,7 @@ export function collisionSize(a, read) {
   const scale = Number.isFinite(+a.scale) && +a.scale > 0 ? +a.scale : 1;
   const cylinder = isCylinder(a, read);
   const props = cylinder ? ['CylinderRadius', 'CylinderHeight', 'CylinderRadius'] : ['BoxX', 'BoxZ', 'BoxY'];
-  return { cylinder, half: props.map(key => dimension(read(a, key) ?? 64) * scale) };
+  return { cylinder, scale, half: props.map(key => dimension(read(a, key) ?? 64) * scale) };
 }
 
 export function updateCollisionVolume(p, read) {

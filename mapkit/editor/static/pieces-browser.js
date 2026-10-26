@@ -1,10 +1,11 @@
 // Local, on-demand scan of installed maps. Nothing here ships game content.
+// favourites: the stars of the tiles and their group at the top (browser-tiles.js favouriteShelf), or none.
 export function createPiecesBrowser({
   api, escapeHtml, onPlace, canPlace = () => true, isVisible = () => true,
   onThumbnails = () => {}, onCatalog = () => {}, pollMs = 2000,
   containerSelector = '#pieces', searchSelector = '#psearch',
   filterItem = () => true, categoryLabel = value => value, searchTerms = [],
-  getContext = () => null, noun = 'pieces',
+  getContext = () => null, noun = 'pieces', favourites = null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
@@ -12,7 +13,7 @@ export function createPiecesBrowser({
   let catalog = null, request = null, generation = 0, autoAttempted = false, scanning = false, pausing = false;
   let timer = 0, thumbFrame = 0, disposed = false, shell = null, searchInput = null;
   let listStamp = null, scanError = '', readError = '', placeError = '', openedFirst = false;
-  const openCategories = new Set(), preparing = new Set();
+  const openCategories = new Set(favourites ? [favourites.group] : []), preparing = new Set();
   const link = document.createElement('link');
   link.rel = 'stylesheet'; link.href = '/static/pieces-browser.css';
   if (!$('link[href="/static/pieces-browser.css"]')) document.head.appendChild(link);
@@ -31,6 +32,7 @@ export function createPiecesBrowser({
     timer = setTimeout(() => { timer = 0; if (!disposed && isVisible()) void render(); }, Math.max(50, pollMs));
   }
   const search = () => { if (!disposed) draw(); };
+  favourites?.subscribe(search);              // a star clicked: drawn again from the catalogue it has
   function ensureShell() {
     const container = $(containerSelector);
     if (!container) return null;
@@ -92,25 +94,37 @@ export function createPiecesBrowser({
         } else if (!pending && label) label.remove();
       }
     };
-    const stamp = JSON.stringify([query, categories, items, items.length ? '' : catalog?.scan?.state, items.length ? false : scanning]);
+    const stamp = JSON.stringify([query, categories, items, items.length ? '' : catalog?.scan?.state, items.length ? false : scanning, favourites?.list()]);
     if (stamp === listStamp) { syncPreparing(); return; }
     listStamp = stamp;
     const target = container.querySelector('[data-pieces-list]');
     const firstCategory = categories.find(category => items.some(item => item.cat === category));
     if (!openedFirst && firstCategory) { openCategories.add(firstCategory); openedFirst = true; }
+    const matches = item => !query || [item.label, item.cat, item.map, ...searchTerms, ...(Array.isArray(item.tex) ? item.tex : [])]
+      .some(value => String(value || '').toLowerCase().includes(query));
+    const tile = item => {
+      const maps = Array.isArray(item.maps) ? item.maps : [], size = Array.isArray(item.size) ? item.size.join(' x ') : '';
+      const where = maps.length > 1 ? `${maps.length} levels` : item.map || '';
+      return `<button class="item" data-piece="${esc(item.id)}" ${preparing.has(item.id) ? 'disabled aria-busy="true"' : ''}
+          title="${esc(item.label)} · ${esc(size)} · used ${number(item.count)} time${item.count === 1 ? '' : 's'} (${esc(where)})${item.operation ? ' · ' + esc(item.operation) + '. Rebuild to play. No original mission links.' : ''}">
+          <span class="th" data-th="piece:${esc(item.id)}${item.revision ? '|' + esc(item.revision) : ''}"></span><span class="tl">${esc(item.label)}</span>${preparing.has(item.id) ? '<small data-piece-loading>Preparing…</small>' : ''}${favourites ? favourites.star(item.id, item.label) : ''}</button>`;
+    };
     let html = '';
+    // Favourites first: the starred ones this browser lists (the other instance has the rest); one no longer in the
+    // library shows as missing, once the library is read and no scan may still find it
+    const settled = catalog && !scanning && !['running', 'pausing'].includes(catalog.scan?.state);
+    const favs = (catalog && favourites ? favourites.entries(id => catalog.items.find(item => item.id === id)) : [])
+      .filter(({ fav, item }) => (item ? filterItem(item) && matches(item) : settled && (!query || fav.label.toLowerCase().includes(query))));
+    if (favs.length) {
+      html += `<details data-cat="${esc(favourites.group)}" ${query || openCategories.has(favourites.group) ? 'open' : ''}><summary>${esc(favourites.group)} <small>${favs.length}</small></summary>`;
+      for (const { fav, item } of favs) html += item ? tile(item) : favourites.missing(fav);
+      html += '</details>';
+    }
     for (const category of categories) {
-      const shown = items.filter(item => item.cat === category && (!query || [item.label, item.cat, item.map, ...searchTerms, ...(Array.isArray(item.tex) ? item.tex : [])]
-        .some(value => String(value || '').toLowerCase().includes(query))));
+      const shown = items.filter(item => item.cat === category && matches(item));
       if (!shown.length) continue;
       html += `<details data-cat="${esc(category)}" ${query || openCategories.has(category) ? 'open' : ''}><summary>${esc(categoryLabel(category))} <small>${shown.length}</small></summary>`;
-      for (const item of shown.slice(0, query ? 300 : 600)) {
-        const maps = Array.isArray(item.maps) ? item.maps : [], size = Array.isArray(item.size) ? item.size.join(' x ') : '';
-        const where = maps.length > 1 ? `${maps.length} levels` : item.map || '';
-        html += `<button class="item" data-piece="${esc(item.id)}" ${preparing.has(item.id) ? 'disabled aria-busy="true"' : ''}
-          title="${esc(item.label)} · ${esc(size)} · used ${number(item.count)} time${item.count === 1 ? '' : 's'} (${esc(where)})${item.operation ? ' · ' + esc(item.operation) + '. Rebuild to play. No original mission links.' : ''}">
-          <span class="th" data-th="piece:${esc(item.id)}${item.revision ? '|' + esc(item.revision) : ''}"></span><span class="tl">${esc(item.label)}</span>${preparing.has(item.id) ? '<small data-piece-loading>Preparing…</small>' : ''}</button>`;
-      }
+      for (const item of shown.slice(0, query ? 300 : 600)) html += tile(item);
       html += '</details>';
     }
     if (!html) {

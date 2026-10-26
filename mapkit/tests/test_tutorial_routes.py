@@ -130,7 +130,7 @@ class TutorialRouteTests(unittest.TestCase):
         )
         self.namespace = {
             '__name__': 'tutorial_routes_fixture', 'BaseHTTPRequestHandler': BaseHTTPRequestHandler,
-            'json': json, 'mimetypes': mimetypes, 're': re, 'threading': threading, 'time': time, 'shutil': shutil,
+            'json': json, 'mimetypes': mimetypes, 're': re, 'threading': threading, 'time': time, 'shutil': shutil, 'secrets': secrets,
             'traceback': traceback, 'parse_qs': parse_qs, 'urlparse': urlparse,
             'LOCK': threading.RLock(), 'PLAY': {'active': False}, 'LIVE': {'active': False},
             'WAITING': {'n': 0}, 'WAITING_GUARD': threading.Lock(),     # server.UserTurn's
@@ -141,6 +141,7 @@ class TutorialRouteTests(unittest.TestCase):
             'game_running': lambda: self.game,
             'data': self.data, 'story': self.story, 'textures': self.textures, 'play': self.play,
             'dxmaps': types.SimpleNamespace(built_current=Mock(return_value=True)),
+            'mapsettings': types.SimpleNamespace(true_north=Mock(return_value=0)),     # the scene's heading (view-axes.js)
             'is_dx': lambda script: False,
             'map_of': lambda script: MAP if script == SCRIPT else '01_MyRoom',
             'edits_path': lambda script: self.edits,
@@ -169,6 +170,7 @@ class TutorialRouteTests(unittest.TestCase):
         module_patch = patch.dict(sys.modules, {
             'atomicfile': self.atomicfile,
             'tutorial': self.session, 'workspace': self.workspace,
+            'live': types.SimpleNamespace(session_status=lambda: {'running': self.game, 'launching': False}),
             'originalstory': types.SimpleNamespace(validate=Mock()),
         })
         module_patch.start()
@@ -422,4 +424,3 @@ class TutorialRouteTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

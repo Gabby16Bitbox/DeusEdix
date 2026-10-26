@@ -11,6 +11,7 @@ async function moduleFrom(path) {
 const { createSaveQueue } = await moduleFrom('../editor/static/save-state.js');
 const { createAutosave, normalizeAutosaveSettings } = await moduleFrom('../editor/static/autosave.js');
 const { exerciseOnly } = await moduleFrom('../editor/static/published-layout.js');
+const { forgetGoneDefault } = await moduleFrom('../editor/static/hierarchy-folders.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -31,12 +32,12 @@ function setup({ automaticResponses = false } = {}) {
     script: 'map_a', mapName: '01_A', projectContext: { id: 'project-a', kind: 'custom' },
     mapGeneration: 1, edits: { moved: { Crate0: [1, 2, 3] } }, editRevision: 1,
     dirty: true, mapLoading: false, lastEditingInput: 0, projectHub: { visible: false }, gameView: null, openingExperimentalBsp: false,
-    tc: { dragging: false }, inspectorDrag: null, propertySlider: null, moveStart: null, placing: null,
+    tc: { dragging: false }, inspectorDrag: null, dragHandles: null, propertySlider: null, moveStart: null, placing: null,
     tutorialSession: { revision: 1 }, mapSaveQueue: createSaveQueue(), autosave: null,
     window: { __story: story, __menubar: { prefs: {} }, __projectNavigation: false },
     document: { querySelector: () => null }, $: () => busy,
     Date: class extends Date { static now() { return now; } },
-    normalizeAutosaveSettings, exerciseOnly, publishedLayout: null,
+    normalizeAutosaveSettings, exerciseOnly, forgetGoneDefault, publishedLayout: null,
     isTemporaryTutorial: (project, script) => project?.kind === 'tutorial' && script === 'deusedix_tutorial',
     showChanges: () => notices.push('changes'), buildStructList() {}, buildHierarchy() {},
     status: (...args) => statuses.push(args), log: (...args) => logs.push(args),
@@ -93,6 +94,9 @@ test('autosave state includes Story drafts and defers around active editor work'
   }
   app.story.saving = true; assert.equal(app.autosaveState().busy, true); app.story.saving = false;
   app.state.tc.dragging = true; assert.equal(app.autosaveState().busy, true); app.state.tc.dragging = false;
+  // a drag handle's dot: busy once the drag writes (a light's radius goes in as it goes; Esc puts it back)
+  app.state.dragHandles = { dragging: false }; assert.equal(app.autosaveState().busy, false);
+  app.state.dragHandles.dragging = true; assert.equal(app.autosaveState().busy, true); app.state.dragHandles = null;
   app.busy.style.display = 'flex'; assert.equal(app.autosaveState().busy, true); app.busy.style.display = 'none';
   app.state.window.__projectNavigation = true; assert.equal(app.autosaveState().busy, true);
   app.state.window.__projectNavigation = false;

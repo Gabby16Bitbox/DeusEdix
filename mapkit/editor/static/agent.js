@@ -223,7 +223,7 @@ const OPS = {
     (ed.edits.drawn = ed.edits.drawn || []).push(piece);
     k.setDirty(); k.rebuildProxies();
     const p = proxyNamed(piece.name);
-    if (p) k.select(p);
+    if (p) { k.select(p); k.warnHiddenKinds([p], 'Drawn'); }       // the Show menu hides or locks the blocks: the user is told
     return OPS.object({ name: piece.name });
   },
   // several calls in one: in order, each as on its own; it stops at the first that fails

@@ -9,6 +9,7 @@ const support=process.env.DEUSEDIX_TEST_SUPPORT || kit;
 const THREE=await import(pathToFileURL(path.resolve(support,'../research/rea-blender/three.module.mjs')));
 const {createRotations}=await import(pathToFileURL(path.join(support,'editor/static/rotation.js')));
 const {createTextureScale,stretchOnResize}=await import(pathToFileURL(path.join(support,'editor/static/texture-scale.js')));
+const {defaultFolder,putInFolder}=await import(pathToFileURL(path.join(support,'editor/static/hierarchy-folders.js')));
 const rotations=createRotations(THREE),T=a=>new THREE.Vector3(a[0],a[2],a[1]),UE=v=>[v.x,v.z,v.y];
 const source=fs.readFileSync(path.join(kit,'editor/static/app.js'),'utf8');
 const fn=name=>{const i=source.indexOf(`function ${name}(`);assert.ok(i>=0,name);const first=source.slice(i,source.indexOf('\n',i));return first.trimEnd().endsWith('}')?first:source.slice(i,source.indexOf('\n}',i)+2);};
@@ -23,6 +24,7 @@ function setup(){
   projectStorageKey:(key,p)=>p.id+':'+key,
   localStorage:{getItem:k=>stored.get(k)||null,setItem:(k,v)=>stored.set(k,v),removeItem:k=>stored.delete(k)},
   isStruct:p=>p?.userData.kind==='structure',objectHidden:()=>false,members:()=>c.selection,
+  intoDefaultFolder:keys=>putInFolder(defaultFolder(c.edits),keys),objOf:k=>k,warnHiddenKinds:(list,done)=>{c.warned=[...list,done];},
   status:(...a)=>messages.push(a),log:(...a)=>messages.push(a),busy(){},setDirty(){},rebuildProxies(){},selectKeys:keys=>{c.keys=keys;},
   pushUndo:()=>history.push(clone(c.edits)),addedKind:cls=>cls==='PlayerStart'?'logic':cls==='ScientistFemale'?'pawn':'prop',
   lightProps:()=>({LightBrightness:100}),moverFields:e=>e.mover?clone({mover:e.mover,moverSettings:e.moverSettings||{}}):{},
@@ -52,6 +54,15 @@ function setup(){
  }
  return {c,actor,piece,stored,history,messages,requests};
 }
+test('a paste goes into the folder new objects go in (right click on a folder > New objects go here)',async()=>{
+ const {c,actor}=setup();actor();await c.copySelected();
+ c.edits.nests=[{id:'n1',label:'Room',items:['a:Original']},{id:'n2',label:'Office 2 props',items:[]}];c.edits.defaultFolder='n2';
+ await c.pasteClipboard();const pasted='a:'+c.edits.added.at(-1).name;
+ assert.deepEqual(clone(c.edits.nests[1].items),[pasted]);assert.deepEqual(clone(c.edits.nests[0].items),['a:Original']);
+ assert.deepEqual(clone(c.warned),[pasted,'Pasted'],'what is pasted is looked at for a kind the Show menu hides');
+ delete c.edits.defaultFolder;await c.pasteClipboard();
+ assert.equal(c.edits.nests.some(n=>n.items.includes('a:'+c.edits.added.at(-1).name)),false,'none set: the top level');
+});
 function sameTurn(actual,expected){assert.ok(Math.abs(rotations.quat(actual).dot(rotations.quat(expected)))>0.9999999,`${actual} != ${expected}`);}
 
 test('nearby Objects paste beside the copied pose, not current selection; repeated paste advances by 48',async()=>{

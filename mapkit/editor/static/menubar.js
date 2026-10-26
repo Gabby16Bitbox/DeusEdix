@@ -8,6 +8,10 @@
 // editor's own one, and silences the old key of an action that was moved.
 
 import { normalizeAutosaveSettings } from './autosave.js';
+import { CAMERA_SETTINGS, cameraSetting } from './view-camera.js';
+import { TABLES } from './object-table.js';
+import { findKey, modsOf } from './shortcut-help.js';
+import { createShortcutBar, escapeHtml } from './shortcut-bar.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const PREFS = 'deusedix.prefs';
@@ -22,12 +26,21 @@ const ed = () => window.__editor;
 const ACTIONS = [
   ['save', 'Save', 'Ctrl+S', 'edit'], ['undo', 'Undo', 'Ctrl+Z', 'edit'], ['redo', 'Redo', 'Ctrl+Y', 'edit'], ['copy', 'Copy', 'Ctrl+C', 'edit'],
   ['paste', 'Paste', 'Ctrl+V', 'edit'], ['duplicate', 'Duplicate', 'Ctrl+D', 'edit'], ['delete', 'Delete', 'Delete', 'edit'],
+  ['cut', 'Cut (copy, then delete)', 'Ctrl+X', 'edit'],
+  ['selectall', 'Select all', 'Ctrl+A', 'edit'], ['invert', 'Invert selection', 'Ctrl+I', 'edit'], ['deselect', 'Deselect', 'Shift+D', 'edit'],
+  ['selback', 'Previous selection', 'Ctrl+Shift+[', 'edit'], ['selnext', 'Next selection', 'Ctrl+Shift+]', 'edit'],
   ['move', 'Move tool', 'W', 'edit'], ['rotate', 'Rotate tool', 'E', 'edit'], ['scale', 'Scale tool', 'R', 'edit'],
+  ['pivot', 'Gizmo: Center / Pivot', 'Z', 'edit'], ['space', 'Gizmo: Global / Local', 'X', 'edit'],
+  ['aim', 'Aim the selection at the point under the pointer', 'T', 'edit'],
+  ['alignview', 'Align the selection with the view', 'Ctrl+Shift+F', 'edit'], ['movetoview', 'Move the selection to the view', 'Ctrl+Alt+F', 'edit'],
   ['snap', 'Grid snap on / off', 'G', 'edit'], ['drop', 'Drop to floor / Stick to surface (the mode chosen last)', 'End', 'edit'], ['focus', 'Focus the selection', 'F', 'edit'],
+  ['viewtoselected', 'Align the view to the selection', 'Shift+F', 'edit'], ['pilot', 'Pilot the selection on / off', 'Shift+P', 'edit'],
+  ['pushgrid', 'Push the selection to the grid', 'Ctrl+\\', 'edit'], ['gridless', 'Grid step: half', 'Ctrl+[', 'edit'], ['gridmore', 'Grid step: double', 'Ctrl+]', 'edit'],
   ['block', 'Add a block', 'B', 'edit'], ['paths', 'AI paths', 'P', 'edit'], ['light', 'Lighting of the view', 'L', 'edit'],
   ['faces', 'Face selection on / off', 'Q', 'edit'], ['vertices', 'Edit vertices of a block on / off', 'V', 'edit'],
-  ['measure', 'Measure distances on / off', 'M', 'edit'],
+  ['measure', 'Measure distances on / off', 'M', 'edit'], ['isolate', 'Isolate the selection on / off', 'Shift+H', 'edit'],
   ['nest', 'Nest the selection', 'Ctrl+G', 'edit'], ['unnest', 'Un-nest', 'Ctrl+Shift+G', 'edit'],
+  ['palette', 'Search everything: commands, objects, assets', 'Ctrl+K', 'edit'],
   ['help', 'Quick help', 'H', 'edit'],
   ['fwd', 'Fly forward', 'W', 'fly'], ['back', 'Fly back', 'S', 'fly'], ['left', 'Fly left', 'A', 'fly'],
   ['right', 'Fly right', 'D', 'fly'], ['down', 'Fly down', 'Q', 'fly'], ['up', 'Fly up', 'E', 'fly'],
@@ -38,11 +51,16 @@ const ACTIONS = [
 const ACTION = Object.fromEntries(ACTIONS.map(([id, label, def, ctx]) => [id, { id, label, def, ctx }]));
 const CONTEXTS = { edit: 'In the 3D view', fly: 'Flying (right mouse held)', cut: 'Cutscene panel open', studio: 'Animation Studio' };
 const keyOf = (id) => prefs.keys[id] || ACTION[id].def;
+// the keys as the shortcut helper and the search by key read them (shortcut-help.js)
+const KEYMAP = { keyOf, actions: ACTIONS.map((x) => ACTION[x[0]]), contexts: CONTEXTS };
 
 const NAMES = { ' ': 'Space', Escape: 'Esc', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
+// keys named by their place on the keyboard, as the letters: è and + on an Italian one are [ and ]
+const PLACES = { BracketLeft: '[', BracketRight: ']' };
 function keyName(e) {
   if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3);
   if (/^Digit\d$/.test(e.code)) return e.code.slice(5);
+  if (PLACES[e.code]) return PLACES[e.code];
   return NAMES[e.key] || (e.key.length === 1 ? e.key.toUpperCase() : e.key);
 }
 function comboOf(e, fly) {
@@ -55,6 +73,7 @@ function eventFor(combo, src, type) {
   const parts = combo.split('+'), k = parts.pop();
   let key = k, code = k;
   if (/^[A-Z]$/.test(k)) { key = k.toLowerCase(); code = 'Key' + k; } else if (/^\d$/.test(k)) code = 'Digit' + k;
+  else if (Object.values(PLACES).includes(k)) code = Object.keys(PLACES).find(x => PLACES[x] === k);
   else if (Object.values(NAMES).includes(k)) { key = Object.keys(NAMES).find(x => NAMES[x] === k); code = k === 'Space' ? 'Space' : key; }
   const ev = new KeyboardEvent(type || 'keydown', { key, code, bubbles: true, cancelable: true,
     ctrlKey: parts.includes('Ctrl'), altKey: parts.includes('Alt'), shiftKey: parts.includes('Shift') });
@@ -76,6 +95,7 @@ function remapTables() {
 remapTables();
 
 let recording = null;                 // the Settings window waiting for a key
+let keySearch = false;               // Keyboard shortcuts > Press a key: waiting for a key to look up
 const typing = (t) => t && (['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName) || t.isContentEditable);
 function contextNow() {
   if (window.__studio?.state.open) return 'studio';
@@ -85,10 +105,13 @@ function contextNow() {
 }
 function remap(e) {
   if (e.__deusedix) return;
+  if (keySearch && dialog?.querySelector('[data-keysearch]')) { searchKey(e); return; }   // over anything: Settings is open
   if (ed()?.playing) return;
   if (window.__projects?.visible) return;
   if (recording) { recordKey(e); return; }
-  if (dialog?.classList.contains('open')) return;
+  // Settings (or About) is open: no key reaches the 3D view under it (Delete took the selection away behind it, 26 Oct
+  // 2026); Esc closes it (closeDialog's listener), its fields and buttons still type and click
+  if (dialog?.classList.contains('open')) { if (e.key !== 'Escape') e.stopImmediatePropagation(); return; }
   const ctx = contextNow();
   if (e.type === 'keyup') {                               // only flying keys are held
     if (ctx !== 'fly') return;
@@ -122,6 +145,8 @@ const experimentalGeometryItem = () => ({
   enabled: () => !ed()?.temporaryTutorial && !ed()?.playing,
   run: () => ed()?.openExperimentalBsp(),
 });
+// the editor's panels (workspace.js): the Window menu shows and hides them, the command palette shows them
+const PANELS = [['hierarchy', 'Hierarchy'], ['inspector', 'Inspector'], ['browser', 'Asset browser'], ['console', 'Console']];
 function themes() {
   return [['classic', 'Deus Ex · Classic'], ['classic-rounded', 'Deus Ex · Classic Rounded'], ['mankind', 'Mankind Divided'],
     ['mankind-rounded', 'Mankind Divided · Rounded']].map(([v, label]) => ({
@@ -156,13 +181,27 @@ const MENUS = [
     { label: 'Undo', key: 'undo', run: () => press('undo') },
     { label: 'Redo', key: 'redo', run: () => press('redo') },
     sep,
+    { label: 'Cut', key: 'cut', run: () => press('cut') },
     { label: 'Copy', key: 'copy', run: () => press('copy') },
     { label: 'Paste', key: 'paste', run: () => press('paste') },
     // UnrealEd's clipboard: T3D text both ways (Ctrl+V also takes T3D copied in UnrealEd)
     { label: 'Copy as T3D (UnrealEd)', map: true, run: () => ed()?.copyAsT3D() },
     { label: 'Paste T3D (UnrealEd)', map: true, run: () => ed()?.pasteT3D() },
+    // the properties of the selection, as Unity's Copy Component and Paste Component Values (more in the Inspector's ⋮)
+    { label: 'Copy properties', map: true, run: () => ed()?.copyProperties() },
+    { label: 'Paste properties…', map: true, enabled: () => !!ed()?.propertyClip, run: () => ed()?.pasteProperties() },
     { label: 'Duplicate', key: 'duplicate', run: () => press('duplicate') },
     { label: 'Delete', key: 'delete', run: () => press('delete') },
+    // another class for each selected object, at its place and under its name, as Unity's prefab Replace (replace-class.js)
+    { label: 'Replace with…', map: true, run: () => ed()?.replaceSelection() },
+    sep,
+    // selecting, as Unity's: of what can be picked (shown, not locked); the last selections; slots
+    { label: 'Select all', key: 'selectall', run: () => press('selectall') },
+    { label: 'Invert selection', key: 'invert', run: () => press('invert') },
+    { label: 'Deselect', key: 'deselect', run: () => press('deselect') },
+    { label: 'Previous selection', key: 'selback', run: () => press('selback') },
+    { label: 'Next selection', key: 'selnext', run: () => press('selnext') },
+    { label: 'Keep selection in slot 1 (Ctrl+Alt+1…9, back with Alt+1…9)', map: true, run: () => ed()?.keepSelection('1') },
     sep,
     { label: 'Nest', key: 'nest', run: () => press('nest') },
     { label: 'Un-nest', key: 'unnest', run: () => press('unnest') },
@@ -170,9 +209,18 @@ const MENUS = [
     { label: 'Move tool', key: 'move', run: () => press('move') },
     { label: 'Rotate tool', key: 'rotate', run: () => press('rotate') },
     { label: 'Scale tool', key: 'scale', run: () => press('scale') },
+    // the gizmo, as Unity's toolbar: a group about the last one picked (else its middle), the object's own axes
+    { label: 'Gizmo: Pivot', key: 'pivot', checked: () => ed()?.gizmo?.pivot === 'pivot', run: () => press('pivot') },
+    { label: 'Gizmo: Local', key: 'space', checked: () => ed()?.gizmo?.space === 'local', run: () => press('space') },
+    { label: 'Aim at a point…', key: 'aim', map: true, run: () => ed()?.armAim() },
+    // the selection and the 3D view's camera, as Unity's GameObject menu (view-align.js)
+    { label: 'Align with view', key: 'alignview', map: true, run: () => press('alignview') },
+    { label: 'Move to view', key: 'movetoview', map: true, run: () => press('movetoview') },
     { label: 'Face selection', key: 'faces', checked: () => !!ed()?.surfaceTools.mode, run: () => press('faces') },
     { label: 'Edit vertices', key: 'vertices', map: true, checked: () => !!ed()?.vertexEdit?.active, run: () => press('vertices') },
     { label: 'Select all of this class', map: true, run: () => ed()?.selectAllOfClass() },
+    // as Unity's Find References in Scene: the Hierarchy's search shows what points at the selection, what it points at
+    { label: 'Find references', map: true, run: () => ed()?.findReferences() },
     // UnrealEd's brush clipping, on the editor's blocks (brush-ops.js)
     { label: 'Clip block', map: true, run: () => ed()?.armClip() },
     { label: 'Intersect blocks', map: true, run: () => ed()?.intersectBlocks() },
@@ -184,11 +232,18 @@ const MENUS = [
     { label: 'Mirror X', map: true, run: () => ed()?.mirrorSelection(0) },
     { label: 'Mirror Y', map: true, run: () => ed()?.mirrorSelection(1) },
     { label: 'Mirror Z', map: true, run: () => ed()?.mirrorSelection(2) },
-    { label: 'Grid snap', key: 'snap', run: () => press('snap') },
+    { label: 'Grid snap', key: 'snap', checked: () => !!ed()?.snapOn, run: () => press('snap') },
+    // as Unity's: each selected thing onto the nearest grid point; the grid step halved or doubled
+    { label: 'Push to grid', key: 'pushgrid', run: () => press('pushgrid') },
+    { label: 'Grid step: half', key: 'gridless', run: () => press('gridless') },
+    { label: 'Grid step: double', key: 'gridmore', run: () => press('gridmore') },
     // Drop to floor / Stick to surface: the one checked is what End (and the Drop button) does
     { label: 'Drop to floor', get key() { return ed()?.placeMode === 'stick' ? '' : 'drop'; }, checked: () => ed()?.placeMode !== 'stick', run: () => ed()?.placeSelected('drop') },
     { label: 'Stick to surface', get key() { return ed()?.placeMode === 'stick' ? 'drop' : ''; }, checked: () => ed()?.placeMode === 'stick', run: () => ed()?.placeSelected('stick') },
     sep,
+    // as Unity's Search (Ctrl+K): these menus' commands, the map's objects, classes to place, textures, sounds, the
+    // Settings pages and the panels in one box (command-palette.js); no map needed
+    { label: 'Search everything…', key: 'palette', map: false, project: true, run: () => press('palette') },
     { label: 'Find object...', run: () => { window.__workspace?.show('hierarchy'); const s = $('#hsearch'); if (s) { s.focus(); s.select(); } } },
   ]],
   ['View', [
@@ -200,10 +255,15 @@ const MENUS = [
     { label: 'Test a route', map: true, run: () => { const p = document.getElementById('pathsbtn'), n = document.getElementById('navbtn'); if (p && n && !p.classList.contains('on') && !n.classList.contains('on')) p.click(); click('routebtn')(); } },
     { label: 'Walkable area', map: true, checked: () => !!document.getElementById('navbtn')?.classList.contains('on'), run: click('navbtn') },
     { label: 'Frame selection', key: 'focus', map: true, run: () => press('focus') },
+    { label: 'Align view to selected', key: 'viewtoselected', map: true, run: () => press('viewtoselected') },
+    { label: 'Pilot selection', key: 'pilot', map: true, checked: () => !!ed()?.piloting, run: () => press('pilot') },
+    { label: 'Isolate selection', key: 'isolate', map: true, checked: () => !!ed()?.sceneView?.isolated, run: () => press('isolate') },
+    { label: 'Show hidden objects for now', map: true, checked: () => !!ed()?.sceneView?.reveal, run: () => ed()?.toggleRevealHidden() },
     { label: 'Show all objects', map: true, run: () => ed()?.showAllObjects() },
     { label: 'Unlock all objects', map: true, run: () => ed()?.unlockAllObjects() },
     sep,
     { label: 'Measure', key: 'measure', map: true, checked: () => !!ed()?.measure?.active, run: () => press('measure') },
+    { label: 'Grid in the 3D view', map: true, checked: () => !!ed()?.gridShown, run: () => ed()?.setViewGrid(!ed().gridShown) },
     { label: 'Keep this view (Ctrl+1…9, back with 1…9)', map: true, run: () => ed()?.keepView('1') },
     // UnrealEd's orthographic views, each a pane at the right of the 3D view (ortho-views.js); off at first
     ...[['top', 'Top view'], ['front', 'Front view'], ['side', 'Side view']].map(([k, label]) => ({
@@ -257,9 +317,12 @@ const MENUS = [
     { label: 'Add a cutscene camera', run: click('addcut') },
   ]],
   ['Window', [
-    ...[['hierarchy', 'Hierarchy'], ['inspector', 'Inspector'], ['browser', 'Asset browser'], ['console', 'Console']].map(([id, label]) => ({
+    ...PANELS.map(([id, label]) => ({
       label, checked: () => !!window.__workspace?.isVisible(id), run: () => window.__workspace?.toggle(id),
     })),
+    sep,
+    // every light, door or character of the map in a table, as Unity's Light Explorer (object-table.js)
+    ...TABLES.map((t) => ({ label: `${t.title} table`, map: true, checked: () => ed()?.objectTables?.shown === t.id, run: () => ed()?.objectTables?.toggle(t.id) })),
     sep,
     { label: 'Default layout', run: () => window.__workspace?.preset('default') },
     { label: 'Scene layout', run: () => window.__workspace?.preset('scene') },
@@ -303,22 +366,34 @@ function commandEnabled(title, it) {
   return !(requiresProject && (!project?.id || window.__projects?.visible)) && !(requiresMap && !ed()?.script)
     && (!it.visible || it.visible()) && (!it.enabled || it.enabled());
 }
-function nativeModalOpen() {
+// A window counts only when it can be seen: one hidden some other way than display (visibility, opacity, no size)
+// must not keep every desktop menu off.
+function nativeBlocker() {
   return [...document.querySelectorAll('dialog[open], #mission-graph, #studio, #charbox, #texedit, #story, #mb-dialog.open, #newbox, #mapbox, #facbox, #linkbox, #pkgbox, #mimportbox, #logicbox, #soundbox, #checkbox')]
-    .some(el => el.getClientRects().length && getComputedStyle(el).display !== 'none');
+    .find(el => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      return el.checkVisibility ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) : getComputedStyle(el).display !== 'none';
+    }) || null;
 }
+const nativeModalOpen = () => !!nativeBlocker();
+// Help and Window stay on whatever is open: a guide must always be reachable (the menus once all went grey in the
+// tutorial). Not Settings: its Alt+S is the Animation Studio's clear scale. An item that changes the project
+// (Interactive tutorial...) keeps its own rules.
+const ALWAYS_ON = new Set(['Help', 'Window']);
+const alwaysOn = (title, it) => ALWAYS_ON.has(title) && !it.project;
 function runCommand(id) {
   const command = commands.get(id);
-  if (!command || !commandEnabled(command.title, command.item) || nativeModalOpen()) return false;
+  if (!command || !commandEnabled(command.title, command.item) || (nativeModalOpen() && !alwaysOn(command.title, command.item))) return false;
   closeMenus(); command.item.run(); return true;
 }
 function describeMenu() {
   const blocked = nativeModalOpen();
   return MENUS.map(([title, items]) => ({ title, items: items.filter(it => !it.visible || it.visible()).map(it => it.sep ? { sep: true } : {
-    id: it.id, label: it.label, enabled: !blocked && commandEnabled(title, it), checked: !!it.checked?.(), shortcut: it.key ? keyOf(it.key) : '',
+    id: it.id, label: it.label, enabled: (!blocked || alwaysOn(title, it)) && commandEnabled(title, it), checked: !!it.checked?.(), shortcut: it.key ? keyOf(it.key) : '',
   }) }));
 }
-let nativeInstalled = false, nativeInstalling = false, nativeState = '', nativeStructure = '';
+let nativeInstalled = false, nativeInstalling = false, nativeState = '', nativeStructure = '', nativeFailures = 0;
 const menuStructure = snapshot => JSON.stringify(snapshot.map(menu => [menu.title, menu.items.map(item => item.id || null)]));
 async function installNativeMenus(force = false) {
   if ((nativeInstalled && !force) || nativeInstalling || !window.pywebview?.api?.install_menus) return;
@@ -334,14 +409,27 @@ async function installNativeMenus(force = false) {
   } catch (_) { /* The complete HTML menu remains available on failure. */ }
   finally { nativeInstalling = false; }
 }
+// which window turns the menus off, said once in the status bar (desktop app: its menus cannot say why they are grey)
+let nativeBlockerShown = null;
+function sayNativeBlocker() {
+  const el = nativeBlocker();
+  if (el === nativeBlockerShown) return;
+  nativeBlockerShown = el;
+  if (el) ed()?.status?.(`Menus: ${el.getAttribute('aria-label') || el.querySelector('h2, h3, .title, b')?.textContent?.trim() || el.id || 'a window'} is open; close it to use them (Help and Window stay on).`, 'warn');
+}
 async function syncNativeMenus() {
   if (!nativeInstalled || nativeInstalling) return;
+  sayNativeBlocker();
   const snapshot = describeMenu();
   if (menuStructure(snapshot) !== nativeStructure) { await installNativeMenus(true); return; }
   const states = snapshot.flatMap(menu => menu.items).filter(item => !item.sep);
   const state = JSON.stringify(states);
   if (state === nativeState) return;
-  try { if (await window.pywebview.api.update_menus(states)) nativeState = state; } catch (_) { /* retry next tick */ }
+  try {
+    if (await window.pywebview.api.update_menus(states)) { nativeState = state; nativeFailures = 0; }
+    // the menu was put up while the page loaded (everything off): if it cannot be updated, it is put up again
+    else if (++nativeFailures >= 5) { nativeFailures = 0; await installNativeMenus(true); }
+  } catch (_) { /* retry next tick */ }
 }
 
 function openUrl(url) {
@@ -349,6 +437,10 @@ function openUrl(url) {
   else window.open(url, '_blank');
 }
 
+// the shortcut helper (shortcut-bar.js): the keys of what the 3D view is doing, not under a window that holds the keys;
+// Settings > General switches it (applyPrefs)
+const keyBar = createShortcutBar({ keymap: KEYMAP, state: () => ed()?.shortcutState?.() || null, blocked: nativeModalOpen,
+  typing, open: (target) => openSettings('keys', target) });
 let bar = null, openMenu = null, altMode = false;
 function buildBar() {
   const top = $('#top');
@@ -381,6 +473,7 @@ function buildBar() {
   spacer.className = 'mb-spacer';
   bar.appendChild(spacer);
   for (const id of ['lightgain', 'status']) { const el = document.getElementById(id); if (el) bar.appendChild(el); }
+  bar.appendChild(keyBar.el);               // the shortcut helper, right of the status (Settings > General)
   const quick = document.createElement('div');
   quick.className = 'mb-quick';
   quick.innerHTML = `<button data-q="save" title="Save (${keyOf('save')})">Save</button>`;
@@ -481,15 +574,24 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { if (e.key === 'Alt') setAlt(false); }, true);
 
 // ---------------------------------------------------------------- settings
-const DEFAULTS = { speed: 600, sens: 0.0035, invertY: false, gridMove: 16, gridRotate: 15, quality: 'sharp', startup: 'start', autosave: true, autosaveMinutes: 5, experimentalLocalGeometry: false };
+// fov 0: the player's own field of view in the game (the editor reads it from the game's settings: game_fov.py)
+const DEFAULTS = { speed: 600, sens: 0.0035, invertY: false, gridMove: 16, gridRotate: 15, gizmoPivot: 'center', gizmoSpace: 'global',
+  quality: 'sharp', startup: 'start', autosave: true, autosaveMinutes: 5, experimentalLocalGeometry: false, keyHelper: false,
+  fov: 0, near: CAMERA_SETTINGS.near.def, far: CAMERA_SETTINGS.far.def };
+// how a slider's value reads next to it
+const SHOWN = { sens: (v) => (v / 0.0035).toFixed(2) + 'x', fov: (v) => v + '°' };
 const pref = (k) => (prefs[k] === undefined ? DEFAULTS[k] : prefs[k]);
 function applyPrefs() {
+  keyBar.show(!!pref('keyHelper'));
   const e = ed();
   if (!e) return false;
   e.cam.speed = +pref('speed');
   e.cam.sens = +pref('sens');
   e.cam.invertY = !!pref('invertY');
+  e.cam.fov = +pref('fov'); e.cam.near = +pref('near'); e.cam.far = +pref('far');     // the 3D view's lens
+  e.applyViewCamera?.();
   if (e.SNAP) { e.SNAP.move = +pref('gridMove'); e.SNAP.rotate = +pref('gridRotate'); if (e.applySnap) e.applySnap(); }
+  if (e.setGizmo) e.setGizmo({ pivot: pref('gizmoPivot'), space: pref('gizmoSpace') });    // the 3D view toolbar's Z and X
   if (e.renderer) {
     const ratio = { sharp: window.devicePixelRatio || 1, balanced: 1, fast: 0.75 }[pref('quality')] || 1;
     if (Math.abs(e.renderer.getPixelRatio() - ratio) > 1e-3) { e.renderer.setPixelRatio(ratio); window.dispatchEvent(new Event('resize')); }
@@ -502,10 +604,12 @@ function setPref(k, v) {
     const settings = normalizeAutosaveSettings({ ...prefs, [k]: v });
     v = k === 'autosave' ? settings.enabled : settings.minutes;
   }
+  if (k === 'near' || k === 'far') v = cameraSetting(k, v);          // inside its limits (view-camera.js)
   prefs[k] = v; store(); applyPrefs();
 }
 
 let dialog = null, page = 'general', warnText = '';
+let keyQuery = '', keyFocus = '', revealFocus = false;     // Keyboard shortcuts: the key looked up, the command shown, scroll to it
 function ensureDialog() {
   if (dialog) return dialog;
   dialog = document.createElement('div');
@@ -514,22 +618,34 @@ function ensureDialog() {
   document.body.appendChild(dialog);
   return dialog;
 }
-function closeDialog() { if (dialog) dialog.classList.remove('open'); recording = null; }
+function closeDialog() { if (dialog) dialog.classList.remove('open'); recording = null; keySearch = false; keyQuery = ''; keyFocus = ''; }
 window.addEventListener('keydown', (e) => {
   if (dialog && dialog.classList.contains('open') && e.key === 'Escape' && !recording) { e.preventDefault(); e.stopImmediatePropagation(); closeDialog(); }
 }, true);
 
-function openSettings(which) {
+// target (the shortcut helper): Keyboard shortcuts on a command ({ action }: its row, its key looked up) or a key ({ key })
+function openSettings(which, target) {
   page = which || page;
+  if (target) { keyQuery = target.key || keyOf(target.action); keyFocus = target.action || ''; keySearch = false; recording = null; revealFocus = true; }
   ensureDialog();
   renderSettings();
   dialog.classList.add('open');
+  showFocus();
+}
+function showFocus() {                                   // the command the shortcut helper opened, in sight
+  if (!revealFocus) return;
+  revealFocus = false;
+  dialog.querySelector('tr.mb-found')?.scrollIntoView({ block: 'center' });
 }
 function row(label, control, hint) {
   return `<div class="mb-row"><label>${label}</label>${control}</div>${hint ? `<div class="mb-hint">${hint}</div>` : ''}`;
 }
+// the pages of the Settings window: [id, title, what is on it] (the command palette finds a page by that too)
+const SETTINGS_PAGES = [['general', 'General', 'startup, autosave, theme, 3D view resolution, shortcut helper'],
+  ['camera', 'Camera', 'flying speed, mouse sensitivity, invert the mouse, field of view, clipping'],
+  ['editing', 'Editing', 'grid step, rotation step, local geometry'], ['mic', 'Microphone', 'recording the voices of the Story'],
+  ['keys', 'Keyboard shortcuts', 'the keys of the commands, what a key does']];
 function renderSettings() {
-  const pages = [['general', 'General'], ['camera', 'Camera'], ['editing', 'Editing'], ['mic', 'Microphone'], ['keys', 'Keyboard shortcuts']];
   let body = '';
   if (page === 'general') {
     const theme = ($('#uitheme') || {}).value;
@@ -541,12 +657,21 @@ function renderSettings() {
       + row('Theme', `<select data-p="theme">${themes().map((t, i) => `<option value="${['classic', 'classic-rounded', 'mankind', 'mankind-rounded'][i]}"${['classic', 'classic-rounded', 'mankind', 'mankind-rounded'][i] === theme ? ' selected' : ''}>${t.label}</option>`).join('')}</select>`)
       + row('3D view resolution', `<select data-p="quality">${[['sharp', 'Sharp (the screen\'s own)'], ['balanced', 'Balanced'], ['fast', 'Fast (a slow PC)']]
         .map(([v, l]) => `<option value="${v}"${pref('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`,
-      'Fewer pixels draw faster: Fast for an old graphics card or a large monitor.');
+      'Fewer pixels draw faster: Fast for an old graphics card or a large monitor.')
+      + row('Shortcut helper', `<input type="checkbox" data-p="keyHelper" aria-label="Shortcut helper"${pref('keyHelper') ? ' checked' : ''}>`,
+        'The keys of what you are doing (placing, drawing, a gizmo tool...) at the right of the status bar; hold Shift, Ctrl or Alt for theirs. Click a key to change it.');
   } else if (page === 'camera') {
+    // the field of view: the player's own in the game until it is moved (Game's goes back to it)
+    const game = ed()?.gameFov || { fov: 86, file: null }, fov = Math.round(ed()?.viewFov?.() || game.fov);
+    const limits = (k) => `min="${CAMERA_SETTINGS[k].min}" max="${CAMERA_SETTINGS[k].max}"`;
     body = `<h3>Camera</h3>`
-      + row('Flying speed', `<input type="range" data-p="speed" min="100" max="3000" step="50" value="${pref('speed')}"><output>${pref('speed')}</output>`, 'Units per second with the right mouse button and WASD; Shift is three times faster.')
-      + row('Mouse sensitivity', `<input type="range" data-p="sens" min="0.001" max="0.01" step="0.0005" value="${pref('sens')}"><output>${(pref('sens') / 0.0035).toFixed(2)}x</output>`)
-      + row('Invert the mouse', `<label><input type="checkbox" data-p="invertY"${pref('invertY') ? ' checked' : ''}> moving the mouse up looks down</label>`);
+      + row('Flying speed', `<input type="range" data-p="speed" min="100" max="3000" step="50" value="${pref('speed')}"><output>${pref('speed')}</output>`, 'Units per second with the right mouse button and WASD; Shift is three times faster. The mouse wheel changes it while flying.')
+      + row('Mouse sensitivity', `<input type="range" data-p="sens" min="0.001" max="0.01" step="0.0005" value="${pref('sens')}"><output>${SHOWN.sens(pref('sens'))}</output>`)
+      + row('Invert the mouse', `<label><input type="checkbox" data-p="invertY"${pref('invertY') ? ' checked' : ''}> moving the mouse up looks down</label>`)
+      + row('Field of view', `<input type="range" data-p="fov" ${limits('fov')} step="1" value="${fov}"><output>${SHOWN.fov(fov)}</output><button data-gamefov title="The player's own field of view in the game">Game's</button>`,
+        `Degrees across the width, as in the game. ${game.file ? `Yours in the game is ${game.fov}° (${game.file})` : `The game's own is ${game.fov}°`}: the 3D view uses it until you move this.`)
+      + row('Clipping', `<label>Near <input type="number" data-p="near" ${limits('near')} step="1" value="${pref('near')}" style="width:64px"></label> <label>Far <input type="number" data-p="far" ${limits('far')} step="1000" value="${pref('far')}" style="width:88px"></label>`,
+        'Units: nothing nearer than Near or farther than Far is drawn. A larger Near makes far surfaces flicker less.');
   } else if (page === 'editing') {
     body = `<h3>Editing</h3>`
       + row('Grid step', `<select data-p="gridMove">${[...new Set([1, 2, 4, 8, 16, 32, 64, 128, 256, +pref('gridMove')])].sort((a, b) => a - b).map((v) => `<option${+pref('gridMove') === v ? ' selected' : ''}>${v}</option>`).join('')}</select> <span class="mb-hint" style="margin:0">units (a door is 64 wide)</span>`)
@@ -564,21 +689,21 @@ function renderSettings() {
       rows += `<tr><td class="mb-group" colspan="3">${CONTEXTS[ctx]}</td></tr>`;
       for (const a of ACTIONS.map((x) => ACTION[x[0]]).filter((a) => a.ctx === ctx)) {
         const custom = keyOf(a.id) !== a.def;
-        rows += `<tr><td>${a.label}</td><td><button class="mb-bind${custom ? ' custom' : ''}${recording && recording.id === a.id ? ' wait' : ''}" data-bind="${a.id}">${recording && recording.id === a.id ? 'press a key...' : keyOf(a.id)}</button></td>`
+        rows += `<tr${a.id === keyFocus ? ' class="mb-found"' : ''}><td>${a.label}</td><td><button class="mb-bind${custom ? ' custom' : ''}${recording && recording.id === a.id ? ' wait' : ''}" data-bind="${a.id}">${recording && recording.id === a.id ? 'press a key...' : keyOf(a.id)}</button></td>`
           + `<td>${custom ? `<button data-reset="${a.id}" title="Back to ${a.def}">Reset</button>` : ''}</td></tr>`;
       }
     }
     body = `<h3>Keyboard shortcuts</h3><div class="mb-hint" style="margin:0 0 8px">Click a key, then press the new one (Esc cancels). Text fields keep their keys. Studio keyframe jumps can use Up and Down.</div>`
-      + `<div class="mb-warn">${warnText}</div><table>${rows}</table>`;
+      + keyLookup() + `<div class="mb-warn">${warnText}</div><table>${rows}</table>`;
   }
   dialog.innerHTML = `<div class="mb-win" role="dialog" aria-label="Settings"><div class="mb-head">Settings<button class="mb-close">Close</button></div>
-    <div class="mb-body"><nav>${pages.map(([id, l]) => `<button data-page="${id}" class="${id === page ? 'on' : ''}">${l}</button>`).join('')}</nav>
+    <div class="mb-body"><nav>${SETTINGS_PAGES.map(([id, l]) => `<button data-page="${id}" class="${id === page ? 'on' : ''}">${l}</button>`).join('')}</nav>
     <div class="mb-page">${body}</div></div>
     <div class="mb-foot">${page === 'keys' ? '<button data-resetkeys>Reset every shortcut</button>' : '<button data-resetall>Back to the defaults</button>'}<button class="primary mb-close">Done</button></div></div>`;
   for (const b of dialog.querySelectorAll('.mb-close')) b.onclick = closeDialog;
   const mic = dialog.querySelector('[data-mic]');            // the microphones (voice.js)
   if (mic && window.__voice) window.__voice.fillMicSelect(mic).catch(() => {});
-  for (const b of dialog.querySelectorAll('[data-page]')) b.onclick = () => { page = b.dataset.page; recording = null; warnText = ''; renderSettings(); };
+  for (const b of dialog.querySelectorAll('[data-page]')) b.onclick = () => { page = b.dataset.page; recording = null; keySearch = false; warnText = ''; renderSettings(); };
   for (const el of dialog.querySelectorAll('[data-p]')) {
     const k = el.dataset.p;
     const update = () => {
@@ -591,17 +716,54 @@ function renderSettings() {
         control.value = settings.minutes;
         control.disabled = !settings.enabled;
       }
+      if (el.type === 'number') el.value = pref(k);                 // as it was kept (inside its limits)
       const out = el.parentElement.querySelector('output');
-      if (out) out.textContent = k === 'sens' ? (v / 0.0035).toFixed(2) + 'x' : v;
+      if (out) out.textContent = (SHOWN[k] || String)(v);
     };
     el.addEventListener(el.type === 'range' ? 'input' : 'change', update);
   }
-  for (const b of dialog.querySelectorAll('[data-bind]')) b.onclick = () => { recording = ACTION[b.dataset.bind]; warnText = ''; renderSettings(); };
+  for (const b of dialog.querySelectorAll('[data-bind]')) b.onclick = () => { recording = ACTION[b.dataset.bind]; keySearch = false; warnText = ''; renderSettings(); };
+  const search = dialog.querySelector('[data-keysearch]');
+  if (search) search.onclick = () => { keySearch = !keySearch; recording = null; warnText = ''; renderSettings(); };
+  const clear = dialog.querySelector('[data-keyclear]');
+  if (clear) clear.onclick = () => { keyQuery = ''; keyFocus = ''; keySearch = false; renderSettings(); };
+  // Change on a command found: its row in sight, waiting for its new key
+  for (const b of dialog.querySelectorAll('[data-keygo]')) b.onclick = () => {
+    keySearch = false; keyFocus = b.dataset.keygo; recording = ACTION[keyFocus]; warnText = ''; revealFocus = true;
+    renderSettings(); showFocus();
+  };
+  const gameFov = dialog.querySelector('[data-gamefov]');
+  if (gameFov) gameFov.onclick = () => { setPref('fov', 0); renderSettings(); };
   for (const b of dialog.querySelectorAll('[data-reset]')) b.onclick = () => { delete prefs.keys[b.dataset.reset]; store(); remapTables(); renderSettings(); };
   const rk = dialog.querySelector('[data-resetkeys]');
   if (rk) rk.onclick = () => { prefs.keys = {}; store(); remapTables(); warnText = ''; renderSettings(); };
   const ra = dialog.querySelector('[data-resetall]');
   if (ra) ra.onclick = () => { for (const k of Object.keys(DEFAULTS)) delete prefs[k]; store(); applyPrefs(); renderSettings(); };
+}
+// Press a key: what the key pressed does in each context (shortcut-help.js findKey); a command found has Change
+function keyLookup() {
+  const found = keyQuery ? findKey(keyQuery, KEYMAP) : [];
+  return `<div class="mb-keylook"><div class="mb-keysearch"><button class="mb-bind${keySearch ? ' wait' : ''}" data-keysearch`
+    + ` title="Press a key to see what it does in each context (hold Shift, Ctrl or Alt: what they do with the mouse). Esc stops.">`
+    + `${keySearch ? 'press a key...' : 'Press a key'}</button>`
+    + (keyQuery ? `<kbd>${escapeHtml(keyQuery)}</kbd><button data-keyclear>Clear</button>` : '<span>what a key does, in each context</span>') + '</div>'
+    + (!keyQuery ? '' : !found.length ? `<div class="mb-keynone">No shortcut uses ${escapeHtml(keyQuery)}.</div>`
+      : `<table class="mb-keyfound">${found.map((f) => `<tr><td><kbd>${escapeHtml(f.key)}</kbd></td><td>${escapeHtml(f.does)}</td>`
+        + `<td class="mb-where">${escapeHtml(f.where.join(', '))}</td>`
+        + `<td>${f.action ? `<button data-keygo="${f.action}" title="Give it another key">Change</button>` : ''}</td></tr>`).join('')}</table>`)
+    + '</div>';
+}
+// the key pressed while Press a key waits is looked up (a modifier alone: what holding it does with the mouse), nothing
+// else hears it; Esc stops waiting
+function searchKey(e) {
+  e.preventDefault();
+  if (e.type !== 'keydown') return;
+  e.stopImmediatePropagation();
+  if (e.key === 'Escape') { keySearch = false; renderSettings(); return; }
+  const combo = comboOf(e, false) || modsOf(e);
+  if (!combo || combo === keyQuery) return;               // a key with no name; a key held repeats
+  keyQuery = combo; keyFocus = '';
+  renderSettings();
 }
 function recordKey(e) {
   if (e.type !== 'keydown') return;
@@ -647,6 +809,7 @@ async function openAbout() {
 buildBar();
 (function waitEditor() { if (!applyPrefs()) setTimeout(waitEditor, 200); })();
 window.__menubar = { openSettings, prefs, keyOf, ACTIONS, setPref, describeMenu, runCommand, closeMenus,
+  panels: PANELS, settingsPages: SETTINGS_PAGES, modalOpen: nativeModalOpen,        // the command palette (command-palette.js)
   get settingsOpen() { return !!dialog?.classList.contains('open'); } };
 window.addEventListener('pywebviewready', installNativeMenus);
 installNativeMenus();

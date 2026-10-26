@@ -102,7 +102,12 @@ function createWorkspace() {
     closeMenu();
     menu = document.createElement('div'); menu.className = 'ws-menu'; menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', LABELS[id] + ' panel');
+    // the panel's own commands first (the Hierarchy's Expand all and Collapse all): who fills the panel adds them to
+    // the event's list, as [label, run]
+    const own = [];
+    window.dispatchEvent(new CustomEvent('deusedix:panel-menu', { detail: { id, items: own } }));
     for (const [label, run, current] of [
+      ...own,
       ...DOCKS.map(dock => ['Dock ' + dock, () => movePanel(id, dock), state.panels[id].dock === dock]),
       ['Float panel', () => movePanel(id, 'float'), state.panels[id].dock === 'float'],
       ['Hide panel', () => hide(id), false],
@@ -110,6 +115,7 @@ function createWorkspace() {
       const b = makeButton(label, label, () => { closeMenu(); run(); if (!state.panels[id].hidden) focusPanel(id); });
       b.setAttribute('role', 'menuitem'); if (current) b.classList.add('on'); menu.appendChild(b);
     }
+    if (own.length) menu.children[own.length - 1].after(document.createElement('hr'));
     document.body.appendChild(menu);
     const r = anchor.getBoundingClientRect();
     menu.style.left = Math.max(4, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 4)) + 'px';

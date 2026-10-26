@@ -124,10 +124,33 @@ The controls are those of Unreal Engine 5 (they are also listed under **Help**).
 | Hold the right mouse button and move the mouse | look around |
 | Right mouse + `W` `A` `S` `D`, `Q` `E` | fly (`Shift` = faster) |
 | Mouse wheel | forward and back |
+| Mouse wheel while flying (right mouse held) | the fly speed, shown for a moment at the bottom of the view |
 | Middle mouse drag | pan |
+| `Alt` + left drag | turn round the selection's middle (without one: what is under the mouse) |
+| `Alt` + right drag | go toward that point (right or down) or away from it |
 | Left click | select an object, or a structure by clicking its walls |
-| `F` | focus the selected object |
+| Left click again on the same spot | the next thing under the mouse, behind the first (round again after the last) |
+| `Ctrl` + right click | the list of everything under the mouse (*Select under cursor*) |
+| `F` | frame the selection: the camera flies to it; press `F` again to come closer |
+| `Shift+F` (View > Align view to selected) | look from the selected object along its front (a character: from its eyes) |
+| `Shift+P` (View > Pilot selection) | pilot the selection: the view looks through it and flying takes it along, until `Shift+P` again or `Esc` |
 | `L` | lighting of the view: Shaded, Lit, Unlit (see below) |
+
+An `Alt` click without a drag still picks a face (see *Faces and texture alignment*), and `Alt`
+dragging a gizmo handle still copies the object. After `F` or an orbit the camera keeps turning round the same
+point while it looks at it, even with nothing selected.
+
+The **axis widget** in the top right corner of the 3D view shows the view's axes as the gizmo does (X red, Y green
+and up, Z blue: the Inspector's axes). Click an end to look from that side toward the middle of the view: **Y**
+looks down from above, with X to the right as in the Top view; X and Z look level. **Shift**+click opens the matching
+Top, Front or Side view instead. Under it, where the camera faces in the game's units: the letter of the game's
+compass (North is the map's *TrueNorth*) and the yaw (65536 a turn).
+
+**Settings > Camera**: the flying speed (also the wheel while flying), the mouse sensitivity, invert, the **field of
+view** and **clipping**. The field of view is the one of your game (`DefaultFOV` in RevisionUser.ini, User.ini for
+the original game; else the game's own: 86° in Revision, 75° in the original), so the view frames what the player
+sees; move the slider for another one, **Game's** goes back to it. A new cutscene camera starts with it too.
+**Near** and **Far** set how close and how far the view draws.
 
 ## Lighting of the view
 
@@ -168,11 +191,15 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
 - **Menus and toolbar**: File, Edit, View, Map, Tools, Window, Settings and Help.
   The Windows app uses a native menu above the editor; the browser keeps these menus in the
   top bar. Save, Rebuild and Play remain beside the current map. Themes and Rounded variants
-  are in Settings.
+  are in Settings. **Edit > Search everything…** (`Ctrl+K`) finds any command, object of the map,
+  object to place, texture or sound by its name (see *Searching everything*).
 - **Hierarchy** (left): every object of the level. The structures (helipad, buildings...) with
-  their objects inside, then the other objects by kind: characters, lights, objects, doors,
-  triggers, AI paths, blocks. Click a line to select it, double-click it (or press `F`) to go to
-  it, the bin deletes it. The search box finds any object by name or kind. Bulbs identify lights,
+  their objects inside, then the other objects by kind, as the 3D view's Show menu sorts them: characters, lights,
+  objects, doors, triggers, AI paths, blocks (with the walls, roads, floors, ceilings, stairs and roofs you drew),
+  sounds, cameras and cutscenes, zones. Click a line to select it,
+  double-click it (or press `F`) to go to
+  it, the bin deletes it. The search box finds any object by name or kind, and by its Tag, Event, sounds,
+  textures, model or state, or what points at it (see *Searching the map*). Bulbs identify lights,
   people identify NPCs, and cubes, doors and routes identify objects, movers and AI paths.
   NPC icons show their configured relation towards JC at map start: **green** for allies,
   **grey** for neutral characters and **red** for enemies. Class defaults and unsaved relation
@@ -190,14 +217,32 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   (see *Sounds*). **+ Create** adds a block, a hole, water, a zone portal, a sign or a cutscene camera;
   **Characters...** opens the Character Creator. Nothing assembled by hand is in the library: the
   structures of the map you are editing are in the Hierarchy.
+  **Favourites**, as in Unity's Project window: the **star** of a tile (it shows under the pointer) keeps that
+  object, character, model, piece, mover, prefab or sound in a **Favourites** group at the top of its section,
+  for this project (textures have theirs in the texture picker, see *Textures*); its star again takes it out. A
+  favourite whose asset is gone (a mod's package removed, a prefab or a sound of yours deleted) stays there,
+  dashed and *Missing*, until its star takes it out. The fixed **Most used** list of Objects stays as it was.
+  The **slider** at the top right of the Browser makes the tiles a **list** (one line each, with the class or the
+  model's own name after the name) or **small**, **medium** or **large** tiles; `Ctrl`+wheel over the tiles does
+  the same, and then neither the page nor the 3D view zooms. One size for every section, kept in this browser.
 - **Inspector** (right): the selected object's transform and relevant properties in foldouts.
   Changes and Messages can be expanded when needed. Right-click an object for actions for
   its type: a character offers Dialogues and Animation Studio; a light offers Light settings.
   The **padlock** at the top keeps the Inspector on this object while you select others (to drag
   something onto its fields); press it again to follow the selection.
 - **The 3D view's toolbar** (top left of the view, like Unity's): **Move**, **Rotate**, **Scale**
-  (`W` `E` `R`), **grid snap** (`G`) with its **grid step** and **rotation step**, and the **bulb**
-  that shows or hides the icons of lights, AI paths and logic points (see *Objects*).
+  (`W` `E` `R`), **Center / Pivot** (`Z`) and **Global / Local** (`X`) for the gizmo (see *Objects*),
+  the **arrows** of the previous and next selection, **grid snap** (`G`) with its
+  **grid step** and **rotation step**, the **grid** shown in the view at the floor of the selection, the **bulb**
+  that shows or hides the icons of lights, AI paths and logic points (see *Objects*), and the **Show** menu (the
+  stacked layers: each kind of thing shown, locked and with its icons, see *Visibility, selection and game
+  activation*). Then
+  **Isolate** (`Shift+H`) and the **crossed eye** with the number of objects hidden with the eye
+  (see *Visibility, selection and game activation*), and the **camera** that pilots the selection (`Shift+P`, see
+  *The selection and the view* under *Objects*); while one is on, a flag says so
+  (*Isolated: 3 objects*, *Hidden shown: 5*, *Piloting Light*) with a button that ends it.
+- **The axis widget** (top right of the view, like Unity's scene gizmo): click an axis end to look from
+  that side, with the camera's heading under it (see *Moving around*).
 - **Panels**: drag a panel tab to the left, right or bottom edge, or into the scene to float it.
   The panel menu also offers docking and hiding. Resize by dragging its edge. **Window** shows
   hidden panels and offers Default, Scene and Inspect layouts, plus Reset layout. The layout
@@ -206,9 +251,45 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
 ### Visibility, selection and game activation
 
 - The **eye** hides an object only in the scene view. Its game behaviour is unchanged.
-- The **lock** prevents accidental selection and edits in the scene. You can still select its
+- The **lock** prevents accidental selection, snapping onto it and edits in the scene. You can still select its
   Hierarchy row to inspect it or unlock it. View > Show all objects and Unlock all objects recover
   these editor-only states, which are remembered per map on this computer.
+- **Show** (the stacked layers in the 3D view's toolbar, as Unity's Layers and Gizmos menus): a row for each
+  kind of thing, as the Hierarchy sorts them (Structures, Characters, Lights, Objects, Doors and elevators,
+  Triggers and logic, AI paths, Blocks with the drawings, then Sounds, Cameras and cutscenes and Zones wherever
+  they are: a class named for a sound or music, a camera or a cutscene, or a zone, the game's or a mod's; a character
+  stays a character whatever its name, as the engine's Camera), with how many the map has. Its **eye** hides the
+  whole kind in the 3D view (hidden blocks are their
+  boxes: what the last Rebuild built of them is the map's own and stays, as with Isolate); its **padlock** locks
+  it: not picked by a click or a rectangle, left out of Select all, not snapped to (`V`, `Ctrl+Shift`), no gizmo
+  or dots, its settings greyed in the Inspector (Drop to floor and placing from the browser still land on it);
+  its **bulb** (the kinds drawn as icons) hides only that kind's icons. A click on a kind's name shows only that
+  kind (to follow the triggers and logic of a room), again shows every kind; **Show, unlock and draw every kind**
+  puts them all back. **Icon size** makes every icon of the view bigger or smaller. **Esc** closes the menu (and the
+  toolbar's other lists) and does nothing else: the next Esc ends a placing or clears the selection. The Hierarchy's kind
+  folders are these same rows (so a sound sits in Sounds, not in Triggers and logic) and have the same eye and
+  padlock, which cover everything the folder lists (the Structures folder's too; Blocks lists the drawings, each
+  with its own eye and padlock); a row of a hidden kind is greyed,
+  of a locked one in italics, and says why when you hover it. A structure, or a folder of yours, still moves and
+  deletes as one with a hidden or locked kind inside it: selected whole or with other things, dragged in the
+  Hierarchy, moved into another folder or taking things moved into it, and edited from its right-click menu; only
+  the own eye or padlock of something in it holds it. What you place, paste, draw, duplicate or make in any other
+  way (the Hierarchy's **+**, the 2D Shape Editor, Clip, a hole's light, Fill AI paths, a patrol route's points, the
+  sky's suns, a cutscene camera, Replace with) of a hidden or locked kind is made all the same, and the status bar
+  says that its kind is hidden or locked. These states are kept per project on this computer, apart from each object's
+  own eye and padlock: an object shows only when both let it, and showing a kind again never turns an object's
+  own eye back on (nor View > Show all objects a kind's). The toolbar's button is lit while a kind is off.
+- **Isolate** (`Shift+H`, the frame button of the 3D view's toolbar, or View > Isolate selection), as
+  Unity's: only the selection stays in the view, with what it holds (the objects of a structure, what a
+  folder holds) and the structure each selected object stands in, so a desk is seen in its room.
+  Everything else is hidden until you press `Shift+H` again or **Exit** on the toolbar's flag; opening
+  another map or starting Play ends it too. Objects you add meanwhile (a copy, a paste) are shown. The
+  map, the eyes and Save are untouched; in the Hierarchy the rows outside the isolation are greyed.
+  The map's own surfaces that are in no structure (the built blocks) stay.
+- **Show hidden** (the crossed eye of the toolbar, with how many objects the eye hides, or View > Show
+  hidden objects for now) shows them for a while without turning their eye back on: press it again
+  (or **Hide** on its flag) and they are hidden as before. Inside an isolation the eye still hides, and
+  Show hidden reveals only what is isolated. View > Show all objects, instead, turns every eye back on.
 - **Enabled in game** controls whether an actor exists in the next playable Rebuild. An unchecked
   object remains in the editor with its properties, animation and dialogue configuration intact.
   Toggle it back on and rebuild to restore it. This change supports Undo and Save; structural
@@ -222,6 +303,110 @@ the project when moving it. Build caches can be reconstructed from the retained 
 The viewport uses a coloured bulb for lights, a camera for cutscene cameras, a walking figure for
 AI path points, a speaker for sounds and distinct symbols for triggers and other logic objects.
 
+### Searching the map
+
+The Hierarchy's search box works as Unity's scene search. **Words** find a name, the label the Hierarchy
+shows or a class, as before (`crate`, `patrol point`); with several words, each one must be there. **Tokens**
+look at one thing of an object:
+
+| | |
+|---|---|
+| `t:` (or `class:`) | its class, the classes it comes from, or its kind: `t:light`, `t:door`, `t:character`, `t:sound`, `t:camera`, `t:zone`, `t:structure`, `t:ScriptedPawn` |
+| `tag:` / `event:` | its Tag / its Event: `tag:alarm` finds what an alarm's Event sets off, `event:alarm` what sets it off |
+| `name:` / `label:` | its name in the map (`name:DeusExMover3`) / the name the Hierarchy shows |
+| `snd:` | a sound it uses: an ambient sound, a door's or an elevator's sounds, a sound effect's, a sound its Interactions rules play (the sounds set on it in the map or here; a class's own default sounds are not known) |
+| `tex:` | a texture it uses: its skins, the faces of a structure, a block's, one put on it in the Textures section |
+| `mesh:` | its model: `mesh:Chair`, or a model's package, `mesh:DeusExDeco` |
+| `is:` | `is:hidden`, `is:locked` (by its padlock or its kind's), `is:disabled` (in game), `is:added` (in the editor), `is:original` (of the map), `is:nested` (in a folder, or inside a structure), `is:selected` |
+| `ref:` | `ref:Button1`: that object, what points at it and what it points at (Event to Tag, the keys of a door, the patrols, the Inspector's Connections) and its Interactions rules both ways |
+
+`tag:alarm` finds a part of the value; `tag=Alarm` the whole of it (for a sound, a texture or a model also its
+last part: `snd=Hum` for *Ambient.Ambient.Hum*). A value with spaces goes in quotes (`tag:"Alarm Lights"`). A
+`-` before a word or a token leaves out what it finds (`t:light -is:hidden`), wherever it is. A folder or a structure
+whose name has a word you look for shows all it holds (the folders and structures in it too, with what they hold),
+but what a `-` word or token leaves out; with `-` words alone, a folder or a structure they leave empty is not listed.
+Words and tokens can be mixed, and
+every one must hold: `t:door snd:metal is:original`. While you type, the tokens are offered under the box as
+small chips, then the values this map has for one (its tags, its classes, its sounds...): **Up** / **Down**
+choose one, **Tab** or **Enter** (or a click) puts it in. **Esc** in the box clears the search (pressed again,
+the keys go back to the 3D view).
+
+While a search is on, the **3D view** dims everything that does not match: the matches stay bright, and their
+parts hidden behind walls glow through them, so you see at once where the alarm triggers or the doors of a sound
+are (the Top, Front and Side views stay as they are). The gizmo and the selection's outline stay bright.
+Clearing the box brings the view back as it was; the
+objects themselves and their materials are not changed, and nothing of the search is saved. Opening another map (or
+closing this one) ends the search: a name of one map means nothing, or another object, in the next.
+
+**Find references** (right click an object or a moving block, or Edit > *Find references*), as Unity's *Find
+References in Scene*: the search becomes `ref:` and its name. **Find in map** in the browsers asks which objects
+use an asset: in a sound's Inspector (**Sounds**), and by right click on a model (**Models**) or on a texture's
+picture (the texture picker): the search becomes `snd=`, `mesh=` or `tex=` and the name.
+
+### Searching everything
+
+**Edit > Search everything…** (`Ctrl+K`), as Unity's Search window: one box over the whole editor. Type part of a
+name: the letters of each word are looked for in their order, best at the start of a word, so `rbl` finds *Rebuild
+lighting* and `keypad` finds both the keypads of this map and the keypad to place. The results come in groups, the
+group with the best match first:
+
+- **Commands**: every command of the menus, with its menu and its key. What its menu greys out now (a map command
+  with no map open, Paste properties with nothing copied) is greyed here too and does not run; the rest runs exactly
+  as from its menu. The Window menu's panels are under **Panels** instead.
+- **In this map**: the map's objects, found as the Hierarchy's search finds them; **Enter** selects one and frames it,
+  as a double click in the Hierarchy.
+- **Place an object**: the items of the Objects browser, your characters too; **Enter** starts placing it (click a
+  floor or a wall).
+- **Textures** (this map's first, then the game's) and **Sounds** (the game's and yours): **Enter** opens it in its
+  browser, the texture picker on its picture (right click: *Find in map*) or the Sounds browser with that sound chosen
+  (its search becomes the sound's name).
+- **Settings** (each page, found also by what is on it: `fov` finds Camera) and **Panels** (Hierarchy, Inspector,
+  Asset browser, Console and the browser's sections): **Enter** opens it (a panel comes to the front, never hides).
+
+`>` at the start looks only at the commands (`>` alone lists them all), `@` only at this map's objects (`@` alone
+lists them all, and the Hierarchy's tokens are offered as you type). A query with a token of the Hierarchy's search
+(`t:light`, `tag:alarm`, `is:hidden`: see *Searching the map*) searches the map's objects too. **Up** / **Down**
+choose, **Enter** runs (a click too), **Tab** puts in the token offered, **Esc** closes. With the box empty, your last
+20 searches come back (kept per project on this computer). The box does not open over another window (Settings, the
+Story, the Animation Studio...), while the game is played, or while you type in a field, where `Ctrl+K` stays the
+field's. Its key can be changed in Settings > Keyboard shortcuts.
+
+### Keys: the shortcut helper and Press a key
+
+Many keys work only in one mode, and the status bar says them only once. The **shortcut helper**, as Unity's
+Shortcut Helper Bar, keeps them in sight: switch it on in **Settings > General > Shortcut helper** (it is off at
+first). At the right of the status bar it shows 4 to 8 keys of what the 3D view is doing (hover a key for the
+mode's name and what the key does):
+
+| Mode | Keys shown |
+|---|---|
+| Selecting (nothing selected) | click, right mouse to fly, `Ctrl+K`, `B`, `M`, `L`, `1`…`9` (kept views), `H` |
+| Move tool (something selected) | the other two tools, `G`, `F`, `End`, `X`, `V` held while dragging (corner snap), `Delete` |
+| Rotate tool | the other two tools, `G`, `T` (aim at the pointer), `F`, `Z`, `X`, `Delete` |
+| Scale tool | the other two tools, `G`, `F`, `Z`, `X`, `End`, `Delete` |
+| Placing an object / a block | click, `R` (a quarter turn; not for blocks), `G`, `Esc` |
+| Drawing a wall, road, floor or ceiling | click, `Enter`, `Backspace`, `Esc` |
+| Drawing stairs or a roof | click A then B, `[` `]` narrower or wider, `,` `.` lower or higher steps (stairs) |
+| Patrol route | click, `Enter` or `Esc` when done |
+| Edit vertices, Face selection, Measure, Aim at a point | click (`Shift+click`: one more corner or face), `V`, `Q` or `M` ends it (`Esc` too, but in Face selection), `Delete` takes picked corners away |
+| Pilot, flying (right mouse held), a cutscene panel open | right mouse and the wheel, `W` `A` `S` `D` `Q` `E`, `Shift`; `K` and `Space` in a cutscene |
+
+Hold **Shift**, **Ctrl** or **Alt** and it shows what they do now: with the mouse first (*Shift+click* adds to the
+selection, *Ctrl+drag* draws a box, *Alt+drag* on a gizmo handle copies, *Alt+click* picks a face, *Shift* while
+drawing keeps to 45°, *Shift+click* while placing keeps placing), then the commands with that modifier. The commands'
+keys are yours: give one another key in Settings and the strip shows it (`R` turning what is placed follows the
+Scale tool's key, and so do the status bar's hints while placing). Click a key on the strip: **Settings > Keyboard
+shortcuts** opens on it, the command's row
+marked, and what that key does everywhere listed above the table. The strip hides while a window holds the keys
+(Settings, the Story, the Animation Studio...), while the game is played and without a map; with too little room it
+shows the keys that fit.
+
+**Press a key** at the top of Settings > Keyboard shortcuts looks a key up instead: press it (with its modifiers) and
+every context where it does something is listed: the commands with that key (*W*: the Move tool in the 3D view,
+flying forward with the right mouse held) and the keys of a mode (*Enter*: ends a drawing, ends a patrol route;
+*Delete*: in Edit vertices, takes the picked corners away). **Change** next to a command waits for its new key. Hold
+Shift, Ctrl or Alt alone to list what they do with the mouse. Press other keys to look them up in turn; `Esc` stops.
+
 ## Objects
 
 Click an object to select it. Then:
@@ -229,13 +414,33 @@ Click an object to select it. Then:
 | | |
 |---|---|
 | `W` / `E` / `R` | the arrows move, rotate or scale it (also from the 3D view's toolbar); or type the numbers in the right panel |
+| `Z` / `X` | the gizmo: **Center / Pivot** (where a group turns and scales) and **Global / Local** (the map's axes or the object's own); also in the 3D view's toolbar and the Edit menu |
+| `T` | aim the selection at the point under the pointer (with `E`: `Ctrl+Shift+click`; right click > **Aim at a point…**) |
+| `Ctrl+Shift+F` (Edit > Align with view) | put the selection where the view looks from, turned the way it looks (see *The selection and the view* below) |
+| `Ctrl+Alt+F` (Edit > Move to view) | move the selection onto what the middle of the view looks at, keeping its turn |
 | `End` (or the floor icon) | drop it onto whatever is below |
 | `Ctrl+D` or right click > Duplicate | duplicate the whole selection, keeping rotation, scale and spacing |
+| right click > **Replace with…** (Edit menu), or `Alt` + an item of the browser let go on an object | make the selection (or that object) another object, character or model, keeping its name, place, turn, size, Tag, Event and the rules and Story that name it (see *Replace with* below) |
 | `Alt` + drag a transform handle | duplicate in place, then move the copies with the handle; one Undo removes the copies and their move |
 | `Ctrl+C`, `Ctrl+V` | copy and paste where you are looking, even into another map: open the other map, copy, come back, paste |
+| `Ctrl+X` (Edit > Cut) | copy, then delete: one `Ctrl+Z` puts it back. What cannot be copied (a door of the map) is not deleted |
+| `Ctrl+A`, `Ctrl+I`, `Shift+D` | select all, invert the selection, deselect (Edit menu); hidden and locked things are left out |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]` | the previous / next selection (`è` and `+` on an Italian keyboard), also the arrows of the 3D view's toolbar |
+| `Ctrl+Alt+1`…`9`, `Alt+1`…`9` | keep the selection in a slot, select it again |
+| `Shift+H` | isolate the selection: only it is shown until `Shift+H` again (View > Isolate selection); `H` stays Quick help |
+| `Esc` in the Hierarchy's search | clear the search: the whole map again; `Up` / `Down` and `Tab` or `Enter` put in a token offered under the box (see *Searching the map*) |
+| `Alt`+click a folder's arrow in the Hierarchy | open or close it with every folder inside it; right click in the Hierarchy > **Expand all** / **Collapse all** for every folder (see *Folders (nests)*) |
+| `Ctrl+K` (Edit > Search everything…) | one search over the menus' commands, this map's objects, the objects to place, textures, sounds, the Settings pages and the panels (see *Searching everything*) |
+| `Ctrl`+wheel over the Browser's tiles (or the texture picker's) | the size of the tiles: a list, small, medium or large, as the slider at the top right of each; the tile under the pointer stays under it (see *The screen*) |
 | `Delete` (or the bin icon) | delete |
 | `Ctrl+Z` / `Ctrl+Y` | undo / redo (also `Ctrl+Shift+Z`): a texture applied from the Texture Editor is one step, Ctrl+Z takes it away and Ctrl+Y puts it back |
 | `G` | grid snap on/off; its steps are in the 3D view's toolbar |
+| `Ctrl` while dragging the gizmo | grid snap the other way for as long as it is held: free with snap on, on the grid with snap off |
+| `Ctrl+[` / `Ctrl+]` | halve / double the grid step (`Ctrl+è` and `Ctrl++` on an Italian keyboard); while drawing stairs `[` and `]` stay the stairs' |
+| `Ctrl+\` (Edit > Push to grid) | put each selected thing onto the nearest grid point, one `Ctrl+Z` |
+| `V` held while moving with the gizmo | vertex snapping: the selection's corner nearest the pointer goes onto the corner of the map or of another object under the pointer (see *Snapping to corners and surfaces*); a tap of `V` is still Edit vertices |
+| `Ctrl+Shift` dragging the gizmo's middle square | surface snapping: it slides over what is under the pointer and rests on it |
+| drag a dot of the selection | a light's reach or a spotlight's cone, a sound's radius, a trigger's or a collision box's size; with `R`, one side of a block. `Alt`: both sides, `Shift`: every side by the same share, `Esc`: cancel (see *Drag handles* below) |
 
 In the Inspector, hold the **X**, **Y** or **Z** label and drag left or right to move along
 that axis. Each pixel changes the coordinate by **1 Unreal unit**, even with grid snap on;
@@ -243,24 +448,190 @@ hold `Shift` for **0.1 unit** per pixel. The object moves in the view as you dra
 keep the move, `Esc` to cancel, or `Ctrl+Z` to undo the whole drag in one step. This also works
 for blocks and structures (their objects follow). Click the number to type an exact value.
 
+**Maths in the number fields**, as in Unity: the numbers of the Transform (position, rotation, pitch,
+roll, scale, a block's size) and of the Properties (a light's brightness and radius, a door's strength,
+Movement, the numbers of All properties) take a sum, worked out when you press `Enter` or leave the
+field: `2+3`, `10/4`, `(64+16)/2`, `2^3`, `7%4`, `pi`, `sqrt(2)`, `sin`, `cos`, `tan`, `floor`, `ceil`,
+`round` (angles in radians: `pi` is half a turn). `+=16`, `-=8`, `*=0.8` and `/=2` work on the value the
+field had: `+=16` in **Y** raises a crate by 16. The status bar shows the sum and its result (*X position:
+10/4 = 2.5*). Something that is not a number (`2+`) leaves the value as it was and the status bar says
+why; `Esc` puts back the value the field had before you typed; the arrow keys step it. `2,5` is 2.5 too.
+Dragging a label still works on these fields. In All properties only the fields of numbers take sums: a
+vector such as `(X=1,Y=2,Z=3)` stays UnrealEd's text. With several objects selected, `L(a,b)` and `R(a,b)`
+spread a value over them, evenly or at random (see **Editing several objects at once** below); in a field of
+one object they are refused.
+
 **Rotate (`E`)** turns an object every way, as in Unity: the green ring turns it round, the red and
 blue rings tip it forward or onto its side (a book lying on a lectern, a tilted sign), the outer ring
 turns it as seen from the camera. The Inspector shows **Rotation**, **Pitch** and **Roll**; type them
 for exact values. Pieces, structures, blocks, characters, doors and groups all support three-axis
 rotation. Selection outlines follow the object's orientation rather than expanding along the map's axes.
+A block keeps its size when it turns, also with grid snap on.
 An NPC's AI may turn it again while playing; editor placement does not disable its behaviour.
+
+**Aim at a point** (Unity's look-at): the selected objects turn their front to a point of the 3D view, each
+from its own place: a security camera at a door, a spotlight at a painting, a turret down a corridor, a
+guard toward the entrance. Point at a wall, a floor or an object and press `T`; or, with **Rotate** (`E`),
+**Ctrl+Shift+click** the point (while `Ctrl+Shift` are held a dashed line goes from each object to the
+pointer); or right click > **Aim at a point…** (also in the Edit menu), then click the point (`Esc`
+cancels). Lights, cameras, turrets and effect points tip up or down too; characters, the player start, AI
+path points, furniture and items turn round only and stay standing (their pitch stays). Roll always stays.
+Several objects each aim at the same point; blocks and structures have no front and keep their turn. One
+`Ctrl+Z` undoes it.
+
+**Replace with** (Unity's prefab *Replace*): the selected objects become another object, a character of yours or a
+model, each where it was, turned its way and at its size, under its own name. Twelve MJ12 troopers become UNATCO
+troopers, crates become barrels, a pickup another pickup. Click the replacement in the browser (Objects, your
+characters, or a model in Models: it waits to be placed), then right click the selection > **Replace with…** (or Edit >
+**Replace with…**). With nothing picked, the command waits for the next item you click in the browser (a row at the
+top of Objects says so; **Cancel** or `Esc` stops it). Or hold `Alt` while you let go of an item of the browser on an
+object: it replaces that object, or the whole selection when the object is part of it (with nothing under the
+pointer it is placed as usual).
+
+- What goes over: the place (an object or a character stands with its feet where the old object's were; a light, a
+  logic point and something tipped, a lamp on a wall, keep their middle), the turn (a character only turns round), the size (the map's own *DrawScale* and the
+  editor's scale), **Tag**, **Event**, the conversation name, a character's orders and patrol route, and every other
+  property of the old object the new class also has, checked against the class's full list (as *All properties*
+  shows it), values of All properties too. The look (model, skins, collision) is the new class's, or the model's or
+  character's you picked.
+- Because the name stays, the **Interactions** that use the object, the patrol routes, the cutscenes that look at it,
+  the conditions and the **Story** (dialogues, events) still find it, and so do its animation, its folder, and its
+  hidden or disabled state. A conversation name the game's own conversations or a dialogue of the Story use
+  stays on it even when the new class has another.
+- Before anything changes, a list shows what does not fit: the properties the new class has no place for, and the uses
+  that no longer make sense, by what the new class offers to the rules (the catalogue of outputs and inputs): a rule
+  *when they are killed* on a barrel, an action *attack* on a crate, a dialogue on something that cannot talk, a
+  patrol route through what is no longer a patrol point. **OK** replaces anyway (those uses stay, to change or delete
+  them later; the log lists them again), **Cancel** leaves everything as it was. With nothing to say, it just replaces.
+- One `Ctrl+Z` undoes the whole replacement. An object of the map becomes an object added in the editor: at Rebuild
+  the map's own is removed and the new one takes its name (Delete of the replacement removes the map's own too).
+- Doors and lifts, blocks and structures keep their kind (pieces, blocks and movers of the browser cannot replace
+  objects). Of an object of the map, only the properties the editor reads (its Properties panel, All properties set
+  in the editor) go over; a replaced object inside a structure no longer moves with it (moving the structure later,
+  or taking it apart, is fine: the map's own is still found and removed at Rebuild). Should the map's own not be
+  found where it was (the map's script changed it), it stays and the new one is left out, and the build log says so:
+  two objects never share a name.
+
+**The selection and the view** (Unity's *Align With View*, *Move To View*, *Align View to Selected* and first
+person control of a camera). Fly to where a security camera, a spotlight, a turret, the player start or a guard
+should be and look the way it should look, then:
+
+- **Align with view** (`Ctrl+Shift+F`, Edit menu) puts the selection where the view looks from, turned the way it
+  looks. Lights, cameras, turrets and effect points take the view's pitch too (and a roll of 0: the view has none);
+  characters, the player start, furniture and items turn round only and stay standing, as with Aim at a point. A
+  character goes with its **eyes** at the camera (its *BaseEyeHeight*, else 0.8 of its collision height, as the game
+  does), so it sees what you saw; press `End` to drop it to the floor.
+- **Move to view** (`Ctrl+Alt+F`, Edit menu) moves the selection onto what the middle of the view looks at, a floor,
+  a wall or an object, resting on it as *Drop to floor* does (on the grid along it with grid snap on), its turn kept.
+  With nothing within 4000 units it goes in the air 400 units ahead.
+- **Align view to selected** (`Shift+F`, View menu) does the opposite: the view goes to the object and looks along its
+  front, from a character's eyes. Select a security camera and press it to see what it watches.
+- **Pilot selection** (`Shift+P`, View menu, or the camera button of the 3D view's toolbar): the view looks through
+  the object and flying the view (right mouse + `W` `A` `S` `D`, the wheel, panning) takes it along, turned as you
+  look. A flag *Piloting ...* says so, the gizmo is off and the object itself is not drawn (the view is inside it).
+  `Shift+P` again, `Esc` (also while you fly) or the flag's **Exit** ends it: the object stays where the view took it
+  and the view goes back to where it was. Selecting something else, or clicking an empty place, ends it too.
+
+With several objects selected they go as one: the last object you picked that has a front (a light, a camera, a
+character...) goes to the view, and the rest keep their place about it, turned with it round the vertical. Blocks and
+structures move with the group but cannot lead it (they have no front). Each command is one `Ctrl+Z` (none when the
+selection is already there); the moves of the view itself are not undone. The keys can be changed in Settings >
+Keyboard shortcuts.
+
+**Center / Pivot and Global / Local** (the two buttons after Scale in the 3D view's toolbar, as Unity's;
+`Z` and `X`, or Edit > *Gizmo: Pivot* and *Gizmo: Local*). **Center**: a group's gizmo sits in the middle of
+the bounds of what is selected, and turns and scales it about there. **Pivot**: it sits on the last object
+you picked (pressing `Z` names it), and the group turns about that one: pick the chairs, then their table
+last, and they turn round it. A single object always turns about its own pivot. **Global**: the handles point along the
+map's axes. **Local**: they follow the object's own turn, its pitch and roll too (an object stuck to a slope,
+a tilted block, a ramp), and for a group the last object picked's; with grid snap on, a move then goes in
+whole grid steps along those axes from where the object was. The editor remembers both choices on this
+computer (Settings).
 
 **Scale (`R`)**: drag the middle square to scale evenly, as in Unity: right or up makes it bigger,
 left or down smaller, 1% for every pixel the mouse moves (5% steps with grid snap). It never flips
 inside out, however far you drag. The coloured handles scale one axis (blocks and structures).
 
-**Grid snap** (`G`, or the magnet in the 3D view's toolbar): moves go in steps of the **grid step**
+**Drag handles**, as Unity's handles of lights, audio sources and colliders: a selected object shows dots on
+what it reaches, drawn over everything so that they can be grabbed through a wall; the dot under the pointer
+turns orange. Drag one: the value shows at the bottom of the view and in the status bar as you go (as its
+field in the Inspector will show it); let go and it is written in the units the game keeps it, one `Ctrl+Z`.
+`Esc` while dragging puts it back; then, as after a drag that ends where it began, `Ctrl+Z` and `Ctrl+Y` are as they
+were. With grid snap on, sizes go in grid steps.
+
+- **A light**: six dots on its sphere set its **Radius** (`LightRadius`). The game's light reaches
+  25 × (radius + 1) units, so the reach goes in whole steps of 25 units, grid or not. A **spotlight**
+  (Effect `LE_Spotlight` or `LE_StaticSpot`) shows its cone instead of the sphere, along its front (aim it
+  with `E` or `T`): the dot at the tip sets its reach, the four on the rim how wide it opens (**Cone**,
+  `LightCone`: 128 is 45° from the middle, 90° wide), in rotation steps with grid snap on.
+- **A sound**: the dots on its circles set *Heard within*: `SoundRadius` (steps of 25 units, as a light's
+  radius) or a sound effect's own distance in units (`FXRadius`).
+- **A trigger**, or a sound effect played when JC walks in: four dots round its cylinder set its *Radius*
+  (`CollisionRadius`), the top and bottom ones its *Height* (`CollisionHeight`, half the cylinder's height).
+  The trigger stays in the middle.
+- **A collision box**: a dot in the middle of each side (its cylinder shape has the trigger's dots). Dragging
+  one moves that side alone: the box's middle follows, so the opposite side stays where it is.
+- **A block**, with **Scale** (`R`): a dot in the middle of each side, also on holes, water and zone portals.
+  Dragging one moves that side alone and the opposite side stays, as Unity's box handles: extend a floor to
+  the next room, a wall up to the ceiling, a doorway to one jamb without moving the other. With grid snap on, a
+  side facing along the map's axes lands on the grid (no slivers in the game's CSG); a turned block gets a
+  whole number of grid steps thick. A side never crosses the opposite one (4 units at least). A hole's cut
+  follows the drag. The coloured handles of the gizmo still scale from the middle.
+- **Alt** while dragging a side (a block or a collision box): both sides move, the middle stays. **Shift**:
+  the other sides grow or shrink by the same share.
+
+The dots work in the Top, Front and Side views too, each view with its own: a dot whose line points at you is left
+out of that view (it could not be dragged there) and shows in the others, so the top and bottom of a block that the
+Top view leaves out are dragged in the Front or Side view; in the 3D view, turn the view a little. Sides facing away
+from you are dimmer.
+
+**Grid snap** (`G`, the magnet in the 3D view's toolbar, or Edit > *Grid snap*, ticked while it is on): moves go in
+steps of the **grid step**
 (units: a door is 64 wide), turns in steps of the **rotation step** (degrees). Type any number in the
-two boxes, or pick one with their arrow; they are the same as Settings > Editing.
+two boxes, or pick one with their arrow; they are the same as Settings > Editing. In **Local**, a move
+goes that many units from where it began, along the object's own axes. As in Unity, **`Ctrl` held while
+dragging** the gizmo turns grid snap the other way for as long as it is held (a free move with snap on, a
+snapped one with it off; a block's size too), and **`Ctrl+[`** and **`Ctrl+]`** halve or double the grid step
+(Edit > *Grid step: half* and *Grid step: double*).
+
+**The grid in the 3D view**: the grid button after the rotation step (or View > *Grid in the 3D view*) shows
+the grid on the floor, as Unity's scene grid: a cell for each grid step and a brighter line every 8 cells,
+fading out round the camera (from high up, every second or fourth line shows, so that it stays readable). It
+lies at the bottom of the selection, on the grid, and follows it while you move it; with nothing selected, on
+the floor under the camera. Walls and floors in front of it hide it; the Top, Front and Side views keep their
+own grid. The editor remembers whether it is shown.
+
+**Push to grid** (Edit menu, `Ctrl+\`, Unity's *Push To Grid*): each selected thing goes onto the nearest grid
+point, for pieces pasted from UnrealEd and objects of the original maps that are a few units off. A block that
+is not turned goes by its lowest corner, so a block a whole number of grid steps long gets every side on the grid
+(no slivers in the game's CSG); a turned block by its middle; structures, Pieces and drawings by their pivot.
+An object keeps its height (it stands on its floor by its collision); only its X and Y go onto the grid. One
+`Ctrl+Z` undoes it; when everything is on the grid already, the status bar says so and nothing changes.
+
+**Snapping to corners and surfaces**, as Unity's vertex and surface snapping, while you move something with the
+gizmo (`W`), one object or several:
+
+- **Hold `V` while dragging**: the corner of the selection nearest the pointer goes onto the corner nearest the
+  pointer of the map, a structure, a block, a model or a drawing under it, when one is within a few pixels. A
+  dot marks the corner that snaps: white while it looks for a corner, orange once it is on one. Away from any
+  corner the move goes on as the gizmo makes it (on the grid with grid snap). The selection's corners are a
+  block's own corners, the vertices of a structure, a Piece or a drawing, and for a model the corners of its
+  bounds and its pivot (a light or another icon: its pivot); the corners it lands on are those of the faces
+  under the pointer. It joins blocks to the off-grid pieces of the original maps without a gap. A tap of `V`
+  outside a drag is still Edit vertices (the key of Edit vertices in Settings does both).
+- **Hold `Ctrl+Shift` while dragging the middle square**: the selection slides over the surface under the
+  pointer (the map, a structure, a block, a model, a drawing; not itself) and rests on it by its bounds, as
+  **Drop to floor** puts it on a floor: on a desk, on a shelf, against a wall. With grid snap it goes in grid
+  steps along the surface. It keeps its turn; in **Stick** mode (the Drop button's menu) one object also turns to
+  the surface, as **Stick to surface** turns it, and a decoration stuck to a wall or a slope gets *Physics None*
+  so that it stays there in the game. Let go of `Ctrl+Shift` and it follows the gizmo again, with its own turn.
+
+Each drag stays one `Ctrl+Z`. Turning and scaling are not snapped to corners or surfaces.
 
 **Icons**: the bulb in the 3D view's toolbar hides the symbols of lights, AI path points and logic
-points, to see the level as it is. Hidden icons cannot be clicked in the view: pick them in the
-Hierarchy.
+points, to see the level as it is; the **Show** menu next to it hides the icons of one kind (the sounds, the
+AI paths...) and sets the **Icon size**. Hidden icons cannot be clicked or taken by a rectangle in the view:
+pick them in the Hierarchy.
 
 Objects scale all together (in Deus Ex an object has a single size, and its collision follows).
 Objects whose name starts with `UC` are the editor's own (interactions, the map's `UCBoot`...): you can
@@ -271,13 +642,34 @@ move them, but keep them in the same room.
 **Ctrl+click** or **Shift+click** adds an object to the selection (or takes it away) in the 3D
 view; in the Hierarchy, Ctrl+click adds one row and **Shift+click** picks every row in between.
 **Ctrl+drag** or **Shift+drag** in the 3D view selects every object inside the rectangle. The gizmo moves them
-together (**W**) and turns them about their middle (**E**). **Delete**, **Ctrl+D**, **Alt+drag**
+together (**W**) and turns them about their middle (**E**), or about the last one picked with **Pivot** (`Z`).
+**Delete**, **Ctrl+D**, **Alt+drag**
 and **End** (drop to floor) act on the selection. Pieces are included in rectangle selection too.
 Objects, blocks and structures can be selected together; the panel lists them.
 If a protected member cannot be duplicated, the whole operation stops with a visible warning:
 it never silently copies only the lights. Un-nest to duplicate independent scenery, or use a reusable prefab.
 **Ctrl+C / Ctrl+V** can transfer several actors or blocks between maps; for mixed selections
 containing structures use **Save as prefab** instead. Alt+click away from a transform handle still selects a face.
+
+**Things stacked under the mouse** (a light inside a lamp, a trigger inside a desk, a player start on a
+teleporter): click, then **click again on the same spot** to select the next one behind it, and so on
+round; the status bar says which one of how many (*Under the pointer, 2 of 3: Teleporter*). The first click
+picks the folder of the nearest thing, as usual; the next ones each thing on its own. The map's own walls
+are a step too (nothing selected). A click on the gizmo's handles moves the object instead: click beside
+them. **Ctrl + right click** (or right click > **Select under cursor…**) lists everything under the mouse
+with its icon, nearest first: click one to select it alone, **Shift+click** to add it to the selection or
+take it out. Hidden icons, hidden and locked things are not listed.
+
+**Selection commands** (Edit menu): **Select all** (`Ctrl+A`) and **Invert selection** (`Ctrl+I`) work on
+what you can click in the view (hidden and locked things are left out), **Deselect** is `Shift+D` (or
+`Esc`), **Cut** (`Ctrl+X`) copies and deletes. **Previous / Next selection** (`Ctrl+Shift+[` and
+`Ctrl+Shift+]`, or the two arrows in the 3D view's toolbar) walk back and forth through the last 50
+selections of the map, skipping what was deleted; after `Esc`, Previous brings the last selection back.
+**Selection slots**: `Ctrl+Alt+1` to `Ctrl+Alt+9` keep the selection (Edit > *Keep selection in slot 1*),
+`Alt+1` to `Alt+9` select it again; they are kept per map on this computer, with the camera bookmarks.
+These keys can be changed in Settings > Keyboard shortcuts, except the slots (so can `Z`, `X` and `T` of the gizmo
+and Aim at a point, Push to grid and the grid step's `Ctrl+[` and `Ctrl+]`, and the four commands of the selection
+and the view).
 
 **Mirror X / Y / Z** (Edit menu, UnrealEd's *Transform > Mirror*) mirrors the selection about its
 middle, across the game's X, Y or Z axis. Blocks take their mirror image (a ramp rises the other way;
@@ -297,8 +689,38 @@ concave brush, a sheet, the builder brush and movers are left out and named in *
 concave brush in UnrealEd first). The pieces of the map are UnrealEd's own brushes: copy them there.
 
 **Drop to floor** and **Stick to surface** also work on independent Pieces and multi-selections.
-They use the actual geometry, ignoring the selected objects themselves. If no reachable surface is
+They use the actual geometry, ignoring the selected objects themselves. To place something while you drag it,
+hold `Ctrl+Shift` on the gizmo's middle square (see *Snapping to corners and surfaces*). If no reachable surface is
 found, the editor reports it without changing the object or adding an empty Undo step.
+
+**Editing several objects at once**, as in Unity: with several things selected, the Inspector shows the
+fields they share. A field whose objects all have the same value shows it; where they differ it shows a dim
+**—**. Whatever you type or pick there is set on every one of them, and one `Ctrl+Z` takes it all back.
+
+- **Transform**: X, Y, Z, Rotation, Pitch, Roll and Scale %. A structure with doors or an elevator does not
+  turn, and Scale % is for objects with a model (blocks and structures keep their size: resize them with
+  `R`); a field only some of them have says how many (*1 of 4*). A block moved or turned keeps its size,
+  and a structure carries its own objects (those selected with it are not moved twice).
+- **Tags & events**: the **Engine tag** and the **Event** of any objects, even mixed with blocks.
+- **The Properties they all have**: every field the classes of all of them have, by group, as one object
+  shows them: when they are all lights, the **Light** section (colour, hue, saturation, brightness, radius,
+  type, effect, cone...); for 8 doors, Locked, lock strength, opening time... Settings that belong to one
+  object (accounts, emails, special options, inventory, relations, sounds, the conversation name) are listed
+  under *One object at a time*: select one to set them.
+- **All properties**, when they are all of one class, each one's UnrealEd value, set on all of them.
+
+The number fields take sums on each object's own value: `+=16` in **Y** raises every crate by 16 from where
+it is, `*=0.8` in Radius makes every light reach 80% as far as it did. `L(a,b)` spreads the objects evenly
+from a to b in the order of the list at the top of the Inspector (the order you picked them):
+`L(0,512)` in **X** lines up five lights 128 apart, `L(0,270)` in Rotation fans four chairs out. `R(a,b)`
+gives each a random value between a and b: `R(0,360)` in Rotation turns 20 trash cans each its own way. The
+status bar says what each one got (*Rotation (yaw) in degrees: R(0,360) = 12 to 347 on 20 objects*).
+Dragging the label of a number field showing **—** moves each one from its own value (the field shows
+`+=8` while you drag): 17 lights spread over the map all move 8 along X, each from where it is.
+
+**Right click** a field showing **—**: *Set all to Light3's value: 150*, one choice for each different value
+(Unity's *Set to Value of*). **Narrow the selection**: when different kinds of things are selected, a
+button for each kind with how many there are (*Light 12*, *Block 3*) keeps only those.
 
 ### UnrealEd's tools
 
@@ -309,7 +731,8 @@ What UnrealEd has for brushes and surfaces, on the editor's blocks and on the ma
   moves it on the pane's plane with the grid. **Cut** leaves out what is between the pane and the 3D
   camera (above it, in the Top view), so rooms show from inside.
 - **Edit vertices** (`V`, the Edit menu or the block's panel): move a block's corners one by one, as
-  UnrealEd's vertex editing; it stays a convex shape. **Delete** takes a corner away, **Reset corners**
+  UnrealEd's vertex editing; it stays a convex shape. (`V` held while the gizmo moves something is vertex
+  snapping instead: see *Snapping to corners and surfaces*.) **Delete** takes a corner away, **Reset corners**
   gives the block its box and shape again.
 - **Tools > 2D Shape Editor**: draw a profile (or start from a rectangle, an arch...), then
   *Extruded* or *Revolved*, solid or a hole: it becomes blocks, one convex piece each, in one nest.
@@ -324,7 +747,8 @@ What UnrealEd has for brushes and surfaces, on the editor's blocks and on the ma
   window shows for its class, applied at Rebuild after the editor's own.
 - **Select all of this class** (Edit menu, or right click on an object).
 - **Measure** (`M`): click two points on the surfaces for the distance between them.
-- **Camera bookmarks**: `Ctrl+1` to `Ctrl+9` keep the view, `1` to `9` go back to it.
+- **Camera bookmarks**: `Ctrl+1` to `Ctrl+9` keep the view, `1` to `9` go back to it (with `Alt`: the
+  selection slots, see *Several objects at once*).
 
 ### Folders (nests): keep things together
 
@@ -335,15 +759,32 @@ turns it all; a **double click** picks one thing inside it.
 
 - A new folder's name is ready to type: type it and press **Enter**, or click anywhere else to keep
   it (**Esc** keeps the old name). Later, **F2**, **Enter** or right click > **Rename** names it again.
-- The **+** at the top of the Hierarchy makes an empty **Folder** (inside the folder chosen, if any):
-  drag things into it. An empty folder stays until you delete it (**Del**, or its bin).
+- The **+** at the top of the Hierarchy makes an empty **Folder** (inside the folder chosen, if any, else in
+  the one new objects go in): drag things into it. An empty folder stays until you delete it (**Del**, or its bin).
+- **New objects go here** (right click a folder or a nest, as Unity's *Set as Default Parent*): from then on
+  what you place from the Browser (objects, characters, models, pieces, prefabs, blocks, holes, water, portals,
+  signs), paste (`Ctrl+V`, Paste T3D), draw (walls, roads, floors, ceilings, stairs, roofs), make with the
+  Hierarchy's **+** or the 2D Shape Editor, a hole's light and a new cutscene camera go into that folder. It is
+  shown in **bold**, and a small banner at the top of the Hierarchy names it: click the name to find the folder,
+  **×** to stop (or right click it > **New objects go to the top level**). One per map, kept with the map's
+  changes; `Ctrl+Z` undoes setting it. Renamed, it stays; deleted or un-nested, it stops. While the folder (or
+  one around it) is hidden or locked with its eye or padlock, new things stay at the top level, so that they do
+  not vanish or get stuck at once: the banner says *hidden* or *locked*. The **+** and the Shape Editor put things
+  in the folder picked in the Hierarchy first. As anything in a folder, a click in the 3D view picks the whole
+  folder (a double click picks one thing). A copy made with **Ctrl+D** stays beside its original, in its own
+  folder, and **Replace with** keeps the object where it was. Fill AI paths, the points of a patrol route and
+  the sky's suns are not put there.
+- **Expand all** and **Collapse all** (right click anywhere in the Hierarchy, or the Hierarchy panel's menu **⋯**)
+  open or close every folder. **Alt+click** a folder's arrow to open or close it with every folder inside it.
 
 ### Cubes, wedges, cylinders, cones, spheres and domes
 
 The Hierarchy's **+** also makes a **Cube**, a **Wedge** (a ramp, high at its +X side), a
 **Cylinder**, a **Cone**, a **Sphere** or a **Dome** (half a sphere on a flat base), 128 units wide,
-where the 3D view looks (standing on the floor there) and inside the folder chosen. Move it (**W**),
-turn it any way (**E**), resize it (**R**, or Width, Depth and Height in the Inspector); **Shape** in
+where the 3D view looks (standing on the floor there) and inside the folder chosen (else the one new objects go
+in). Move it (**W**),
+turn it any way (**E**), resize it (**R**: the coloured handles from the middle, or the dot of one side to move
+that side alone, see *Drag handles*; or Width, Depth and Height in the Inspector); **Shape** in
 the Inspector changes one into another.
 
 The round ones work like UnrealEd's brush builders, with their settings in the Inspector:
@@ -372,7 +813,8 @@ but cannot be scaled as a whole.
   again.
 - One thing at a time: **drag** it in the Hierarchy out of the nest (anywhere outside it), or onto
   another nest to move it there. Nests can hold other nests.
-- **Delete** on a nest deletes it with what it holds; **Ctrl+D** duplicates it as a new nest.
+- **Delete** on a nest deletes it with what it holds; **Ctrl+D** duplicates it as a new nest. A copy of one
+  thing inside a nest stays in that nest, right after the original.
 - A nest is the editor's own way of keeping things together: the map itself does not change.
 
 The structures of the map are nests too. Open one in the Hierarchy: its **pieces** (each brush of
@@ -442,6 +884,8 @@ for example): there you can only change objects, not the map's geometry.
 - Walls, roads, floors and ceilings: draw them (see *Drawing walls, roads, floors and ceilings*
   below), or use **+ Block** (`B`) with the game's wall and floor textures, or start from a room
   (**New map**).
+- Right click a folder in the Hierarchy > **New objects go here**: what you add from then on goes into it
+  (see *Folders (nests)*).
 
 ### Drawing walls, roads, floors and ceilings
 
@@ -499,6 +943,11 @@ picture of its texture next to it. Click the picture: a grid opens with the text
 **All textures** of the game (search by name) and every package. A click tries a texture at once,
 a double click (or Enter) keeps it, Esc closes. The pictures of a package are made from your game the
 first time you open it (a few seconds), then they are kept. You can still type a name in the field.
+Right click a picture > **Find in map**: the objects, blocks and structures of the map that use that texture
+(the Hierarchy's search `tex=`, see *Searching the map*). The **star** of a picture keeps that texture in
+**Favourites**, the first source on the left, for this project (one that neither the map nor the game has any
+longer shows as *Missing*: its star takes it out). The slider at the top right, or `Ctrl`+wheel over the grid,
+makes the pictures a list, small, medium or large.
 
 **Drag the small picture** of a texture onto a wall, floor or ceiling of the map (or click it, then
 click the face): that face takes the texture, previewed while you hover. `Esc` cancels, `Ctrl+Z`
@@ -642,8 +1091,13 @@ The **Properties** section shows, in plain words, what matters for a mission:
 
 Sliders keep their numeric value and available previews in sync while you drag (light colour,
 light and sound reach). Release to keep the change, `Esc` to cancel it, or `Ctrl+Z` to undo the
-whole drag. You can also type the number or use the arrow keys. Lighting on walls still needs
+whole drag. You can also type the number (or a sum, see *Objects*) or use the arrow keys. Lighting on walls still needs
 **Rebuild**; the Lit view's brightness slider changes only the editor's view.
+
+With several objects selected, the Properties they all have (and All properties, when they are all of one
+class) are set on all of them at once, a dim **—** where they differ: see *Editing several objects at once*.
+To give objects the settings of another, or keep settings for later, see *Copy, paste and presets of
+properties* below.
 
 | Object | Properties |
 |---|---|
@@ -735,6 +1189,71 @@ triggers (or opens) the other one, blue = the other one triggers (or opens) this
 Event and Tag, keypads, security computers, keys and doors (Key ID), and patrols (a character's first
 patrol point, each point's next one). Click a name to select that object. Example: select a keypad
 and you see its code and the door it opens.
+
+### Copy, paste and presets of properties
+
+As Unity's component menu: give other objects the settings of one, put a field back to the class default,
+keep a look or a set-up to use again (a flickering fluorescent, a locked door type, a hostile patrol).
+
+- **⋮** in the Inspector (next to the eye and the padlock): **Copy properties** of the selected object,
+  **Paste properties** on the selection (one object or several, of any class), **Reset properties to the
+  class defaults**, **Save as preset**, **Apply preset**, **Presets...** (apply or delete the presets that
+  fit the selection). **Edit > Copy properties** and **Paste properties** do the same on the selection.
+- **Right click a section's title** (Light, Door, Sound, Behaviour, Movement, All properties...): copy,
+  paste or reset that section only, or save it as a preset (*Save Light as preset*).
+- **Right click a field** (its name): **Copy value** and **Paste value** (into the same property, or one of
+  the same kind that takes any value: a brightness into a radius, a light's colour with its saturation into
+  another light's colour; a choice only into one that has that value, so a light's type does not go into its
+  effect; in All properties only a number goes into another property), **Reset to the class default** (with
+  the value it gives), and **Revert to the map's value** when the map has a value of its own. In All
+  properties: **Clear** takes away what was set there. With several objects selected these work on all of
+  them. A conversation name the original conversations use (read only in the Inspector) can only be copied.
+
+A paste, a preset or a reset first lists what it changes: each property with what the objects have now
+and what they get (*Brightness 150 → 220, 3 objects*), ticked. Untick what you want to keep. The
+**Engine tag**, the **Event** and the **conversation name** stay each object's own: they are listed
+unticked, and change only if you tick them; a conversation name the original conversations use is never
+changed. Only what an object's class has is pasted on it: a light's Light section does not go on a crate,
+a crate keeps its own, and a computer's accounts do not go on an ATM (another property of the same name).
+One `Ctrl+Z` takes the whole paste back. An object's name in the map and its position are not properties:
+they are never pasted. Nor is a patrol point's animation: its own field sets up the characters patrolling
+there to play it, so pick it there.
+
+Presets are kept in the project (its other maps too), for the class they were saved from and the classes
+under it: a *Light* preset also fits spotlights. A preset keeps every value of what it was saved from
+(the whole object, or one section), without the tag, event and conversation name; saving one with a name
+used already for that class replaces it.
+
+### Tables of lights, doors and characters
+
+As Unity's Light Explorer: **Window > Lights table**, **Doors table** or **Characters table** opens a window
+with every light (door, character) of the map in a row and its properties in columns, to compare and balance
+them at a glance. The window floats over the 3D view and the editor stays usable: drag its title bar to move
+it, its corner to resize it; the tabs at its top go from one table to another.
+
+- **Lights**: in game, colour (a swatch: click it to pick a colour, which sets the hue and the saturation),
+  name, class, type, effect, brightness, hue, saturation, radius, period, cone and special lit.
+- **Doors**: in game, name, class, Key ID, **Key in map** (*yes* when a key with that Key ID is in this map,
+  *no* when JC must bring it from elsewhere), locked, lock strength, lockpickable, breakable, door strength,
+  opens by hand, one-way, open time and stay open. Elevators are listed too, without the lock's fields.
+- **Characters**: in game, name, class, orders, faction, **Towards JC** (friendly, neutral or hostile: it sets
+  their relation with JC, a fixed one stays fixed), their relations, health, dialogue name, there from the
+  start, invincible and mission critical.
+
+Click a heading to sort by it, again for the other way; an empty cell means that object has no such property.
+Click a row to select the object (`Ctrl`+click: one more or one less; `Shift`+click: the rows in between) and
+double-click it to frame it in the 3D view. **Filter** keeps the rows with every word typed in their name,
+class or values (*flicker*, *hostile*, *no*); **Only the selection** keeps the rows selected when you tick it.
+
+Type in a cell, or pick a value, to change the object: it is the Inspector's field, one `Ctrl+Z`. When its
+row is selected, the value goes on every selected row the table shows that has that column (a selected row
+the filter hides is left as it is), as in the Inspector with several objects: a number cell takes sums, `+=16`
+on each one's own value, `L(0,255)` spread down the rows in the order shown, `R(0,360)` at random. The
+dialogue name stays one row's own, and is read only where the original conversations use it (as in the
+Inspector). `Esc` puts a cell back while you type, the
+arrow keys step a number. The table follows the changes made elsewhere (the Inspector, `Ctrl+Z`). The 3D view
+shows a light's new colour at once; the walls are lit again by **Map > Rebuild lighting**, and doors and
+characters change in the game after **Rebuild**.
 
 ## Interactions (when this happens, do that)
 
@@ -866,6 +1385,9 @@ in the game: attack them and they turn hostile.
 - **The Factions panel** (top bar) lists the factions of the map, how many characters each has
   (click the number to see and select them) and how they treat JC. *Change a whole faction*
   sets a relation for all its members at once, for example *Red Arrow towards JC becomes hostile*.
+- **Window > Characters table** lists every character with its faction, how it treats JC and its
+  relations: sort or filter by them, and change *Towards JC* or the faction of one or of the selected
+  rows (see *Tables of lights, doors and characters*).
 - **During the mission** (after a dialogue, when a flag is set, when JC reaches a point) use the
   Story: the action *A faction...* turns a whole faction friendly, neutral or hostile towards JC
   or another faction; *A character... joins a faction* moves one character; the event *a faction
@@ -944,7 +1466,7 @@ Animation panel opens at the bottom, like Premiere's Motion or Unity's Animation
 ## Collision boxes
 
 **Objects > Triggers > Collision box**: a box (purple in the 3D view; its **Width**, **Depth** and **Height**
-in its Properties). In its Interactions: *JC walks in* and *JC walks out*; *Anyone, not only JC* counts the
+in its Properties, or drag the dot of one side in the 3D view: see *Drag handles* in *Objects*). In its Interactions: *JC walks in* and *JC walks out*; *Anyone, not only JC* counts the
 characters too; *Only once*; a *Message to JC*. Tick **Solid** and it is an **invisible wall** (orange):
 JC cannot walk through it (Rebuild makes the wall), and *JC walks in* is when he touches it, to keep him in
 an area or tell him why he cannot go on.
@@ -1002,7 +1524,8 @@ mods (Packages...) and yours (**DeusEdixModels**). Search by name; a package sho
 is opened (a few seconds). Click a model, then a floor or a wall: it is placed as an object of its own (DeusEdix's
 `UCMeshDeco`) with a collision round it, at the size the game uses it. Its Properties: **Model**
 (*Replace…*: click another one in the Models tab), name, solid, cannot be destroyed, strength, JC can push
-it, and the Interactions of any object.
+it, and the Interactions of any object. Right click a model > **Find in map**: the objects of the map that
+have it (the Hierarchy's search `mesh=`, see *Searching the map*).
 
 **Replace a model, keep the logic:** select a mesh object, then **Inspector > Model > Replace…**.
 Click the replacement in **Models** (including imported models). This changes the mesh and its skins,
@@ -1012,7 +1535,8 @@ unchanged; **Ctrl+Z** restores the entire replacement, including those textures.
 in game. The appearance is reapplied once after the initial HDTP setup; later gameplay effects remain
 controlled by the original class. Characters need compatible animation sequences and attachments;
 corpses and inventory/first-person models still follow the original class. Brush doors/elevators and
-map structures are not mesh actors, so they do not offer this command.
+map structures are not mesh actors, so they do not offer this command. To change the class too (a crate into a model,
+a model into a barrel), use **Replace with…** (see *Objects*).
 
 **Import model...** (Models tab) makes your own: a model made in Blender, 3ds Max, Maya... saved as
 **glTF / GLB** (best: its textures inside), **FBX**, **OBJ** (with its .mtl) or **DAE**. Choose the file
@@ -1211,7 +1735,7 @@ explanation. Ordinary maps which have never enabled player characters stay uncha
 **Objects > Sounds > Ambient sound**: click where it should be heard (rain on a window, the hum of a
 machine room, wind on a roof, a crowd), then **Choose...** its sound in its Properties: the list has
 every sound of the game, the loops for places first; search by word (*rain*, *hum*, *wind*, *water*)
-and **▶** listens to it. *Heard within* is how far (the sphere in the 3D view), *Volume*, *Pitch*.
+and **▶** listens to it. *Heard within* is how far (the sphere in the 3D view: drag its dots), *Volume*, *Pitch*.
 Objects (a TV, a fridge, a generator) and lamps (the buzz of a neon) have the same **Sound** in their
 Properties.
 
@@ -1238,8 +1762,9 @@ open, when it starts closing, when it is shut, and over and over while it moves;
 **Sounds** and **My sounds** use tiles like the object browser. Click a tile to select it and
 inspect its duration, source, format, channels and sample rate. **Play** draws the real waveform
 and playback position in both the tile and Inspector. The Inspector also offers seeking, preview
-volume and loop preview; these controls do not change the sound in the game. Select a scene
-object to return to its properties. Then drag a sound:
+volume and loop preview; these controls do not change the sound in the game. **Find in map** there
+shows the objects of the map that use the sound (the Hierarchy's search `snd=`, see *Searching the map*).
+Select a scene object to return to its properties. Then drag a sound:
 
 - onto the **3D view**: a sound effect there, that plays when JC walks into its zone and is heard within
   its radius (both in its Properties, with the circles in the view);

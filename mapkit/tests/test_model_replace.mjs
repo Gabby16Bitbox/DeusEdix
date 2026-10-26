@@ -29,7 +29,7 @@ function fixture() {
     startPlacing:()=>calls.push('placement'),log:(...args)=>calls.push(args),confirm:()=>c.answer,
     answer:true,character:false,escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
   });
-  vm.runInContext(['actorProp','putProp','meshOf','previewMesh','modelClassInfo','replacementPose','canReplaceModel','beginModelReplacement','cancelModelReplacement','modelReplaceRow','modelProps','placeModel'].map(body).join('\n'),c);
+  vm.runInContext(['actorProp','putProp','meshOf','previewMesh','modelClassInfo','replacementPose','canReplaceModel','beginModelReplacement','cancelModelReplacement','modelReplaceRow','modelProps','dropActorTextures','placeModel'].map(body).join('\n'),c);
   c.propertySlider=null;
   return {c,actor,p,history,calls};
 }

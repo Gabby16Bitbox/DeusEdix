@@ -106,7 +106,7 @@ export function createOrthoViews(api) {
     if (!panes.size) return;
     const pr = renderer.getPixelRatio(), vw = canvas.width / pr, vh = canvas.height / pr;
     if (!vw || !vh) return;
-    const gizmo = tc.visible;
+    const gizmo = tc.visible, handles = api.handles();
     tc.visible = false;                    // the gizmo is the 3D view's; here the selection is dragged itself
     renderer.setScissorTest(true);
     for (const p of panes.values()) {
@@ -125,6 +125,7 @@ export function createOrthoViews(api) {
       renderer.clippingPlanes = p.cut ? [sectionOf(p, plane)] : [];
       renderer.setViewport(0, 0, rw, rh);
       renderer.setScissor(0, 0, rw, rh);
+      handles?.drawFor(p.K.look);          // the drag handles' dots as this view sees them (drag-handles.js)
       renderer.render(scene, c);
       p.ctx.setTransform(1, 0, 0, 1, 0, 0);
       p.ctx.drawImage(canvas, 0, canvas.height - rh * pr, rw * pr, rh * pr, 0, 0, bw, bh);
@@ -133,6 +134,7 @@ export function createOrthoViews(api) {
     renderer.clippingPlanes = [];
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, vw, vh);
+    handles?.drawFor();                    // and as the 3D view sees them again
     tc.visible = gizmo;
   }
   // the grid: the snap's step when it is 8 pixels or more apart (else doubled until it is), 1024 units brighter,
@@ -221,6 +223,11 @@ export function createOrthoViews(api) {
         api.wake();
         return;
       }
+      if (e.button === 0 && api.handles()?.pressRay(rayAt(p, e), p.scale)) {     // a drag handle's dot (drag-handles.js)
+        drag = Object.assign(start, { kind: 'handle', moved: false });
+        e.preventDefault();
+        return;
+      }
       if (V?.active) {                     // Edit vertices: a picked corner is dragged, anything else picks or pans
         drag = Object.assign(start, { kind: e.button === 0 && V.hitsChosen(rayAt(p, e), p.scale) ? 'verts' : e.button === 0 ? 'click' : 'pan', moved: false });
       } else if (e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.altKey && !api.busy() && api.selected && api.hitsSelection(rayAt(p, e))) {
@@ -245,6 +252,8 @@ export function createOrthoViews(api) {
         let a = dx * p.scale, b = -dy * p.scale;
         if (api.snapOn()) { const st = api.SNAP.move || 16; a = Math.round(a / st) * st; b = Math.round(b / st) * st; }
         api.vertexEdit().moveBy(p.right.clone().multiplyScalar(a).addScaledVector(p.K.up, b));
+      } else if (drag.kind === 'handle') {
+        api.handles().moveRay(rayAt(p, e), e);
       } else {
         const to = drag.at.clone().addScaledVector(p.right, dx * p.scale).addScaledVector(p.K.up, -dy * p.scale);
         if (api.snapOn()) {                // on the grid along the pane's two axes; the depth stays
@@ -266,6 +275,7 @@ export function createOrthoViews(api) {
       drag = null;
       if (d.kind === 'grab' && d.moved) tc.dispatchEvent({ type: 'dragging-changed', value: false });
       else if (d.kind === 'verts' && d.moved) api.vertexEdit().moveEnd();
+      else if (d.kind === 'handle') api.handles().release(e.type === 'pointercancel');
       else if (!d.moved && e.button === 0 && !api.placing() && !api.busy()) api.pick(pseudo(e, rayAt(p, e)));
       api.wake();
     };

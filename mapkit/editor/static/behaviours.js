@@ -1,6 +1,7 @@
 // The Inspector's Movement and Tactics of a character, and the player start's Player movement
 // (editor/behaviours.py makes them real: properties of the character, UCBehave and UCPlayerMove actors).
 // Loaded by app.js as a plain module: window.__behaviours = { characterSections, playerSection }.
+import { numberField } from './number-expr.js';            // the numbers take maths (2+3, +=10)
 const GRAVITY = 950;                       // ZoneInfo.ZoneGravity: a jump of JumpZ goes JumpZ^2 / (2 * 950) high
 const GRENADES = [['GasGrenade', 'Gas grenade'], ['LAM', 'LAM'], ['EMPGrenade', 'EMP grenade'], ['NanoVirusGrenade', 'Scramble grenade']];
 const AUGS = [['AugStealth', 'Run Silent'], ['AugSpeed', 'Speed Enhancement'], ['AugMuscle', 'Microfibral Muscle'], ['AugCloak', 'Cloak'],
@@ -18,7 +19,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const num = (v) => (v === '' || v === undefined || v === null || Number.isNaN(+v) ? '' : +v);
 const opts = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('');
 const field = (id, label, value, title, attrs = '') => `<div class="row" title="${esc(title)}"><label style="width:auto;min-width:96px">${label}</label>`
-  + `<input type="number" id="${id}" value="${value}" placeholder="game" style="width:72px" ${attrs}></div>`;
+  + `<input ${numberField()} id="${id}" value="${value}" placeholder="game" style="width:72px" ${attrs}></div>`;
+
+// a character's Movement (props.py MOVEMENT): copied, pasted and reset as one section too (app.js)
+export const MOVEMENT = ['GroundSpeed', 'JumpZ', 'MaxStepHeight', 'AirControl'];
 
 // E: the editor's own functions (app.js): edits, actorProp, setProp, unsetProp, pushUndo, setDirty, status, UE, section, requireUnlocked
 export function characterSections(E, a, p, redraw) {
@@ -31,7 +35,7 @@ export function characterSections(E, a, p, redraw) {
     + field('mvjump', 'Jump height', jz === '' ? '' : Math.round(jz * jz / (2 * GRAVITY)), 'How high it jumps, in units (JumpZ: the game\'s characters about 8, JC 47; a crate is 32 to 48)', 'min="0" max="400" step="4"')
     + field('mvstep', 'Step height', prop('MaxStepHeight'), 'MaxStepHeight: the highest step it walks up without jumping (25 in the game)', 'min="0" max="100" step="1"')
     + field('mvair', 'Air control', prop('AirControl'), 'AirControl: how much it can steer in the air, 0 to 1 (0.05 in the game)', 'min="0" max="1" step="0.05"'),
-    ['GroundSpeed', 'JumpZ', 'MaxStepHeight', 'AirControl'].some((k) => prop(k) !== ''))
+    MOVEMENT.some((k) => prop(k) !== ''))
     + E.section('tactics', 'Tactics', `
     <div class="row"><label style="width:auto" title="When the player stands above it (a roof, a ledge, a catwalk) in sight and in range, it throws a grenade at the player's feet"><input type="checkbox" id="bhgren" ${g ? 'checked' : ''}> Throws grenades from below</label></div>
     ${g ? `<div class="row"><label style="width:auto;min-width:96px">Grenade</label><select id="bhgcls" style="flex:1;min-width:0">${opts(GRENADES, g.cls || 'GasGrenade')}</select></div>`

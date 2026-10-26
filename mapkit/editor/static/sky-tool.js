@@ -138,7 +138,8 @@ function paintBottom(time) {
 }
 const pixels = (cv) => cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);
 
-export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName }) {
+export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName,
+  warnHiddenKinds, proxyOf }) {
   let dialog = null, frame = 0, look = null, field = null, began = 0;
   const state = {
     time: 'day', sky: 'made', clouds: 40, seed: 7, picture: null, sun: true, sunYaw: 135, sunHigh: 60, sunPower: 100, ambient: true,
@@ -357,7 +358,7 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
     // the sun: made again each time (its lights are ordinary objects of the map, Tag UCSun)
     edits.added = (edits.added || []).filter((a) => !(a.props && a.props.Tag === 'UCSun'));
     const sun = TIMES[state.time].sun, opens = holes(edits);
-    let made = 0;
+    const suns = [];                                   // their names: what the Show menu hides of them is said (app.js)
     if (sun && state.sun) {
       const a = state.sunYaw * Math.PI / 180;
       for (const b of opens) {
@@ -365,9 +366,10 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
         // towards the sun's side of the opening, high: the light comes from there (lower sun: further out)
         const out = 0.85 - 0.6 * (state.sunHigh / 90);
         const loc = [Math.round(c[0] + Math.cos(a) * half[0] * out), Math.round(c[1] + Math.sin(a) * half[1] * out), Math.round(b.hi[2] - 48)];
-        edits.added.push({ name: nextName('UCEdit'), cls: 'Light', loc, rot: [0, 0, 0], radius: 8, height: 8,
-          props: { Tag: 'UCSun', LightBrightness: Math.round(sun.bright * state.sunPower / 100), LightHue: sun.hue, LightSaturation: sun.sat, LightRadius: 255 } });
-        made++;
+        const light = { name: nextName('UCEdit'), cls: 'Light', loc, rot: [0, 0, 0], radius: 8, height: 8,
+          props: { Tag: 'UCSun', LightBrightness: Math.round(sun.bright * state.sunPower / 100), LightHue: sun.hue, LightSaturation: sun.sat, LightRadius: 255 } };
+        edits.added.push(light);
+        suns.push(light.name);
       }
     }
     setDirty(); rebuildProxies();
@@ -375,8 +377,9 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
     const where = opens.length ? '' : ' (the map has no opening to the sky yet: make a Hole "open to the sky")';
     const what = state.sky === 'made' ? 'painted sky' : state.sky === 'picture' ? 'your picture as the sky' : 'the game\'s sky';
     const clouds = on ? `, ${state.cloudLook} clouds${state.cloudSpeed ? ' in the wind' : ''}` : '';
-    log(`${TIMES[state.time].label}: ${what}${clouds}${made ? `, the sun in ${made} opening${made > 1 ? 's' : ''}` : ''}${state.ambient ? ', the light of the ' + TIMES[state.time].label.toLowerCase() : ''}${where}. Rebuild to see it.`, 'ok');
+    log(`${TIMES[state.time].label}: ${what}${clouds}${suns.length ? `, the sun in ${suns.length} opening${suns.length > 1 ? 's' : ''}` : ''}${state.ambient ? ', the light of the ' + TIMES[state.time].label.toLowerCase() : ''}${where}. Rebuild to see it.`, 'ok');
     dialog.close();
+    warnHiddenKinds(suns.map(proxyOf), 'Added');
   }
   // the dialog opens as the map's sky was left (the picture itself is not kept: choose it again)
   function restore(lv) {

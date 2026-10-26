@@ -13,8 +13,8 @@ function body(name) {
   return source.slice(start, source.indexOf('\n}', start) + 2);
 }
 const functions = ['keyOf', 'objOf', 'nestLeaves', 'nestsWithin', 'newNest', 'nextNestLabel', 'dropEmptyNests',
-  'poseToPose', 'rotUE', 'bakeOut', 'takeOutOf', 'stateTargets', 'stateKeys', 'captureHierarchyActors', 'retainHierarchyActors',
-  'reparentCheck', 'moveTo', 'hierarchyRoots', 'nestKeys', 'unnestNest', 'rebuildProxies', 'beginGroupMove', 'followGroupMove', 'canScale'];
+  'poseToPose', 'rotUE', 'keptPlaces', 'bakeOut', 'takeOutOf', 'stateTargets', 'stateKeys', 'keysAny', 'keysLocked', 'requireKeysUnlocked', 'sayLocked', 'captureHierarchyActors', 'retainHierarchyActors',
+  'reparentCheck', 'moveTo', 'hierarchyRoots', 'nestKeys', 'unnestNest', 'rebuildProxies', 'uncarried', 'beginGroupMove', 'followGroupMove', 'canScale'];
 
 function setup() {
   const scene = new THREE.Scene(), proxies = new THREE.Group(), world = new THREE.Group(), groupPivot = new THREE.Group();

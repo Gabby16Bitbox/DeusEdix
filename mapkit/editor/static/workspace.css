@@ -39,6 +39,7 @@ body.no-map #workspace { visibility:hidden; }
 .ws-menu { position:fixed; z-index:16; width:160px; padding:4px; border:1px solid var(--line); background:var(--panel); box-shadow:0 8px 24px #0007; border-radius:var(--radius-menu,2px); }
 .ws-menu button { display:block; width:100%; text-align:left; border:0; background:transparent; padding:7px 10px; }
 .ws-menu button.on { color:var(--acc); }
+.ws-menu hr { border:0; border-top:1px solid var(--line); margin:4px 2px; }
 .ws-restore { position:absolute; left:calc(var(--lw) + 8px); bottom:8px; display:flex; flex-wrap:wrap; gap:4px; max-width:calc(100% - var(--lw) - var(--rw) - 16px); pointer-events:auto; z-index:1; }
 .ws-restore button { padding:4px 9px; font-size:11px; background:var(--panel); border:1px solid var(--line); box-shadow:0 2px 8px #0004; }
 .ws-drop { position:absolute; inset:0; z-index:110; pointer-events:none; }

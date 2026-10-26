@@ -127,6 +127,7 @@ class Api:
         self._picked = threading.Event()
         self._folder = None
         self._menus = None
+        self._menu_error = ''         # the last reason a menu update failed, written once in the log
         self._game_panel = None
         self._game_panel_lock = threading.Lock()
         self._close_lock = threading.Lock()
@@ -199,7 +200,12 @@ class Api:
         return ok
 
     def update_menus(self, states):
-        return self._menus.update(states) if self._menus is not None else False
+        ok = self._menus.update(states) if self._menus is not None else False
+        error = '' if ok or self._menus is None else self._menus._last_error
+        if error and error != self._menu_error:
+            trace(error)              # once: the editor asks again every 0.6 s
+        self._menu_error = error
+        return ok
 
     def _play_panel(self):
         with self._game_panel_lock:

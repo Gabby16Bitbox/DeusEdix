@@ -223,7 +223,7 @@ def defaults(log=print):
 
 
 def fields_for(cls, log=print):
-    """The fields of the Properties panel for a class, with its defaults."""
+    """The fields of the Properties panel for a class, with its defaults and the class that declares each."""
     d = defaults(log)
     c = d['classes'].get(cls)
     if not c:
@@ -241,8 +241,12 @@ def fields_for(cls, log=print):
         if group == 'Sound' and owner == 'Actor' and 'AmbientSound' not in seen:
             continue                           # radius and volume only next to a sound field
         seen.add(prop)
+        # the class of the game that declares it: the first of its chain from the top (Object) that has it. One name
+        # declared in two classes apart is two properties (an ATM's accounts are not a computer's): copy and paste
+        # keep them apart (static/prop-sets.js)
+        declared = next((k for k in reversed(chain) if prop in d['classes'].get(k, {}).get('props', {})), owner)
         f = dict(group=group, prop=prop, label=label, kind=kind, help=help_, default=c['props'].get(prop, fallback or ''),
-                 type=c['types'].get(prop, ''))
+                 type=c['types'].get(prop, ''), declared=declared)
         if kind == 'choice' and prop == 'Orders':
             f['options'] = ORDERS
         elif kind == 'choice' and prop in CHOICES:

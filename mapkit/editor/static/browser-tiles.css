@@ -1,0 +1,62 @@
+/* The Browser's tile sizes (browser-tiles.js sets #bottom's data-tiles from the slider at the top and Ctrl+wheel over
+   the tiles) and the stars of its favourites. Medium is the size the tiles always had (desktop-windows.css). */
+#bottom { --tile-w:100px; --tile-h:116px; --thumb-w:88px; --thumb-h:72px; --tile-font:11px; --play-top:37px; }
+#bottom[data-tiles="small"] { --tile-w:76px; --tile-h:90px; --thumb-w:66px; --thumb-h:50px; --tile-font:10px; --play-top:20px; }
+#bottom[data-tiles="large"] { --tile-w:140px; --tile-h:158px; --thumb-w:128px; --thumb-h:110px; --play-top:75px; }
+body #bottom[data-tiles] .item { position:relative; width:var(--tile-w); height:var(--tile-h); font-size:var(--tile-font); }
+body #bottom[data-tiles] .th { width:var(--thumb-w); height:var(--thumb-h); }
+body #bottom[data-tiles] .tl { font-size:var(--tile-font); }
+body #bottom[data-tiles] .sound-grid { grid-template-columns:repeat(auto-fill,var(--tile-w)); }
+body #bottom[data-tiles] .srow.sound-tile { width:var(--tile-w); height:var(--tile-h); font-size:var(--tile-font); }
+body #bottom[data-tiles] .sound-thumbnail { width:var(--thumb-w); height:calc(var(--thumb-h) - 12px); }
+body #bottom[data-tiles] .sound-tile .sound-play { top:var(--play-top); }
+body #bottom[data-tiles="small"] .sound-tile .sound-play { width:20px; height:18px; right:6px; }
+body #bottom[data-tiles="small"] .prefab-cards { grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr)); gap:6px; }
+body #bottom[data-tiles="small"] .prefab-card { padding:6px 8px; gap:8px; }
+body #bottom[data-tiles="large"] .prefab-cards { grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); gap:10px; }
+body #bottom[data-tiles="large"] .prefab-card { padding:14px; }
+
+/* the list: one line each, in columns, the class (or the model's own name) after the name */
+body #bottom[data-tiles="list"] details[open] { gap:2px 6px; }
+body #bottom[data-tiles="list"] :is(.item, .srow.sound-tile) { flex-direction:row; align-items:center; justify-content:flex-start; width:230px; height:24px;
+  padding:2px 22px 2px 4px; gap:6px; text-align:left; }
+body #bottom[data-tiles="list"] .th { width:20px; height:20px; font-size:12px; border-bottom:0; }
+body #bottom[data-tiles="list"] .th .object-preview-icon { width:16px; height:16px; }
+body #bottom[data-tiles="list"] :is(.tl, .sound-tile .sn) { flex:0 1 auto; min-width:0; max-height:none; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+body #bottom[data-tiles="list"] .item small { display:block; flex:1 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim); font-size:10px; }
+body #bottom[data-tiles="list"] .sound-grid { grid-template-columns:repeat(auto-fill,230px); gap:2px 6px; }
+body #bottom[data-tiles="list"] .sound-thumbnail { width:36px; height:18px; }
+body #bottom[data-tiles="list"] .sound-thumbnail .sound-wave { padding:1px; }
+body #bottom[data-tiles="list"] .sound-thumbnail .sound-symbol svg { width:14px; height:14px; }
+body #bottom[data-tiles="list"] .sound-tile .sound-play { position:static; flex:none; width:20px; height:18px; }
+body #bottom[data-tiles="list"] .sound-tile .sound-length { margin-left:auto; flex:none; }
+body #bottom[data-tiles="list"] .prefab-cards { grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr)); gap:2px 8px; }
+body #bottom[data-tiles="list"] .prefab-card { padding:2px 6px; gap:8px; }
+body #bottom[data-tiles="list"] .prefab-copy b { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+body #bottom[data-tiles="list"] .prefab-copy small { display:none; }
+body #bottom[data-tiles="list"] .prefab-card button { padding:1px 8px; }
+
+/* the size slider, at the top right of the Browser: light, a list at its left end, big tiles at its right */
+#bottom .btiles { display:flex; align-items:center; gap:4px; color:var(--dim); }
+#bottom .btiles[hidden] { display:none; }
+#bottom .btiles svg { flex:none; width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.5; }
+#bottom .btiles input { width:64px; }
+
+/* the star of a tile: shown under the pointer, always once starred; a favourite whose asset is gone, dashed. Unseen it is
+   still there (opacity, not visibility): a click on its place right after the pointer arrives stars, it never places */
+:root { --star:var(--warn); }
+.fav-star { position:absolute; top:3px; right:3px; z-index:1; display:flex; align-items:center; justify-content:center; width:18px; height:18px;
+  border-radius:var(--radius-row); color:var(--dim); cursor:pointer; opacity:0; }
+.fav-star svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linejoin:round; }
+.fav-star:hover { color:var(--text); background:color-mix(in srgb, var(--panel) 70%, transparent); }
+.fav-star.on { opacity:1; color:var(--star); }
+.fav-star.on svg { fill:currentColor; }
+:is(.item, .sound-tile, .tp-tile, .prefab-card):is(:hover, :focus-visible) > .fav-star { opacity:1; }
+.prefab-card { position:relative; }
+.prefab-card > .fav-star { position:static; flex:none; }
+#bottom .item.fav-missing { border-style:dashed; cursor:default; opacity:.75; }
+#bottom .item.fav-missing .fav-gone { color:var(--dim); font-size:20px; }
+#bottom .item.fav-missing .tl { max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* one line, "Missing" under it */
+body #bottom[data-tiles]:not([data-tiles="list"]) .item.fav-missing .th { height:calc(var(--thumb-h) - 14px); }
+body #bottom .item.fav-missing small { display:block; color:var(--warn); font-size:10px; }   /* "Missing", in the list too */
+.prefab-card.fav-missing { border-style:dashed; opacity:.75; }

@@ -1,0 +1,38 @@
+/* Window > Lights table, Doors table, Characters table (object-table-view.js): a floating window over the 3D view,
+   its title bar moves it, its corner resizes it; a sticky heading, one row per object, 22px cells */
+#objtables { position:fixed; top:calc(var(--top-h, 28px) + 12px); left:calc(var(--lw, 208px) + 16px); z-index:8;
+  width:min(980px, calc(100vw - var(--lw, 208px) - 32px)); height:min(440px, calc(100vh - var(--top-h, 28px) - 48px));
+  min-width:360px; min-height:180px; resize:both; overflow:hidden; flex-direction:column;
+  background:var(--panel); border:1px solid var(--accent-border, var(--line)); border-radius:var(--radius-window, 6px); box-shadow:0 16px 48px #0009; }
+#objtables .ot-head { flex:0 0 30px; display:flex; align-items:center; gap:8px; padding:0 6px 0 10px; border-bottom:1px solid var(--line); cursor:move; user-select:none; }
+#objtables .ot-title { font-size:13px; font-weight:600; color:var(--heading); min-width:72px; }
+#objtables .ot-tabs { display:flex; gap:2px; }
+#objtables .ot-tabs button { height:22px; padding:0 10px; line-height:20px; cursor:pointer; }
+#objtables .ot-tabs button[aria-selected="true"] { background:var(--accent-soft); color:var(--heading); border-color:var(--acc); }
+#objtables .ot-sp { flex:1; }
+#objtables .ot-close { width:24px; height:22px; padding:0; }
+#objtables .ot-bar { flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:5px 10px; flex-wrap:wrap; }
+#objtables .ot-filter { flex:0 1 260px; min-width:120px; height:22px; padding:0 6px; }
+#objtables .ot-bar label { width:auto; display:flex; align-items:center; gap:4px; white-space:nowrap; }
+#objtables .ot-count { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
+#objtables .ot-scroll { flex:1 1 auto; min-height:0; overflow:auto; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+#objtables .ot-table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font-size:12px; }
+#objtables .ot-table th { position:sticky; top:0; z-index:1; background:var(--panel); border-bottom:1px solid var(--line); padding:0; text-align:left; }
+#objtables .ot-table th button { all:unset; display:block; box-sizing:border-box; width:100%; padding:4px 6px; color:var(--dim); font-weight:600; white-space:nowrap; cursor:pointer; }
+#objtables .ot-table th button:hover, #objtables .ot-table th[aria-sort="ascending"] button, #objtables .ot-table th[aria-sort="descending"] button { color:var(--heading); }
+#objtables .ot-table th button:focus-visible { outline:1px solid var(--acc); outline-offset:-1px; }
+#objtables .ot-table td { padding:1px 4px; border-bottom:1px solid color-mix(in srgb, var(--line) 55%, transparent); white-space:nowrap; vertical-align:middle; }
+#objtables .ot-table tr:hover td { background:color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+#objtables .ot-table tr.on td { background:var(--accent-soft); }
+#objtables .ot-table tr.ot-off td { opacity:.55; }
+#objtables .ot-table td input:not([type=checkbox]):not([type=color]), #objtables .ot-table td select { height:22px; padding:0 4px; box-sizing:border-box; width:110px; min-width:0; }
+#objtables .ot-table td.ot-num input[data-expr] { width:64px; text-align:right; font-variant-numeric:tabular-nums; }
+#objtables .ot-table td.ot-bool { text-align:center; }
+#objtables .ot-table td.ot-colour input { width:34px; height:20px; padding:1px; vertical-align:middle; }
+#objtables .ot-table td.ot-text { color:var(--dim); max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+#objtables .ot-table td.ot-empty { padding:16px; color:var(--dim); white-space:normal; }
+#objtables .ot-pick { all:unset; display:flex; align-items:baseline; gap:6px; min-width:140px; padding:2px 2px; cursor:pointer; color:var(--text); }
+#objtables .ot-pick small { color:var(--dim); font-size:11px; }
+#objtables .ot-pick:focus-visible { outline:1px solid var(--acc); }
+#objtables .ot-note { flex:0 0 auto; padding:5px 10px; color:var(--dim); font-size:11px; }
+body.no-map #objtables, .game-playing #objtables { display:none !important; }

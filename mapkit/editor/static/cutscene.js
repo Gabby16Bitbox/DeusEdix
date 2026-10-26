@@ -148,12 +148,9 @@ function applyFov(h) {
   cam.updateProjectionMatrix();
   return s;
 }
-function freeFov() {                       // the editor's own view again (as app.js resize())
-  const cam = E().camera, rc = kit().canvas.getBoundingClientRect();
-  cam.clearViewOffset();
-  cam.aspect = rc.width / Math.max(1, rc.height);
-  cam.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(86) / 2) / cam.aspect));
-  cam.updateProjectionMatrix();
+function freeFov() {                       // the editor's own view again (app.js applyViewCamera: Settings > Camera)
+  E().camera.clearViewOffset();
+  E().applyViewCamera();
 }
 function viewNow() {                       // the editor's view as a key: [p, r]
   const ed = E(), p = kit().UE(ed.camera.position);
@@ -609,16 +606,19 @@ function addCutscene() {
   const loc = ed.cameraPoint(120);
   const e = { name, cls: 'UCCutscene', loc, rot: [0, 0, 0], props: {}, radius: 16, height: 16 };
   ed.edits.added.push(e);
+  K.intoDefaultFolder(['a:' + name]);       // into the folder new objects go in, if one is set (app.js)
   const n = Object.keys(ed.edits.cutscenes || {}).length + 1;
   const c = cutOf(name, true);
   c.title = 'Cutscene ' + n;
   cur = null;
   const [p, r] = (() => { const pp = K.UE(ed.camera.position); return [pp, [ed.cam.pitch * YAW / TURN, ed.cam.yaw * YAW / TURN, 0]]; })();
-  c.keys.push({ t: 0, p, r: r.map(Math.round), fov: DEFAULT_FOV, e: 1, s: 0 });
+  c.keys.push({ t: 0, p, r: r.map(Math.round), fov: Math.round(ed.viewFov()), e: 1, s: 0 });     // the view's own zoom too
   K.setDirty();
-  K.select(K.makeProxy(Object.assign({ kind: 'logic' }, e), 'added'));
+  const made = K.makeProxy(Object.assign({ kind: 'logic' }, e), 'added');
+  K.select(made);
   open(name, { look: true });
   K.log(`${c.title}: the first key is the view you had. Move the playhead, fly the camera (right mouse + WASD) and press K for each key; ▶ plays it. Then play it from an interaction (a collision box: 🔗 Connect to... → the camera) or from the Story.`, 'ok');
+  K.warnHiddenKinds([made], 'Added');          // the Show menu hides or locks the cameras: the status says so (app.js)
 }
 
 // ---------------------------------------------------------------- every frame

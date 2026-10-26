@@ -525,12 +525,22 @@ class Scene:
         deleted = edits.get('deleted', {})
         if isinstance(deleted, list):
             deleted = {n: {} for n in deleted}
+        # an object given another class in the editor (Replace with...): the script's own goes, matched as a deleted
+        # one, and the added one comes in under its name below
+        replaced = {a['name']: a['replaces'] for a in edits.get('added', []) if isinstance(a.get('replaces'), dict)}
+        missed = set()                     # replaced ones not found where the editor saw them: they stay, under their name
         keep = []
         for block in self.actors:
             _, n = head(block)
             if n in deleted and match(block, n, deleted[n]):
                 report.append('  EDIT deleted %s' % n)
                 continue
+            if n in replaced:
+                if match(block, n, replaced[n]):
+                    report.append('  EDIT replaced %s' % n)
+                    continue
+                report.append('  EDIT %s not replaced (not found as %s at its original place)' % (n, replaced[n].get('cls')))
+                missed.add(n)
             info = edits.get('moved', {}).get(n)
             if info and match(block, n, info):
                 original_block = block
@@ -559,6 +569,9 @@ class Scene:
         live_names = {_head(block)[1] for block in keep}
         self.movers = [name for name in getattr(self, 'movers', []) if name in live_names]
         for a in edits.get('added', []):
+            if a['name'] in missed:            # the map's own object kept that name: two actors never share one
+                report.append('  EDIT %s %s not added (the object it replaces is still there)' % (a['cls'], a['name']))
+                continue
             props = dict(a.get('props', {}))
             if str(a['cls']).endswith('UCCutscene'):  # its keys, lines and options (editor/cutscenes.py)
                 import sys as _sys

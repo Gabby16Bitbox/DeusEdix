@@ -1,6 +1,7 @@
 // Small billboard symbols for actors without a visible game model. Textures are
 // shared by glyph; changing a light's colour only updates its SpriteMaterial.
 import * as THREE from 'three';
+import { classKind } from './scene-kinds.js';
 
 const PATHS = Object.freeze({
   light: 'M46 79C46 68 30 64 30 43A34 34 0 0 1 98 43C98 64 82 68 82 79M46 82H82M48 93H80M55 104H73M57 79V59L48 49M71 79V59L80 49',
@@ -19,18 +20,23 @@ const PATHS = Object.freeze({
   box: 'M24 43L64 21L104 43V87L64 109L24 87ZM24 43L64 65L104 43M64 65V109',
 });
 const textures = new Map();
+let iconSize = 32;          // units across: the 3D view's Show menu sets it (scene-kinds.js ICON_SIZE)
+// what a class makes, by a word of its name, as a picture: water, weather, else a zone (null: none of these)
+const MAKES = Object.freeze([['water', /water|lava|slime/], ['weather', /snow|precipitation|rain|skyzone/], ['zone', /zone/]]);
+const makes = (name) => MAKES.find(([, word]) => word.test(name))?.[0] || null;
+const nameOf = (cls) => String(cls || '').split('.').pop().toLowerCase();       // without its package, in lower case
 
 export function viewportIconKind(actor) {
-  const cls = String(actor.cls || '').split('.').pop().toLowerCase();
+  const cls = nameOf(actor.cls);
   if (actor.kind === 'light' || /^(light|spotlight|triggerlight)$/.test(cls)) return 'light';
-  if (/camera|cutscene|interpolationpoint/.test(cls)) return 'camera';
+  // a sound, a camera or a zone as the Show menu has them (scene-kinds.js), so that its row hides these icons and no
+  // others; a zone of water or of weather has a picture of its own
+  const own = classKind(cls, actor.kind);
+  if (own === 'zone') return makes(cls);
+  if (own) return own;
   if (/effectpoint/.test(cls)) return 'effect';
   if (/triggerbox/.test(cls)) return 'box';
   if (actor.kind === 'path' || /^(pathnode|patrolpoint|wanderpoint|hidepoint|liftcenter|liftexit|jumpdest)$/.test(cls)) return 'walk';
-  if (/sound|music/.test(cls)) return 'sound';
-  if (/water|lava|slime/.test(cls)) return 'water';
-  if (/snow|precipitation|rain|skyzone/.test(cls)) return 'weather';
-  if (/zone/.test(cls)) return 'zone';
   if (/teleport|mapexit|levelchange/.test(cls)) return 'exit';
   if (/playerstart|flag|objective/.test(cls)) return 'flag';
   if (/trigger|collision/.test(cls)) return 'trigger';
@@ -39,15 +45,24 @@ export function viewportIconKind(actor) {
 }
 
 // The Browser uses the same symbols as the viewport for invisible actors. A real
-// model thumbnail still replaces this fallback whenever the game supplies one.
+// model thumbnail still replaces this fallback whenever the game supplies one. A class with no symbol of its own
+// shows what it makes (a SnowPrecipitator the weather, WaterDrips water, a RevLightningZoneCreator a zone): in the 3D
+// view it keeps the icon of its row of the Show menu, which is not Zones (the icon and the row agree there).
 export function objectPreviewIcon(cls) {
   let kind = viewportIconKind({ cls });
-  if (kind === 'logic' && !/script|dispatcher|counter|event|logic/i.test(cls)) kind = 'box';
+  if (kind === 'logic') kind = makes(nameOf(cls)) || (/script|dispatcher|counter|event|logic/i.test(cls) ? 'logic' : 'box');
   return `<svg class="object-preview-icon" data-icon="${kind}" viewBox="0 0 128 128" width="48" height="48" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${PATHS[kind]}"/></svg>`;
 }
 
 export function viewportIconSpec(actor, color) {
-  return { kind: viewportIconKind(actor), color: Number.isFinite(color) ? Math.max(0, Math.min(0xffffff, color)) : 0xc58cff, size: 32 };
+  return { kind: viewportIconKind(actor), color: Number.isFinite(color) ? Math.max(0, Math.min(0xffffff, color)) : 0xc58cff, size: iconSize };
+}
+
+// The icons' size (the Show menu's slider): the icons made from now on, and these at once (a proxy's body each:
+// only the icons among them change)
+export function setViewportIconSize(size, bodies = []) {
+  iconSize = size;
+  for (const b of bodies) if (b?.userData?.viewportIcon) b.scale.set(size, size, 1);
 }
 
 function iconTexture(kind) {

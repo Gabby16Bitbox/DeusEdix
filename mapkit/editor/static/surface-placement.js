@@ -15,11 +15,19 @@ export function createSurfacePlacement(THREE) {
     }
   }
   const bounds = root => { const box = new THREE.Box3(); points(root, v => box.expandByPoint(v)); return box; };
-  function contact(root, hit, normal, gap = 0.5) {
+  // how far along the normal the roots go together for the lowest of their points (a root without a mesh: its pivot)
+  // to touch the plane through hit, a gap above it
+  function lift(roots, hit, normal, gap = 0.5) {
     let low = Infinity;
-    points(root, v => { low = Math.min(low, v.dot(normal)); });
-    if (!Number.isFinite(low)) low = root.position.dot(normal);
-    root.position.addScaledVector(normal, hit.dot(normal) + gap - low);
+    for (const root of roots) {
+      let own = Infinity;
+      points(root, v => { own = Math.min(own, v.dot(normal)); });
+      low = Math.min(low, Number.isFinite(own) ? own : root.position.dot(normal));
+    }
+    return hit.dot(normal) + gap - low;
+  }
+  function contact(root, hit, normal, gap = 0.5) {
+    root.position.addScaledVector(normal, lift([root], hit, normal, gap));
   }
   function align(root, normal) {
     const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)]
@@ -29,5 +37,5 @@ export function createSurfacePlacement(THREE) {
     root.quaternion.premultiply(new THREE.Quaternion().setFromUnitVectors(face, normal));
   }
   const belongs = (object, roots) => { for (let p = object; p; p = p.parent) if (roots.has(p)) return true; return false; };
-  return { bounds, contact, align, belongs };
+  return { points, bounds, lift, contact, align, belongs };
 }

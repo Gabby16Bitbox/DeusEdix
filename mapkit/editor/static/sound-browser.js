@@ -32,11 +32,13 @@ export function waveformPath(peaks) {
   }).join('');
 }
 
-export function createSoundBrowser({ api, container, inspector, onSelect, onClear, onError, deleteSound, getCatalog }) {
+// favourites: the stars of the tiles (browser-tiles.js favouriteShelf; app.js draws their group), or none
+export function createSoundBrowser({ api, container, inspector, onSelect, onClear, onError, deleteSound, getCatalog, findInMap, favourites = null }) {
   let catalog = [], current = null, token = 0, audio = null, playingName = '', pendingName = '', playToken = 0, animation = 0;
   let volume = .7, loop = false, selectionBusy = false;
   let deferredSeek = null, seeking = false, refreshAfterSeek = false;
-  const entries = new Map(), waves = new Map(), tiles = new Map(), cursors = new Map();
+  const entries = new Map(), waves = new Map(), cursors = new Map();
+  const tiles = [];                      // [name, tile] of each tile shown: a favourite has two (Favourites and its group)
   const currentEntry = () => current ? entries.get(current.name) : null;
   const validDuration = value => Number.isFinite(value) && value > 0;
   const durationOf = name => {
@@ -60,7 +62,7 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
     return `<div class="srow sound-tile${current?.name === asset.name ? ' on' : ''}" draggable="true" data-snd="${esc(asset.name)}" role="option" aria-selected="${current?.name === asset.name}" tabindex="0" title="${esc(asset.name)} · Drag into the scene or onto a sound field">
       <div class="sound-thumbnail" data-wave-for="${esc(asset.name)}">${waveHtml(asset.name)}</div>
       <button type="button" class="sound-play" data-splay="${esc(asset.name)}" aria-label="Play ${esc(short)}" title="Play preview">${transportIcon('play')}</button>
-      <span class="sn">${esc(short)}</span><small class="sound-length">${Number.isFinite(seconds) ? timeText(seconds) : 'Sound'}</small></div>`;
+      <span class="sn">${esc(short)}</span><small class="sound-length">${Number.isFinite(seconds) ? timeText(seconds) : 'Sound'}</small>${favourites ? favourites.star(asset.name, short) : ''}</div>`;
   }
   function updateButtons() {
     for (const button of document.querySelectorAll('[data-splay]')) {
@@ -86,7 +88,8 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
     updateButtons(); updateProgress();
   }
   function updateProgress() {
-    for (const [name, root] of [[playingName, tiles.get(playingName)], [current?.name, current ? inspector() : null]]) {
+    const roots = tiles.filter(([name]) => name === playingName).concat([[current?.name, current ? inspector() : null]]);
+    for (const [name, root] of roots) {
       if (!root) continue;
       const duration = durationOf(name), position = Math.max(0, Math.min(duration || Infinity, positionOf(name)));
       const progress = duration ? position / duration * 100 : 0;
@@ -280,6 +283,7 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
       <div class="sound-preview-options"><label>Preview volume<input type="range" data-sound-volume min="0" max="1" step=".05" value="${volume}" aria-label="Preview volume"></label><label><input type="checkbox" data-sound-loop ${loop ? 'checked' : ''}> Loop preview</label></div>
       <dl class="sound-metadata">${row('Length', timeText(entry.seconds))}${row('Format', format)}${row('Channels', entry.channels === 1 ? 'Mono' : entry.channels === 2 ? 'Stereo' : entry.channels)}${row(entry.sample_rate ? 'Sample rate' : entry.preview_sample_rate ? 'Preview rate' : 'Sample rate', (entry.sample_rate || entry.preview_sample_rate) ? ((entry.sample_rate || entry.preview_sample_rate) / 1000) + ' kHz' : null)}${row('Bit depth', entry.bits ? entry.bits + ' bit' : null)}${row('Size', Number.isFinite(bytes) && bytes > 0 ? (bytes / 1024).toFixed(1) + ' KB' : null)}${row('Package', current.name.split('.')[0])}${row('Source', entry.source || (current.own ? 'Imported file' : 'Installed game'))}</dl>
       <label class="sound-reference">Sound reference<input type="text" readonly value="${esc(current.name)}" aria-label="Sound reference"></label>
+      ${findInMap ? '<div class="sound-asset-actions"><button type="button" data-sound-find title="The objects of this map that use this sound, in the Hierarchy and bright in the 3D view">Find in map</button></div>' : ''}
       ${current.own ? `<div class="sound-asset-actions">${decoded ? `<a class="ib" href="${esc(entry.url)}" download="${esc(short)}.wav">Download WAV</a>` : ''}<button type="button" data-sound-delete>Delete sound…</button></div>` : ''}
       <p class="hint sound-use-hint">Drag this tile into the scene or onto an object's sound field. Preview volume and looping only affect listening here.</p>
       ${selectionBusy ? '<p class="hint">Reading sound details…</p>' : entry.error ? `<p class="hint bad">${esc(entry.error)}</p>` : ''}</div>`;
@@ -289,6 +293,7 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
     wireSeek(el.querySelector('[data-sound-seek]'), current.name);
     el.querySelector('[data-sound-start]').onclick = () => seekTo(current.name, 0);
     const remove = el.querySelector('[data-sound-delete]'); if (remove) remove.onclick = () => deleteSound?.(current.name);
+    const find = el.querySelector('[data-sound-find]'); if (find) find.onclick = () => findInMap(current.name);
     updateButtons();
     updateProgress();
     if (restoreSeekFocus) el.querySelector('[data-sound-seek]').focus({ preventScroll: true });
@@ -312,9 +317,9 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
     if (had && redraw) onClear?.();
   }
   function wireTiles() {
-    tiles.clear(); container.setAttribute('role', 'listbox'); container.setAttribute('aria-label', 'Sound assets');
+    tiles.length = 0; container.setAttribute('role', 'listbox'); container.setAttribute('aria-label', 'Sound assets');
     for (const tile of container.querySelectorAll('.sound-tile')) {
-      const name = tile.dataset.snd; tiles.set(name, tile);
+      const name = tile.dataset.snd; tiles.push([name, tile]);
       const choose = () => { const asset = catalog.find(item => item.name === name); if (asset) selectAsset(asset); };
       tile.onclick = event => { if (!event.target.closest('button')) choose(); };
       tile.onkeydown = event => {
@@ -326,8 +331,9 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
         }
         else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
           event.preventDefault(); event.stopPropagation();
-          const visible = [...tiles.values()].filter(item => item.getClientRects().length), at = visible.indexOf(tile);
-          const columns = Math.max(1, Math.floor(container.clientWidth / 104));
+          const visible = tiles.map(([, item]) => item).filter(item => item.getClientRects().length), at = visible.indexOf(tile);
+          // the columns of its grid as drawn now (the tile size changes them)
+          const columns = Math.max(1, getComputedStyle(tile.parentElement).gridTemplateColumns.split(' ').length);
           const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' ? -columns : columns;
           const next = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1 : Math.max(0, Math.min(visible.length - 1, at + step));
           visible[next]?.focus();

@@ -52,6 +52,7 @@ import settings  # noqa: E402
 import surfaces  # noqa: E402
 import mapfiles  # noqa: E402
 import gamecons  # noqa: E402
+import game_fov  # noqa: E402
 import gamecontent  # noqa: E402
 import mission_graph  # noqa: E402
 import documents  # noqa: E402
@@ -901,7 +902,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/map_browser':
                 return self._send(200, dict(maps=mapfiles.describe(scripts() + dxmaps.listing()),
                                            missions=newmap.MISSIONS, standalone=settings.STANDALONE, project=project_server.current(),
-                                           package=settings.PACKAGE, models_package=settings.MODELS_PACKAGE))
+                                           package=settings.PACKAGE, models_package=settings.MODELS_PACKAGE,
+                                           fov=game_fov.player_fov()))     # the 3D view's field of view (Settings > Camera)
             if u.path == '/api/dubs':                         # the voices given to lines (Story)
                 return self._send(200, dict(package=sounds.PACKAGE, voices=sounds.dubs()))
             if u.path == '/api/thumbs':
@@ -945,7 +947,8 @@ class Handler(BaseHTTPRequestHandler):
                     built=dxmaps.built_current(map_name) if is_dx(script) else True, package=settings.PACKAGE,
                     models_package=settings.MODELS_PACKAGE, standalone=settings.STANDALONE,
                     game=game_running(), tutorialSession=session, target=settings.TARGET,
-                    gameName=settings.GAME_NAME, features=sorted(settings.FEATURES)))
+                    gameName=settings.GAME_NAME, features=sorted(settings.FEATURES),
+                    north=mapsettings.true_north(map_name)))           # the 3D view's heading (view-axes.js)
             return self._send(404, {'error': 'unknown'})
         except (ValueError, RuntimeError, OSError) as e:
             return self._send(409, project_server.error_payload(e))

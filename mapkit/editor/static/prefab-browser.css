@@ -6,6 +6,8 @@
 .prefab-copy b { display:block; color:var(--heading); font-size:13px; }
 .prefab-copy small { display:block; margin-top:4px; color:var(--dim); font-size:11px; }
 .prefab-card button { flex:none; padding:5px 10px; }
+.prefab-favourites { margin-bottom:8px; }
+#bottom .prefab-favourites[open] { display:block; }   /* its grid as wide as the panel, as the Sounds groups */
 .prefab-dialog { max-width:520px; }
 .prefab-dialog form { margin:0; }
 .prefab-dialog label { display:block; margin-bottom:7px; }

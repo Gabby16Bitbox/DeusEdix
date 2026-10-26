@@ -18,13 +18,20 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { createSurfaceTools } from './surface-ui.js';
 import { createStartScreen } from './start-screen.js';
 import { createSoundBrowser } from './sound-browser.js';
-import { createViewportIcon, disposeViewportIcons, objectPreviewIcon } from './viewport-icons.js';
+import { createViewportIcon, disposeViewportIcons, objectPreviewIcon, setViewportIconSize } from './viewport-icons.js';
 import { createActorOverlayTracker } from './actor-overlays.js';
-import { isCylinder, updateCollisionVolume } from './collision-volume.js';
+import { isCylinder, updateCollisionVolume, collisionSize } from './collision-volume.js';
 import { createProjectHub, projectStorageKey, readProjectMapPrefs, unsavedProjectTools, isCustomProject, isTrainingProject } from './projects.js';
 import { mountStateField, parseFate, stateLabel } from './state-editor.js';
-import { characterSections, playerSection } from './behaviours.js';
-import { allPropsSection } from './all-props.js';
+import { characterSections, playerSection, MOVEMENT } from './behaviours.js';
+import { allPropsSection, classProps } from './all-props.js';
+import { numberField, plainNumber, evaluate, evaluateAll, fieldText, stepped, steppedBy } from './number-expr.js';
+import { unquote, classRef, propShown, propText, propRow } from './prop-kinds.js';
+import { TRANSFORM, kindCounts, valueChoices, valueText, valuesText } from './multi-edit.js';
+import { multiRows, narrowRows } from './multi-inspector.js';
+import { classKeys, valueKeys, baseOf, sameText, shownOf, copySet, rawSet, pastePlan, resetPlan, clearRawPlan, changeRows, chosenPlans, fieldPaste,
+  readPresets, presetsText, presetName, withPreset, withoutPreset, presetsFor } from './prop-sets.js';
+import { askChanges, askName, askPresets } from './prop-sets-dialog.js';
 import { createOrthoViews } from './ortho-views.js';
 import { mountPlayStates } from './play-state.js';
 import { editorIcon } from './editor-icons.js';
@@ -45,13 +52,36 @@ import { createDrawTools, DRAW_LABELS, DRAW_DEFAULTS } from './draw-tools.js';
 import { createSkyTool } from './sky-tool.js';
 import { createMapPose } from './map-pose.js';
 import { createViewportToolbar } from './viewport-toolbar.js';
+import { PITCH_LIMIT, lookDir, orbitStep, dragDolly, dollyStep, nextFlySpeed, FRAME_DISTANCES, frameStep, FLIGHT_SECONDS, flightPose,
+  looksAt, cameraSetting, verticalFov } from './view-camera.js';
+import { createViewAxes, createViewNote } from './view-axes.js';
 import { createTexturePicker } from './texture-picker.js';
+import { createFavourites } from './browser-favourites.js';
+import { favouriteShelf, installStars, mountTileSize } from './browser-tiles.js';
 import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions, blockPoints } from './block-shapes.js';
 import { createVertexEditor } from './vertex-edit.js';
+import { createDragHandles } from './drag-handles.js';
+import { byteReach, coneAngle, SPOT_EFFECTS } from './range-handles.js';
+import { ringAround, boxCorners, vertexSnap } from './vertex-snap.js';
+import { nextGridStep, dragSnap, surfaceOnGrid, pushMove } from './grid-snap.js';
+import { createViewGrid } from './view-grid.js';
 import { createShapeEditor } from './shape-editor.js';
 import { createMeasure } from './measure.js';
+import { stackKeys, createPickCycle, invertPick, createSelectionHistory } from './selection-tools.js';
+import { createSceneVisibility } from './scene-visibility.js';
+import { HIER_FOLDERS, ICON_KINDS, SHOW_KINDS, SHOW_KIND, KIND_STATES, ZONE_CLASSES, classKind, showKindOf, createKindFilter } from './scene-kinds.js';
+import { defaultFolder, setDefaultFolder, forgetGoneDefault, putInFolder, putBeside } from './hierarchy-folders.js';
+import { parseSearch, searchMatcher, folderSearch, typesOf, assetsOf, fieldValues, searchToken } from './scene-search.js';
+import { mountSearchBox } from './search-box.js';
+import { createSearchView } from './search-view.js';
+import { columnKey } from './object-table.js';
+import { createObjectTables } from './object-table-view.js';
+import { createCommandPalette } from './command-palette.js';
+import { GIZMO_CHOICES, gizmoChoice, nextGizmoChoice, gizmoOption, groupPivotAt, snapSteps, AIM_TILTS, aimRotation } from './gizmo-tools.js';
+import { viewRotation, eyeHeight, sameRotation, turnsPart, planStays, SAME_PLACE, alignPlan, lookThrough } from './view-align.js';
 import { split as splitPoints, intersect as intersectPoints, subtract as subtractPoints } from './brush-ops.js';
 import { mirrorPoint, mirrorBlock, mirrorDrawing, mirrorMotion, faceMirrored } from './mirror.js';
+import { carryProps, seatedAt, turnOf, usesOf, misfits, NEEDS } from './replace-class.js';
 import { VIEW_MODES, createViewModes } from './view-modes.js';
 import { createSceneTextures } from './scene-textures.js';
 
@@ -85,8 +115,11 @@ let autosave = null;
 let gameView = null;
 let undo = [], dirty = false, selected = null, placing = null, snap = true;
 let vpBar = null;                  // the 3D view's toolbar (viewport-toolbar.js)
+let viewAxes = null, viewNote = null;   // the 3D view's axis widget and its short notes (view-axes.js)
 let orthoViews = null;             // View > Top / Front / Side view (ortho-views.js)
 let vertexEdit = null;             // Edit vertices of a block (vertex-edit.js)
+let dragHandles = null;            // the dots on a selected light's, sound's, trigger's range and a block's sides (drag-handles.js)
+let viewGrid = null;               // the 3D view's grid at the floor of the selection (view-grid.js; the toolbar's button)
 let shapeEditor = null;            // Tools > 2D Shape Editor (shape-editor.js)
 let measure = null;                // View > Measure (measure.js)
 let showIcons = true;              // the icons of lights, AI paths and logic points (its last button)
@@ -118,7 +151,21 @@ sun.position.set(0.4, 1, 0.25);
 scene.add(sun);
 const world = new THREE.Group(), proxies = new THREE.Group();
 scene.add(world, proxies);
-const tc = new TransformControls(camera, canvas);
+// Local (the toolbar's Global / Local, X): the handles follow the object's own axes. An object's pitch and roll
+// are on its model (its group turns about the vertical only), so they are added to the frame the handles show;
+// a drag first folds them into the group (foldTilt), the frame the drag then uses.
+class EditorGizmo extends TransformControls {
+  updateMatrixWorld(force) {
+    super.updateMatrixWorld(force);
+    const d = this.object && this.space === 'local' && this.object.userData;
+    if (!d || !d.actor || d.folded || !(d.tilt || d.roll)) return;
+    this.worldQuaternion.multiply(tiltQuat(d.tilt || 0, d.roll || 0));
+    this._worldQuaternionInv.copy(this.worldQuaternion).invert();
+    this._gizmo.updateMatrixWorld(true);         // its handles and its drag plane, in that frame
+    this._plane.updateMatrixWorld(true);
+  }
+}
+const tc = new EditorGizmo(camera, canvas);
 tc.setSize(0.9);
 scene.add(tc);
 const ghost = new THREE.Group();
@@ -130,14 +177,25 @@ scene.add(ghost);
 const outline = createSelectionOutline(THREE);
 outline.visible = false;
 scene.add(outline);
+// the Hierarchy's search in the 3D view (search-view.js): the rest dimmed, the matches bright and seen through walls;
+// the gizmo, the selection's outlines and its links are drawn again over them
+const searchView = createSearchView(THREE, { renderer, scene, camera, over: () => [tc, outline, multiBoxes, linkLines] });
 
 function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;                     // hidden for now: an aspect of 0 would leave the camera broken (fov 180)
   renderer.setSize(w, h, false);
+  applyViewCamera();
+}
+// the 3D view's lens (Settings > Camera, view-camera.js): its field of view across the width as the game's (the
+// player's own in the game until Settings changes it: game_fov.py), its near and far planes
+function applyViewCamera() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
   camera.aspect = w / h;
-  // the game's field of view is horizontal (86 degrees in Gabby's settings); three.js wants the vertical one
-  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(86) / 2) / camera.aspect));
+  camera.fov = verticalFov(viewFov(), camera.aspect);
+  camera.near = cameraSetting('near', cam.near);
+  camera.far = cameraSetting('far', cam.far);
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -172,14 +230,74 @@ for (const [id, side, min, max] of [['lgrip', 'lw', 200, 520], ['rgrip', 'rw', 2
 }
 
 // ---------------------------------------------------------------- camera (UE5 style)
-const cam = { yaw: Math.PI / 2, pitch: 0, look: false, keys: {}, speed: 600, sens: 0.0035, invertY: false };   // Settings (menubar.js)
+// Settings (menubar.js); fov 0 is the player's own in the game, near and far 0 the defaults (view-camera.js)
+const cam = { yaw: Math.PI / 2, pitch: 0, look: false, keys: {}, speed: 600, sens: 0.0035, invertY: false, fov: 0, near: 0, far: 0 };
+let gameFov = { fov: 86, file: null };      // the player's field of view in the game (/api/map_browser, game_fov.py)
+let mapNorth = 0;                           // the yaw the game's compass calls North in this map (/api/scene)
+const viewFov = () => cameraSetting('fov', cam.fov, gameFov.fov);
 function forward() {
-  return new THREE.Vector3(Math.cos(cam.pitch) * Math.cos(cam.yaw), Math.sin(cam.pitch), Math.cos(cam.pitch) * Math.sin(cam.yaw));
+  return new THREE.Vector3(...lookDir(cam.yaw, cam.pitch));
 }
 function placeCamera(posUE, yawUE, pitch = -0.15) {
   camera.position.copy(T(posUE));
   cam.yaw = yawUE * 2 * Math.PI / YAW;
   cam.pitch = pitch;
+}
+// What the camera turns about (Unity's pivot), [x, y, z]: the middle of the selection (not for the axis widget,
+// which keeps what is in the middle of the view), else the point Frame or the last orbit kept while the view still
+// looks at it, else the first surface under the pointer, else a point ahead
+let viewPivot = null;
+function pivotAt(e, aroundSelection = true) {
+  const box = aroundSelection && selectionBox();
+  if (box) return box.getCenter(new THREE.Vector3()).toArray();
+  if (viewPivot && looksAt(camera.position.toArray(), cam.yaw, cam.pitch, viewPivot)) return viewPivot;
+  return (firstHit(e) || camera.position.clone().addScaledVector(forward(), 600)).toArray();
+}
+// Alt+drag (Unity's orbit): the camera goes round the pivot as the mouse look turns it (its sensitivity, its invert),
+// the pivot chosen where the drag began; until the mouse moves 5 pixels it is a click (a face pick)
+function orbitDrag(e) {
+  if (drag.orbit === 'waiting') {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
+    drag.orbit = viewPivot = pivotAt({ clientX: drag.x, clientY: drag.y });
+    drag.click = false;                    // an orbit that comes back near where it began is still no click
+    canvas.setPointerCapture(e.pointerId);
+  }
+  const p = orbitStep(camera.position.toArray(), drag.orbit, cam.yaw, cam.pitch, e.movementX * cam.sens, -e.movementY * cam.sens * (cam.invertY ? -1 : 1));
+  camera.position.fromArray(p.pos); cam.yaw = p.yaw; cam.pitch = p.pitch;
+}
+// A flight of the camera (view-camera.js flightPose): Frame goes to `to.pos`, the axis widget turns to `to`'s yaw
+// and pitch about `pivot`. The mouse, the wheel, or anything else that moves the camera meanwhile (a bookmark, a
+// cutscene's key) ends it.
+let flight = null;
+function flyTo(to, pivot = null) {
+  const from = { pos: camera.position.toArray(), yaw: cam.yaw, pitch: cam.pitch };
+  flight = { from, to, pivot, start: performance.now(), at: from };          // (moved before its first frame: ended)
+  wake(FLIGHT_SECONDS * 1000 + 250);
+}
+function stepFlight(now) {
+  if (!flight) return;
+  const at = flight.at;
+  if (at && (cam.yaw !== at.yaw || cam.pitch !== at.pitch || camera.position.distanceToSquared(new THREE.Vector3(...at.pos)) > 1e-6)) {
+    flight = null;
+    return;
+  }
+  const u = (now - flight.start) / (FLIGHT_SECONDS * 1000), p = flightPose(flight, u);
+  camera.position.fromArray(p.pos); cam.yaw = p.yaw; cam.pitch = p.pitch;
+  flight.at = p;
+  if (u >= 1) flight = null;
+}
+// the fly speed (the wheel while flying, as Unity's): kept in Settings > Camera, shown a moment at the bottom of the view
+function setFlySpeed(v) {
+  if (window.__menubar?.setPref) window.__menubar.setPref('speed', v); else cam.speed = v;
+  viewNote?.show(`Fly speed ${cam.speed}`);
+}
+// the axis widget (view-axes.js): a click looks from that end of the axis, the camera going round the point the
+// view looks at; Shift+click opens the orthographic pane along that axis (ortho-views.js)
+function lookFromAxis(end, shift) {
+  if (shift) { orthoViews?.open(end.pane); return; }
+  if (!mapName) return;
+  const r = canvas.getBoundingClientRect();
+  flyTo({ yaw: end.yaw, pitch: end.pitch }, pivotAt({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }, false));
 }
 let drag = null, transformGesture = false;
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -193,18 +311,31 @@ function resetInput() {
 window.addEventListener('blur', resetInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); });
 canvas.addEventListener('lostpointercapture', () => { if (cam.look) resetInput(); });
+// a press on a drag handle's dot (drag-handles.js) is the handle's alone: the gizmo, the camera and the picks never see it
+canvas.addEventListener('pointerdown', (e) => {
+  if (!dragHandles?.press(e)) return;
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}, true);
 canvas.addEventListener('pointerdown', (e) => {
   // a click in the 3D view takes the keys back from the text fields (search, coordinates)
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-  if (e.button === 2) { cam.look = true; canvas.setPointerCapture(e.pointerId); }
+  flight = null;                            // the mouse takes the camera back from a flight (Frame, the axis widget)
+  // with Alt, as Unity's: the right button goes toward the pivot, the left one goes round it once it moves
+  if (e.button === 2 && e.altKey) { drag = { x: e.clientX, y: e.clientY, dolly: pivotAt(e) }; canvas.setPointerCapture(e.pointerId); }
+  else if (e.button === 2) { cam.look = true; canvas.setPointerCapture(e.pointerId); }
   if (e.button === 1) { drag = { x: e.clientX, y: e.clientY }; e.preventDefault(); }
-  if (e.button === 0) drag = { x: e.clientX, y: e.clientY, click: true, marquee: (e.ctrlKey || e.shiftKey) && !placing };
+  if (e.button === 0) drag = { x: e.clientX, y: e.clientY, click: true, marquee: (e.ctrlKey || e.shiftKey) && !e.altKey && !placing,
+    orbit: e.altKey && !tc.axis ? 'waiting' : null };
 });
 canvas.addEventListener('pointermove', (e) => {
   if (cam.look) {
     cam.yaw += e.movementX * cam.sens;
-    cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - e.movementY * cam.sens * (cam.invertY ? -1 : 1)));
-  } else if (drag && !drag.click && e.buttons & 4) {
+    cam.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, cam.pitch - e.movementY * cam.sens * (cam.invertY ? -1 : 1)));
+  } else if (drag && drag.orbit && e.buttons & 1) orbitDrag(e);
+  else if (drag && drag.dolly && e.buttons & 2) camera.position.fromArray(dollyStep(camera.position.toArray(), drag.dolly, dragDolly(e.movementX, e.movementY)));
+  else if (drag && !drag.click && e.buttons & 4) {
     const f = forward(), right = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0, 1, 0)).normalize();
     const up = new THREE.Vector3().crossVectors(right, f).normalize();
     camera.position.addScaledVector(right, -(e.clientX - drag.x) * 2).addScaledVector(up, (e.clientY - drag.y) * 2);
@@ -230,6 +361,9 @@ canvas.addEventListener('pointerup', (e) => {
 });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
+  flight = null;
+  // flying (the right button held): the wheel changes the fly speed, and the button's release opens no menu
+  if (cam.look) { setFlySpeed(nextFlySpeed(cam.speed, -Math.sign(e.deltaY))); rightDown = null; return; }
   camera.position.addScaledVector(forward(), -Math.sign(e.deltaY) * (e.shiftKey ? 320 : 96));
 }, { passive: false });
 
@@ -262,21 +396,27 @@ function animate(now) {
     if (k.e) camera.position.y += sp;
     if (k.q) camera.position.y -= sp;
   }
+  stepFlight(now);
   camera.lookAt(camera.position.clone().add(forward()));
+  viewAxes?.update(cam.yaw, cam.pitch);
   if (cam.roll) camera.rotateZ(-cam.roll);          // looking through a cutscene camera with a roll (cutscene.js)
   stepPreview(dt);
   stepEffectPreviews(proxies, dt, fxWant);
   if (showPaths) stepPathView(dt);
+  stepPilot();                       // Pilot: the selection where the view looks from
   if (outline.visible && selected) outline.setFromObject(selected);
   drawMultiBoxes();
   updateHoleCut();
   actorOverlays.sync();
+  dragHandles?.update();             // the dots on the selection's ranges and sides, where they are now
+  viewGrid?.update();                // the grid at the floor of the selection, round the camera
   for (const p of collisionVolumes) {
     if (!p.parent) collisionVolumes.delete(p);
     else updateCollisionVolume(p, actorProp);
   }
   orthoViews?.render();              // the orthographic panes first: they borrow a corner of this canvas
   renderer.render(scene, camera);
+  searchView.render();               // while the Hierarchy's search is on: what does not match dimmed (search-view.js)
   measure?.update();
   updateLinkEdges();
 }
@@ -307,6 +447,7 @@ async function loadMaps(want) {
   }
   const maps = mapList = info.maps;
   STANDALONE = !!info.standalone;
+  if (info.fov) { gameFov = info.fov; applyViewCamera(); }      // the player's own field of view (Settings > Camera)
   // the project's own packages known before a map is open (My models and Import listed none: Crypt Test, 20 Oct 2026)
   const pkgBefore = MODELS_PKG;
   PACKAGE = info.package || PACKAGE; MODELS_PKG = info.models_package || MODELS_PKG;
@@ -365,6 +506,7 @@ function temporaryTutorial() { return isTemporaryTutorial(projectContext, script
 function resetTutorialView() {
   clearTutorialViewPreferences(localStorage, projectContext?.id);
   viewStateMap = null; objectViewState = { hidden: new Set(), locked: new Set() };
+  kindView = null;                       // the Show menu's kinds too: a fresh start shows, unlocks and draws every kind
 }
 async function endTutorialSession() {
   if (!temporaryTutorial() && !tutorialSession.token && !tutorialSession.preparing) return;
@@ -397,7 +539,8 @@ async function clearMap() {
   inspectorPin = null;
   pathData = null; geoFaces = []; groupPivot.userData.members = []; groupPivot.userData.keys = null;
   for (const id of ['hier','structs','details','changes']) { const el = document.getElementById(id); if (el) el.innerHTML = ''; }
-  for (const id of ['playbox','newbox','linkbox','mapbox','soundbox','checkbox','logicbox','pkgbox','mimportbox','shot']) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+  endMapSearch();
+  for (const id of ['playbox','newbox','linkbox','mapbox','soundbox','checkbox','logicbox','pkgbox','mimportbox','shot','objtables']) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
   $('#map').value = ''; status('Choose a map to begin.'); wake();
   refreshInspectorPin();
   return true;
@@ -427,12 +570,15 @@ async function loadScene(s, resetCamera) {
     if (previousTutorial && s !== TUTORIAL_SCRIPT) await endTutorialSession();
     textureTransfer?.cancel(); surfaceTexturePreview?.restore(); texturePreviewInfo.clear(); texturePreviewPending.clear();
     window.__story?.reset(); window.__cutscene?.close(); closeAnim(); stopPreview(); resetInput(); cancelPlacing(); soundBrowser?.clearSelection(false);
+    endAimPick();                          // Aim at a point does not go on in another map
     if (script !== s) window.__tutorial?.stop();
+    if (script !== s) { sceneView.reset(); endMapSearch(); }       // Isolate, Show hidden and the search end with their map
     script = j.script; mapName = j.map; baseActors = j.actors; palette = j.palette; mapKind = j.kind || 'script';
     mapGeneration++;
     inspectorPin = null;
     PACKAGE = j.package || PACKAGE; MODELS_PKG = j.models_package || MODELS_PKG; STANDALONE = !!j.standalone;
     publishedLayout = j.publishedLayout || null;
+    mapNorth = j.north || 0;               // the game compass's North (the axis widget's heading)
     bakedObjectTags = j.bakedObjectTags || {};
     edits = Object.assign(EMPTY(), withPublishedLayout(j.edits, publishedLayout));
     builtScale = {};                       // objects scaled by edits that are already in the map shown
@@ -790,7 +936,7 @@ function vertexColours(geo, mw, info) {
         f *= inc;
       }
       if ((L[7] === 12 || L[7] === 8) && dist > 0.01) {                    // spotlights: the cone
-        const cs = -(dx * L[8] + dy * L[9] + dz * L[10]) / dist, edge = Math.cos(L[11] * Math.PI / 512);
+        const cs = -(dx * L[8] + dy * L[9] + dz * L[10]) / dist, edge = Math.cos(coneAngle(L[11]));
         if (cs <= edge) continue;
         f *= Math.min(1, (cs - edge) / Math.max(0.05, 1 - edge) * 2);
       }
@@ -1165,6 +1311,7 @@ async function applyTexture(ctx, png, to, document = null) {
 }
 
 let builtScale = {};                     // scale of each object in the map as last built (the edits it had)
+const builtOf = (p) => (p.userData.source === 'map' ? (builtScale[p.userData.actor.name] || 1) : 1);    // an object's, by its proxy
 let builtBoxes = new Map();              // the blocks as the map shown was built: name -> their shape and place
 let builtDrawn = new Map();              // the drawings as the map shown was built (with the holes that cut them)
 const boxSig = (b) => JSON.stringify([b.lo, b.hi, b.rot || null, b.tex || '', blockShape(b), !!b.solid, !!b.hole, b.verts || null]);
@@ -1295,6 +1442,10 @@ function followStructure(ms = moveStart) {   // objects of the structure move wi
     setObjectRotation(m.p, rotations.carry(m.rot, ms.pose, pose));
   }
 }
+// what Delete or Replace with... keeps of an object of the map (its class and place, where the build looks for it)
+function keptPlaces(n) {
+  return [edits.deleted[n], edits.added.find((x) => x.name === n)?.replaces].filter((k) => k?.orig);
+}
 function commitStructure(ms = moveStart, quiet = false, textureChoice) {
   if (!ms) return;
   const st = ms.st;
@@ -1309,8 +1460,9 @@ function commitStructure(ms = moveStart, quiet = false, textureChoice) {
   for (const n of st.actors || []) {
     const mv = edits.moved[n];
     if (mv) { mv.loc = f(mv.loc).map(r1); if (mv.orig) mv.orig = f(mv.orig).map(r1); mv.rot = rotations.carry(mv.rot || [0, 0, 0], ms.pose, pose); }
-    const dl = edits.deleted[n];
-    if (dl && dl.orig) dl.orig = f(dl.orig).map(r1);
+    // what Delete or Replace with... keeps of it moves along too: the build moves the object with its structure
+    // before it looks for it there
+    for (const gone of keptPlaces(n)) gone.orig = f(gone.orig).map(r1);
   }
   if (st.paste) setPose(pasteEntry(st.name), pose);
   else if (st.copy_of) setPose(copyEntry(st.name), pose);
@@ -1410,18 +1562,106 @@ function objectStateKeys(p) {
   }
   return keys;
 }
-function objectHidden(p) { return objectStateKeys(p).some(k => viewState().hidden.has(k)); }
-function objectLocked(p) { return objectStateKeys(p).some(k => viewState().locked.has(k)); }
-function selectionLocked(p = selected) {
+// The 3D view's Show menu (scene-kinds.js, as Unity's Layers and Gizmos menus): each kind of thing shown, locked and
+// with its icons, and the icons' size; kept per project in this browser, apart from each object's own eye and lock.
+// The tutorial's map has its own, from nothing (never read nor kept: resetTutorialView empties it at a fresh start)
+let kindView = null, kindViewOf = null;        // the state, and the project it is for (null: the tutorial's map)
+function kindFilter() {
+  const id = temporaryTutorial() ? null : projectContext?.id || '';
+  if (kindView && kindViewOf === id) return kindView;
+  kindViewOf = id;
+  let saved = null;
+  if (id !== null) try { saved = JSON.parse(localStorage.getItem(projectStorageKey('showKinds', projectContext)) || 'null'); } catch { /* optional preference */ }
+  kindView = createKindFilter(saved);
+  setViewportIconSize(kindView.iconSize, proxies.children.map(p => p.userData.body));     // the icons there are, and those to come
+  return kindView;
+}
+function saveKindFilter() {
+  if (temporaryTutorial()) return;
+  try { localStorage.setItem(projectStorageKey('showKinds', projectContext), JSON.stringify(kindFilter())); } catch { /* optional preference */ }
+}
+// the Show menu's row of an object, a block, a drawing or a structure (null: the group's pivot, in no row)
+function sceneKindOf(p) { return keyOf(p) ? showKindOf(p.userData.kind, p.userData.actor?.cls) : null; }
+// the Hierarchy's folder of an object or a block in no nest or structure: its row of the Show menu, whose eye and
+// padlock the folder has (its data-hk)
+function kindFolder(p) { return 'k:' + sceneKindOf(p); }
+const kindIs = (p, state) => kindFilter().has(state, sceneKindOf(p));        // state: hidden, locked or noIcons
+// the kinds of these things that are in a state, as the menu names them ("Lights, Sounds"), '' for none
+function kindsIn(list, state) {
+  const ids = new Set(list.map(sceneKindOf));
+  return kindFilter().kinds(state).filter(id => ids.has(id)).map(id => SHOW_KIND[id].label).join(', ');
+}
+// what was just made (done, the word for how: 'Placed', 'Pasted', 'Drawn', 'Added'...) of a kind the Show menu hides or locks: the
+// status says so, else it would vanish at once or not move with no word why (as a folder that would do that takes
+// nothing new: newObjectsFolder)
+function warnHiddenKinds(list, done) {
+  const hidden = kindsIn(list, 'hidden'), locked = kindsIn(list, 'locked'), what = `what was ${done.toLowerCase()}`;
+  if (hidden) status(`${done}, but ${hidden} are hidden in the Show menu of the 3D view: show them there to see ${what}.`, 'warn');
+  else if (locked) status(`${done}, but ${locked} are locked in the Show menu of the 3D view: unlock them there to edit ${what}.`, 'warn');
+}
+// Isolate and Show hidden (scene-visibility.js): what the 3D view shows for the moment, never saved
+const sceneView = createSceneVisibility();
+let eyeOffCount = 0;                  // objects hidden with the eye: the toolbar's Show hidden says how many
+function objectEyeOff(p) { return objectStateKeys(p).some(k => viewState().hidden.has(k)); }     // the eye's state
+function ownHidden(p) { return sceneView.hides(keyOf(p), objectEyeOff(p)); }       // by its eye (or a folder's) or Isolate
+function objectHidden(p) { return ownHidden(p) || kindIs(p, 'hidden'); }            // hidden in the 3D view now: or by its kind
+function ownLocked(p) { return objectStateKeys(p).some(k => viewState().locked.has(k)); }       // its padlock, its structure's or a nest's
+function objectLocked(p) { return ownLocked(p) || kindIs(p, 'locked'); }                          // or its kind's
+// what the group was picked as, in keys (as nests know them): a folder selected whole is one thing, its nest
+function groupKeys() {
+  if (groupPivot.userData.nest) return ['n:' + groupPivot.userData.nest];
+  return (groupPivot.userData.keys || members().map(keyOf)).filter(Boolean);
+}
+// a test of things as the Hierarchy names them (keys: the selection, what is dragged or moved into a folder, what a
+// right click is for): a folder ('n:') by inFolder on each thing it holds, as what the Show menu does to a kind goes
+// with its folder (as with a structure); anything else by other
+function keysAny(keys, inFolder, other) {
+  return stateKeys(keys).some((k) => {
+    if (k.startsWith('n:')) return nestLeaves(nestById(k.slice(2))).some(inFolder);
+    const o = objOf(k);
+    return !!o && other(o);
+  });
+}
+// held against edits there: a folder by the padlocks of what it holds, anything else by its kind's padlock too (own:
+// by its own padlock only, as the Hierarchy's padlock and Lock selection show it)
+function keysLocked(keys, own = false) {
+  return keysAny(keys, (p) => selectionLocked(p, true), (p) => selectionLocked(p, own));
+}
+// locked against edits; own: by its own padlock only (the Hierarchy's and the Inspector's), not by its kind's. A
+// structure or a folder (a nest, selected whole or with other things) is locked by the objects locked in it, not by
+// their kind (they move with it, as in Unity); anything else of a group by their kind's too (keysLocked)
+function selectionLocked(p = selected, own = false) {
   if (!p) return false;
-  if (p === groupPivot) return members().some(m => selectionLocked(m));
-  if (objectLocked(p)) return true;
-  return isStruct(p) && proxies.children.some(m => m.userData.actor && actorStruct[m.userData.actor.name] === p.userData.name && objectLocked(m));
+  if (p === groupPivot) return keysLocked(groupKeys(), own);
+  if (own ? ownLocked(p) : objectLocked(p)) return true;
+  return isStruct(p) && proxies.children.some(m => m.userData.actor && actorStruct[m.userData.actor.name] === p.userData.name && ownLocked(m));
+}
+// hidden in the 3D view as a selection (it gets no gizmo): the object, or a member of a group; what a folder holds by
+// its own eye or Isolate only, as with selectionLocked (what the Show menu hides of a kind moves with its folder)
+function selectionHidden(p = selected) {
+  if (p !== groupPivot) return !!p && objectHidden(p);
+  return keysAny(groupKeys(), ownHidden, objectHidden);
 }
 function requireUnlocked(p = selected) {
   if (!selectionLocked(p)) return true;
-  status('This selection is locked. Unlock it in the Hierarchy to edit it.', 'warn');
+  sayLocked(selectionLocked(p, true), p === groupPivot ? members() : [p]);
   return false;
+}
+// the same for things as the Hierarchy names them (keysLocked: a folder by the padlocks of what it holds)
+function requireKeysUnlocked(keys) {
+  if (!keysLocked(keys)) return true;
+  sayLocked(keysLocked(keys, true), stateTargets(keys));
+  return false;
+}
+// why an edit is refused: by their own padlock, or by their kind's in the Show menu (named)
+function sayLocked(own, list) {
+  const kinds = own ? '' : kindsIn(list, 'locked');
+  status(kinds ? `${kinds}: locked in the Show menu of the 3D view. Unlock them there to edit this.` : 'This selection is locked. Unlock it in the Hierarchy to edit it.', 'warn');
+}
+// one thing of the selection held against a move or a turn: what a folder selected whole holds, by its own padlock
+// only (it moves with its folder: selectionLocked)
+function memberLocked(p) {
+  return selectionLocked(p, selected === groupPivot && !!groupPivot.userData.nest);
 }
 function stateTargets(specs) {
   const targets = specs.flatMap(k => k.startsWith('n:') ? nestLeaves(nestById(k.slice(2))) : [objOf(k)]).filter(Boolean);
@@ -1433,16 +1673,25 @@ function saveViewState() {
   if (temporaryTutorial()) return;
   try { localStorage.setItem(projectStorageKey('objects.' + script, projectContext), JSON.stringify({ hidden: [...state.hidden], locked: [...state.locked] })); } catch { /* optional preference */ }
 }
-const isIcon = (p) => ['light', 'path', 'logic'].includes(p.userData.kind) && !p.userData.model && !!p.userData.body;
+const isIcon = (p) => ICON_KINDS.includes(p.userData.kind) && !p.userData.model && !!p.userData.body;
+// an icon is drawn while the bulb (every icon) and its kind's icons (the Show menu) are on
+const iconShown = (p) => showIcons && !kindIs(p, 'noIcons');
 function applyObjectVisibility() {
   for (const p of proxies.children) if (keyOf(p)) {
     p.visible = !objectHidden(p);
-    if (isIcon(p)) p.userData.body.visible = showIcons;      // hidden icons cannot be clicked: pick them in the Hierarchy
+    if (isIcon(p)) p.userData.body.visible = iconShown(p);      // hidden icons cannot be clicked: pick them in the Hierarchy
   }
   for (const st of Object.values(structures)) st.obj.visible = !poseOf(st).deleted && !st.dissolved && !objectHidden(st.obj);
-  if (selected && (selectionLocked() || objectHidden(selected))) tc.detach();
+  if (selected && (selectionLocked() || selectionHidden())) tc.detach();
   if (selected && objectHidden(selected)) { outline.visible = false; lightRange.visible = false; soundRange.visible = false; triggerZone.visible = false; }
+  eyeOffCount = sceneObjects().filter(objectEyeOff).length;
+  vpBar?.refresh();
 }
+// what the eye and Isolate work on: the objects, blocks and drawings, and the structures still in the map
+function sceneObjects() {
+  return [...proxies.children.filter(p => keyOf(p)), ...Object.values(structures).filter(st => !poseOf(st).deleted && !st.dissolved).map(st => st.obj)];
+}
+function refreshObjectView() { applyObjectVisibility(); if (selected) select(selected); else buildHierarchy(); }
 function setObjectView(specs, property, value) {
   const state = viewState()[property];
   if (!state) return;
@@ -1455,11 +1704,57 @@ function setObjectView(specs, property, value) {
   }
   for (const key of keys) { if (value) state.add(key); else state.delete(key); }
   saveViewState();
-  applyObjectVisibility();
-  if (selected) select(selected); else buildHierarchy();
+  refreshObjectView();
 }
-function showAllObjects() { viewState().hidden.clear(); saveViewState(); applyObjectVisibility(); if (selected) select(selected); else buildHierarchy(); }
+function showAllObjects() { viewState().hidden.clear(); saveViewState(); refreshObjectView(); }
 function unlockAllObjects() { viewState().locked.clear(); saveViewState(); if (selected) select(selected); else buildHierarchy(); }
+// The Show menu (the 3D view's toolbar) and the Hierarchy's kind folders: a kind's eye, padlock or icons (state:
+// hidden, locked or noIcons), a kind alone, every kind back; then the view, as after an object's own eye
+const KIND_DONE = { hidden: ['shown again', 'hidden in the 3D view'], noIcons: ['icons shown', 'icons hidden'],
+  locked: ['unlocked', 'locked: not picked, marquee-selected, snapped to or edited'] };
+function changeKinds(change) { change(kindFilter()); saveKindFilter(); refreshObjectView(); }
+function setKindView(id, state, on) {
+  if (!SHOW_KIND[id] || !KIND_DONE[state]) return;
+  changeKinds(f => f.set(state, id, on));
+  status(`${SHOW_KIND[id].label}: ${KIND_DONE[state][on ? 1 : 0]}.`);
+}
+function soloKind(id) {
+  if (!SHOW_KIND[id]) return;
+  changeKinds(f => f.solo(id));
+  status(kindFilter().kinds('hidden').length ? `Only ${SHOW_KIND[id].label} shown: click the name again for every kind.` : 'Every kind is shown.');
+}
+function resetKinds() { changeKinds(f => f.reset()); status('Every kind is shown, unlocked and with its icons.'); }
+// how many of each kind the map has (when the Show menu opens)
+function showKindCounts() {
+  const n = Object.fromEntries(SHOW_KINDS.map(k => [k.id, 0]));
+  for (const p of sceneObjects()) n[sceneKindOf(p)]++;
+  return n;
+}
+// the icons' size (the Show menu's slider): every icon now, kept when the slider is let go
+function setIconSize(v, keep) {
+  const size = kindFilter().setIconSize(v);
+  setViewportIconSize(size, proxies.children.map(p => p.userData.body));
+  wake();
+  if (keep) saveKindFilter();
+  return size;
+}
+// Isolate (Shift+H, the 3D view's toolbar, View menu), as Unity's: only the selection is shown, with what it holds
+// and the structures it stands in, until it is pressed again (or another map opens, or Play starts)
+function toggleIsolation() {
+  if (sceneView.exit()) { refreshObjectView(); status('Isolation ended: the whole map is shown again.'); return; }
+  const picks = (selected === groupPivot ? members() : [selected]).filter(p => keyOf(p));
+  if (!picks.length) { status('Select what to isolate first, then press Shift+H.', 'warn'); return; }
+  const n = sceneView.isolate(sceneObjects().map(p => objectStateKeys(p)), picks.map(p => objectStateKeys(p)));
+  const off = kindsIn(picks, 'hidden');       // what the Show menu hides stays hidden
+  refreshObjectView();
+  status(`Isolated: ${n} ${n === 1 ? 'object' : 'objects'}${off ? ` (${off} stay hidden: the Show menu hides them)` : ''}. Shift+H or Exit in the 3D view's toolbar shows the rest again.`, 'ok');
+}
+// Show hidden (the crossed eye of the 3D view's toolbar, View menu): what the eye hid is shown for a while, its eye stays off
+function toggleRevealHidden() {
+  sceneView.setReveal(!sceneView.reveal);
+  refreshObjectView();
+  status(sceneView.reveal ? `Hidden objects shown for now (${eyeOffCount}): their eye stays off.` : 'Hidden objects are hidden again.');
+}
 function setGameEnabled(names, enabled) {
   const actors = [...new Set(names)].map(name => proxyOf(name)).filter(Boolean);
   if (!actors.length || actors.some(p => !requireUnlocked(p))) return;
@@ -1528,10 +1823,7 @@ function forgetKeys(keys) {            // things deleted: out of their nests (em
 }
 // the selection as nests know it: what was picked (a nest is one thing)
 function selKeys() {
-  if (selected === groupPivot) {
-    if (groupPivot.userData.nest) return ['n:' + groupPivot.userData.nest];
-    return (groupPivot.userData.keys || members().map(keyOf)).filter(Boolean);
-  }
+  if (selected === groupPivot) return groupKeys();
   const k = keyOf(selected);
   return k ? [k] : [];
 }
@@ -1577,7 +1869,7 @@ function bakeOut(st, pcs, objs) {
     edits.groups[pc.id] = setPose({}, { ...pose, offset: [0, 1, 2].map((i) => r1(c[i] - pc.pivot[i])), scale: scaleOf(pose) });
   }
   for (const n of objs) {
-    const mv = edits.moved[n], dl = edits.deleted[n], a = baseActors.find((x) => x.name === n);
+    const mv = edits.moved[n], a = baseActors.find((x) => x.name === n);
     if (mv) { if (mv.orig) mv.orig = toScript(mv.orig).map(r1); }      // its place in the script: no structure moves it now
     else if (a && (movedPose(pose) || movedPose(st.placement))) {
       const dy = (pose.yaw || 0) - (st.placement.yaw || 0);
@@ -1585,7 +1877,7 @@ function bakeOut(st, pcs, objs) {
                          orig: builtScript(a.loc).map(r1) };
       if (builtScale[n] && builtScale[n] !== 1) edits.moved[n].scale = builtScale[n];
     }
-    if (dl && dl.orig) dl.orig = toScript(dl.orig).map(r1);
+    for (const gone of keptPlaces(n)) gone.orig = toScript(gone.orig).map(r1);
   }
 }
 function takeOutOf(st, pcs, objs) {    // (the undo is the caller's)
@@ -1760,7 +2052,7 @@ function hierarchyRoots(keys) {
 }
 function nestKeys(keys) {
   keys = hierarchyRoots(keys);
-  if (stateTargets(keys).some(p => !requireUnlocked(p))) return;
+  if (!requireKeysUnlocked(keys)) return;
   if (!keys.length) { status('Select what to nest first: Ctrl+click several things (here or in the Hierarchy), or Ctrl+drag a rectangle.', 'warn'); return; }
   const poses = captureHierarchyActors(keys);
   pushUndo();
@@ -1782,7 +2074,7 @@ function nestKeys(keys) {
 function unnestNest(id) {
   const n = nestById(id);
   if (!n) return;
-  if (nestLeaves(n).some(p => !requireUnlocked(p))) return;
+  if (!requireKeysUnlocked(['n:' + id])) return;
   const poses = captureHierarchyActors(['n:' + id]);
   pushUndo();
   const up = parentNest('n:' + id);
@@ -1875,7 +2167,7 @@ function reparentCheck(spec, target) {
     if (object.userData.kind === 'mover') return { reason: 'Move the door’s structure; the door stays attached to its geometry.' };
     if (spec.startsWith('a:')) st = structures[actorStruct[spec.slice(2)]];
   }
-  if (stateTargets(stateKeys([spec, ...(target ? ['n:' + target] : [])])).some(p => selectionLocked(p)))
+  if (keysLocked([spec, ...(target ? ['n:' + target] : [])]))
     return { reason: 'Unlock the object and destination Nest before moving it.' };
   const from = parentNest(key), to = target ? nestById(target) : null;
   return { key, st, pc, from, to, unchanged: !st && (from?.id || null) === (target || null) };
@@ -1935,6 +2227,10 @@ document.body.appendChild(ctxMenu);
   #ctxmenu button:hover:not(:disabled) { background:var(--field); color:var(--heading, inherit); }
   #ctxmenu button:disabled { opacity:.45; cursor:default; }
   #ctxmenu small { color:var(--dim); }
+  #ctxmenu button > span { display:inline-flex; align-items:center; gap:6px; min-width:0; }
+  #ctxmenu button.on > span { color:var(--acc); }
+  #ctxmenu .hier-icon { display:inline-flex; width:16px; height:16px; flex:none; }
+  #ctxmenu .hier-icon svg { display:block; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
   #ctxmenu hr { border:0; border-top:1px solid var(--line); margin:4px 2px; }
   #details .inspector-object-heading { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
   #details .inspector-object-heading > b { flex:1; min-width:0; overflow-wrap:anywhere; }
@@ -1958,7 +2254,8 @@ document.body.appendChild(ctxMenu);
 let ctxItems = [], hierarchyDragging = false;
 function openMenu(x, y, items) {
   ctxItems = items;
-  ctxMenu.innerHTML = items.map((it, i) => it.sep ? '<hr>' : `<button data-ci="${i}" ${it.off ? 'disabled' : ''}><span>${escapeHtml(it.label)}</span>${it.key ? `<small>${escapeHtml(it.key)}</small>` : ''}</button>`).join('');
+  // it.icon: the kind's icon before the label (hierarchyIcon's), it.on: selected now
+  ctxMenu.innerHTML = items.map((it, i) => it.sep ? '<hr>' : `<button data-ci="${i}" ${it.off ? 'disabled' : ''}${it.on ? ' class="on"' : ''}><span>${it.icon || ''}${escapeHtml(it.label)}</span>${it.key ? `<small>${escapeHtml(it.key)}</small>` : ''}</button>`).join('');
   ctxMenu.classList.add('open');
   const r = ctxMenu.getBoundingClientRect();
   ctxMenu.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px';
@@ -1969,13 +2266,15 @@ ctxMenu.addEventListener('click', (e) => {
   const b = e.target.closest('[data-ci]');
   if (!b) return;
   closeMenu();
-  const it = ctxItems[+b.dataset.ci];
-  if (it && it.run && !it.off) Promise.resolve().then(it.run).catch(err => log(err.message, 'bad'));
+  const it = ctxItems[+b.dataset.ci], run = e.shiftKey && it?.toggle ? it.toggle : it?.run;    // Shift+click: its toggle, if it has one
+  if (run && !it.off) Promise.resolve().then(run).catch(err => log(err.message, 'bad'));
 });
 document.addEventListener('pointerdown', (e) => { if (!ctxMenu.contains(e.target)) closeMenu(); }, true);
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); }, true);
 window.addEventListener('blur', closeMenu);
-const menuKey = (id) => (window.__menubar ? window.__menubar.keyOf(id) : { nest: 'Ctrl+G', unnest: 'Ctrl+Shift+G' }[id]);
+// a command's key as Settings > Keyboard shortcuts binds it (menubar.js), else the editor's own
+const menuKey = (id) => (window.__menubar ? window.__menubar.keyOf(id)
+  : { nest: 'Ctrl+G', unnest: 'Ctrl+Shift+G', cut: 'Ctrl+X', move: 'W', rotate: 'E', scale: 'R' }[id]);
 function specSelect(spec) {            // the thing the menu is about becomes the selection
   if (spec.startsWith('p:')) { const [g] = spec.slice(2).split('|'); if (structures[g]) select(structures[g].obj); return; }
   if (spec.startsWith('n:')) { selectNest(spec.slice(2)); return; }
@@ -1997,7 +2296,7 @@ function menuFor(spec, surface = null) {
   }
   const sel = selKeys(), several = sel.length > 1 && sel.includes(spec);
   const keys = several ? sel : [spec];
-  const targets = stateTargets(keys), locked = targets.some(p => selectionLocked(p));
+  const targets = stateTargets(keys), locked = keysLocked(keys), ownLock = keysLocked(keys, true);
   if (!several) {
     const o = objOf(spec), d = o?.userData, a = d?.actor;
     const use = fn => () => { specSelect(spec); return fn(); };
@@ -2009,9 +2308,9 @@ function menuFor(spec, surface = null) {
     if (dialogue && !isCharacter(a)) items.push(dialogue);
     if (a) items.push({ sep:true });
   }
-  const hidden = targets.length > 0 && targets.every(objectHidden);
+  const hidden = targets.length > 0 && targets.every(objectEyeOff);
   items.push({ label: hidden ? 'Show in Scene' : 'Hide in Scene', run: () => setObjectView(keys, 'hidden', !hidden) });
-  items.push({ label: locked ? 'Unlock selection' : 'Lock selection', run: () => setObjectView(keys, 'locked', !locked) });
+  items.push({ label: ownLock ? 'Unlock selection' : 'Lock selection', run: () => setObjectView(keys, 'locked', !ownLock) });
   const actors = targets.filter(p => p.userData.actor), enabled = actors.some(p => !edits.disabled?.[p.userData.actor.name]);
   if (actors.length) items.push({ label: enabled ? 'Disable in game' : 'Enable in game', off: locked, run: () => setGameEnabled(actors.map(p => p.userData.actor.name), !enabled) });
   items.push({ sep: true });
@@ -2043,18 +2342,29 @@ function menuFor(spec, surface = null) {
   items.push({ label: 'Focus', key: 'F', run: () => { if (!several) specSelect(spec); focusSelected(); } });
   const ofClass = !several && objOf(spec)?.userData?.actor;
   if (ofClass) items.push({ label: `Select all ${clsShown(ofClass.cls)}`, run: () => selectAllOfClass(ofClass.cls) });
+  const referred = !several && objOf(spec);      // an object or a moving block: what points at it, what it points at
+  if (referred?.userData?.actor || referred?.userData?.box?.mover) items.push({ label: 'Find references', run: () => findReferences(referred) });
+  if (surface?.under) items.push({ label: 'Select under cursor…', key: 'Ctrl+right click', run: surface.under });
   items.push({ label: 'Duplicate', key: 'Ctrl+D', off: locked, run: actOnSelection(duplicateSelected) });
+  items.push({ label: 'Cut', key: menuKey('cut'), off: locked, run: actOnSelection(cutSelected) });
   items.push({ label: 'Copy', key: 'Ctrl+C', run: actOnSelection(copySelected) });
+  if (targets.some((p) => p.userData.actor))    // another class for each, at its place and under its name
+    items.push({ label: 'Replace with…', off: locked, run: actOnSelection(replaceSelection) });
   if (spec.startsWith('n:') || spec.startsWith('s:') || several)
     items.push({ label: 'Save as prefab…', off: !!gameView?.active, run: actOnSelection(() => prefabBrowser.save()) });
   for (const [m, label] of PLACE_MODES)        // Drop to floor / Stick to surface: the one chosen is End's
     items.push({ label, key: m === placeMode ? (menuKey('drop') || 'End') : '', off: locked, run: actOnSelection(() => placeSelected(m)) });
+  if (targets.some((p) => p.userData.actor))    // then a click on the point (T aims at the pointer at once)
+    items.push({ label: 'Aim at a point…', key: menuKey('aim') || 'T', off: locked, run: actOnSelection(() => armAim()) });
   items.push({ sep: true });
   items.push({ label: 'Create folder', key: menuKey('nest'), off: locked, run: () => { const before = nests().length; nestKeys(keys); if (nests().length > before && selected === groupPivot && groupPivot.userData.nest) renameFolder(groupPivot.userData.nest); } });
   if (spec.startsWith('n:')) {
     const id = spec.slice(2);
     items.push({ label: 'Un-nest', key: menuKey('unnest'), run: () => unnestNest(id) });
     items.push({ label: 'Rename', key: 'F2', run: () => { selectNest(id); if (!selected) hierFolderOn = id; renameFolder(id); } });
+    // as Unity's Set as Default Parent: what is placed, pasted, drawn or made goes into it from now on
+    const here = defaultFolder(edits)?.id === id;
+    items.push({ label: here ? 'New objects go to the top level' : 'New objects go here', run: () => setNewObjectsFolder(here ? null : id) });
   }
   const st = spec.startsWith('s:') && structures[spec.slice(2)];
   if (st && canTakeApart(st)) items.push({ label: 'Un-nest: take it apart', key: menuKey('unnest'), run: () => takeApart(st) });
@@ -2108,7 +2418,7 @@ function menuFor(spec, surface = null) {
     if (k.startsWith('n:')) return null;
     if (k.startsWith('s:')) return 'c:' + (structures[k.slice(2)]?.category || 'Other');
     const o = objOf(k);
-    return o ? 'k:' + (o.userData.kind || 'prop') : undefined;
+    return o ? kindFolder(o) : undefined;
   };
   // Over a row: its upper half = before it, lower half = after it (a line), the middle of a nest = into it.
   // Before/after puts the rows in that place: in the nest that holds the row, or in its folder.
@@ -2143,7 +2453,7 @@ function menuFor(spec, surface = null) {
     if (!dragSpec) return;
     const sel = selKeys();
     dragKeys = sel.length > 1 && sel.includes(dragSpec) ? sel : [dragSpec];
-    if (stateTargets(stateKeys(dragKeys)).some(p => selectionLocked(p))) { e.preventDefault(); dragSpec = null; dragKeys = []; return; }
+    if (keysLocked(dragKeys)) { e.preventDefault(); dragSpec = null; dragKeys = []; return; }
     hierarchyDragging = true;
     closeMenu();
     e.dataTransfer.effectAllowed = 'move';
@@ -2225,7 +2535,13 @@ function menuFor(spec, surface = null) {
     resetInput();
     rightDown = null;
     if (!selKeys().includes(spec)) specSelect(spec);
-    openMenu(e.clientX, e.clientY, menuFor(spec));
+    openMenu(e.clientX, e.clientY, [...menuFor(spec), { sep: true }, ...hierarchyCommands()]);
+  });
+  // anywhere else in the panel (a kind's folder, the space under the list): the Hierarchy's own commands
+  $('#left').addEventListener('contextmenu', (e) => {
+    if (!script || e.target.closest('input, textarea')) return;
+    e.preventDefault();
+    openMenu(e.clientX, e.clientY, hierarchyCommands());
   });
 }
 // the 3D view: a right click (not a drag: that turns the camera) opens the menu of what is under the mouse
@@ -2237,7 +2553,10 @@ canvas.addEventListener('pointerup', (e) => {
   rightDown = null;
   if (!quick || placing || lkPicking) return;
   const r = mouseRay(e);
-  const hp = visibleHits(r.intersectObjects(proxies.children, true))[0], hw = visibleHits(r.intersectObjects(world.children, true))[0];
+  const hitsP = visibleHits(r.intersectObjects(proxies.children, true)), hitsW = visibleHits(r.intersectObjects(world.children, true));
+  const under = () => openUnderMenu(e, hitsP, hitsW);
+  if (e.ctrlKey) return under();
+  const hp = hitsP[0], hw = hitsW[0];
   let o = null, textureHit = null;
   if (hp && (!hw || hp.distance <= hw.distance + 4)) { textureHit = hp; o = hp.object; while (o.parent !== proxies) o = o.parent; }
   else if (hw) { textureHit = hw; o = structureOf(hw.object); }
@@ -2247,12 +2566,21 @@ canvas.addEventListener('pointerup', (e) => {
     if (objectLocked(o)) specSelect(want); else pickOne(o, e);
   }
   const sel = selKeys();
-  openMenu(e.clientX, e.clientY, menuFor(sel.includes(want) ? want : sel[0] || want, { owner: o, hit: textureHit }));
+  openMenu(e.clientX, e.clientY, menuFor(sel.includes(want) ? want : sel[0] || want, { owner: o, hit: textureHit, under }));
 });
+
+// The Browser's favourites, as Unity's Project window has them: the star of a tile keeps it in a group at the top of its
+// section, for this project (browser-favourites.js; browser-tiles.js draws the stars); a star clicked draws it again
+// (Pieces, Prefabs and the texture picker draw their own)
+const favourites = createFavourites({ storage: () => safeStorage(), key: () => projectStorageKey('favourites', projectContext) });
+const objectFavs = favouriteShelf(favourites, 'objects'), modelFavs = favouriteShelf(favourites, 'models');
+const pieceFavs = favouriteShelf(favourites, 'pieces'), soundFavs = favouriteShelf(favourites, 'sounds');
+installStars(favourites);
+objectFavs.subscribe(buildPalette); modelFavs.subscribe(buildModels); soundFavs.subscribe(buildSounds);
 
 // Prefabs are durable project assets, independent from their source level and clipboard.
 const prefabBrowser = createPrefabBrowser({
-  api, escapeHtml, status,
+  api, escapeHtml, status, favourites: favouriteShelf(favourites, 'prefabs'),
   canSave: () => !!script && !gameView?.active && (selected === groupPivot || isStruct(selected)),
   isTemporary: () => temporaryTutorial(),
   getDefaultName: () => selected === groupPivot
@@ -2278,13 +2606,15 @@ const prefabBrowser = createPrefabBrowser({
 });
 
 // ---------------------------------------------------------------- proxies (the objects)
-const KIND_COLOR = { prop: 0x5aa2ff, pawn: 0xff6b6b, light: 0xffd25a, path: 0x6bd68a, logic: 0xc58cff, mover: 0xff9a3c, box: 0xb9c2d0 };
+const KIND_COLOR = { prop: 0x5aa2ff, pawn: 0xff6b6b, light: 0xffd25a, path: 0x6bd68a, logic: 0xc58cff, mover: 0xff9a3c, box: 0xb9c2d0,
+  sound: 0xc58cff, camera: 0xc58cff, zone: 0xc58cff };     // the Hierarchy's folders of a class: logic points, most of them
 
 function lightColor(l) {             // the colour the engine gives the light (hue, saturation)
   if (!l) return 0xffd25a;
   const [r, g, b] = ueLightRGB(l.hue ?? 0, l.sat ?? 255).map((v) => Math.round(v * 255));
   return (r << 16) | (g << 8) | b;
 }
+const lightHex = (l) => '#' + lightColor(l).toString(16).padStart(6, '0');      // the same as a colour picker has it
 
 // a light as the Properties panel has it now (edited values first, then the map's, then the class's)
 function liveLight(a) {
@@ -2297,19 +2627,20 @@ const lightRange = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE
 lightRange.visible = false;
 scene.add(lightRange);
 function showLightRange(p) {
-  const a = p && p.userData.kind === 'light' && p.userData.actor;
-  actorOverlays.bind(lightRange, p, !!a);
-  if (!a) return;
-  const l = liveLight(a);
-  lightRange.scale.setScalar(25 * (l.radius + 1));
-  lightRange.material.color.setHex(lightColor(l));
+  const r = p && p.userData.kind === 'light' ? rangesOf(p).find((x) => x.of === 'light') : null;
+  actorOverlays.bind(lightRange, p, r?.shape === 'sphere');          // a spotlight: its cone instead (drag-handles.js)
+  if (r?.shape !== 'sphere') return;
+  lightRange.scale.setScalar(r.size);
+  lightRange.material.color.setHex(r.color);
 }
-function refreshLight(p) {
+// its icon in the light's colour (several lights changed at once: that alone, no range sphere); false: not a light
+function tintLight(p) {
   const a = p && p.userData.actor;
-  if (!a || p.userData.kind !== 'light') return;
+  if (!a || p.userData.kind !== 'light') return false;
   if (p.userData.body && p.userData.body.material) p.userData.body.material.color.setHex(lightColor(liveLight(a)));
-  showLightRange(p);
+  return true;
 }
+function refreshLight(p) { if (tintLight(p)) showLightRange(p); }
 
 function makeProxy(a, source) {
   const g = new THREE.Group();
@@ -2713,7 +3044,8 @@ function ledgeNear(ue, radius) {
 const drawTools = createDrawTools({ THREE, T, scene, getEdits: () => edits, status, escapeHtml, getSnap: () => snap, texList: () => texList, probe: ledgeNear,
   dress: (g) => dressDrawn(g) });
 // Map > Sky & time of day (sky-tool.js; the sky box by editor/zones.py)
-const skyTool = createSkyTool({ THREE, scene, getEdits: () => edits, getScript: () => script, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName });
+const skyTool = createSkyTool({ THREE, scene, getEdits: () => edits, getScript: () => script, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName,
+  warnHiddenKinds, proxyOf });
 // Pose here: a character posed against the map where it stands (map-pose.js)
 const mapPose = createMapPose({ THREE, scene, camera, canvas, world, proxies, mouseRay, visibleHits, wake, api, edits: () => edits, pushUndo, setDirty,
   status, log, animsOf, animFrames, animatedModel, fitAnimated, meshOf, stopPreview, select, animsChanged, UE, commit });
@@ -2820,9 +3152,13 @@ textureTransfer = createTextureTransfer({ canvas,
     if (!surfaceTools.applyTextureAtHit(target.hit, texture.ref)) throw new Error('This face cannot be changed.');
     wake();
   } });
-// Alt+drag on a transform handle duplicates; Alt+click elsewhere still picks a face.
+// Alt+drag on a transform handle duplicates; elsewhere it turns the camera round the selection (orbitDrag), so an
+// Alt+click lets the selection go only once it ends without that drag: then it picks a face.
 canvas.addEventListener('pointerdown', e => {
-  if (e.button === 0 && !placing && !lkPicking && (surfaceTools.mode || (e.altKey && !tc.axis)) && selected) select(null);
+  if (e.button === 0 && !placing && !lkPicking && surfaceTools.mode && !e.altKey && selected) select(null);
+}, true);
+canvas.addEventListener('pointerup', e => {
+  if (e.button === 0 && !placing && !lkPicking && drag?.orbit === 'waiting' && selected) select(null);
 }, true);
 function mouseRay(e) {
   if (e.ray) return e.ray;                  // a click in an orthographic view (ortho-views.js) brings its own
@@ -2838,9 +3174,10 @@ function pick(e) {
   if (vertexEdit?.active) return void vertexEdit.click(e);      // Edit vertices: a click picks a corner
   if (textureTransfer?.armed) return void textureTransfer.paint(e);
   if (routeTest) return routeClick(e);       // Test a route: the clicks are its places
+  if (aimPicking || aimGesture(e)) return void aimClick(e);     // Aim at a point: the click is the point
   const r = mouseRay(e);
-  const hp = visibleHits(r.intersectObjects(proxies.children, true), !lkPicking)[0];
-  const hw = visibleHits(r.intersectObjects(world.children, true), !lkPicking)[0];
+  const hitsP = visibleHits(r.intersectObjects(proxies.children, true), !lkPicking), hitsW = visibleHits(r.intersectObjects(world.children, true), !lkPicking);
+  const hp = hitsP[0], hw = hitsW[0];
   if (!lkPicking && (e.altKey || surfaceTools.mode)) return surfaceTools.pick(hw, e.shiftKey);
   if (lkPicking) {                          // an interaction waits for its object (or a place)
     let o = null;
@@ -2857,12 +3194,7 @@ function pick(e) {
     if (o && !objectLocked(o)) toggleMulti(o);
     return;
   }
-  if (hp && (!hw || hp.distance <= hw.distance + 4)) {
-    let o = hp.object;
-    while (o.parent !== proxies) o = o.parent;
-    return pickOne(o, e);
-  }
-  pickOne(hw ? structureOf(hw.object) : null, e);
+  pickUnder(e, hitsP, hitsW);
 }
 // like a clip in Premiere: what is in a nest is picked as the whole nest; a double click picks it alone
 function pickOne(o, e) {
@@ -2875,6 +3207,34 @@ canvas.addEventListener('dblclick', (e) => {
   if (e.button !== 0 || placing || lkPicking || e.altKey || surfaceTools.mode || e.ctrlKey || e.shiftKey) return;
   pick({ inside: true, clientX: e.clientX, clientY: e.clientY, ctrlKey: false, altKey: false, shiftKey: e.shiftKey });
 });
+// Like Unity: a click again on the same spot picks the next thing under the pointer, behind the one selected,
+// and wraps (a light inside a lamp, a trigger inside a desk); a double click picks the nearest thing itself.
+// The map's own walls (no structure) are a step too: nothing selected. The status bar says which of how many.
+const pickCycle = createPickCycle();
+function stackUnder(hitsP, hitsW) {          // the keys under the pointer, nearest first (selection-tools.js)
+  const top = (o) => { while (o.parent !== proxies) o = o.parent; return o; };
+  const hits = [...hitsP.map((h) => ({ key: keyOf(top(h.object)), distance: h.distance, proxy: true })),
+    ...hitsW.map((h) => ({ key: keyOf(structureOf(h.object)), distance: h.distance, proxy: false }))];
+  return stackKeys(hits, (k) => { const n = outerNest(k); return n ? 'n:' + n.id : null; });
+}
+function pickUnder(e, hitsP, hitsW) {
+  const stack = stackUnder(hitsP, hitsW), sel = selKeys();
+  const current = sel.length === 1 ? sel[0] : sel.length ? undefined : null;      // nothing, one, several
+  const i = e.inside ? (stack[0]?.startsWith('n:') ? 1 : 0) : pickCycle.next([e.clientX, e.clientY], stack, current, e.timeStamp);
+  const key = stack[i];
+  if (sel.length === 1 && key === sel[0]) return;      // already it (a double click's second click): left as it is
+  if (key) specSelect(key); else select(null);
+  if (stack.length > 1) status(`Under the pointer, ${i + 1} of ${stack.length}: ${key ? keyLabel(key)[0] : "the map's walls (nothing selected)"}. Click again for the next.`);
+}
+// Unity's Select under cursor (Ctrl+right click, or the item of the right-click menu): everything under the
+// pointer that can be picked, nearest first; a click selects it alone, Shift+click adds it or takes it away
+function openUnderMenu(e, hitsP, hitsW) {
+  const sel = new Set(selKeys()), keys = stackUnder(visibleHits(hitsP, true), visibleHits(hitsW, true)).filter(Boolean);
+  openMenu(e.clientX, e.clientY, keys.length ? keys.map((k) => {
+    const [label, name] = keyLabel(k);
+    return { label, key: name, icon: keyIcon(k), on: sel.has(k), run: () => specSelect(k), toggle: () => toggleKey(k) };
+  }) : [{ label: 'Nothing to select under the pointer', off: true }]);
+}
 
 function isStruct(p) { return p && p.userData.kind === 'structure'; }
 // UnrealEd's Select All <class>: every object of the map of that class that can be picked (not hidden, not locked)
@@ -2908,16 +3268,29 @@ function setMulti(list, nest = null, keys = null) {
   groupPivot.userData.members = list;
   groupPivot.userData.nest = nest;
   groupPivot.userData.keys = keys || list.map(keyOf);
-  const c = new THREE.Vector3();
-  for (const m of list) c.add(m.position);
-  groupPivot.position.copy(c.multiplyScalar(1 / list.length));
-  groupPivot.rotation.set(0, 0, 0);
+  placeGroupPivot();
   groupPivot.scale.set(1, 1, 1);
   select(groupPivot);
 }
+// the group's gizmo, as the toolbar says (Unity's): at the middle of the members' bounds (Center) or on the
+// last one picked (Pivot), along the map's axes (Global) or that last one's own (Local)
+function placeGroupPivot() {
+  const list = groupPivot.userData.members, last = list[list.length - 1];
+  groupPivot.position.fromArray(groupPivotAt(gizmo.pivot, pivotItems(list, gizmo.pivot)));
+  groupPivot.quaternion.copy(gizmo.space === 'local' ? rotations.quat(objectRotation(last)) : new THREE.Quaternion());
+}
+// the members as groupPivotAt takes them: their places, and for Center their bounds
+function pivotItems(list, mode) {
+  return list.map((m) => {
+    const b = mode === 'center' ? placementGeometry.bounds(m) : null;
+    return b && !b.isEmpty() ? { at: m.position.toArray(), lo: b.min.toArray(), hi: b.max.toArray() } : { at: m.position.toArray() };
+  });
+}
 function toggleMulti(p) {
-  if (!canGroup(p)) return;
-  const cur = selKeys(), k = keyOf(p);
+  if (canGroup(p)) toggleKey(keyOf(p));
+}
+function toggleKey(k) {                  // one more in the selection, or one less
+  const cur = selKeys();
   selectKeys(cur.includes(k) ? cur.filter((x) => x !== k) : cur.concat([k]));
 }
 function drawMultiBoxes() {                // the outline of every member (each frame: they move)
@@ -2925,14 +3298,14 @@ function drawMultiBoxes() {                // the outline of every member (each 
   multiBoxes.visible = ms.length > 0;
   if (!ms.length) return;
   while (multiBoxes.children.length < ms.length) multiBoxes.add(createSelectionOutline(THREE));
-  multiBoxes.children.forEach((h, i) => { h.visible = i < ms.length && !objectHidden(ms[i]); if (h.visible) h.setFromObject(ms[i]); });
+  multiBoxes.children.forEach((h, i) => { h.visible = i < ms.length && ms[i].visible && !objectHidden(ms[i]); if (h.visible) h.setFromObject(ms[i]); });
 }
 // a rectangle of the view: the objects whose centre is in it join the selection
 let marquee = null;
 function marqueeSelect(x0, y0, x1, y1) {
   const r = canvas.getBoundingClientRect(), lo = [Math.min(x0, x1), Math.min(y0, y1)], hi = [Math.max(x0, x1), Math.max(y0, y1)];
-  const inside = [...proxies.children, ...Object.values(structures).filter(st => liveStruct(st.obj)).map(st => st.obj)].filter((q) => {
-    if (!canGroup(q) || !q.visible || objectLocked(q)) return false;
+  const inside = pickables().filter((q) => {
+    if (isIcon(q) && !iconShown(q)) return false;           // an icon not drawn (the bulb, its kind's icons)
     const bounds = placementGeometry.bounds(q);
     const v = (bounds.isEmpty() ? q.getWorldPosition(new THREE.Vector3()) : bounds.getCenter(new THREE.Vector3())).project(camera);
     if (v.z > 1 || v.z < -1) return false;
@@ -2942,6 +3315,22 @@ function marqueeSelect(x0, y0, x1, y1) {
   const cur = selected === groupPivot ? members() : (canGroup(selected) ? [selected] : []);
   setMulti(cur.concat(inside));
   status(`${members().length || (selected ? 1 : 0)} selected`);
+}
+// what a click or a rectangle can pick: objects, blocks, drawings and structures shown and not locked
+function pickables() {
+  return [...proxies.children, ...Object.values(structures).filter(st => liveStruct(st.obj)).map(st => st.obj)]
+    .filter((q) => canGroup(q) && q.visible && !objectLocked(q));
+}
+// Edit > Select all (Ctrl+A) and Invert selection (Ctrl+I), as Unity's: of what can be picked
+function selectAll() {
+  const list = pickables();
+  setMulti(list);
+  status(list.length ? `${list.length} selected.` : 'Nothing to select: everything is hidden or locked.', list.length ? 'ok' : 'warn');
+}
+function invertSelection() {
+  const list = invertPick(pickables(), selected === groupPivot ? members() : [selected]);
+  setMulti(list);
+  status(`${list.length} selected: what was not.`, 'ok');
 }
 
 function select(p, keepInspector = false) {
@@ -2963,7 +3352,7 @@ function select(p, keepInspector = false) {
   showSoundRange(p);
   revealInHierarchy(p);
   buildHierarchy();
-  if (p && !selectionLocked(p) && !objectHidden(p) && !(p === groupPivot && members().some(objectHidden))) {
+  if (p && !selectionLocked(p) && !selectionHidden(p)) {
     tc.attach(p);
     const st = isStruct(p) && structures[p.userData.name];
     let m = tc.mode;
@@ -2998,11 +3387,31 @@ function setMode(m) {
   vpBar?.refresh();
 }
 const SNAP = { move: 16, rotate: 15 };       // grid snap steps: units, degrees (Settings, menubar.js)
+let snapKeys = null;                         // Ctrl and Shift in a gizmo drag, until the drag is written (null: no drag)
+// grid snap now: the toggle (G), the other way while Ctrl alone is held in a gizmo drag (grid-snap.js)
+const gridSnap = () => (snapKeys ? dragSnap(snap, snapKeys) : snap);
 function applySnap() {
-  tc.setTranslationSnap(snap ? SNAP.move : null);
-  tc.setRotationSnap(snap ? THREE.MathUtils.degToRad(SNAP.rotate) : null);
-  tc.setScaleSnap(snap ? (selected && selected.userData.kind === 'box' ? 0.0001 : 0.05) : null);
+  const on = gridSnap();
+  tc.setTranslationSnap(on && tc.space !== 'local' ? SNAP.move : null);     // Local: steps from where it was (stepLocalMove)
+  tc.setRotationSnap(on ? THREE.MathUtils.degToRad(SNAP.rotate) : null);
+  tc.setScaleSnap(on ? (selected && selected.userData.kind === 'box' ? 0.0001 : 0.05) : null);
   vpBar?.refresh();                        // the steps can change in File > Settings too
+}
+// Center / Pivot (Z) and Global / Local (X), the 3D view's toolbar (gizmo-tools.js): kept in Settings, which
+// gives them back when the editor starts, as it does the grid steps (menubar.js)
+const gizmo = { pivot: 'center', space: 'global' };
+function setGizmo(choice) {
+  for (const name of Object.keys(GIZMO_CHOICES)) gizmo[name] = gizmoChoice(name, choice[name] ?? gizmo[name]);
+  tc.setSpace(gizmo.space === 'local' ? 'local' : 'world');
+  if (selected === groupPivot && !tc.dragging) placeGroupPivot();
+  applySnap();
+}
+function toggleGizmo(name) {
+  if (tc.dragging) return;
+  const v = nextGizmoChoice(name, gizmo[name]), o = gizmoOption(name, v);
+  if (window.__menubar?.setPref) window.__menubar.setPref(GIZMO_CHOICES[name].pref, v); else setGizmo({ [name]: v });
+  const last = name === 'pivot' && v === 'pivot' && members().at(-1);
+  status(`${o.label}: ${o.tip}${last ? ` (here ${objectLabel(last)[0]})` : ''}.`);
 }
 
 let scaleStart = null;                  // scale of an object when the drag began (objects scale evenly)
@@ -3029,7 +3438,9 @@ canvas.addEventListener('pointerdown', (e) => {          // before the gizmo's o
     altCopyUndo = true;
   }
   if (tc.mode === 'scale' && tc.axis === 'XYZ') evenScale = { x: e.clientX, y: e.clientY, drag: 0, vertical: false };
-  if (tc.mode === 'rotate' && canTilt(selected)) foldTilt(selected);
+  // turning every way, or moving a tilted object along its own axes (Local): its pitch and roll go on its group
+  if ((tc.mode === 'rotate' && canTilt(selected))
+    || (tc.mode === 'translate' && tc.space === 'local' && tc.axis !== 'XYZ' && (selected.userData.tilt || selected.userData.roll))) foldTilt(selected);
 }, true);
 canvas.addEventListener('pointermove', (e) => {
   if (!evenScale || !tc.dragging) return;
@@ -3045,14 +3456,27 @@ function evenScaleNow() {
   const from = selected === groupPivot ? groupStart && groupStart.scale : scaleStart;
   if (!from) return;
   let f = 1 + evenScale.drag;
-  if (snap && selected.userData.kind !== 'box') f = Math.round(f * 20) / 20;      // 5% steps (a block snaps to 8 units)
+  if (gridSnap() && selected.userData.kind !== 'box') f = Math.round(f * 20) / 20;      // 5% steps (a block snaps to 8 units)
   selected.scale.copy(from).multiplyScalar(Math.max(0.05, f));
 }
+// Local with grid snap: a move goes in whole grid steps along the axes it started with, from where it was
+// (Unity's incremental snap; three.js would round to a grid of its own through the map's origin)
+let localMoveFrom = null;               // {pos, quat} of what the gizmo holds when a drag began
+function stepLocalMove() {
+  const o = tc.object;
+  if (!localMoveFrom || !o || !gridSnap() || !tc.dragging || tc.mode !== 'translate' || tc.space !== 'local') return;
+  const frame = tc.axis === 'XYZ' ? new THREE.Quaternion() : localMoveFrom.quat;     // the middle square: the map's axes
+  const off = o.position.clone().sub(localMoveFrom.pos).applyQuaternion(frame.clone().invert());
+  o.position.copy(localMoveFrom.pos).add(new THREE.Vector3(...snapSteps(off.toArray(), SNAP.move)).applyQuaternion(frame));
+}
+// A structure carries its own map actors, so a separately selected child is not transformed twice.
+function uncarried(ms) {
+  const carried = new Set(ms.filter(isStruct).map(m => m.userData.name));
+  return ms.filter(m => !(m.userData.actor && m.userData.source === 'map' && carried.has(actorStruct[m.userData.actor.name])));
+}
 function beginGroupMove() {
-  // A structure carries its own map actors, so a separately selected child is not transformed twice.
-  const ms = members(), carried = new Set(ms.filter(isStruct).map(m => m.userData.name));
   return { pos: groupPivot.position.clone(), quat: groupPivot.quaternion.clone(), scale: groupPivot.scale.clone(), mode: tc.mode,
-    m: ms.filter(m => !(m.userData.actor && m.userData.source === 'map' && carried.has(actorStruct[m.userData.actor.name])))
+    m: uncarried(members())
       .map(m => ({ m, pos: m.position.clone(), quat: rotations.quat(objectRotation(m)), scale: m.scale.clone(), st: isStruct(m) ? beginStructMove(m) : null })) };
 }
 function followGroupMove(state) {
@@ -3073,6 +3497,7 @@ function followGroupMove(state) {
   }
 }
 tc.addEventListener('dragging-changed', (e) => {
+  localMoveFrom = e.value && tc.dragging && tc.object ? { pos: tc.object.position.clone(), quat: tc.object.quaternion.clone() } : null;
   if (selected === groupPivot) {            // several objects: each one written when the drag ends
     if (e.value) {
       beginTransformUndo();
@@ -3094,6 +3519,8 @@ tc.addEventListener('dragging-changed', (e) => {
 });
 tc.addEventListener('objectChange', () => {
   evenScaleNow();
+  stepLocalMove();
+  snapWhileMoving();
   if (selected === groupPivot && groupStart) {
     followGroupMove(groupStart);
     return;
@@ -3109,11 +3536,201 @@ tc.addEventListener('objectChange', () => {
   showDetails(true);
 });
 
+// ---- Snapping while the gizmo moves something, as Unity's. V held: vertex snapping, the selection's corner nearest the
+// pointer onto the corner of the map or of another object nearest the pointer, a dot marks it (vertex-snap.js).
+// Ctrl+Shift on the middle square: surface snapping, it slides over what is under the pointer and rests on it. Ctrl
+// alone: grid snap the other way for as long as it is held (grid-snap.js). Moves only, of a group too; the drag stays
+// one Ctrl+Z, written when it ends as any move of the gizmo.
+let moving = null;            // the drag: {free: where the gizmo put it, turn: its turn then, parts, corners, turned, stuck}
+let vertexSnapKey = false;    // V (Edit vertices' key) held since it went down in a drag
+let dragPointer = [0, 0];     // the pointer over the 3D view, page pixels
+const snapMark = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+  new THREE.PointsMaterial({ size: 10, sizeAttenuation: false, depthTest: false, transparent: true }));
+snapMark.renderOrder = 999;
+snapMark.visible = false;
+scene.add(snapMark);
+canvas.addEventListener('pointermove', (e) => {          // before the gizmo's own (capture): Ctrl and Shift as they are now
+  dragPointer = [e.clientX, e.clientY];
+  if (!snapKeys) return;
+  const was = gridSnap();
+  snapKeys = { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey };
+  if (gridSnap() !== was) applySnap();
+}, true);
+tc.addEventListener('dragging-changed', (e) => {        // after the first one (it writes the move), so the drag is written
+  if (e.value) {
+    if (!tc.dragging) return;              // a drag in a Top, Front or Side view (ortho-views.js): none of this
+    const o = tc.object, d = o.userData;
+    moving = { free: o.position.clone(), turn: { quat: o.quaternion.clone(), tilt: d.tilt, roll: d.roll } };
+    snapKeys = { ctrlKey: false, shiftKey: false };
+    return;
+  }
+  if (!moving) return;
+  if (moving.stuck && keepStuck(selected, moving.stuck)) { setDirty(); showDetails(); }
+  moving = null;
+  snapMark.visible = false;
+  snapKeys = null;
+  applySnap();
+});
+// each move of the drag (objectChange): onto a corner while V is held, else over the surfaces with Ctrl+Shift on the
+// middle square, else where the gizmo puts it (with its own turn again, if a slide had turned it)
+function snapWhileMoving() {
+  const o = tc.object;
+  if (!moving || !o || tc.mode !== 'translate') return;
+  moving.free = o.position.clone();
+  if (moving.turned) turnBack(o);
+  moving.stuck = null;
+  snapMark.visible = false;
+  const slide = snapKeys?.ctrlKey && snapKeys.shiftKey && tc.axis === 'XYZ';
+  if (!vertexSnapKey && !slide) return;
+  if (selected === groupPivot && groupStart) followGroupMove(groupStart);    // its members where the gizmo has them
+  if (vertexSnapKey && snapToCorner(o)) return;
+  if (slide) slideOver(o);
+}
+// V down or up in a drag: the move again at once, from where the gizmo has it
+function holdVertexSnap(on) {
+  if (vertexSnapKey === on) return;
+  vertexSnapKey = on;
+  if (!moving || tc.mode !== 'translate') { snapMark.visible = false; return; }
+  tc.object.position.copy(moving.free);
+  tc.dispatchEvent({ type: 'objectChange' });
+  wake();
+}
+// V let go (or the key Settings gave Edit vertices; or the page left): vertex snapping ends
+const vertexKey = () => (window.__menubar?.keyOf?.('vertices') || 'V').split('+').pop().toLowerCase();
+window.addEventListener('keyup', (e) => { if (vertexSnapKey && ['v', vertexKey()].includes(e.key.toLowerCase())) holdVertexSnap(false); });
+window.addEventListener('blur', () => holdVertexSnap(false));
+// where points show in the 3D view, [x, y] in page pixels (null behind the camera), for this frame
+function screenPoint() {
+  const r = canvas.getBoundingClientRect(), q = new THREE.Vector3();
+  return (v) => { q.copy(v).project(camera); return q.z > 1 ? null : [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height]; };
+}
+// the corners a selection snaps by: a block's own corners, a model's bounds and its pivot (an icon: its pivot), the
+// vertices of a structure, a Piece or a drawing
+function snapCorners(p) {
+  const d = p.userData, block = d.kind === 'box' && blockWorld(p);
+  if (block) return block.map(T);
+  if (!d.actor) { const pts = []; placementGeometry.points(p, (v) => pts.push(v.clone())); return pts; }
+  const b = placementGeometry.bounds(p), pivot = p.getWorldPosition(new THREE.Vector3());
+  return b.isEmpty() ? [pivot] : [pivot, ...boxCorners(b.min.toArray(), b.max.toArray()).map((c) => new THREE.Vector3(...c))];
+}
+// the corners under the pointer: of the triangles that rays round it meet on the map, its structures, models, blocks
+// and drawings (solidAlong), the selection left out
+function cornersUnder(at, ignored) {
+  scene.updateMatrixWorld(true);
+  const out = [];
+  for (const [dx, dy] of ringAround()) {
+    const h = solidAlong(mouseRay({ clientX: at[0] + dx, clientY: at[1] + dy }), ignored, true), pos = h?.object.geometry.getAttribute('position');
+    if (pos) for (const i of [h.face.a, h.face.b, h.face.c]) out.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(h.object.matrixWorld));
+  }
+  return out;
+}
+// V: the selection's corner nearest the pointer onto the corner of the rest nearest the pointer, when one is near
+// enough (true: it went there). Its corners are taken once a drag, from where it is then: the drag only moves them.
+function snapToCorner(o) {
+  moving.parts = moving.parts || selectionParts();
+  moving.corners = moving.corners || moving.parts.list.flatMap(snapCorners).map((v) => v.sub(o.position));
+  const s = vertexSnap(moving.corners.map((v) => v.clone().add(o.position)), cornersUnder(dragPointer, moving.parts.ignored), dragPointer, screenPoint());
+  if (!s) return false;
+  snapMark.position.copy(s.to || s.from);
+  snapMark.material.color.setHex(s.to ? 0xffa040 : 0xffffff);     // orange: on a corner
+  snapMark.visible = true;
+  if (s.to) o.position.add(s.to.clone().sub(s.from));
+  return !!s.to;
+}
+// How far the parts go for the middle of their bounds (without any: origin) to be on `at`; with a surface's normal n,
+// then out along it until they rest on the surface (Drop to floor's rule, placementGeometry.lift). They stay put.
+function restOffset(list, at, origin, n = null) {
+  const box = new THREE.Box3();
+  for (const p of list) box.union(placementGeometry.bounds(p));
+  const over = at.clone().sub(box.isEmpty() ? origin : box.getCenter(new THREE.Vector3()));
+  if (!n) return over;
+  const lift = placementGeometry.lift(list, at.clone().sub(over), n);     // the plane moved back instead of the parts
+  return over.addScaledVector(n, lift);
+}
+// Ctrl+Shift on the middle square: over the surface under the pointer, resting on it by its bounds as Drop to floor
+// does (the bounds' middle over the point, on the grid along the surface with Grid snap). In Stick mode (the Drop
+// button's choice) one object also turns to the surface, as Stick to surface turns it; the rest keep their turn.
+function slideOver(o) {
+  moving.parts = moving.parts || selectionParts();
+  const list = moving.parts.list, r = mouseRay({ clientX: dragPointer[0], clientY: dragPointer[1] }), dir = r.ray.direction.clone();
+  scene.updateMatrixWorld(true);
+  const hit = solidAlong(r, moving.parts.ignored, true);
+  if (!hit) return;
+  const n = facingNormal(hit, dir), at = hit.point.clone();
+  if (gridSnap()) at.fromArray(surfaceOnGrid(at.toArray(), n.toArray(), SNAP.move));
+  const one = list.length === 1 && list[0] === o ? o : null;
+  if (placeMode === 'stick' && one?.userData.actor) { moving.stuck = stickPose(one, { point: at, n }); moving.turned = true; return; }
+  if (placeMode === 'stick' && one && (!isStruct(one) || structures[one.userData.name].rotatable)) { placementGeometry.align(one, n); moving.turned = true; }
+  o.position.add(restOffset(list, at, o.position, n));       // a group's members follow when the drag's move is written
+}
+// the turn it had when the drag began, after a slide in Stick mode
+function turnBack(o) {
+  const t = moving.turn, d = o.userData;
+  o.quaternion.copy(t.quat);
+  if (d.actor) { d.tilt = t.tilt; d.roll = t.roll; applyTilt(o); }
+  moving.turned = false;
+}
+
+// ---- Grid (as Unity's): Edit > Push to grid (Ctrl+\), Ctrl+[ / Ctrl+] for the grid step, the 3D view's grid
+// (view-grid.js; the toolbar's button, View > Grid)
+// a step of the toolbar (the grid's, 'move', or the turns', 'rotate'), kept in Settings
+function setGridStep(kind, v) {
+  if (window.__menubar?.setPref) window.__menubar.setPref(kind === 'move' ? 'gridMove' : 'gridRotate', v);
+  else { SNAP[kind] = v; applySnap(); }
+  status(kind === 'move' ? `Grid step ${v} units` : `Rotation step ${v}°`);
+}
+const stepGrid = (dir) => setGridStep('move', nextGridStep(SNAP.move, dir));      // Ctrl+[ halves, Ctrl+] doubles
+// the point Push to grid puts on the grid (the game's axes): a block not turned, its lowest corner; a turned one, the
+// middle of its corners; the rest, its pivot
+function gridAnchor(p) {
+  const b = p.userData.kind === 'box' && p.userData.box;
+  if (!b) return UE(p.position);
+  return (b.rot || []).some(Boolean) ? b.lo.map((v, k) => (v + b.hi[k]) / 2) : [...b.lo];
+}
+// each selected thing onto the nearest grid point (an object keeps its height: it stands on its floor), one Ctrl+Z
+function pushToGrid() {
+  if (!requireUnlocked()) return;
+  const moves = selectionParts().list.map((p) => [p, pushMove(gridAnchor(p), SNAP.move, !!p.userData.actor)]).filter(([, d]) => d);
+  if (!moves.length) { status(selected ? `Already on the grid (${SNAP.move} units).` : 'Select something to push onto the grid.', selected ? 'ok' : 'warn'); return; }
+  pushUndo();
+  const keep = selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
+  for (const [p, d] of moves) {
+    const ms = isStruct(p) ? beginStructMove(p) : null, from = p.position.clone();
+    p.position.add(T(d));
+    if (ms) { followStructure(ms); commitStructure(ms, true); }
+    else if (p.userData.kind === 'box') shiftBlock(p, from);
+    else commit(p);
+  }
+  setDirty(); showDetails();
+  if (keep) selectKeys(keep.keys, keep.nest);
+  status(`${moves.length} pushed onto the grid (${SNAP.move} units). Ctrl+Z undoes.`, 'ok');
+}
+// where the 3D view's grid lies (three's height): the bottom of the selection, else the map's floor under the camera
+// (a ray down, again once the camera has gone a little way)
+let floorProbe = null;            // {at: where the camera was, y: the floor's height there, or null}
+function gridFloor() {
+  const box = selectionBox();
+  if (box) return box.min.y;
+  if (!floorProbe || floorProbe.at.distanceToSquared(camera.position) > 32 * 32) {
+    const hit = visibleHits(new THREE.Raycaster(camera.position.clone(), new THREE.Vector3(0, -1, 0)).intersectObjects(worldMeshes, false))[0];
+    floorProbe = { at: camera.position.clone(), y: hit ? hit.point.y : null };
+  }
+  return floorProbe.y;
+}
+// the toolbar's grid button and View > Grid: kept in this browser
+function setViewGrid(on) {
+  viewGrid.on = on;
+  try { localStorage.setItem('deusedix.viewGrid', on ? '1' : '0'); } catch { /* no storage */ }
+  vpBar?.refresh();
+  wake();
+  status(on ? `Grid shown at the floor of the selection (else under the camera), a cell ${SNAP.move} units` : 'Grid hidden');
+}
+
 // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): each change is one state (applying a texture from the Texture Editor too:
 // Ctrl+Z takes it away, Ctrl+Y puts it back; Gabby, 17 Oct 2026)
 const redoStack = [];
-function pushUndo() {
-  undo.push(JSON.stringify(edits));
+function pushUndo(state = JSON.stringify(edits)) {      // state: the edits as a change found them (a drag keeps them)
+  undo.push(state);
   if (undo.length > 100) undo.shift();
   redoStack.length = 0;
 }
@@ -3137,11 +3754,15 @@ function commit(p) {
   const d = p.userData;
   if (d.kind === 'structure') return commitStructure();
   if (d.kind === 'drawn') { drawTools.commitMove(p); setDirty(); showDetails(); return; }
-  if (d.kind === 'box') {
+  // a turn keeps a block's size, on the grid or not (turnBlock): its corners follow its middle (a group turning moves it)
+  if (d.kind === 'box' && p.quaternion.angleTo(rotations.quat(d.box.rot)) > 2e-4) {
+    shiftBlock(p, T(d.box.lo.map((v, k) => (v + d.box.hi[k]) / 2)));
+    turnBlock(p);
+  } else if (d.kind === 'box') {
     const b = d.box, c = UE(p.position);
     b.rot = rotations.rot(p.quaternion);
     const sx = Math.abs(p.scale.x), sy = Math.abs(p.scale.z), sz = Math.abs(p.scale.y);
-    const snapv = (v) => snap ? Math.max(8, Math.round(v / 8) * 8) : Math.max(4, r1(v));
+    const snapv = (v) => gridSnap() ? Math.max(8, Math.round(v / 8) * 8) : Math.max(4, r1(v));
     const w = snapv(sx), dpt = snapv(sy), h = snapv(sz);
     b.lo = [r1(c[0] - w / 2), r1(c[1] - dpt / 2), r1(c[2] - h / 2)];
     b.hi = [r1(c[0] + w / 2), r1(c[1] + dpt / 2), r1(c[2] + h / 2)];
@@ -3169,19 +3790,26 @@ function commit(p) {
   showDetails();
 }
 
-function setDirty() { editRevision++; dirty = true; showChanges(); buildStructList(); buildHierarchy(); status(`${mapName}: unsaved changes`, 'warn'); }
+// (a folder deleted or un-nested takes "New objects go here" with it: hierarchy-folders.js)
+function setDirty() { forgetGoneDefault(edits); editRevision++; dirty = true; showChanges(); buildStructList(); buildHierarchy(); status(`${mapName}: unsaved changes`, 'warn'); }
 
 function dropSelected() {
   if (!requireUnlocked()) return;
   placeOnSurfaces('drop');
 }
-function placeOnSurfaces(mode) {
-  const many = selected === groupPivot, all = (many ? members() : [selected]).filter(Boolean);
+// what a command on the selection moves (list: a structure's own objects go with it, not on their own) and what the
+// rays of a placement leave out (ignored: the selection and the objects its structures carry)
+function selectionParts() {
+  const all = (selected === groupPivot ? members() : [selected]).filter(Boolean);
   const carried = new Set(all.filter(isStruct).map(p => p.userData.name));
-  const list = all.filter(p => !(p.userData.actor && carried.has(actorStruct[p.userData.actor.name])));
+  const isCarried = (p) => p.userData.actor && carried.has(actorStruct[p.userData.actor.name]);
   const ignored = new Set(all);
-  for (const p of proxies.children) if (p.userData.actor && carried.has(actorStruct[p.userData.actor.name])) ignored.add(p);
-  const found = list.filter(p => !selectionLocked(p))
+  for (const p of proxies.children) if (isCarried(p)) ignored.add(p);
+  return { list: all.filter(p => !isCarried(p)), ignored };
+}
+function placeOnSurfaces(mode) {
+  const many = selected === groupPivot, { list, ignored } = selectionParts();
+  const found = list.filter(p => !memberLocked(p))
     .map(p => [p, mode === 'stick' ? stickTarget(p, ignored) : dropTarget(p, ignored)]).filter(([, hit]) => hit);
   if (!found.length) { log(`${placeModeLabel(mode)}: no reachable surface for this selection.`, 'warn'); return; }
   pushUndo();
@@ -3200,12 +3828,21 @@ function placeOnSurfaces(mode) {
 function surfaceHit(from, dir, ignored, far) {
   scene.updateMatrixWorld(true);
   ray.set(from, dir.clone().normalize()); ray.far = far;
-  try {
-    const hits = ray.intersectObjects([...world.children, ...proxies.children], true);
-    return visibleHits(hits).find(h => h.distance > 0.05 && h.face && !placementGeometry.belongs(h.object, ignored)
-      && !h.object.isSprite && (h.object.userData.world || structureOf(h.object) || h.object.parent?.userData.model === h.object
-        || placementGeometry.belongs(h.object, new Set(proxies.children.filter(p => p.userData.model || p.userData.box || p.userData.drawn)))));
-  } finally { ray.far = Infinity; }
+  ray.camera = camera;                     // the icons (sprites) it meets face this camera: three.js needs it to hit them
+  try { return solidAlong(ray, ignored); } finally { ray.far = Infinity; }
+}
+// the first thing a ray meets that objects rest on: the map, a structure, a model, a block or a drawing (not what is
+// in `ignored`, nor an icon; pickable: nor what is locked, as snapping has it); the scene's matrices up to date
+function solidAlong(r, ignored, pickable = false) {
+  const hits = r.intersectObjects([...world.children, ...proxies.children], true);
+  return visibleHits(hits, pickable).find(h => h.distance > 0.05 && h.face && !placementGeometry.belongs(h.object, ignored)
+    && !h.object.isSprite && (h.object.userData.world || structureOf(h.object) || h.object.parent?.userData.model === h.object
+      || placementGeometry.belongs(h.object, new Set(proxies.children.filter(p => p.userData.model || p.userData.box || p.userData.drawn)))));
+}
+// a face's normal in the world, toward where the ray came from (the map's faces are wound either way)
+function facingNormal(hit, dir) {
+  const n = hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld));
+  return n.dot(dir) > 0 ? n.negate() : n;
 }
 function dropTarget(p, ignored) {
   const box = placementGeometry.bounds(p), from = box.isEmpty() ? p.position.clone() : box.getCenter(new THREE.Vector3());
@@ -3245,10 +3882,7 @@ function stickTarget(p, ignored = new Set([p])) {
     if (dir.lengthSq() < 1e-6) return null;
     dir.normalize();
     const hit = surfaceHit(from, dir, ignored, 4000);
-    if (!hit) return null;
-    const n = hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld));
-    if (n.dot(dir) > 0) n.negate();
-    return { point: hit.point.clone(), n };
+    return hit && { point: hit.point.clone(), n: facingNormal(hit, dir) };
   };
   const underIt = (r) => r.n.y > 0.7 && from.y - r.point.y <= half + 8;
   const r0 = objectRotation(p), back = rotationToVector(r0[0], r0[1]).map((v) => -v);
@@ -3284,19 +3918,27 @@ function fallsInGame(a) {
   if (chain) return chain.includes('DeusExDecoration');
   return palette.some((c) => c.category === 'Decorations' && c.items.some((it) => it.cls === a.cls));
 }
-function stickOne(p, r) {
-  const d = p.userData, a = d.actor, n = [r.n.x, r.n.z, r.n.y];
+// turned to the surface with its back on it (r: {point, n} in three's axes): Stick to surface, and a slide in Stick
+// mode while it moves; what it took ({n: the game's normal, pitch}) is for keepStuck
+function stickPose(p, r) {
+  const d = p.userData, n = [r.n.x, r.n.z, r.n.y];
   const rot = normalToRotation(n, radToYaw(p.rotation.y));
   d.tilt = rot.pitch; d.roll = 0;
   p.rotation.y = yawToRad(rot.yaw);
   applyTilt(p);
   p.position.copy(T(stickPoint([r.point.x, r.point.z, r.point.y], n, backDepth(p))));
-  let physics = false;
-  if (fallsInGame(a) && (!isFloor(n) || rot.pitch)) {
-    edits.props = edits.props || {};
-    (edits.props[a.name] || (edits.props[a.name] = {})).Physics = 'PHYS_None';
-    physics = true;
-  }
+  return { n, pitch: rot.pitch };
+}
+// a decoration stuck anywhere but level on a floor stays there in the game: Physics None (true when it was set)
+function keepStuck(p, { n, pitch }) {
+  const a = p.userData.actor;
+  if (!fallsInGame(a) || (isFloor(n) && !pitch)) return false;
+  edits.props = edits.props || {};
+  (edits.props[a.name] || (edits.props[a.name] = {})).Physics = 'PHYS_None';
+  return true;
+}
+function stickOne(p, r) {
+  const physics = keepStuck(p, stickPose(p, r));
   commit(p);
   return physics;
 }
@@ -3343,6 +3985,249 @@ function applyTilt(p) {
   const q = tiltQuat(d.tilt || 0, d.roll || 0);
   for (const o of [d.model, d.body, d.fxGizmo]) if (o && !o.isSprite) o.quaternion.copy(q);
 }
+// ---- Aim at a point, as Unity's look-at: the objects selected turn their front to a point of the 3D view, each
+// from its own place (a camera at a door, a spotlight at a painting, a guard toward the entrance). Lights,
+// cameras, turrets and effect points tip up or down too; the rest turns about the vertical and stays standing
+// (gizmo-tools.js). E + Ctrl+Shift+click aims at once, T at the point under the pointer, the right-click menu's
+// Aim at a point... with the next click; one Ctrl+Z undoes it. Blocks and structures have no front: they stay.
+const aimLine = new THREE.LineSegments(new THREE.BufferGeometry(),
+  new THREE.LineDashedMaterial({ color: 0xffd25a, dashSize: 10, gapSize: 6, depthTest: false, transparent: true }));
+aimLine.renderOrder = 10;
+aimLine.frustumCulled = false;
+aimLine.visible = false;
+scene.add(aimLine);
+let aimPicking = false, hoverAt = null;   // waiting for the click of Aim at a point; the pointer over the view
+const NO_AIM = 'Select what to aim first (a camera, a light, a character...): blocks and structures have no front.';
+const aimables = () => (selected === groupPivot ? members() : [selected]).filter((p) => p && p.userData.actor && !memberLocked(p));
+// E + Ctrl+Shift, as Unity's Rotate tool (Ctrl+click and Shift+click alone still add to the selection)
+const aimGesture = (e) => e.ctrlKey && e.shiftKey && !e.altKey && tc.mode === 'rotate' && aimables().length > 0;
+const aimKind = (a) => (a.kind === 'light' ? 'light' : tagCategoryOf(a));      // AIM_TILTS: what tips up and down
+function aimTarget(e) {                 // the point under the pointer, the selection itself left out
+  const own = new Set(selected === groupPivot ? members() : [selected]);
+  const hit = visibleHits(mouseRay(e).intersectObjects([...world.children, ...proxies.children], true))
+    .find((h) => !placementGeometry.belongs(h.object, own));
+  return hit ? hit.point.clone() : null;
+}
+function updateAimLine(e) {             // the dashed line from each one to the point, while aiming
+  const at = e && (aimPicking || aimGesture(e)) && !cam.look && !tc.dragging ? aimTarget(e) : null;
+  aimLine.visible = !!at;
+  if (at) {
+    aimLine.geometry.dispose();
+    aimLine.geometry = new THREE.BufferGeometry().setFromPoints(aimables().flatMap((p) => [p.getWorldPosition(new THREE.Vector3()), at]));
+    aimLine.computeLineDistances();
+  }
+  wake();
+}
+let aimFrame = 0;
+canvas.addEventListener('pointermove', (e) => {
+  hoverAt = { clientX: e.clientX, clientY: e.clientY, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey };
+  if (!aimPicking && !aimLine.visible && !aimGesture(e)) return;
+  if (!aimFrame) aimFrame = requestAnimationFrame(() => { aimFrame = 0; updateAimLine(hoverAt); });     // one ray a frame
+});
+canvas.addEventListener('pointerleave', () => { hoverAt = null; if (!aimPicking) updateAimLine(null); });
+// Ctrl or Shift pressed or let go with the pointer still: the line comes or goes
+for (const type of ['keydown', 'keyup']) window.addEventListener(type, (e) => {
+  if ((e.key !== 'Control' && e.key !== 'Shift') || !hoverAt) return;
+  hoverAt = { ...hoverAt, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey };
+  updateAimLine(hoverAt);
+});
+function armAim() {                     // Aim at a point...: the next click in the view is the point
+  if (!aimables().length) { status(NO_AIM, 'warn'); return; }
+  if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
+  cancelPlacing();
+  aimPicking = true;
+  canvas.style.cursor = 'crosshair';
+  status('Aim: click the point to look at  (Esc cancels)');
+  if (hoverAt) updateAimLine(hoverAt);
+}
+function endAimPick() { aimPicking = false; canvas.style.cursor = ''; updateAimLine(null); }
+function aimClick(e) {                  // that click, E + Ctrl+Shift+click, or T
+  const at = aimTarget(e);
+  if (!at) { status('Nothing there to aim at: point at a wall, a floor or an object.', 'warn'); return; }
+  endAimPick();
+  aimSelectionAt(at);
+}
+function aimAtPointer() {               // T: at the point under the pointer; away from the view, the next click
+  if (!aimables().length) status(NO_AIM, 'warn');
+  else if (hoverAt) aimClick(hoverAt);
+  else armAim();
+}
+async function aimSelectionAt(point) {
+  const list = aimables(), keys = selKeys().join('\n');
+  if (!list.length) { status(NO_AIM, 'warn'); return; }
+  await Promise.all([...new Set(list.map((p) => p.userData.actor.cls))].map(chainOf));    // cameras and turrets: by their class
+  if (selKeys().join('\n') !== keys) return;                    // another selection meanwhile
+  const to = UE(point);
+  const turns = list.map((p) => [p, objectRotation(p)])
+    .map(([p, now]) => [p, now, aimRotation(UE(p.position), to, now, !AIM_TILTS.has(aimKind(p.userData.actor)))])
+    .filter(([, now, rot]) => rot && rot.some((v, i) => v !== now[i]));
+  if (!turns.length) { status('Nothing to turn: it already looks there, or the point is straight above it.'); return; }
+  pushUndo();
+  for (const [p, , rot] of turns) { setObjectRotation(p, rot); commit(p); }
+  if (selected === groupPivot) placeGroupPivot();               // Local: the gizmo follows the last one
+  const kept = (selected === groupPivot ? members() : [selected]).length - list.length;
+  status(`Aimed ${turns.length === 1 ? objectLabel(turns[0][0])[0] : `${turns.length} objects`} at the point${kept ? `; ${kept} kept their turn (blocks, structures, locked)` : ''}. Ctrl+Z undoes.`, 'ok');
+}
+// ---- The selection and the view, as Unity's GameObject menu (view-align.js): Align with view (Ctrl+Shift+F) puts it
+// where the view looks from, turned the way it looks (a camera, a spotlight, a guard placed from where you look);
+// Move to view (Ctrl+Alt+F) onto what the view looks at, its turn kept; Align view to selected (Shift+F) looks from
+// it along its front; Pilot (Shift+P) looks through it and takes it along while the view flies, until Esc or Shift+P
+// again. One Ctrl+Z each (the view's own moves are not undone). The whole selection goes as one: the last object
+// picked that has a front leads (as Pivot's), the rest keep their place about it.
+const NO_FRONT = 'Select an object with a front first (a camera, a light, a character...): blocks and structures have none.';
+// how far up a character's eyes are from its middle (view-align.js eyeHeight); the rest looks from its middle
+function eyeOf(p) {
+  const a = p.userData.actor;
+  return isCharacter(a) ? eyeHeight(actorProp(a, 'CollisionHeight') ?? a.height, actorProp(a, 'BaseEyeHeight')) : 0;
+}
+// of these, the one that leads or that the view looks through: the last picked that has a front
+const frontOf = (list) => list.filter((p) => p && p.userData.actor).at(-1) || null;
+const selectionFront = () => selected && frontOf(selected === groupPivot ? members() : [selected]);
+const viewLabel = (v) => objectLabel(v.parts[v.lead].p)[0] + (v.parts.length > 1 ? ` and ${v.parts.length - 1} more` : '');
+// a part of the selection as it is now: its numbers to plan with, and its place and turn to put back
+function partNow(p) {
+  const d = p.userData, ms = isStruct(p) ? beginStructMove(p) : null;
+  return { p, at: UE(p.position), rot: objectRotation(p), from: p.position.clone(), quat: p.quaternion.clone(), tilt: d.tilt, roll: d.roll,
+    ms, fixed: ms?.st.rotatable === false };          // fixed: a structure with doors or a lift moves but does not turn
+}
+function turnAsBefore(part) {
+  const { p } = part, d = p.userData;
+  p.quaternion.copy(part.quat);
+  if (d.actor) { d.tilt = part.tilt; d.roll = part.roll; applyTilt(p); }
+}
+function putBack(part) {
+  part.p.position.copy(part.from);
+  turnAsBefore(part);
+  if (part.ms) followStructure(part.ms);
+}
+// What moves with the view: each part of the selection (a structure's own objects go with it), the lead, how far up
+// its eyes are and whether it tips up and down (Aim at a point's kinds, AIM_TILTS: by its class, asked first), and the
+// group to select again. null: nothing with a front, locked, or another selection meanwhile.
+async function viewParts() {
+  if (!requireUnlocked()) return null;
+  const first = selected && frontOf(selectionParts().list), keys = selKeys().join('\n');
+  if (!first) { status(NO_FRONT, 'warn'); return null; }
+  await chainOf(first.userData.actor.cls);                     // a camera or a turret: by its class
+  if (selKeys().join('\n') !== keys) return null;               // another selection meanwhile
+  const list = selectionParts().list, lead = frontOf(list);
+  return { parts: list.map(partNow), lead: list.indexOf(lead), eye: eyeOf(lead), tilts: AIM_TILTS.has(aimKind(lead.userData.actor)),
+    keep: selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null };
+}
+// where the view puts them now: the lead at the camera (a character's eyes there), turned the view's way
+const viewPlan = (v) => alignPlan(v.parts, v.lead, { at: UE(camera.position), rot: viewRotation(cam.yaw, cam.pitch) }, { eye: v.eye, tilts: v.tilts });
+// the parts where a plan ([{at, rot}]) puts them, on the screen only: a part the plan leaves unturned keeps its own
+// turn exactly, a structure with doors or a lift moves but does not turn (as in a group's turn)
+function placeParts(parts, plan) {
+  parts.forEach((part, i) => {
+    const { p, ms } = part;
+    p.position.copy(T(plan[i].at));
+    if (turnsPart(part, plan[i].rot)) setObjectRotation(p, plan[i].rot);
+    else turnAsBefore(part);
+    if (ms) followStructure(ms);
+  });
+}
+// what placeParts put on the screen into the edits (after one pushUndo), the group selected again as it was
+function writeParts(parts, keep) {
+  for (const { p, ms, from, rot } of parts) {
+    if (ms) commitStructure(ms, true);
+    else if (p.userData.kind === 'box') { shiftBlock(p, from); if (!sameRotation(objectRotation(p), rot)) turnBlock(p); }
+    else commit(p);
+  }
+  setDirty(); showDetails();
+  if (keep) selectKeys(keep.keys, keep.nest);
+}
+async function alignWithView() {
+  const v = await viewParts();
+  if (!v) return;
+  const plan = viewPlan(v);
+  if (planStays(v.parts, plan)) { status(`${viewLabel(v)}: already where the view looks from, nothing changed.`); return; }
+  pushUndo();
+  placeParts(v.parts, plan);
+  writeParts(v.parts, v.keep);
+  status(`${viewLabel(v)}: where the view looks from${v.eye ? ', the eyes at the camera' : ''}, turned its way. Ctrl+Z undoes.`, 'ok');
+}
+// Move to view: onto what the middle of the view looks at (the map, a structure, a block, an object), resting on it as
+// Drop to floor does, on the grid along it with Grid snap; nothing there within reach, in the air ahead (as Paste)
+const VIEW_REACH = 4000, VIEW_AHEAD = 400;
+function moveToView() {
+  if (!selected) { status('Select what to move to the view first.', 'warn'); return; }
+  if (!requireUnlocked()) return;
+  const { list, ignored } = selectionParts(), dir = forward();
+  const hit = surfaceHit(camera.position.clone(), dir, ignored, VIEW_REACH);
+  let shift;
+  if (hit) {
+    const n = facingNormal(hit, dir), at = hit.point.clone();
+    if (gridSnap()) at.fromArray(surfaceOnGrid(at.toArray(), n.toArray(), SNAP.move));
+    shift = restOffset(list, at, selected.position, n);
+  } else shift = restOffset(list, camera.position.clone().addScaledVector(dir, VIEW_AHEAD), selected.position);
+  const label = list.length === 1 ? objectLabel(list[0])[0] : `${list.length} objects`;
+  if (shift.length() < SAME_PLACE) { status(`${label}: already where the view looks, nothing changed.`); return; }
+  const parts = list.map(partNow), keep = selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
+  pushUndo();
+  placeParts(parts, parts.map((part) => ({ at: UE(part.from.clone().add(shift)), rot: part.rot })));
+  writeParts(parts, keep);
+  status(`${label} moved to the view${hit ? '' : ` (nothing within ${VIEW_REACH} units there: in the air ahead)`}. Ctrl+Z undoes.`, 'ok');
+}
+// the camera at an object's eyes, looking along its front (view-align.js lookThrough)
+function lookFrom(p) {
+  const at = lookThrough(UE(p.position), objectRotation(p), eyeOf(p));
+  flight = null;
+  placeCamera(at.at, at.yaw, at.pitch);
+  wake();
+}
+function alignViewToSelected() {
+  const lead = selectionFront();
+  if (!lead) { status(NO_FRONT, 'warn'); return; }
+  lookFrom(lead);
+  status(`Looking from ${objectLabel(lead)[0]} along its front.`);
+}
+// Pilot: the view looks through the lead and the selection goes where the view looks from while it flies (Align with
+// view each frame, on the screen only), written when the pilot ends (one Ctrl+Z) if the view moved; then the view goes
+// back to where it was, as Unity's Return to Scene Camera. Meanwhile the gizmo is off and the lead is not drawn (the
+// view is inside it). Another selection or map ends it too; a Delete or a Ctrl+Z meanwhile (the objects gone or made
+// again) drops it.
+let pilot = null;      // viewParts' {parts, lead, eye, tilts, keep} and {selected, generation, back: the view before, start}
+const viewNow = () => ({ pos: camera.position.clone(), yaw: cam.yaw, pitch: cam.pitch });
+const viewMoved = (was) => was.yaw !== cam.yaw || was.pitch !== cam.pitch || was.pos.distanceToSquared(camera.position) > 1e-6;
+async function togglePilot() {
+  if (pilot) { endPilot(); return; }
+  const v = await viewParts();
+  if (!v || pilot) return;
+  const back = viewNow();
+  lookFrom(v.parts[v.lead].p);
+  pilot = { ...v, selected, generation: mapGeneration, back, start: viewNow() };
+  tc.enabled = tc.visible = false;
+  vpBar?.refresh();
+  status(`Piloting ${viewLabel(v)}: fly the view (right mouse + W A S D) and it goes along. ${window.__menubar?.keyOf?.('pilot') || 'Shift+P'} again or Esc ends it.`, 'ok');
+}
+function stepPilot() {                  // each frame, before the outlines are drawn
+  if (!pilot) return;
+  if (selected !== pilot.selected || pilot.generation !== mapGeneration) { endPilot(); return; }
+  pilot.parts[pilot.lead].p.visible = false;
+  tc.visible = false;                   // the gizmo stays off: picking the same object again attaches it
+  if (viewMoved(pilot.start)) placeParts(pilot.parts, viewPlan(pilot));
+}
+function endPilot() {
+  const v = pilot, alive = v.generation === mapGeneration && v.parts.every((part) => part.p.parent);
+  pilot = null;
+  tc.enabled = true;
+  tc.visible = !!tc.object;            // drawn again on what it is attached to: nothing for an empty or a locked selection
+  if (!alive) status('Pilot ended: what it flew is no longer there (deleted, Ctrl+Z, another map), nothing written.', 'warn');
+  else if (viewMoved(v.start)) {
+    pushUndo();
+    placeParts(v.parts, viewPlan(v));
+    writeParts(v.parts, selected === v.selected ? v.keep : null);
+    status(`${viewLabel(v)}: where the view was. Ctrl+Z undoes.`, 'ok');
+  } else {
+    v.parts.forEach(putBack);
+    status('Pilot ended: the view did not move, nothing changed.');
+  }
+  applyObjectVisibility();             // the lead drawn again
+  flight = null;
+  camera.position.copy(v.back.pos); cam.yaw = v.back.yaw; cam.pitch = v.back.pitch;
+  vpBar?.refresh();
+  wake();
+}
 // what the preview of an effect point shows this frame (effect-point.js), or null
 function fxWant(p) {
   const a = p.userData.actor;
@@ -3377,8 +4262,11 @@ function removeOne(p) {                    // an object or a block out of the ma
   const d = p.userData;
   if (d.kind === 'drawn') edits.drawn = (edits.drawn || []).filter((x) => x !== d.drawn);
   else if (d.kind === 'box') edits.boxes = edits.boxes.filter((b) => b !== d.box);
-  else if (d.source === 'added') edits.added = edits.added.filter((a) => a.name !== d.actor.name);
-  else {
+  else if (d.source === 'added') {
+    const own = edits.added.find((a) => a.name === d.actor.name);
+    edits.added = edits.added.filter((a) => a.name !== d.actor.name);
+    if (own?.replaces) edits.deleted[d.actor.name] = own.replaces;     // it replaced an object of the map (Replace with...): that one goes too
+  } else {
     let orig = baseActors.find((x) => x.name === d.actor.name).loc;
     const st = structures[actorStruct[d.actor.name]];
     if (st) orig = poseToPose(st, st.placement, poseOf(st))(orig).map(r1);
@@ -3507,9 +4395,8 @@ function dupOne(p, offset = 48) {           // no undo or selection: shared by D
     return makeBoxProxy(b);
   }
   const a = d.actor;
-  const original = d.source === 'added' ? edits.added.find(x => x.name === a.name) || a : a;
   const e = { name: nextName('UCEdit'), cls: a.cls, loc: UE(p.position.clone().add(new THREE.Vector3(offset, 0, 0))), rot: objectRotation(p),
-              props: JSON.parse(JSON.stringify({...(/Light$/.test(a.cls) ? lightProps(a) : {}), ...original.props, ...edits.props?.[a.name]})), radius: a.radius, height: a.height };
+              props: ownProps(p), radius: a.radius, height: a.height };
   e.scale = p.scale.x * (d.source === 'map' ? builtScale[a.name] || 1 : 1);
   if (a.custom) { e.custom = a.custom; e.kind = 'pawn'; }
   for (const field of ['anims', 'motions', 'texts', 'documents', 'cutscenes', 'disabled']) {
@@ -3517,6 +4404,13 @@ function dupOne(p, offset = 48) {           // no undo or selection: shared by D
   }
   edits.added.push(e);
   return makeProxy(Object.assign({ kind: a.kind }, e, { light: a.light }), 'added');
+}
+// the properties an object of proxy p has now, a copy: the map's (or the ones it was added with), a light's colour and
+// reach (a light, not a lamp whose class ends in Light: TrafficLight), the ones changed in its Properties (Duplicate's
+// copy, Replace with...)
+function ownProps(p) {
+  const a = p.userData.actor, original = p.userData.source === 'added' ? edits.added.find(x => x.name === a.name) || a : a;
+  return JSON.parse(JSON.stringify({...(p.userData.kind === 'light' ? lightProps(a) : {}), ...original.props, ...edits.props?.[a.name]}));
 }
 // a copy of a structure next to it, in the edits (no undo, no selection): its name, null when it cannot
 function dupStructure(st, dx = null) {
@@ -3556,11 +4450,24 @@ function duplicateSelected({offset = 48} = {}) {
     const n0 = nestById(nest), up = parentNest('n:' + nest);
     n = newNest(`${n0.label} (copy)`, news);
     if (up) up.items.push('n:' + n.id);
-  }
+  } else putBeside(nests(), list.map((m, i) => [keyOf(m), news[i]]));      // each copy beside its original, in its folder
   setDirty(); rebuildProxies();
   if (n) selectNest(n.id); else selectKeys(news);
   status(`Duplicated ${news.length} selected ${news.length === 1 ? 'item' : 'items'}. ${offset ? 'The copies are selected beside the originals.' : 'Drag to place the copies.'}`, 'ok');
+  warnHiddenKinds(news.map(objOf), 'Duplicated');
   return true;
+}
+
+// Edit > Cut (Ctrl+X): Copy, then Delete. Copying changes nothing in the map, so the Delete is the one Undo
+// step; when nothing could be copied (a door, a protected structure) nothing is deleted.
+async function cutSelected() {
+  if (!selected) { status('Select something to cut first.', 'warn'); return; }
+  if (!requireUnlocked()) return;
+  const keys = selKeys().join('\n'), count = selected === groupPivot ? members().length : 1;
+  if (!await copySelected()) return;
+  if (selKeys().join('\n') !== keys) { status('The selection changed while it was copied: nothing deleted.', 'warn'); return; }
+  deleteSelected();
+  if (!selected) status(`Cut ${count === 1 ? '1 item' : count + ' items'}: Ctrl+V pastes, Ctrl+Z puts back.`, 'ok');
 }
 
 function lightProps(a) {
@@ -3568,14 +4475,28 @@ function lightProps(a) {
   return { LightBrightness: l.b ?? 128, LightHue: l.hue ?? 32, LightSaturation: l.sat ?? 160, LightRadius: l.radius ?? 12 };
 }
 
-function focusSelected() {
-  if (!selected) return;
+// the selection's bounds (Frame, the pivot of an orbit), null without one
+function selectionBox() {
+  if (!selected) return null;
   const box = new THREE.Box3();
   for (const o of selected === groupPivot ? members() : [selected]) box.union(new THREE.Box3().setFromObject(o));
-  if (box.isEmpty()) return;
+  return box.isEmpty() ? null : box;
+}
+// Frame (F), as Unity's: the camera flies to the selection, keeping its direction; F again on the same selection,
+// the camera not moved since, comes closer (view-camera.js FRAME_DISTANCES). instant: no flight (an assistant's
+// picture is taken right after)
+let framed = null;                          // the last Frame: {keys, step, at: where the camera went}
+function focusSelected({ instant = false } = {}) {
+  const box = selectionBox();
+  if (!box) return;
   const c = box.getCenter(new THREE.Vector3());
   const r = Math.max(24, box.getSize(new THREE.Vector3()).length() * 0.6);      // small things (a gun, a can) come close too
-  camera.position.copy(c.clone().addScaledVector(forward(), -r * 1.4));
+  const keys = selKeys().join('\n'), goal = new THREE.Vector3(...(flight?.to.pos || camera.position.toArray()));
+  const step = frameStep(framed?.step, !!framed && framed.keys === keys && goal.distanceTo(framed.at) < 1);
+  const at = c.clone().addScaledVector(forward(), -r * FRAME_DISTANCES[step]);
+  framed = { keys, step, at };
+  viewPivot = c.toArray();
+  if (instant) { flight = null; camera.position.copy(at); } else flyTo({ pos: at.toArray() });
 }
 
 // ---------------------------------------------------------------- copy and paste (also between maps)
@@ -3741,9 +4662,11 @@ async function pasteClipboard() {
       news.push('a:' + e.name);
     }
   }
+  intoDefaultFolder(news);                 // into the folder new objects go in, if one is set
   clipboardPastes = { identity, count };
   setDirty(); rebuildProxies(); selectKeys(news);
   status(`Pasted ${news.length} ${news.length === 1 ? 'item' : 'items'} nearby. Rotation and relative spacing kept.`, 'ok');
+  warnHiddenKinds(news.map(objOf), 'Pasted');
 }
 function pasteLegacyClipboard() {
   const clip = clipboard();
@@ -3768,29 +4691,33 @@ function pasteLegacyClipboard() {
         news.push(makeProxy(Object.assign({ kind: addedKind(e2.cls) }, e2), 'added'));
       }
     }
+    intoDefaultFolder(news.map(keyOf));
     setDirty();
     setMulti(news);
     log(`Pasted ${news.length} objects.`);
+    warnHiddenKinds(news, 'Pasted');
     return;
   }
   if (clip.kind === 'prefab') {
     const e = { pid: nextPid(), prefab: clip.id, label: clip.label, source: clip.source, pivot: clip.pivot, rotatable: clip.rotatable !== false, ...moverFields(clip),
                 offset: [Math.round(c[0] - clip.pivot[0]), Math.round(c[1] - clip.pivot[1]), Math.round(c[2] - clip.pivot[2])], yaw: 0 };
     edits.prefabs.push(e);
+    intoDefaultFolder(['s:paste~' + e.pid]);
     setDirty(); rebuildProxies();
     select(structures['paste~' + e.pid].obj);
     log(`Pasted "${clip.label}" from ${clip.source}: move it where you want, then Rebuild.`);
   } else if (clip.kind === 'box') {
     const b = clip.box, s = [b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]];
     const nb = Object.assign({}, b, { name: nextName('UCEditBox'), lo: [c[0] - s[0] / 2, c[1] - s[1] / 2, c[2]], hi: [c[0] + s[0] / 2, c[1] + s[1] / 2, c[2] + s[2]] });
-    edits.boxes.push(nb); setDirty(); select(makeBoxProxy(nb));
+    edits.boxes.push(nb); intoDefaultFolder(['b:' + nb.name]); setDirty(); select(makeBoxProxy(nb));
   } else {
     const h = clip.height || 16, r0 = clip.rot || [0, 0, 0];
     const e2 = { name: nextName('UCEdit'), cls: clip.cls, loc: [c[0], c[1], r1(c[2] + h + 0.5)], rot: r0.slice(),
                  radius: clip.radius, height: h, props: clip.props || {} };
-    edits.added.push(e2); setDirty();
+    edits.added.push(e2); intoDefaultFolder(['a:' + e2.name]); setDirty();
     select(makeProxy(Object.assign({ kind: /Light$/.test(clip.cls) ? 'light' : 'prop' }, e2), 'added'));
   }
+  warnHiddenKinds([selected], 'Pasted');       // the one pasted is selected
 }
 $('#paste').onclick = pasteClipboard;
 
@@ -3836,8 +4763,10 @@ async function pasteT3D(text) {
       radius: +a.props.CollisionRadius || 16, height: +a.props.CollisionHeight || 16 };
     edits.added.push(e); news.push('a:' + e.name);
   }
+  intoDefaultFolder(news);
   setDirty(); rebuildProxies(); selectKeys(news);
   status(`Pasted ${news.length} from the T3D, at their places in UnrealEd's map.${got.skipped.length ? ` ${got.skipped.length} left out (see Messages).` : ''} Rebuild builds the blocks.`, 'ok');
+  warnHiddenKinds(news.map(objOf), 'Pasted');
 }
 // Ctrl+C and Ctrl+V go through the browser's copy and paste events, which reach the system clipboard without asking
 // for permission: Ctrl+C leaves a line there (so that older T3D is not pasted in its place), Ctrl+V pastes T3D copied
@@ -3847,12 +4776,13 @@ function expectClipboardEvent(kind, fallback) {
   clipboardKey = kind;
   setTimeout(() => { if (clipboardKey === kind) { clipboardKey = null; fallback(); } });
 }
-document.addEventListener('copy', (e) => {
-  if (clipboardKey !== 'copy') return;
+// Ctrl+X the same, then the selection is deleted (cutSelected)
+for (const [kind, run] of [['copy', copySelected], ['cut', cutSelected]]) document.addEventListener(kind, (e) => {
+  if (clipboardKey !== kind) return;
   clipboardKey = null;
   e.preventDefault();
   if (selected) e.clipboardData.setData('text/plain', 'DeusEdix: copied in the map editor (Edit > Copy as T3D copies for UnrealEd)');
-  copySelected();
+  run();
 });
 document.addEventListener('paste', (e) => {
   if (clipboardKey !== 'paste') return;
@@ -3927,49 +4857,223 @@ function updateCustom(id, props, body, cls) {
   return n;
 }
 
+// ---------------------------------------------------------------- Replace with... (Unity's prefab Replace)
+// Every selected object becomes an object of another class at its place, turn and size and under its own name, so
+// the rules, routes, cutscenes and Story that name it still find it (replace-class.js). The class: the browser's
+// item picked (Objects, a character of yours, a model) when the command is given, else the next one clicked there;
+// or Alt + an item let go on the object. An object of the map becomes an added one that `replaces` it (its class and
+// place, as Delete keeps them: at Rebuild the map's own goes and the new one takes its name); one Ctrl+Z.
+let classReplace = null;                     // waiting for the browser's item: {generation}
+// a browser item an object can become: a class (not a block, a piece, a drawing, a sign, a door)
+const replacingItem = (item) => !!item?.cls && !item.box && !item.prefab && !item.draw && !item.sign && !item.route && !/Mover/.test(item.cls);
+// an object that can become another: not a door or a lift (its brush is its own), nor a door copied whole from a map
+function canReplaceClass(p) {
+  const d = p?.userData;
+  return !!d?.actor && !animIsMover(p) && !(d.source === 'added' && edits.added.find((x) => x.name === d.actor.name)?.raw);
+}
+// already what the item makes: its class, the same character of yours, the same model
+const sameItem = (a, item) => a.cls === item.cls && (a.custom || '') === (item.custom || '')
+  && (!item.mesh || String(actorProp(a, 'Mesh') || '').includes(`'${item.mesh}'`));
+// Edit > Replace with..., right click > Replace with...: the item picked in the browser, else the next one clicked there
+function replaceSelection() {
+  if (!selected) { status('Select the objects to replace first.', 'warn'); return; }
+  if (!requireUnlocked()) return;
+  if (placing && replacingItem(placing)) { const item = placing; cancelPlacing(); void replaceWith(item); return; }
+  cancelPlacing();
+  classReplace = { generation: mapGeneration };
+  window.__workspace?.show('browser');
+  showTab('objects');
+  buildPalette();
+  status('Replace with: click an object in Objects, one of your characters, or a model in Models (Esc cancels).');
+}
+function endClassReplace() { classReplace = null; buildPalette(); }
+function cancelClassReplace() { endClassReplace(); status('Replace with cancelled.'); }
+// the row at the top of Objects while Replace with... waits for its item
+function classReplaceRow() {
+  if (!classReplace || classReplace.generation !== mapGeneration) return '';
+  return `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Replace the selection with: click an object</span><button id="class-replace-cancel" style="flex:none;height:var(--ui-control,22px);padding:0 8px;line-height:18px" title="Cancel Replace with (Esc)">Cancel</button></div>`;
+}
+// what Alt + a browser item let go over the 3D view replaces: the object under it, or the selection it is part of
+function replaceTargetsAt(at) {
+  const o = proxyUnder(at);
+  if (!o) return null;
+  const sel = selected === groupPivot ? members() : selected ? [selected] : [];
+  return sel.includes(o) ? sel : [o];
+}
+// the map's DrawScale of an object over its class's: the size the map gave it, kept by its replacement
+function mapDrawFactor(a) {
+  const own = +a.meshDrawScale, def = +modelClassInfo(a).meshDrawScale;
+  return own > 0 && def > 0 ? own / def : 1;
+}
+// what replacing the object of proxy p with the browser item writes: the new entry of edits.added (e), the values of
+// All properties that go over (raw), the keys that do not (lost), the uses of its name the new class does not answer
+// (misfits). has: whether the new class has a property; story: the map's Story (null: not read)
+function replacementPlan(p, item, has, story) {
+  const d = p.userData, a = d.actor, built = p.scale.x * builtOf(p);
+  const character = isCharacter({ cls: item.cls, kind: item.custom ? 'pawn' : '' });
+  // a preset (a model's, a character's of yours, a map exit's) wins over what goes over; a new light's colour and
+  // reach only fill in what the old object did not have
+  const fresh = itemProps(item), preset = item.custom || item.preset;
+  const { props, lost } = carryProps(ownProps(p), preset ? fresh : {}, has, preset ? {} : fresh);
+  const raw = carryProps(edits.rawprops?.[a.name], {}, has);
+  // its size: the map's own DrawScale and the editor's (R) on the new class's; a model of Models its own on top
+  const scale = built * (d.source === 'map' ? mapDrawFactor(a) : 1) * (item.mesh ? item.scale || 1 : 1);
+  const rot = objectRotation(p), height = item.mesh ? item.base.h : item.height;
+  // its feet where the old one's were, when both stand on something (a light or a logic point keeps its middle)
+  const stands = ['prop', 'pawn'].includes(d.kind) && ['prop', 'pawn'].includes(item.custom ? 'pawn' : addedKind(item.cls));
+  const e = { name: a.name, cls: item.cls,
+    loc: seatedAt(UE(p.position), rot, stands ? (+actorProp(a, 'CollisionHeight') || a.height || 0) * built : 0, height * scale).map(r1),
+    rot: turnOf(rot, character),
+    radius: item.mesh ? item.base.r : item.radius, height, props };
+  if (Math.abs(scale - 1) > 0.005) e.scale = Math.round(scale * 100) / 100;
+  // its conversation name: its own; the one the game's conversations or a dialogue of the Story find it by (the new
+  // class's may be another); a character of yours one of its own, as when placed
+  if (!props.BindName && has('BindName')) {
+    const bind = a.bind || unquote(actorProp(a, 'BindName') || '');
+    if (bind && (hasOriginalConversations(a) || (story?.dialogues || []).some((x) => x.owner === a.name))) props.BindName = `"${bind}"`;
+    else if (item.custom) props.BindName = `"UCEd_${a.name}"`;
+  }
+  if (item.custom) Object.assign(e, { custom: item.custom, kind: 'pawn', bind: unquote(props.BindName || '') });
+  // what the rules, the Story and the editor's data ask of it, against what the new class is (its catalogue io)
+  const now = { ...e, kind: e.kind || addedKind(item.cls) }, chain = chainNow[item.cls] || [item.cls];
+  const outputs = lkEventsOf(now).concat(edits.usable?.[a.name] ? ['used'] : []);
+  const inputs = lkInputsOf(now).concat(edits.motions?.[a.name] ? ['anim', 'animback', 'animstop'] : []);
+  const fits = { output: (u) => outputs.includes(lkWhenKey(u.rule)), input: (u) => u.action.verb === 'sound' || inputs.includes(lkVerbKey(u.action)),
+    character, talker: character || chain.includes('DeusExDecoration'), door: chain.some((c) => /Mover$/.test(c)),
+    computer: chain.includes('Computers'), text: (propSchema[item.cls] || []).some((f) => f.kind === 'text'),
+    cutscene: item.cls === 'UCCutscene', effect: isEffectPoint(now), patrol: item.cls === 'PatrolPoint' };
+  const uses = usesOf(a.name, { links: lkList(), story, edits, routes: a.cls === 'PatrolPoint' ? routeUsers(a).map(hierLabel) : [] });
+  return { p, e, raw: raw.props, lost: [...lost, ...raw.lost], misfits: misfits(uses, fits) };
+}
+// a use of a name as Replace with... names it
+function useText(u) {
+  if (u.rule) return `Interaction "${lkSentence(u.rule)}"`;
+  if (u.where) return 'Story ' + u.where;
+  if (u.who) return 'the patrol route of ' + u.who;
+  return u.label;
+}
+// a plan of replacementPlan written (the undo is the caller's): the old object out as Delete takes it out, the new one
+// in under its name, at its place in the list; of an object of the map, what Delete keeps (its class and place) is
+// what the new one replaces
+function applyReplacement({ p, e, raw }) {
+  const name = e.name, at = edits.added.findIndex((x) => x.name === name);
+  removeOne(p);
+  if (edits.deleted[name]) { e.replaces = edits.deleted[name]; delete edits.deleted[name]; }
+  edits.added.splice(at < 0 ? edits.added.length : at, 0, e);
+  if (edits.props) delete edits.props[name];               // its properties are the new entry's (replacementPlan)
+  if (Object.keys(raw).length) (edits.rawprops ||= {})[name] = raw;
+  else if (edits.rawprops) delete edits.rawprops[name];
+  dropActorTextures(name);                                 // the old look's
+}
+// the selection (or list) made objects of the browser item: what does not go over is listed and asked first
+async function replaceWith(item, list = null) {
+  if (!replacingItem(item)) { status('Only an object, a character or a model can replace objects: not a piece, a block or a door.', 'warn'); return false; }
+  const picked = list || (selected === groupPivot ? members() : selected ? [selected] : []);
+  const targets = picked.filter((p) => canReplaceClass(p) && !sameItem(p.userData.actor, item));
+  // its name as the browser shows it (a tile clicked carries only its class)
+  const label = itemLabel((!item.name && (palette || []).flatMap((c) => c.items || []).find((it) => it.cls === item.cls)) || item);
+  if (!targets.length) {
+    status(picked.length ? `Nothing to replace with ${label}: doors, blocks and structures keep their kind, and an object already ${label} stays.` : 'Select the objects to replace first.', 'warn');
+    return false;
+  }
+  if (!targets.every((p) => requireUnlocked(p))) return false;
+  const generation = mapGeneration;
+  status(`Replace with ${label}: reading its class...`);
+  // its properties as All properties has them, what the rules can do with it, the Story that may name the objects
+  const [names, story] = await Promise.all([
+    classProps(behaveApi, item.cls).then((d) => new Set(d.props.map((q) => q.name.toLowerCase())), () => null),
+    window.__story ? window.__story.ensure().then((ok) => (ok ? window.__story.data() : null), () => null) : null,
+    chainOf(item.cls)]);
+  if (generation !== mapGeneration || !targets.every((p) => p.parent === proxies)) { status('Replace with stopped: the map changed meanwhile.', 'warn'); return false; }
+  const has = names ? (prop) => names.has(prop.toLowerCase()) : (prop) => !!fieldOf({ cls: item.cls }, prop);
+  const plans = targets.map((p) => replacementPlan(p, item, has, story));
+  const listed = (lines) => (lines.length > 10 ? [...lines.slice(0, 10), `  ...and ${lines.length - 10} more`] : lines);
+  const lost = listed(plans.filter((x) => x.lost.length).map((x) => `  ${x.e.name}: ${[...new Set(x.lost.map(baseOf))].join(', ')}`));
+  const wrong = plans.flatMap((x) => x.misfits.map((u) => `${x.e.name}: ${useText(u)}: ${NEEDS[u.need]}`));
+  if (lost.length || wrong.length || !names) {
+    const n = plans.length === 1 ? plans[0].e.name : plans.length + ' objects';
+    const ask = [`Replace ${n} with ${label}?`, '',
+      'Each keeps its name, place, turn, size, Tag and Event: the rules, routes, cutscenes and Story that name it still find it.',
+      ...(names ? [] : ['', `The full list of properties of ${label} could not be read: only its Properties panel was checked.`]),
+      ...(lost.length ? ['', `Not carried over (${label} has no such property):`, ...lost] : []),
+      ...(wrong.length ? ['', 'No longer fits (they stay: change or delete them later):', ...listed(wrong.map((w) => '  ' + w))] : []),
+      '', 'Ctrl+Z undoes the whole replacement.'];
+    if (!confirm(ask.join('\n'))) { status('Replace with cancelled.'); return false; }
+  }
+  if (anim && targets.includes(anim.p)) closeAnim();
+  pushUndo();
+  for (const x of plans) applyReplacement(x);
+  setDirty(); rebuildProxies(); showDetails();
+  log(`${plans.length === 1 ? plans[0].e.name : plans.length + ' objects'} replaced with ${label}, ${plans.length === 1 ? 'its' : 'their'} name, place, turn, size, Tag and Event kept. Ctrl+Z undoes it; Rebuild puts it in the game.`, 'ok');
+  if (wrong.length) log(wrong.map((w) => 'Replace with: ' + w), 'warn');
+  warnHiddenKinds(plans.map((x) => proxyOf(x.e.name)), 'Replaced');
+  return true;
+}
+
 // ---------------------------------------------------------------- palette and placing
 // every object of the game: categories that open and close, subcategories, search on all the names
-const openCats = new Set(['Most used']);
+const openCats = new Set([objectFavs.group, 'Most used']);
 // the game's own placeholder names ("DEFAULT DECORATION NAME - REPORT THIS AS A BUG") are no names: the class then
 const gameName = (n) => (n && !/DEFAULT\s+\w+\s+NAME|REPORT THIS AS A BUG/i.test(n) ? n : '');
 function itemLabel(it) { return (it.preset && gameName(it.name)) || NAMES[it.cls] || gameName(it.name) || it.cls.replace(/([a-z])([A-Z0-9])/g, '$1 $2'); }
+// what an item of the Objects browser places (your character, or the class with its preset): its button, the command
+// palette's Enter
+function placingOf(it) {
+  return it.custom ? window.__characters.item(it.custom)
+    : { cls: it.cls, radius: +it.radius, height: +it.height, preset: it.preset || null, name: it.preset ? it.name || '' : '' };
+}
+// what an item of the Objects browser is among its favourites: its class (a preset: its name too), your character's id
+const objectFavId = (it) => (it.custom ? 'character:' + it.custom : it.preset ? `${it.cls}:${it.name}` : it.cls);
+// an item of the Objects browser the search (q, lower case) shows: by its class, its names, its category
+const paletteMatch = (it, category, q) => !q || [it.cls, gameName(it.name), NAMES[it.cls] || '', category, it.sub || ''].some((s) => s.toLowerCase().includes(q));
+// the tile of an item (shown: the items of the tiles, by data-pi), with its star
+function paletteTile(it, shown) {
+  const label = itemLabel(it);
+  if (it.custom) {
+    return `<button class="item" data-pi="${shown.push(it) - 1}" data-custom="${escapeHtml(it.custom)}" title="${escapeHtml(it.name)}: your character (Characters)"><span class="th" data-th="char:${escapeHtml(it.custom)}|${escapeHtml(window.__characters.stamp(it.custom))}"></span><span class="tl">${escapeHtml(it.name)}</span><small>${escapeHtml(it.sub || '')}</small>${objectFavs.star(objectFavId(it), it.name)}</button>`;
+  }
+  return `<button class="item" data-pi="${shown.push(it) - 1}" data-cls="${it.cls}" title="${escapeHtml(label)} · ${escapeHtml(it.cls)}"><span class="th" ${paletteHas.has(it.cls) ? `data-th="cls:${it.cls}"` : ''}>${iconOf(it.cls)}</span><span class="tl">${escapeHtml(label)}</span><small>${label === it.cls ? '' : it.cls}</small>${objectFavs.star(objectFavId(it), label)}</button>`;
+}
 function buildPalette() {
   const q = $('#search').value.trim().toLowerCase();
   let html = '';
+  const shown = [];                          // the items of its buttons (data-pi)
   const mine = window.__characters && window.__characters.paletteCategory();
   const categories = (mine && mine.items.length ? [mine] : []).concat(palette);
   categories.splice(Math.max(0, categories.findIndex(c => c.category === 'Most used') + 1), 0, { category: 'Movers', items: [], movingLibrary: true });
+  // Favourites first (kept per project); a class or a character no longer there shows as missing
+  const byFav = new Map();
+  if (objectFavs.list().length) for (const c of categories) for (const it of c.items) if (!byFav.has(objectFavId(it))) byFav.set(objectFavId(it), { it, category: c.category });
+  const favs = objectFavs.entries((id) => byFav.get(id))
+    .filter(({ fav, item }) => (item ? paletteMatch(item.it, item.category, q) : !q || fav.label.toLowerCase().includes(q)));
+  if (favs.length) {
+    html += `<details data-cat="${escapeHtml(objectFavs.group)}" ${q || openCats.has(objectFavs.group) ? 'open' : ''}><summary>${escapeHtml(objectFavs.group)} <small>${favs.length}</small></summary>`;
+    for (const { fav, item } of favs) html += item ? paletteTile(item.it, shown) : objectFavs.missing(fav);
+    html += '</details>';
+  }
   for (const c of categories) {
     if (c.movingLibrary) {
       html += `<details data-cat="Movers" ${q || openCats.has('Movers') ? 'open' : ''}><summary>Movers</summary><div id="object-movers"></div></details>`;
       continue;
     }
-    const items = c.items.filter((it) => !q || [it.cls, gameName(it.name), NAMES[it.cls] || '', c.category, it.sub || ''].some((s) => s.toLowerCase().includes(q)));
+    const items = c.items.filter((it) => paletteMatch(it, c.category, q));
     if (!items.length) continue;
     html += `<details data-cat="${escapeHtml(c.category)}" ${q || openCats.has(c.category) ? 'open' : ''}><summary>${escapeHtml(c.category)} <small>${items.length}</small></summary>`;
     let sub = null;
     for (const it of items) {
       if ((it.sub || '') !== sub && c.category !== 'Most used') { sub = it.sub || ''; if (sub) html += `<div class="cat">${escapeHtml(sub)}</div>`; }
-      const label = itemLabel(it);
-      if (it.custom) {
-        html += `<button class="item" data-custom="${escapeHtml(it.custom)}" title="${escapeHtml(it.name)}: your character (Characters)"><span class="th" data-th="char:${escapeHtml(it.custom)}|${escapeHtml(window.__characters.stamp(it.custom))}"></span><span class="tl">${escapeHtml(it.name)}</span><small>${escapeHtml(it.sub || '')}</small></button>`;
-        continue;
-      }
-      html += `<button class="item" data-cls="${it.cls}" data-r="${it.radius}" data-h="${it.height}" ${it.preset ? `data-preset="${escapeHtml(JSON.stringify(it.preset))}" data-name="${escapeHtml(it.name)}"` : ''} title="${escapeHtml(label)} · ${escapeHtml(it.cls)}"><span class="th" ${paletteHas.has(it.cls) ? `data-th="cls:${it.cls}"` : ''}>${iconOf(it.cls)}</span><span class="tl">${escapeHtml(label)}</span><small>${label === it.cls ? '' : it.cls}</small></button>`;
+      html += paletteTile(it, shown);
     }
     html += '</details>';
   }
-  $('#palette').innerHTML = html || '<div class="hint">No objects match this name.</div>';
+  $('#palette').innerHTML = classReplaceRow() + (html || '<div class="hint">No objects match this name.</div>');
+  if ($('#class-replace-cancel')) $('#class-replace-cancel').onclick = cancelClassReplace;
   for (const d of document.querySelectorAll('#palette details')) d.addEventListener('toggle', () => {
     if (!q) (d.open ? openCats.add(d.dataset.cat) : openCats.delete(d.dataset.cat));
     if (d.dataset.cat === 'Movers') { if (d.open) void moversBrowser.render(); else moversBrowser.suspend(); }
     observeThumbs();
   });
-  for (const b of document.querySelectorAll('#palette .item')) {
-    b.onclick = () => (b.dataset.custom ? startPlacing(window.__characters.item(b.dataset.custom), b)
-      : startPlacing({ cls: b.dataset.cls, radius: +b.dataset.r, height: +b.dataset.h, preset: b.dataset.preset ? JSON.parse(b.dataset.preset) : null,
-        name: b.dataset.name || '' }, b));
-  }
+  for (const b of document.querySelectorAll('#palette .item[data-pi]')) b.onclick = () => startPlacing(placingOf(shown[+b.dataset.pi]), b);
   if (bottomTab === 'objects') void moversBrowser.render();
   observeThumbs();
 }
@@ -3993,6 +5097,7 @@ function showTab(t) {
   const [pane, search, title] = BTABS[t];
   for (const id of ['palette', 'pieces', 'prefabs', 'models', 'sounds', 'gamevoices']) if ($('#' + id)) $('#' + id).style.display = id === pane ? '' : 'none';
   for (const id of ['search', 'msearch', 'psearch', 'pfsearch', 'sndsearch', 'gvsearch']) if ($('#' + id)) $('#' + id).style.display = id === search ? '' : 'none';
+  $('#btiles').hidden = !document.getElementById(pane)?.classList.contains('tiles');
   if ($('#bpath')) $('#bpath').textContent = title;
   try { localStorage.setItem('ucmap.btab', t); } catch (e) { /* no storage */ }
   if (pane === 'palette') void moversBrowser.render();
@@ -4003,13 +5108,17 @@ function showTab(t) {
   if (pane === 'gamevoices') window.__gamecons?.browser();
   observeThumbs();
 }
+// the size of the tiles, as Unity's slider: a list, small, medium or large (the slider at the top right, Ctrl+wheel over
+// the tiles); one for every section, kept in this browser; tiles that come into sight get their pictures
+mountTileSize({ root: $('#bottom'), slider: $('#btiles input'), grid: '.bpane.tiles', tile: '.item, .sound-tile, .prefab-card',
+  key: 'ucmap.tiles', storage: safeStorage, changed: observeThumbs });
 
 // ---------------------------------------------------------------- Pieces: the objects of the original levels made of brushes
 // gamelib.py: fences, railings, grates, pipes, signs, lamps, ladders... each whole and once. Click one,
 // then a floor or a wall: it is pasted as a prefab (built into the map by Rebuild).
 let pieceCat = null, pieceShapes = {};
 const piecesBrowser = createPiecesBrowser({
-  api, escapeHtml, isVisible: () => bottomTab === 'pieces',
+  api, escapeHtml, isVisible: () => bottomTab === 'pieces', favourites: pieceFavs,
   filterItem: item => !['door', 'elevator'].includes(item.kind),
   getContext: () => mapGeneration,
   canPlace: () => !!script && !gameView?.active,
@@ -4018,7 +5127,7 @@ const piecesBrowser = createPiecesBrowser({
   onPlace: (clip, button) => startPlacing({ prefab: clip, radius: 4, height: 0 }, button),
 });
 const moversBrowser = createPiecesBrowser({
-  api, escapeHtml, containerSelector: '#object-movers', searchSelector: '#search', noun: 'movers',
+  api, escapeHtml, containerSelector: '#object-movers', searchSelector: '#search', noun: 'movers', favourites: pieceFavs,
   searchTerms: ['mover', 'movers'],
   isVisible: () => bottomTab === 'objects' && !!$('#object-movers')?.parentElement.open,
   filterItem: item => ['door', 'elevator'].includes(item.kind),
@@ -4066,7 +5175,7 @@ $('#bchars').onclick = () => window.__characters && window.__characters.open();
 // A model is placed as a UCMeshDeco of the editor's package: its Mesh, a collision cylinder round it, a PrePivot that
 // centres it; at the size the game uses it (the DrawScale of the game's object that has it).
 let modelList = null, modelReplace = null;
-const modelOpen = new Set(), modelPkgs = {}, meshModels = {}, meshTex = {};
+const modelOpen = new Set([modelFavs.group]), modelPkgs = {}, meshModels = {}, meshTex = {};
 function meshOf(a) { const m = /'([^']+)'/.exec(String(actorProp(a, 'Mesh') || '')); return m ? m[1] : ''; }
 function prePivotZ(a) { const m = /Z=(-?[\d.]+)/.exec(String(actorProp(a, 'PrePivot') || '')); return m ? +m[1] : 0; }
 function previewMesh(a, source) {
@@ -4106,28 +5215,44 @@ function modelReplaceRow(a, id) {
   const cur = meshOf(a) || a.mesh || modelClassInfo(a).mesh;
   return `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(cur || a.cls)}">${escapeHtml(cur || 'Class model')}</span><button id="${id}" style="flex:none;padding:0 8px" title="Replace the visual model and its skins; keep the same actor, logic, transform and collision">Replace…</button></div>`;
 }
+// a model the search (q, lower case) shows: by its name, its label, the game's object that has it
+const modelMatch = (m, q) => !q || [m.mesh, m.label || '', m.used || ''].some((s) => s.toLowerCase().includes(q));
+function modelTile(m) {
+  const short = m.mesh.split('.').slice(1).join('.');
+  return `<button class="item" data-mesh="${escapeHtml(m.mesh)}" title="${escapeHtml(m.mesh)} · ${m.tris} triangles${m.frames > 1 ? ` · ${m.frames} frames` : ''}${m.used ? ` · the game's ${escapeHtml(m.label || m.used)}` : ''}"><span class="th" data-th="mesh:${escapeHtml(m.mesh)}"></span><span class="tl">${escapeHtml(m.label || short)}</span><small>${escapeHtml(m.label ? short : '')}</small>${modelFavs.star(m.mesh, m.label || short)}</button>`;
+}
+// the models by their name (Models' favourites), made again when the list is read again
+let modelsNamed = { list: null, map: null };
+function modelNamed(mesh) {
+  if (modelsNamed.list !== modelList) modelsNamed = { list: modelList, map: new Map(modelList.meshes.map((m) => [m.mesh, m])) };
+  return modelsNamed.map.get(mesh);
+}
 async function buildModels() {
   const el = $('#models');
   if (modelReplace && modelReplace.generation !== mapGeneration) modelReplace = null;
   if (!modelList) {
     el.innerHTML = '<div class="hint">Reading the models of the game (the first time, a few seconds)...</div>';
     try { modelList = await api('/api/models'); } catch (e) { el.innerHTML = `<div class="hint bad">${escapeHtml(e.message)}</div>`; return; }
-    if (!modelOpen.size && modelList.packages.length) modelOpen.add(modelList.packages[0].name);
+    // the first package opens when none is (Favourites is not a package)
+    if (modelList.packages.length && !modelList.packages.some((p) => modelOpen.has(p.name))) modelOpen.add(modelList.packages[0].name);
   }
   const q = $('#msearch').value.trim().toLowerCase(), mine = bottomTab === 'mymodels';
   let html = modelReplace ? `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(modelReplace.name)}">${modelReplace.busy ? 'Loading model for' : 'Replace model of'} ${escapeHtml(modelReplace.name)}</span><button id="model-replace-cancel" style="flex:none;height:var(--ui-control,22px);padding:0 8px;line-height:18px" title="Cancel replacement (Esc)">Cancel</button></div>` : '';
+  // Favourites first (kept per project; My models: your own); a model whose package is gone shows as missing
+  const favs = modelFavs.entries(modelNamed)
+    .filter(({ fav, item }) => (item ? (!mine || item.pkg === MODELS_PKG) && modelMatch(item, q) : !q || fav.label.toLowerCase().includes(q)));
+  if (favs.length) {
+    html += `<details data-pkg="${escapeHtml(modelFavs.group)}" ${q || mine || modelOpen.has(modelFavs.group) ? 'open' : ''}><summary>${escapeHtml(modelFavs.group)} <small>${favs.length}</small></summary>`;
+    for (const { fav, item } of favs) html += item ? modelTile(item) : modelFavs.missing(fav);
+    html += '</details>';
+  }
   for (const p of modelList.packages) {
     if (mine && p.name !== MODELS_PKG) continue;              // My models: only the imported ones
-    const items = modelList.meshes.filter((m) => m.pkg === p.name && (!q || [m.mesh, m.label || '', m.used || ''].some((s) => s.toLowerCase().includes(q))));
+    const items = modelList.meshes.filter((m) => m.pkg === p.name && modelMatch(m, q));
     if (!items.length) continue;
     const open = q || mine || modelOpen.has(p.name);
     html += `<details data-pkg="${escapeHtml(p.name)}" ${open ? 'open' : ''}><summary>${escapeHtml(p.name === MODELS_PKG ? (/^DXP_/i.test(MODELS_PKG) ? 'My models' : MODELS_PKG) + ' (imported)' : p.name)} <small>${items.length}</small></summary>`;
-    if (open) {
-      for (const m of items.slice(0, q ? 300 : 900)) {
-        const short = m.mesh.split('.').slice(1).join('.');
-        html += `<button class="item" data-mesh="${escapeHtml(m.mesh)}" title="${escapeHtml(m.mesh)} · ${m.tris} triangles${m.frames > 1 ? ` · ${m.frames} frames` : ''}${m.used ? ` · the game's ${escapeHtml(m.label || m.used)}` : ''}"><span class="th" data-th="mesh:${escapeHtml(m.mesh)}"></span><span class="tl">${escapeHtml(m.label || short)}</span><small>${escapeHtml(m.label ? short : '')}</small></button>`;
-      }
-    }
+    if (open) for (const m of items.slice(0, q ? 300 : 900)) html += modelTile(m);
     html += '</details>';
   }
   el.innerHTML = html || (mine && !q ? `<div class="hint sintro">No models of yours yet. <b>Import...</b> (above), or drop the files on the browser: a model made in Blender, 3ds Max, Maya... (glTF/GLB, FBX, OBJ with its .mtl, DAE, with its textures). It becomes one of ${escapeHtml(modelsWhere())}, which the game draws like its own; then click it, or drag it onto the 3D view.</div>`
@@ -4141,6 +5266,8 @@ async function buildModels() {
   for (const b of el.querySelectorAll('[data-mesh]')) {
     b.disabled = !!modelReplace?.busy;
     b.onclick = () => placeModel(b.dataset.mesh, b).catch((e) => log('Models: ' + e.message, 'bad'));
+    b.title += ' · Right click: Find in map';
+    b.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, [{ label: 'Find in map', run: () => findInMap(searchToken('mesh', b.dataset.mesh, true)) }]); };
   }
   observeThumbs();
 }
@@ -4159,6 +5286,11 @@ async function meshInfo(mesh) {
   if (!info) return null;
   if (!meshModels[mesh]) meshModels[mesh] = await fetch(`/cache/_models/${encodeURIComponent(pkg)}/${info.file}`).then((r) => r.json());
   return { info, model: meshModels[mesh] };
+}
+// the textures put on an object's own model (Textures, slot by slot): they go with that model (Model > Replace...,
+// Replace with...)
+function dropActorTextures(name) {
+  if (edits.retexture) edits.retexture = edits.retexture.filter(t => !(t.kind === 'actor' && t.name === name));
 }
 function modelProps(mesh, info) {
   return { Mesh: `${info.cls}'${mesh}'`, CollisionRadius: info.r.toFixed(6), CollisionHeight: info.h.toFixed(6),
@@ -4211,7 +5343,7 @@ async function placeModel(mesh, btn, extra = null) {
     putProp(who, 'Skin', 'None');
     for (let i = 0; i < 8; i++) putProp(who, `MultiSkins(${i})`, 'None');
     // Old per-slot textures belong to the old visual; retain all non-visual authoring data.
-    if (edits.retexture) edits.retexture = edits.retexture.filter(t => !(t.kind === 'actor' && t.name === who.name));
+    dropActorTextures(who.name);
     modelReplace = null;
     setDirty(); rebuildProxies();
     log(`${who.name}: model replaced with ${info.label || mesh}. Logic and collision unchanged. Rebuild to apply in game.`, 'ok');
@@ -5196,8 +6328,6 @@ window.addEventListener('resize', observeThumbs);
 // ---------------------------------------------------------------- Hierarchy (left panel): every object of the level
 // Like Unity's Hierarchy: the structures with their objects inside, then the other objects by kind.
 // Click: select. Double click (or F): go to it. The bin: delete it (Delete key too).
-const HIER_KINDS = [['pawn', 'Characters'], ['light', 'Lights'], ['prop', 'Objects'], ['mover', 'Doors and elevators'],
-  ['logic', 'Triggers and logic'], ['path', 'AI paths'], ['box', 'Blocks']];
 const hierOpen = new Set(['k:pawn', 'k:light']);
 let hierTimer = 0, hierItems = [];
 // Like Unity: the order of the rows is the user's. Inside a nest it is the nest's own list; in the folders
@@ -5263,6 +6393,24 @@ function hierLabel(a) {
   const s = own || NAMES[a.cls] || a.label || clsShown(a.cls).replace(/([a-z])([A-Z0-9])/g, '$1 $2');
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+// what lists call a thing (the Hierarchy, the group Inspector, Select under cursor): [its label, its name]
+function objectLabel(p) {
+  const d = p.userData;
+  if (isStruct(p)) return [structures[d.name].label, 'structure'];
+  if (d.actor) return [hierLabel(d.actor), d.actor.name];
+  if (d.drawn) return [DRAW_LABELS[d.drawn.kind], d.drawn.name];
+  return [d.box.sign ? 'Sign: ' + d.box.sign.text.split('\n')[0] : blockLabel(d.box), d.box.name];
+}
+function keyLabel(k) {                   // the same for a key of the selection (a nest too)
+  if (k.startsWith('n:')) return [nestById(k.slice(2))?.label || 'Folder', 'folder'];
+  const p = objOf(k);
+  return p ? objectLabel(p) : [k.slice(k.indexOf(':') + 1), ''];
+}
+function keyIcon(k) {                    // its icon in the Hierarchy
+  if (k.startsWith('n:')) return hierarchyIcon('nest');
+  const p = objOf(k);
+  return hierarchyIcon(isStruct(p) ? 'structure' : p?.userData.kind, p?.userData.actor);
+}
 function buildHierarchy() { clearTimeout(hierTimer); hierTimer = setTimeout(renderHierarchy, 40); }
 function hierColor(kind) { return '#' + (KIND_COLOR[kind] || KIND_COLOR.prop).toString(16).padStart(6, '0'); }
 const HIER_SYMBOLS = {
@@ -5281,7 +6429,12 @@ const HIER_SYMBOLS = {
   helicopter: '<path d="M6 3h15M14 3v4m-6 9h12a3 3 0 0 0 2-5l-4-4h-7l-3 4H4L2 7H1l2 9h5Zm4 0v4m7-4v4M8 20h14M16 7v5h6"/>',
   sound: '<path d="M3 9h4l5-5v16l-5-5H3V9Zm13-2a7 7 0 0 1 0 10m3-13a11 11 0 0 1 0 16"/>',
   camera: '<rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-4v12l-6-4"/>',
+  zone: '<path d="M4.7 8.3 12 4.1l7.3 4.2v8L12 20.4l-7.3-4.1Zm0 0 7.3 4.1 7.3-4.1M12 12.4v8M8.1 10.3V6.4m7.7 3.9V6.4"/>',
 };
+// what an icon of the Hierarchy says (its tooltip): a kind's, a folder's, a sound's, a camera's, a zone's
+const HIER_ICON_LABELS = { pawn: 'Characters', light: 'Light', prop: 'Object', mover: 'Door / elevator', logic: 'Trigger / logic',
+  path: 'AI path', box: 'Block', structure: 'Structure', folder: 'Folder', nest: 'Nest', piece: 'Piece of a structure',
+  sound: 'Sound', camera: 'Camera / cutscene', zone: 'Zone' };
 function npcDisposition(a) {
   const relation = relationsOf(a).find(r => r.name.toLowerCase() === 'player');
   if (relation) return levelKey(relation.level) === '1' ? 'friendly' : levelKey(relation.level) === '-1' ? 'hostile' : 'neutral';
@@ -5289,37 +6442,154 @@ function npcDisposition(a) {
   return factionData?.classes[a.cls] ? 'neutral' : 'unknown';
 }
 function hierarchyIcon(kind, a = null) {
-  let symbol = HIER_SYMBOLS[kind] ? kind : 'prop', color = hierColor(kind);
-  let label = { pawn: 'Characters', light: 'Light', prop: 'Object', mover: 'Door / elevator', logic: 'Trigger / logic', path: 'AI path', box: 'Block', structure: 'Structure', folder: 'Folder', nest: 'Nest', piece: 'Piece of a structure' }[kind] || 'Object';
+  const own = classKind(a?.cls, kind);     // a sound, a camera or a zone has its own icon, whatever its kind (a character's not)
+  const icon = HIER_SYMBOLS[kind] ? kind : showKindOf(kind);      // a drawing has the blocks' (its row of the Show menu)
+  let symbol = icon, color = hierColor(icon);
+  let label = HIER_ICON_LABELS[icon] || 'Object';
   if (kind === 'nest') color = 'var(--acc)';
   if (a?.cls === 'PlayerStart') { symbol = 'start'; color = 'var(--acc)'; label = 'Player start'; }
   else if (/Helicopter/.test(a?.cls || '')) { symbol = 'helicopter'; color = 'var(--acc)'; label = 'Helicopter'; }
-  else if (/^(AmbientSound|UCSoundFX)$/.test(a?.cls || '')) { symbol = 'sound'; label = 'Sound'; }
-  else if (/^(SecurityCamera|CameraPoint|InterpolationPoint|UCCutscene)$/.test(a?.cls || '')) { symbol = 'camera'; label = 'Camera / cutscene'; }
+  else if (own) { symbol = own; label = HIER_ICON_LABELS[own]; }
   else if (kind === 'pawn') {
     const state = a ? npcDisposition(a) : 'neutral';
     color = `var(--npc-${state === 'unknown' ? 'neutral' : state})`;
     if (a) label = { friendly: 'Ally of JC', neutral: 'Neutral towards JC', hostile: 'Enemy of JC', unknown: 'NPC — relation defaults unavailable' }[state] + ' · at map start';
   }
-  const speech = a && window.__gamecons?.data?.actors[a.name]?.length ? '<span class="gc-speech-icon" title="Has original conversations" role="img" aria-label="Original conversations"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h14v10H8l-5 4V3Z"/></svg></span>' : '';
+  const speech = a && hasOriginalConversations(a) ? '<span class="gc-speech-icon" title="Has original conversations" role="img" aria-label="Original conversations"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h14v10H8l-5 4V3Z"/></svg></span>' : '';
   return `<span class="hier-icon" style="color:${color}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true">${HIER_SYMBOLS[symbol]}</svg></span>` + speech;
+}
+// ------------------------------- the Hierarchy's search (as Unity's scene search, scene-search.js): what it knows of
+// each thing, what a name refers to, what its autocomplete offers; Find references and Find in map fill it
+// is:<state> (scene-search.js IS_STATES) of an object, a block, a drawing or a structure; ctx: the search's
+const IS_TESTS = {
+  hidden: (p) => objectEyeOff(p) || kindIs(p, 'hidden'),
+  locked: (p) => selectionLocked(p),
+  disabled: (p) => !!edits.disabled?.[p.userData.actor?.name],
+  added: (p) => madeInEditor(p),
+  original: (p) => !madeInEditor(p),
+  nested: (p) => objectStateKeys(p).length > 1,                 // in a folder (a nest), or an object of a structure
+  selected: (p, ctx) => ctx.picked.has(p),
+};
+// added in the editor: an object, a block or a drawing not of the map, a structure pasted or copied
+function madeInEditor(p) {
+  const st = isStruct(p) && structures[p.userData.name];
+  return st ? !!(st.paste || st.copy_of) : p.userData.source !== 'map';
+}
+// the textures a thing shows: its meshes' (a model's skins, a structure's faces, a drawing's), a block's, and those
+// the Textures section put on it instead (on it alone, or in place of one of its own everywhere)
+function texturesOf(p) {
+  const d = p.userData, out = d.box?.tex ? [d.box.tex] : [], short = (t) => String(t).split('.').pop().toLowerCase();
+  p.traverse((m) => { const t = m.userData?.tex || m.userData?.drawnTex; if (typeof t === 'string') out.push(t); });
+  for (const r of edits.retexture || []) {
+    const own = r.kind === 'actor' ? r.name === d.actor?.name : r.kind === 'structure' ? isStruct(p) && r.name === d.name
+      : out.some((t) => short(t) === short(r.old));
+    if (own) out.push(r.tex);
+  }
+  return out;
+}
+// ref:<name>: that object, what points at it and what it points at: Event to Tag and the other links of the
+// Inspector's Connections (linksOf), and the Interactions rules it starts (what they act on) or that act on it
+function referencesOf(value) {
+  const want = String(value).toLowerCase();
+  const name = [...allActors(), ...(edits.boxes || [])].find((x) => String(x.name).toLowerCase() === want)?.name;
+  const out = new Set(name ? [name] : []), a = lkActor(name);
+  if (!a) return out;
+  for (const l of linksOf(a)) out.add(l.name);
+  for (const l of edits.links || []) {
+    const targets = (l.do || []).flatMap((x) => (x.area ? lkAreaTargets(x, l.src) : x.targetTag ? lkTagTargets(x, l.src) : [x.target]));
+    if (l.src === a.name) targets.forEach((t) => t && out.add(t));
+    else if (targets.includes(a.name)) out.add(l.src);
+  }
+  return out;
+}
+// what the search needs of the whole map, made once per search and only when a token asks: who is selected, what a
+// name refers to (ref:), the sounds the Interactions rules play (snd:), the models of the game's classes (mesh:, as
+// modelClassInfo finds them, read once for every object)
+function searchContext(picked) {
+  let played = null, classMeshes = null;
+  return {
+    picked, refs: referencesOf,
+    played(name) {
+      if (!played) {
+        played = new Map();
+        for (const l of edits.links || []) for (const x of l.do || []) if (x.verb === 'sound' && x.a)
+          for (const n of new Set([l.src, x.target])) if (n) played.set(n, [...(played.get(n) || []), x.a]);
+      }
+      return played.get(name) || [];
+    },
+    classMesh(cls) {
+      if (!classMeshes) {
+        classMeshes = new Map();
+        for (const it of (palette || []).flatMap((c) => c.items || [])) if (it.mesh && !classMeshes.has(it.cls)) classMeshes.set(it.cls, it.mesh);
+      }
+      return classMeshes.get(cls) || '';
+    },
+  };
+}
+// what the search knows of a thing (scene-search.js), each fact read only when a token looks at it
+function searchFacts(p, label, name, ctx) {
+  const d = p.userData, a = d.actor;
+  const own = () => assetsOf(a ? Object.values({ ...a.props, ...edits.props?.[a.name] }) : []);     // what its properties name
+  return {
+    name, label, cls: a?.cls || '',
+    types: () => typesOf(d.kind || 'prop', a?.cls, a && chainNow[a.cls]),
+    tag: () => (a ? tagOf(a) : ''), event: () => (a ? eventOf(a) : ''),
+    sounds: () => (a ? [...own().sounds, ...ctx.played(a.name)] : []),
+    textures: () => [...own().textures, ...texturesOf(p)],
+    meshes: () => (a ? meshOf(a) || a.mesh || ctx.classMesh(a.cls) : ''),
+    is: (state) => Object.hasOwn(IS_TESTS, state) && IS_TESTS[state](p, ctx),
+  };
+}
+// the values the search's autocomplete offers after a key: what this map has, read again when the map changes
+let searchValueCache = { map: -1, revision: -1, byKey: {} };
+function searchValues(key) {
+  if (searchValueCache.map !== mapGeneration || searchValueCache.revision !== editRevision) searchValueCache = { map: mapGeneration, revision: editRevision, byKey: {} };
+  const kept = searchValueCache.byKey, ctx = searchContext(new Set());
+  return kept[key] || (kept[key] = fieldValues(sceneObjects().map((p) => {
+    const [label, name] = objectLabel(p);
+    return searchFacts(p, label, isStruct(p) ? label : name, ctx);
+  }), key));
+}
+// Right click > Find references (Edit menu too), as Unity's Find References in Scene: the search becomes ref:<name>
+function findReferences(p = selected) {
+  const name = p?.userData.actor?.name || (p?.userData.box?.mover && p.userData.box.name);
+  if (!name) { status('Select an object (or a moving block) first: Find references shows what points at it and what it points at.', 'warn'); return; }
+  findInMap(searchToken('ref', name));
+}
+// the search ends with its map (a ref: or a name of one map is nothing, or another thing, in the next): the box empties
+// and the 3D view is no longer dimmed; the Hierarchy is drawn again with the next map
+function endMapSearch() { searchBox.clear(); searchView.show(null); }
+// the search set from elsewhere: Find references, and Find in map of the Sounds, Models and Textures browsers
+function findInMap(query) {
+  if (!mapName) { status('Open a map first.', 'warn'); return; }
+  window.__workspace?.show('hierarchy');
+  searchBox.set(query);
+  const n = searchView.count;
+  status(n ? `${query}: ${n} in this map, bright in the 3D view. Esc in the search box shows the whole map again.` : `${query}: nothing in this map uses it.`, n ? 'ok' : 'warn');
 }
 function renderHierarchy() {
   const el = $('#hier');
   if (!el) return;
   if (hierarchyDragging) { clearTimeout(hierTimer); hierTimer = setTimeout(renderHierarchy, 100); return; }
   if (hierRenaming) { clearTimeout(hierTimer); hierTimer = setTimeout(renderHierarchy, 150); return; }
-  const q = $('#hsearch').value.trim().toLowerCase();
-  const has = (s) => String(s || '').toLowerCase().includes(q);
+  // the search (scene-search.js): words as before, tokens as Unity's (t:, tag:, snd:, is:, ref:...); a folder or a piece
+  // is found by its name, with words only (folderSearch: all a folder holds then shows, the folders and structures in
+  // it too, but what a - word leaves out)
+  const query = parseSearch($('#hsearch').value), q = !query.empty;
+  // every object of a multiple selection is highlighted, as in Unity (not only the one clicked last)
+  const picked = selected === groupPivot ? new Set(members()) : new Set(selected ? [selected] : []);
+  const newHere = defaultFolder(edits)?.id;           // the folder new things go in: in bold
+  const ctx = searchContext(picked), matches = searchMatcher(query, ctx), folders = folderSearch(query, ctx);
+  const found = new Set();                   // what the 3D view keeps bright while the search is on
   const inNest = new Map();                  // what a nest holds is shown inside it, not in its usual place
   for (const n of nests()) for (const k of n.items) inNest.set(k, n.id);
   const inStruct = new Map(), byKind = new Map(), rowOf = new Map();
   hierItems = [];
   for (const p of proxies.children) {
     const d = p.userData, a = d && d.actor;
-    if (!d || (!a && !d.box)) continue;
-    const name = a ? a.name : d.box.name, label = a ? hierLabel(a) : d.box.sign ? 'Sign: ' + d.box.sign.text.split('\n')[0] : blockLabel(d.box);
-    const it = { p, name, label, kind: d.kind || 'prop', key: keyOf(p), match: !q || has(name) || has(label) || !!(a && has(a.cls)) };
+    if (!d || (!a && !d.box && !d.drawn)) continue;          // an object, a block or a drawing (Tools > Draw)
+    const [label, name] = objectLabel(p), facts = searchFacts(p, label, name, ctx);
+    const it = { p, name, label, facts, kind: d.kind || 'prop', key: keyOf(p), match: !q || matches(facts) };
     const st = a && d.source === 'map' && structures[actorStruct[a.name]];
     if (st && !st.dissolved) {                // with its structure, wherever that is
       if (!inStruct.has(st.name)) inStruct.set(st.name, []);
@@ -5328,33 +6598,49 @@ function renderHierarchy() {
     }
     if (inNest.has(it.key)) { rowOf.set(it.key, it); continue; }
     if (!it.match) continue;
-    if (!byKind.has(it.kind)) byKind.set(it.kind, []);
-    byKind.get(it.kind).push(it);
+    const folder = sceneKindOf(p);           // its row of the Show menu: the folder's eye and padlock are that row's
+    if (!byKind.has(folder)) byKind.set(folder, []);
+    byKind.get(folder).push(it);
   }
-  // every object of a multiple selection is highlighted, as in Unity (not only the one clicked last)
-  const picked = selected === groupPivot ? new Set(members()) : new Set(selected ? [selected] : []);
   const trash = ICON.trash, focus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg>';
   const open = (k) => (q || hierOpen.has(k) ? 'open' : '');
   const inAttr = (nid) => (nid ? ` data-in="${escapeHtml(nid)}"` : '');
   const stateClass = (p) => `${objectHidden(p) ? ' hier-hidden' : ''}${selectionLocked(p) ? ' hier-locked' : ''}${p.userData.actor && edits.disabled?.[p.userData.actor.name] ? ' hier-inactive' : ''}`;
   const stateButtons = key => {
-    const targets = stateTargets([key]), hidden = targets.length > 0 && targets.every(objectHidden), locked = targets.some(p => selectionLocked(p));
+    const targets = stateTargets([key]), hidden = targets.length > 0 && targets.every(objectEyeOff), locked = keysLocked([key], true);
     return `<button class="hb hstate" data-view-key="${escapeHtml(key)}" data-view-state="hidden" data-view-value="${!hidden}" aria-pressed="${hidden}" aria-label="${hidden ? 'Show in Scene' : 'Hide in Scene'}" title="${hidden ? 'Show in Scene (and reveal hidden parents)' : 'Hide in Scene only; stays in game'}">${ICON[hidden ? 'eyeoff' : 'eye']}</button><button class="hb hstate" data-view-key="${escapeHtml(key)}" data-view-state="locked" data-view-value="${!locked}" aria-pressed="${locked}" aria-label="${locked ? 'Unlock selection' : 'Lock selection'}" title="${locked ? 'Unlock selection' : 'Lock selection against accidental edits'}">${ICON[locked ? 'lock' : 'unlock']}</button>`;
+  };
+  // a kind's folder: an eye and a padlock for the whole kind, the same as the 3D view's Show menu
+  const kindButtons = (id) => {
+    const f = kindFilter(), name = SHOW_KIND[id].label, hidden = f.has('hidden', id), locked = f.has('locked', id);
+    return `<button class="hb hstate" data-kind="${id}" data-kind-state="hidden" data-kind-value="${!hidden}" aria-pressed="${hidden}" aria-label="${hidden ? 'Show' : 'Hide'} ${name}" title="${hidden ? `${name} are hidden in the 3D view: show them` : `Hide ${name} in the 3D view (each one's own eye stays)`}">${ICON[hidden ? 'eyeoff' : 'eye']}</button>`
+      + `<button class="hb hstate" data-kind="${id}" data-kind-state="locked" data-kind-value="${!locked}" aria-pressed="${locked}" aria-label="${locked ? 'Unlock' : 'Lock'} ${name}" title="${locked ? `${name} are locked: unlock them` : `Lock ${name}: not picked, marquee-selected, snapped to or edited`}">${ICON[locked ? 'lock' : 'unlock']}</button>`;
+  };
+  // a row whose kind the Show menu hides or locks says so (the row's eye and padlock stay its own)
+  const kindHint = (p) => {
+    const id = sceneKindOf(p), off = ['hidden', 'locked'].filter(s => kindFilter().has(s, id));
+    return off.length ? ` · ${SHOW_KIND[id].label} ${off.join(' and ')} in the 3D view's Show menu` : '';
   };
   const row = (it, nid) => {
     const i = hierItems.push(it.p) - 1;
+    found.add(it.p);
     const named = it.p.userData.actor && unquote(actorProp(it.p.userData.actor, 'FamiliarName') || '');
-    return `<div class="hrow ${named ? 'hier-named ' : ''}${picked.has(it.p) ? 'on' : ''}${stateClass(it.p)}" data-hi="${i}" data-key="${escapeHtml(it.key)}" draggable="${!selectionLocked(it.p)}"${inAttr(nid)} title="${escapeHtml(it.label)} · ${escapeHtml(it.name)}${edits.disabled?.[it.name] ? ' · disabled in game' : ''}">${hierarchyIcon(it.kind, it.p.userData.actor)}<span class="hl">${escapeHtml(it.label)}</span><small>${escapeHtml(it.name)}</small>${stateButtons(it.key)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete (Del)" ${selectionLocked(it.p) ? 'disabled' : ''}>${trash}</button></div>`;
+    return `<div class="hrow ${named ? 'hier-named ' : ''}${picked.has(it.p) ? 'on' : ''}${stateClass(it.p)}" data-hi="${i}" data-key="${escapeHtml(it.key)}" draggable="${!selectionLocked(it.p)}"${inAttr(nid)} title="${escapeHtml(it.label)} · ${escapeHtml(it.name)}${edits.disabled?.[it.name] ? ' · disabled in game' : ''}${kindHint(it.p)}">${hierarchyIcon(it.kind, it.p.userData.actor)}<span class="hl">${escapeHtml(it.label)}</span><small>${escapeHtml(it.name)}</small>${stateButtons(it.key)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete (Del)" ${selectionLocked(it.p) ? 'disabled' : ''}>${trash}</button></div>`;
   };
   const rank = hierRank(), byRank = (a, b) => (rank.has(a) ? rank.get(a) : Infinity) - (rank.has(b) ? rank.get(b) : Infinity);
   const sortRows = (list) => list.sort((x, y) => byRank(x.key, y.key) || x.label.localeCompare(y.label) || x.name.localeCompare(y.name));
   const pieceRow = (st, pc, nid) => `<div class="hrow hpiece" data-piece="${escapeHtml(st.name + '|' + pc.id)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)} title="${escapeHtml(pc.label)}: a piece of ${escapeHtml(st.label)}. Drag it out of the structure (or right click) to move it on its own.">${hierarchyIcon('piece')}<span class="hl">${escapeHtml(pc.label)}</span><small>piece</small></div>`;
-  // a structure with what is inside it: its pieces (when it has more than one) and its objects
-  const structNode = (st, nid) => {
-    const all = inStruct.get(st.name) || [], objs = sortRows(all.filter((it) => it.match || has(st.label)));
-    const pcs = piecesInside(st), pcsShown = pcs.length > 1 || (pcs.length && all.length) ? pcs.filter((pc) => !q || has(pc.label) || has(st.label)) : [];
-    if (q && !objs.length && !pcsShown.length && !has(st.label)) return '';
-    if (pcs.length <= 1 && !all.length) {      // a single piece on its own (one taken out of a structure): a piece, not an empty structure
+  // a structure with what is inside it: its pieces (when it has more than one) and its objects; within: in a folder
+  // found by its name (folderSearch)
+  const structNode = (st, nid, within = false) => {
+    const opened = folders.opens(st.label, within);
+    const all = inStruct.get(st.name) || [], objs = sortRows(all.filter((it) => folders.shows(opened, it)));
+    const pcs = piecesInside(st), pcsShown = pcs.length > 1 || (pcs.length && all.length) ? pcs.filter((pc) => !q || folders.piece(pc.label, opened)) : [];
+    const facts = searchFacts(st.obj, st.label, st.label, ctx), own = q && matches(facts);      // the structure itself matches
+    const single = pcs.length <= 1 && !all.length;      // a row, as an object (in a folder found by its name too)
+    if (q && (single ? !folders.shows(within, { match: own, facts }) : !objs.length && !pcsShown.length && !folders.listed(opened, own))) return '';
+    if (single || own || pcsShown.length) found.add(st.obj);
+    if (single) {      // a single piece on its own (one taken out of a structure): a piece, not an empty structure
       const i = hierItems.push(st.obj) - 1;
       const tip = `${st.label}: a single piece${st.pendingPiece ? ', taken out of its structure (on its own from the next Rebuild)' : ''}`;
       return `<div class="hrow hpiece-loose ${picked.has(st.obj) ? 'on' : ''}${stateClass(st.obj)}" data-hi="${i}" data-key="s:${escapeHtml(st.name)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)} title="${escapeHtml(tip)}">${hierarchyIcon('piece')}<span class="hl">${escapeHtml(st.label)}</span><small>piece</small>${stateButtons('s:' + st.name)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete (Del)" ${selectionLocked(st.obj) ? 'disabled' : ''}>${trash}</button></div>`;
@@ -5363,20 +6649,21 @@ function renderHierarchy() {
     const title = st.pendingPiece ? ` title="${escapeHtml(st.label)}: taken out of its structure, a structure of its own at the next Rebuild"` : '';
     return `<details data-hk="s:${escapeHtml(st.name)}" ${open('s:' + st.name)}><summary class="${picked.has(st.obj) ? 'on' : ''}${stateClass(st.obj)}" data-hi="${i}" data-key="s:${escapeHtml(st.name)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)}${title}>${hierarchyIcon('structure')}<span class="hl">${escapeHtml(st.label)}</span><small>${pcsShown.length + objs.length}</small>${stateButtons('s:' + st.name)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete the whole structure (Del)" ${selectionLocked(st.obj) ? 'disabled' : ''}>${trash}</button></summary>${pcsShown.map((pc) => pieceRow(st, pc, nid)).join('')}${objs.map((it) => row(it, nid)).join('')}</details>`;
   };
-  // a nest: what it holds, in the order it was put there (other nests too)
-  const nestNode = (n, seen) => {
+  // a nest: what it holds, in the order it was put there (other nests too); within: in a folder found by its name
+  const nestNode = (n, seen, within = false) => {
     if (seen.has(n.id)) return '';
     seen.add(n.id);
+    const opened = folders.opens(n.label, within);      // found by its name (or in one that is): all it holds shows
     let inner = '';
     for (const k of n.items) {
-      if (k.startsWith('n:')) { const c = nestById(k.slice(2)); if (c) inner += nestNode(c, seen); }
-      else if (k.startsWith('s:')) { const st = structures[k.slice(2)]; if (st && !st.dissolved && !poseOf(st).deleted) inner += structNode(st, n.id); }
-      else { const it = rowOf.get(k); if (it && (it.match || has(n.label))) inner += row(it, n.id); }
+      if (k.startsWith('n:')) { const c = nestById(k.slice(2)); if (c) inner += nestNode(c, seen, opened); }
+      else if (k.startsWith('s:')) { const st = structures[k.slice(2)]; if (st && !st.dissolved && !poseOf(st).deleted) inner += structNode(st, n.id, opened); }
+      else { const it = rowOf.get(k); if (it && folders.shows(opened, it)) inner += row(it, n.id); }
     }
-    if (q && !inner && !has(n.label)) return '';
+    if (q && !inner && !folders.listed(opened)) return '';
     const on = (selected === groupPivot && groupPivot.userData.nest === n.id) || (!selected && hierFolderOn === n.id);
-    const locked = nestLeaves(n).some(p => selectionLocked(p));
-    return `<details data-hk="n:${escapeHtml(n.id)}" ${open('n:' + n.id)}><summary class="hnest ${on ? 'on' : ''}" data-nest="${escapeHtml(n.id)}" data-key="n:${escapeHtml(n.id)}" data-in="${escapeHtml(n.id)}" draggable="${!locked}" title="${escapeHtml(n.label)}: a nest, moved as one. Double click: focus. Drag objects in and out.">${hierarchyIcon('nest')}<span class="hl">${escapeHtml(n.label)}</span><small>${n.items.length}</small>${stateButtons('n:' + n.id)}<button class="hb" data-nf="${escapeHtml(n.id)}" title="Focus (F)">${focus}</button><button class="hb del" data-nd="${escapeHtml(n.id)}" title="Delete the nest and its contents (Del)" ${locked ? 'disabled' : ''}>${trash}</button></summary>${inner}</details>`;
+    const locked = keysLocked(['n:' + n.id]);      // by the padlocks of what it holds, not their kinds' (keysLocked)
+    return `<details data-hk="n:${escapeHtml(n.id)}" ${open('n:' + n.id)}><summary class="hnest ${on ? 'on' : ''}${n.id === newHere ? ' hier-default' : ''}" data-nest="${escapeHtml(n.id)}" data-key="n:${escapeHtml(n.id)}" data-in="${escapeHtml(n.id)}" draggable="${!locked}" title="${escapeHtml(n.label)}: a nest, moved as one. Double click: focus. Drag objects in and out.${n.id === newHere ? ' New objects go here.' : ''}">${hierarchyIcon('nest')}<span class="hl">${escapeHtml(n.label)}</span><small>${n.items.length}</small>${stateButtons('n:' + n.id)}<button class="hb" data-nf="${escapeHtml(n.id)}" title="Focus (F)">${focus}</button><button class="hb del" data-nd="${escapeHtml(n.id)}" title="Delete the nest and its contents (Del)" ${locked ? 'disabled' : ''}>${trash}</button></summary>${inner}</details>`;
   };
   let html = '';
   for (const n of nests().filter((x) => !inNest.has('n:' + x.id)).map((x, i) => [x, i]).sort((a, b) => byRank('n:' + a[0].id, 'n:' + b[0].id) || a[1] - b[1]).map(([x]) => x))
@@ -5395,20 +6682,23 @@ function renderHierarchy() {
   }
   const catNames = [...cats.keys()].sort((a, b) => (CATS.indexOf(a) + 1 || 99) - (CATS.indexOf(b) + 1 || 99));
   if (catNames.length) {
-    html += `<details data-hk="structs" ${open('structs')}><summary>${hierarchyIcon('structure')}<span class="hl">Structures</span><small>${nStruct}</small></summary>`;
+    html += `<details data-hk="structs" ${open('structs')}><summary>${hierarchyIcon('structure')}<span class="hl">Structures</span><small>${nStruct}</small>${kindButtons('structure')}</summary>`;
     for (const c of catNames) {
       const list = cats.get(c).sort((x, y) => byRank('s:' + x.st.name, 's:' + y.st.name) || x.st.label.localeCompare(y.st.label));
       html += `<details data-hk="c:${escapeHtml(c)}" ${open('c:' + c)}><summary>${hierarchyIcon('folder')}<span class="hl">${escapeHtml(c)}</span><small>${list.length}</small></summary>${list.map((x) => x.node).join('')}</details>`;
     }
     html += '</details>';
   }
-  // the other objects, by kind
-  for (const [k, title] of HIER_KINDS) {
+  // the other objects, by kind: a folder for each row of the Show menu, with its eye and padlock
+  for (const { id: k, label: title } of HIER_FOLDERS) {
     const list = byKind.get(k);
     if (!list || !list.length) continue;
-    html += `<details data-hk="k:${k}" ${open('k:' + k)}><summary>${hierarchyIcon(k)}<span class="hl">${title}</span><small>${list.length}</small></summary>${sortRows(list).map((it) => row(it, null)).join('')}</details>`;
+    html += `<details data-hk="k:${k}" ${open('k:' + k)}><summary>${hierarchyIcon(k)}<span class="hl">${title}</span><small>${list.length}</small>${kindButtons(k)}</summary>${sortRows(list).map((it) => row(it, null)).join('')}</details>`;
   }
-  el.innerHTML = html || `<div class="hint">${q ? 'Nothing in this level has this name.' : 'Open a map.'}</div>`;
+  showDefaultFolderBar();
+  el.innerHTML = html || `<div class="hint">${q ? 'Nothing in this map matches the search.' : 'Open a map.'}</div>`;
+  if (q || searchView.active) wake();          // the 3D view shows the search (or its end) at once
+  searchView.show(q ? found : null);
   for (const d of el.querySelectorAll('details')) d.addEventListener('toggle', () => { if (!q) (d.open ? hierOpen.add(d.dataset.hk) : hierOpen.delete(d.dataset.hk)); });
   for (const r of el.querySelectorAll('[data-hi]')) {
     const p = hierItems[+r.dataset.hi];
@@ -5427,6 +6717,7 @@ function renderHierarchy() {
   for (const b of el.querySelectorAll('[data-hf]')) b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const p = hierItems[+b.dataset.hf]; if (p) { select(p); focusSelected(); } };
   for (const b of el.querySelectorAll('[data-hd]')) b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const p = hierItems[+b.dataset.hd]; if (p) { select(p); deleteSelected(); } };
   for (const b of el.querySelectorAll('[data-view-state]')) b.onclick = e => { e.preventDefault(); e.stopPropagation(); setObjectView([b.dataset.viewKey], b.dataset.viewState, b.dataset.viewValue === 'true'); };
+  for (const b of el.querySelectorAll('[data-kind-state]')) b.onclick = e => { e.preventDefault(); e.stopPropagation(); setKindView(b.dataset.kind, b.dataset.kindState, b.dataset.kindValue === 'true'); };
   // nests: a click picks all of it (Ctrl: adds it to the selection), a double click goes to it
   for (const r of el.querySelectorAll('[data-nest]')) {
     const id = r.dataset.nest;
@@ -5472,14 +6763,18 @@ function renderHierarchy() {
     hierFlash = null;
   }
 }
+// the nests around a key, the nearest first (a nest inside itself is not followed round)
+function nestsAround(key) {
+  const out = [];
+  for (let n = parentNest(key); n && !out.includes(n); n = parentNest('n:' + n.id)) out.push(n);
+  return out;
+}
+// the nests around a key open in the Hierarchy
+function openNests(key) { for (const n of nestsAround(key)) hierOpen.add('n:' + n.id); }
 // the selected object's folders open in the Hierarchy
 function revealInHierarchy(p) {
   if (!p) return;
   const d = p.userData;
-  const openNests = (key) => {
-    const seen = new Set();
-    for (let n = parentNest(key); n && !seen.has(n.id); n = parentNest('n:' + n.id)) { seen.add(n.id); hierOpen.add('n:' + n.id); }
-  };
   if (p === groupPivot) { if (d.nest) openNests('n:' + d.nest); return; }
   if (d.kind === 'structure') {
     hierOpen.add('structs'); hierOpen.add('c:' + (structures[d.name].category || 'Other'));
@@ -5489,20 +6784,106 @@ function revealInHierarchy(p) {
     hierOpen.add('structs'); hierOpen.add('c:' + (st.category || 'Other')); hierOpen.add('s:' + st.name);
     openNests('s:' + st.name);
   } else {
-    hierOpen.add('k:' + (d.kind || 'prop'));
+    hierOpen.add(kindFolder(p));
     openNests(keyOf(p));
   }
 }
-$('#hsearch').addEventListener('input', renderHierarchy);
+// typing waits for a pause (the search reads every object); the tokens are offered under the box (search-box.js)
+$('#hsearch').addEventListener('input', () => { clearTimeout(hierTimer); hierTimer = setTimeout(renderHierarchy, 120); });
+const searchBox = mountSearchBox($('#hsearch'), $('#hsuggest'), { values: searchValues, changed: renderHierarchy });
 // ------------------------------- the Hierarchy's + (Gabby, 18 Oct 2026): folders named on the spot, and solids as
 // in Unity (a cube, a wedge, a cylinder) to texture and shape; F2, Enter or right click > Rename name a folder
 function currentFolder() {
   if (selected === groupPivot && groupPivot.userData.nest && nestById(groupPivot.userData.nest)) return groupPivot.userData.nest;
   return !selected && hierFolderOn && nestById(hierFolderOn) ? hierFolderOn : null;
 }
+// the folder new things go in (right click on a folder > New objects go here, as Unity's Set as Default Parent: one per
+// map, in its edits; hierarchy-folders.js) while it takes them: in a folder hidden or locked with its eye or padlock (or
+// inside one) they would vanish or be stuck at once, so they stay at the top level until it is shown and unlocked
+function newObjectsFolder() {
+  const n = defaultFolder(edits);
+  return n && !folderShut(n.id) ? n : null;
+}
+// what keeps a folder from taking new things: 'hidden' or 'locked' (its own eye or padlock, or a folder's around it), or ''
+function folderShut(id) {
+  const keys = ['n:' + id, ...nestsAround('n:' + id).map((n) => 'n:' + n.id)], state = viewState();
+  return keys.some((k) => state.hidden.has(k)) ? 'hidden' : keys.some((k) => state.locked.has(k)) ? 'locked' : '';
+}
+// what the Hierarchy's + and the 2D Shape Editor make goes into the folder chosen there, else into the one above
+function folderForNew() { return (currentFolder() && nestById(currentFolder())) || newObjectsFolder(); }
+// new things (their keys) into the folder new things go in, if one takes them: placed, pasted, drawn (not a copy made
+// with Duplicate: that stays beside its original); the folder opens in the Hierarchy, with the folders around it
+function intoDefaultFolder(keys) {
+  const n = putInFolder(newObjectsFolder(), keys);
+  if (n) { hierOpen.add('n:' + n.id); openNests('n:' + n.id); }
+}
+// right click on a folder > New objects go here (its id), or New objects go to the top level (null); one Ctrl+Z
+function setNewObjectsFolder(id) {
+  if ((defaultFolder(edits)?.id ?? null) === id) return;
+  const n = id && nestById(id);
+  if (id && !n) { status('That folder no longer exists.', 'warn'); return; }
+  pushUndo();
+  setDefaultFolder(edits, id);
+  setDirty();
+  status(n ? `New objects go into "${n.label}": what you place, paste, draw or make with + (× at the top of the Hierarchy stops it).`
+    : 'New objects go to the top level again.', 'ok');
+}
+// the folder new things go in, named at the top of the Hierarchy: its name goes to it, × clears it; drawn again only
+// when it changes
+const defaultFolderBar = document.createElement('div');
+defaultFolderBar.className = 'hier-default-bar';
+defaultFolderBar.hidden = true;
+$('#hier').before(defaultFolderBar);
+defaultFolderBar.addEventListener('click', (e) => {
+  if (e.target.closest('.hier-default-clear')) setNewObjectsFolder(null);
+  else if (e.target.closest('.hier-default-name')) goToDefaultFolder();
+});
+let defaultFolderShown = '';
+function showDefaultFolderBar() {
+  const n = script ? defaultFolder(edits) : null, shut = n ? folderShut(n.id) : '';
+  const html = !n ? '' : `${hierarchyIcon('nest')}<button class="hier-default-name" title="Go to it">${escapeHtml(n.label)}</button><span class="hier-default-what${shut ? ' shut' : ''}">${shut ? shut + ', new objects stay out' : 'new objects go here'}</span>`
+    + '<button class="hier-default-clear" title="New objects go to the top level again" aria-label="New objects go to the top level again"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>';
+  defaultFolderBar.hidden = !n;
+  if (html === defaultFolderShown) return;
+  defaultFolderShown = html;
+  defaultFolderBar.innerHTML = html;
+  defaultFolderBar.title = !n ? '' : shut ? `"${n.label}" is ${shut}: new objects stay at the top level until it is shown and unlocked`
+    : `What you place, paste, draw or make with + goes into "${n.label}"`;
+}
+// its name clicked: the folder picked as a click on its row picks it, with the folders around it open
+function goToDefaultFolder() {
+  const n = defaultFolder(edits);
+  if (!n) return;
+  openNests('n:' + n.id);
+  selectNest(n.id);
+  if (!selected) hierFolderOn = n.id;
+}
+// every folder of the Hierarchy opened or closed (Expand all, Collapse all), or one folder with every folder inside it
+// (box: Alt+click on its arrow), as Unity's; hierOpen keeps them so for the next drawing of the list
+function openFolders(open, box = null) {
+  if (!open && !box) hierOpen.clear();
+  for (const d of box ? [box, ...box.querySelectorAll('details')] : $('#hier').querySelectorAll('details')) {
+    if (open) hierOpen.add(d.dataset.hk); else hierOpen.delete(d.dataset.hk);
+    d.open = open;
+  }
+}
+// Alt+click where a click opens or closes a folder (its arrow; not its buttons, not the name of a row a click picks)
+$('#hier').addEventListener('click', (e) => {
+  const s = e.altKey && e.target.closest('summary');
+  if (!s || e.target.closest('.hb, input') || (s.matches('[data-hi], [data-nest]') && e.target.closest('.hl'))) return;
+  e.preventDefault();
+  openFolders(!s.parentElement.open, s.parentElement);
+});
+// the Hierarchy's own commands: under a row's menu (right click), alone in the rest of the panel, in its panel menu (⋯)
+function hierarchyCommands() {
+  return [{ label: 'Expand all', run: () => openFolders(true) }, { label: 'Collapse all', run: () => openFolders(false) }];
+}
+window.addEventListener('deusedix:panel-menu', (e) => {
+  if (e.detail.id === 'hierarchy' && script) e.detail.items.push(...hierarchyCommands().map((c) => [c.label, c.run]));
+});
 function createFolder() {
   pushUndo();
-  const up = currentFolder() && nestById(currentFolder());
+  const up = folderForNew();
   const n = newNest(nextNestLabel(), []);
   n.folder = true;                               // kept when it is empty
   if (up) { up.items.push('n:' + n.id); hierOpen.add('n:' + up.id); }
@@ -5592,7 +6973,7 @@ function addShapeBlocks(pieces, { hole = false, tex = '', label = 'Shape' } = {}
     names.push('b:' + b.name);
   }
   if (tex) lastBlockTex = tex;
-  const folder = currentFolder() && nestById(currentFolder());
+  const folder = folderForNew();
   let n = null;
   if (names.length > 1) { n = newNest(label, names); if (folder) folder.items.push('n:' + n.id); }
   else if (folder) folder.items.push(...names);
@@ -5600,6 +6981,7 @@ function addShapeBlocks(pieces, { hole = false, tex = '', label = 'Shape' } = {}
   rebuildProxies();
   if (n) selectNest(n.id); else select(proxies.children.find((q) => q.userData.box && 'b:' + q.userData.box.name === names[0]) || null);
   status(`${label}: ${names.length} block${names.length === 1 ? '' : 's'}${hole ? ' cutting' : ''} added, in one nest. Rebuild puts ${names.length === 1 ? 'it' : 'them'} in the game.`, 'ok');
+  warnHiddenKinds(names.map(objOf), 'Added');
 }
 // ---------------------------------------------------------------- Clip, Intersect, Deintersect (brush-ops.js)
 // a block's corners in the world, in the game's units (null: water, portals, moving blocks, signs, hollow shapes)
@@ -5634,6 +7016,7 @@ function replaceBlocks(olds, pieces, what) {
   const ps = proxies.children.filter((q) => q.userData.box && keys.includes('b:' + q.userData.box.name));
   if (ps.length > 1) setMulti(ps); else select(ps[0] || null);
   status(`${what}: ${olds.length} block${olds.length === 1 ? '' : 's'} into ${ps.length}. Rebuild puts ${ps.length === 1 ? 'it' : 'them'} in the game.`, 'ok');
+  warnHiddenKinds(ps, 'Made');
 }
 // Clip: the selected blocks cut in two by a plane (three's axes: a point on it, its normal)
 function clipBlocks(n, at) {
@@ -5688,14 +7071,16 @@ function orderBlocks(first) {
 function mirrorSelection(axis) {
   const picked = (selected === groupPivot ? members() : selected ? [selected] : []).filter(Boolean);
   if (!picked.length) { status('Mirror: select what to mirror first.', 'warn'); return; }
-  if (picked.some((p) => !requireUnlocked(p))) return;
+  if (!requireUnlocked()) return;                       // the selection as one (a folder by its things' own padlocks)
   const carried = new Set(picked.filter(isStruct).map((p) => p.userData.name));      // they carry their own objects
   const list = picked.filter((p) => !(p.userData.actor && p.userData.source === 'map' && carried.has(actorStruct[p.userData.actor.name])));
   // a drawing stands on its floor: mirrored on Z it would hang under it
   const flat = axis === 2 ? list.filter((p) => p.userData.kind === 'drawn') : [];
   const todo = list.filter((p) => !flat.includes(p));
   if (!todo.length) { status('Mirror Z: a drawing stands on its floor, mirror it on X or Y.', 'warn'); return; }
-  const about = UE(selected.position), single = selected === groupPivot ? null : selected.userData;
+  // a group about the middle of its bounds, whatever the toolbar's Center / Pivot puts its gizmo on
+  const about = selected === groupPivot ? UE(new THREE.Vector3().fromArray(groupPivotAt('center', pivotItems(members(), 'center'))))
+    : UE(selected.position), single = selected === groupPivot ? null : selected.userData;
   pushUndo();
   for (const p of todo) {
     const d = p.userData, name = d.box?.name || d.actor?.name;
@@ -5728,11 +7113,13 @@ function armClip() {
 // ---------------------------------------------------------------- camera bookmarks (per map, in this browser)
 function viewsKey() { return projectStorageKey('views:' + (script || ''), projectContext); }
 function readViews() { try { return JSON.parse(localStorage.getItem(viewsKey()) || '{}') || {}; } catch (e) { return {}; } }
+function writeViews(all) {
+  try { localStorage.setItem(viewsKey(), JSON.stringify(all)); return true; } catch (e) { status('This browser keeps no bookmarks (storage is off).', 'warn'); return false; }
+}
 function keepView(n) {
   const all = readViews();
   all[n] = { p: camera.position.toArray().map(r1), yaw: cam.yaw, pitch: cam.pitch };
-  try { localStorage.setItem(viewsKey(), JSON.stringify(all)); } catch (e) { status('This browser keeps no bookmarks (storage is off).', 'warn'); return; }
-  status(`View ${n} kept: press ${n} to come back here.`, 'ok');
+  if (writeViews(all)) status(`View ${n} kept: press ${n} to come back here.`, 'ok');
 }
 function goToView(n) {
   const v = readViews()[n];
@@ -5742,12 +7129,40 @@ function goToView(n) {
   wake();
   status(`View ${n}.`);
 }
+// Edit > Previous / Next selection (Ctrl+Shift+[ and ], the arrows of the 3D view's toolbar): the last 50
+// selections of this map, as Unity's (selection-tools.js)
+const selectionHistory = createSelectionHistory();
+const liveKey = (k) => (k.startsWith('n:') ? !!nestById(k.slice(2)) : !!objOf(k));
+const selectAgain = (keys) => (keys.length === 1 ? specSelect(keys[0]) : selectKeys(keys));
+const keysText = (keys) => (keys.length === 1 ? keyLabel(keys[0])[0] : keys.length + ' things');
+window.addEventListener('deusedix:selection', () => { selectionHistory.record(script, selKeys()); vpBar?.refresh(); });
+function stepSelection(dir) {
+  const keys = selectionHistory.step(script, dir, selKeys(), liveKey);
+  if (!keys) { status(dir < 0 ? 'No earlier selection in this map.' : 'No later selection.', 'warn'); return; }
+  selectAgain(keys);
+  status(`${dir < 0 ? 'Previous' : 'Next'} selection: ${keysText(keys)}.`);
+}
+// selection slots, as Unity's, with the bookmarks of this map: Ctrl+Alt+1..9 keeps the selection, Alt+1..9
+// (Ctrl+digit keeps a view here) selects it again
+function keepSelection(n) {
+  const keys = selKeys();
+  if (!keys.length) { status(`Select something first: Ctrl+Alt+${n} keeps it in slot ${n}.`, 'warn'); return; }
+  const all = readViews();
+  all.selections = { ...(all.selections || {}), [n]: keys };          // their own table, beside the view bookmarks
+  if (writeViews(all)) status(`Selection kept in slot ${n} (${keysText(keys)}): Alt+${n} selects it again.`, 'ok');
+}
+function recallSelection(n) {
+  const kept = readViews().selections?.[n], keys = Array.isArray(kept) ? kept.filter((k) => typeof k === 'string' && liveKey(k)) : [];
+  if (!keys.length) { status(`Slot ${n} is empty in this map: Ctrl+Alt+${n} keeps the selection there.`, 'warn'); return; }
+  selectAgain(keys);
+  status(`Selection ${n}: ${keysText(keys)}.`);
+}
 // the first thing a click's ray meets (Measure)
 function firstHit(e) {
   const hit = visibleHits(mouseRay(e).intersectObjects([...world.children, ...proxies.children], true))[0];
   return hit ? hit.point.clone() : null;
 }
-// a cube, a wedge or a cylinder where the view looks (on the floor there), into the folder chosen
+// a cube, a wedge or a cylinder where the view looks (on the floor there), into the folder chosen (folderForNew)
 function createSolid(shape) {
   const s = 128, r = new THREE.Raycaster();
   r.setFromCamera(new THREE.Vector2(0, 0), camera);
@@ -5764,12 +7179,14 @@ function createSolid(shape) {
   pushUndo();
   const b = { name: nextName('UCEditBox'), shape, lo: u.map((v) => r1(v - s / 2)), hi: u.map((v) => r1(v + s / 2)), tex: lastBlockTex, solid: true };
   edits.boxes.push(b);
-  const folder = currentFolder() && nestById(currentFolder());
+  const folder = folderForNew();
   if (folder) { folder.items.push('b:' + b.name); hierOpen.add('n:' + folder.id); }
   setDirty();
-  select(makeBoxProxy(b));
+  const made = makeBoxProxy(b);
+  select(made);
   if (camera.position.distanceTo(T(u)) < s * 1.3) focusSelected();     // the view was inside it: step back
-  status(`${blockLabel(b)} added: W moves it, E turns it, R resizes it; drop a texture of the Browser on it. Rebuild puts it in the game.`, 'ok');
+  status(`${blockLabel(b)} added: ${menuKey('move')} moves it, ${menuKey('rotate')} turns it, ${menuKey('scale')} resizes it; drop a texture of the Browser on it. Rebuild puts it in the game.`, 'ok');
+  warnHiddenKinds([made], 'Added');
 }
 $('#hieradd').onclick = (e) => {
   if (!script) { status('Open a map first.', 'warn'); return; }
@@ -5805,6 +7222,11 @@ const NAMES = {
 
 function startPlacing(item, button) {
   if (!script) return;
+  if (classReplace) {                    // Replace with... waits: the item clicked replaces the selection (anything else ends it)
+    const wanted = classReplace.generation === mapGeneration && replacingItem(item);
+    endClassReplace();
+    if (wanted) { void replaceWith(item); return; }
+  }
   soundBrowser?.clearSelection();
   cancelPlacing();
   placing = item;
@@ -5850,9 +7272,10 @@ function finishDraw() {
   if (!p) return;
   pushUndo();
   (edits.drawn = edits.drawn || []).push(p);
+  intoDefaultFolder(['d:' + p.name]);
   setDirty(); rebuildProxies();
   const q = proxies.children.find((x) => x.userData.drawn === p);
-  if (q) select(q);
+  if (q) { select(q); warnHiddenKinds([q], 'Drawn'); }
   log(p.kind === 'stairs' || p.kind === 'roof'
     ? `${DRAW_LABELS[p.kind]} drawn: shape, sizes and textures in the Inspector, then Rebuild.`
     : `${DRAW_LABELS[p.kind]} drawn (${p.pts.length} points): set its sizes and textures in the Inspector, then Rebuild.`, 'ok');
@@ -5919,6 +7342,13 @@ function finishPlacing(e) {
   const r = placeAt(e);
   if (r) placeWith(r, { shift: e.shiftKey });
 }
+// R while placing an object (the Scale tool's key, as Settings binds it): a quarter turn more (it keeps the turn for
+// the next ones of the same kind)
+function turnPlacing() {
+  placing.turn = ((placing.turn || 0) + YAW / 4) % YAW;
+  if (lastPlacingMove) movePlacing(lastPlacingMove);
+  status(`Turned ${Math.round((placing.turn / YAW) * 360)}° (${menuKey('scale')} turns it again). Click where it goes.`);
+}
 // what a click of the placing mode does at the surface found (r: placeOnRay). shift: keep placing copies (Shift+click);
 // quiet: no questions afterwards (an assistant placing it, agent.js: a script's trigger, a sound are its properties)
 function placeWith(r, { shift = false, quiet = false } = {}) {
@@ -5926,12 +7356,14 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     if (drawTools.addPoint(UE(r.hit), shift, r.n.y > 0.6) === 'done') finishDraw();
     return;
   }
+  const before = selected;                 // what it places is selected
   pushUndo();
   if (placing.prefab) {
     const clip = placing.prefab, c = UE(r.p), yaw = (prefabYaw(clip, r.n) + (placing.turn || 0)) % YAW;
     const pe = { pid: nextPid(), prefab: clip.id, label: clip.label, source: clip.source, pivot: clip.pivot, rotatable: clip.rotatable !== false, ...moverFields(clip),
                  offset: [Math.round(c[0] - clip.pivot[0]), Math.round(c[1] - clip.pivot[1]), Math.round(c[2] - 0.5 - clip.pivot[2])], yaw };
     edits.prefabs.push(pe);
+    intoDefaultFolder(['s:paste~' + pe.pid]);        // into the folder new objects go in, if one is set
     setDirty(); rebuildProxies();
     if (structures['paste~' + pe.pid]) select(structures['paste~' + pe.pid].obj);
     log(clip.mover ? `Placed ${clip.mover.kind}: adjust its mover settings in the Inspector, then Rebuild to play.`
@@ -5955,6 +7387,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
       b.lo[k] = face[0] === '+' ? wall : wall - d; b.hi[k] = b.lo[k] + d;
     }
     edits.boxes.push(b);
+    intoDefaultFolder(['b:' + b.name]);
     setDirty();
     select(makeBoxProxy(b));
     updateSignTexture(b).catch((e2) => log('Sign: ' + e2.message, 'bad'));
@@ -5962,34 +7395,36 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     const b = placing.water ? waterBox(r) : portalBox(r);
     if (!b) { status(placing.water ? 'Click a floor for the pool.' : 'Click the floor inside a doorway (walls on both sides, a top).', 'warn'); return; }
     edits.boxes.push(b);
+    intoDefaultFolder(['b:' + b.name]);
     setDirty();
     select(makeBoxProxy(b));
-    log(placing.water ? 'Pool: after Rebuild the water is a zone of its own (JC swims in it). Resize it with R, choose the liquid in its panel.'
+    log(placing.water ? `Pool: after Rebuild the water is a zone of its own (JC swims in it). Resize it with ${menuKey('scale')}, choose the liquid in its panel.`
       : `Zone portal ${Math.round(Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1]))} x ${Math.round(b.hi[2] - b.lo[2])}: put one in every doorway of the room, then a Zone (Objects > Zones) inside it.`, 'ok');
   } else if (placing.hole) {
     const b = holeBox(r);
     edits.boxes.push(b);
+    intoDefaultFolder(['b:' + b.name]);
     setDirty();
     select(makeBoxProxy(b));
-    log(`Hole ${Math.round(b.hi[0] - b.lo[0])} x ${Math.round(b.hi[1] - b.lo[1])} x ${Math.round(b.hi[2] - b.lo[2])}: it cuts through what it touches at Rebuild (resize it with R or in the panel). Its sides take ${b.tex}, the texture of the surface you clicked: click its picture in the panel to choose another.`, 'ok');
+    log(`Hole ${Math.round(b.hi[0] - b.lo[0])} x ${Math.round(b.hi[1] - b.lo[1])} x ${Math.round(b.hi[2] - b.lo[2])}: it cuts through what it touches at Rebuild (resize it with ${menuKey('scale')} or in the panel). Its sides take ${b.tex}, the texture of the surface you clicked: click its picture in the panel to choose another.`, 'ok');
   } else if (placing.box) {
     const c = UE(r.p), s = placing.size;
     const b = { name: nextName('UCEditBox'), lo: [c[0] - s[0] / 2, c[1] - s[1] / 2, c[2] - s[2] / 2], hi: [c[0] + s[0] / 2, c[1] + s[1] / 2, c[2] + s[2] / 2],
                 tex: placing.tex || 'ClenGreyCncrt_A', solid: true };
     edits.boxes.push(b);
+    intoDefaultFolder(['b:' + b.name]);
     setDirty();
     select(makeBoxProxy(b));
   } else {
     const facing = ((Math.abs(r.n.y) < 0.6 ? radToYaw(-Math.atan2(r.n.z, r.n.x)) : radToYaw(-(cam.yaw + Math.PI))) + (placing.turn || 0)) % YAW;
     const isLight = placing.cls === 'Light' || placing.cls === 'Spotlight', spot = placing.cls === 'Spotlight';
     const e2 = { name: nextName('UCEdit'), cls: placing.cls, loc: UE(r.p), rot: [spot ? -16384 : 0, facing, 0], radius: placing.radius, height: placing.height,
-                 props: isLight ? Object.assign(lightProps({}), spot ? { LightEffect: 'LE_Spotlight', LightCone: 64 } : {}) : {} };
+                 props: itemProps(placing) };
     if (placing.cls === 'UCEffectPoint') {     // its arrow out of the wall, floor or ceiling clicked
       const fr = normalToRotation([r.n.x, r.n.z, r.n.y], facing);
       e2.rot = [fr.pitch, fr.yaw, 0];
     }
-    if (placing.preset) {               // a map exit, an arrival point (Links): their properties, a tag of their own
-      e2.props = Object.assign({}, placing.preset);
+    if (placing.preset) {               // a map exit, an arrival point (Links): a tag of their own
       if (e2.props.Tag === 'Arrival') e2.props.Tag = nextTag('Arrival');
       if (e2.props.Tag === 'SoundFX') e2.props.Tag = nextTag('SoundFX');
     }
@@ -5998,13 +7433,14 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
       e2.height = placing.base.h;
       if (Math.abs((placing.scale || 1) - 1) > 1e-3) e2.scale = placing.scale;
     }
-    if (placing.custom) {               // a character of the Character Creator: its look, faction, weapons; its own BindName
+    if (placing.custom) {               // a character of the Character Creator: its look, faction, weapons (itemProps); its own BindName
       e2.custom = placing.custom;
       e2.kind = 'pawn';
       e2.bind = 'UCEd_' + e2.name;
-      e2.props = Object.assign(window.__characters.propsOf(placing.custom), { BindName: `"${e2.bind}"` });
+      e2.props.BindName = `"${e2.bind}"`;
     }
     edits.added.push(e2);
+    intoDefaultFolder(['a:' + e2.name]);
     setDirty();
     select(makeProxy(Object.assign({ kind: addedKind(placing.cls) }, e2, { light: isLight ? { hue: 32, sat: 160 } : null }), 'added'));
     if (placing.preset && 'URL' in placing.preset) log('Map exit placed: choose where it leads in its Properties (Leads to).', 'ok');
@@ -6028,6 +7464,16 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     }
   }
   if (!shift) cancelPlacing();          // Shift+click keeps placing copies
+  if (selected !== before) warnHiddenKinds([selected], 'Placed');
+}
+// the properties a new object of a browser item starts with (placed, or replacing another): a character's of the
+// Character Creator (its look, faction, weapons; its BindName is the caller's), else the item's preset (a map exit, a
+// model, a sound effect), else a light's colour and reach (a spotlight its cone)
+function itemProps(item) {
+  if (item.custom) return window.__characters.propsOf(item.custom);
+  if (item.preset) return Object.assign({}, item.preset);
+  if (item.cls === 'Light' || item.cls === 'Spotlight') return Object.assign(lightProps({}), item.cls === 'Spotlight' ? { LightEffect: 'LE_Spotlight', LightCone: 64 } : {});
+  return {};
 }
 $('#addbox').onclick = () => startPlacing({ box: true, size: [128, 128, 16], tex: 'ClenGreyCncrt_A' }, $('#addbox'));
 for (const b of document.querySelectorAll('[data-draw]')) b.onclick = () => startDraw(b.dataset.draw, b);
@@ -6374,7 +7820,6 @@ function refreshTriggerBox(p) {
 const LIQUIDS = { water: 'Clean water', dirty: 'Dirty water (canal, sewer)', toxic: 'Toxic water (radiation)', burning: 'Burning liquid' };
 const SKIES = { hongkong: 'Hong Kong at night', newyork: 'New York at night', stars: 'Night sky, stars', sunset: 'Sunset', clouds: 'Grey clouds',
   brightclouds: 'Bright clouds (day)', orangehaze: 'Orange haze (dusk)' };
-const ZONE_CLASSES = /^(ZoneInfo|WaterZone|PrecipitationZone|SnowZone|SkyZoneInfo|RevSoundZone|RevZoneInfo)$/;
 function waterBox(r) {
   const h = UE(r.hit), n = UE(r.n);
   if (n[2] < 0.6) return null;              // a floor
@@ -6435,6 +7880,21 @@ function holeBox(r) {
     b.lo = [sn(h[0]) - 64, sn(h[1]) - 64, r1(h[2] - 8)]; b.hi = [sn(h[0]) + 64, sn(h[1]) + 64, r1(h[2] + 96)];
   }
   return b;
+}
+// a light for the room a hole makes (its panel's button): high in the hole, reaching across it
+function addHoleLight(b) {
+  const c = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, b.hi[2] - 24];
+  const reach = Math.hypot(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]) * 0.6;
+  pushUndo();
+  const e = { name: nextName('UCEdit'), cls: 'Light', loc: c.map(r1), rot: [0, 0, 0], radius: 8, height: 8,
+              props: Object.assign(lightProps({}), { LightRadius: Math.max(8, Math.min(255, Math.round(reach / 25) - 1)) }) };
+  edits.added.push(e);
+  intoDefaultFolder(['a:' + e.name]);
+  setDirty();
+  const made = makeProxy(Object.assign({ kind: 'light' }, e, { light: { hue: 32, sat: 160 } }), 'added');
+  select(made);
+  log('A light in the room: change its colour and brightness in its Properties; Rebuild lights the room.', 'ok');
+  warnHiddenKinds([made], 'Added');
 }
 $('#addsign').onclick = () => startPlacing({ box: true, sign: true, size: [6, 6, 64], tex: SIGN_FRAME }, $('#addsign'));
 
@@ -6517,7 +7977,6 @@ function frameBoth(a, b) {
   cam.pitch = Math.max(-1.2, Math.min(0.3, Math.asin(Math.max(-1, Math.min(1, dir.y))) - 0.25));
   camera.position.copy(c.clone().addScaledVector(forward(), -r * 2.4));
 }
-const unquote = (v) => { v = String(v ?? ''); return v.length > 1 && v[0] === '"' && v[v.length - 1] === '"' ? v.slice(1, -1) : v; };
 // A string field of a struct (a computer's option, an account) as the engine's reader takes it (editor/gametext.py
 // t3d: it has no escaped quote, and a backslash starts a hex byte): a quote made ', a backslash doubled. structShown
 // is its text again, for the field that shows it.
@@ -6546,7 +8005,6 @@ function mergeStruct(def, val) {            // a T3D struct only has the fields 
   for (const [k, v] of parseStruct(val)) m.set(k, v);
   return [...m.entries()];
 }
-const classRef = (v) => { const m = /Class'([^']+)'/i.exec(String(v || '')); return m ? m[1] : ''; };
 
 function actorProp(a, key) {               // edited value, else the map's, else undefined (= class default)
   if (propertySlider && propertySlider.a.name === a.name && propertySlider.key === key) return propertySlider.value;
@@ -6574,10 +8032,12 @@ function unsetProp(a, key) {               // back to the map's own value (or th
   if (!Object.keys(e).length) delete edits.props[a.name];
   setDirty();
 }
-// what behaviours.js needs of the editor (Movement, Tactics, Player movement)
+// what behaviours.js needs of the editor (Movement, Tactics, Player movement), and all-props.js (multiField: a
+// field of several objects, as the multi-object Inspector's; rawField: a field's right click, Copy value, Paste value, Reset)
 const behaveApi = {
   get edits() { return edits; }, actorProp, setProp, unsetProp, pushUndo, setDirty, status, UE, requireUnlocked,
   section: (key, title, body, open) => inspectorSection(key, title, body, open), api,
+  multiField: (el, entry) => multiFields.set(el, entry), rawField: (el, entry) => rawFields.set(el, entry),
 };
 function previewPropertySlider(p) {
   updateScriptTagField(p.userData.actor);
@@ -6585,7 +8045,7 @@ function previewPropertySlider(p) {
   showSoundRange(p);
   if (p.userData.kind !== 'light') return;
   const l = liveLight(p.userData.actor), color = $('#details [data-light-color]'), hint = $('#details [data-light-hint]');
-  if (color) color.value = '#' + ueLightRGB(l.hue, l.sat).map(c => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+  if (color) color.value = lightHex(l);
   if (hint) hint.textContent = `brightness ${l.b}, radius ${l.radius}`;
 }
 function finishPropertySlider(cancel = false) {
@@ -6598,7 +8058,7 @@ function finishPropertySlider(cancel = false) {
   previewPropertySlider(d.p);
 }
 function wirePropertySlider(p, r, n, key) {
-  const byte = x => String(Math.max(0, Math.min(255, Math.round(+x || 0))));
+  const byte = x => propText('byte', x);
   r.oninput = () => {
     if (propertySlider && propertySlider.r !== r) finishPropertySlider();
     if (!propertySlider) propertySlider = { p, a: p.userData.actor, key, initial: byte(n.value), value: byte(n.value), r, n, frame: 0 };
@@ -6955,6 +8415,7 @@ soundBrowser = createSoundBrowser({
   onSelect: () => { cancelPlacing(); select(null); }, onClear: () => showDetails(),
   onError: message => log('Sound: ' + message, 'bad'),
   deleteSound: name => deleteBrowserSound(name), getCatalog: () => soundsNow(),
+  findInMap: name => findInMap(searchToken('snd', name, true)), favourites: soundFavs,
 });
 window.__soundBrowser = soundBrowser;
 // how far a sound is heard: three circles (a wire sphere seen from inside is a tangle of lines)
@@ -6975,27 +8436,122 @@ function classDefault(a, prop) {
   return f ? f.default[0] : undefined;
 }
 function showSoundRange(p) {
-  const a = p && p.userData.actor;
   refreshTriggerBox(p);
-  // a trigger's zone (also a sound effect played when JC walks in): where touching it counts
-  // UCTriggerBox uses BoxX/Y/Z and disables the inherited cylinder in game.
-  const touch = a && a.cls !== 'UCTriggerBox' && (/Trigger/.test(a.cls) || (a.cls === 'UCSoundFX' && String(actorProp(a, 'bOnTouch') ?? classDefault(a, 'bOnTouch') ?? 'True') !== 'False'));
-  actorOverlays.bind(triggerZone, p, !!touch);
-  if (touch) {
-    const r = +(actorProp(a, 'CollisionRadius') ?? classDefault(a, 'CollisionRadius') ?? a.radius ?? 40), h = +(actorProp(a, 'CollisionHeight') ?? classDefault(a, 'CollisionHeight') ?? a.height ?? 40);
-    triggerZone.scale.set(r, h, r);
+  const ranges = rangesOf(p), zone = ranges.find((r) => r.of === 'zone'), heard = ranges.find((r) => r.of === 'sound');
+  actorOverlays.bind(triggerZone, p, !!zone);
+  if (zone) triggerZone.scale.set(zone.radius, zone.height, zone.radius);
+  actorOverlays.bind(soundRange, p, !!heard);
+  if (heard) soundRange.scale.setScalar(heard.size);
+}
+
+// ---------------------------------------------------------------- drag handles (drag-handles.js, Unity's handles)
+// The ranges an object shows in the 3D view, in the game's units where it stands (range-handles.js): a light's reach
+// (a spotlight's cone), how far its sound is heard, a trigger's zone, a collision box. showLightRange and showSoundRange
+// draw them; their dots drag them. fields: each one's Inspector field (the value shown while dragging).
+function rangesOf(p) {
+  const a = p?.userData.actor;
+  if (!a) return [];
+  const centre = UE(p.position), out = [];
+  const fields = (...props) => Object.fromEntries(props.map((k) => [k, fieldOf(a, k) || { label: k, kind: 'float' }]));
+  const read = (key, fallback) => actorProp(a, key) ?? classDefault(a, key) ?? fallback;
+  if (p.userData.kind === 'light') {
+    const l = liveLight(a), size = byteReach(l.radius), color = lightColor(l);
+    if (SPOT_EFFECTS.test(String(read('LightEffect', a.cls === 'Spotlight' ? 'LE_Spotlight' : '')))) {
+      const [pitch, yaw] = objectRotation(p);            // it shines along its front
+      out.push({ of: 'light', shape: 'cone', centre, dir: rotationToVector(pitch, yaw), size, angle: coneAngle(+read('LightCone', 128)),
+        props: ['LightRadius', 'LightCone'], fields: fields('LightRadius', 'LightCone'), color });
+    } else out.push({ of: 'light', shape: 'sphere', centre, size, unit: 'byte', props: ['LightRadius'], fields: fields('LightRadius'), color });
   }
-  if (a && a.cls === 'UCSoundFX') {
-    const near = String(actorProp(a, 'bAtPlayer') ?? 'False') !== 'True';
-    actorOverlays.bind(soundRange, p, near);
-    if (near) soundRange.scale.setScalar(+(actorProp(a, 'FXRadius') ?? classDefault(a, 'FXRadius') ?? 1024));
-    return;
+  // a trigger's zone (also a sound effect played when JC walks in): where touching it counts. UCTriggerBox uses
+  // BoxX/Y/Z (or its own cylinder) and disables the inherited cylinder in game.
+  if (a.cls !== 'UCTriggerBox' && (/Trigger/.test(a.cls) || (a.cls === 'UCSoundFX' && String(read('bOnTouch', 'True')) !== 'False')))
+    out.push({ of: 'zone', shape: 'cylinder', centre, radius: +read('CollisionRadius', a.radius ?? 40), height: +read('CollisionHeight', a.height ?? 40),
+      props: ['CollisionRadius', 'CollisionHeight'], fields: fields('CollisionRadius', 'CollisionHeight'), color: triggerZone.material.color.getHex() });
+  const heard = { of: 'sound', shape: 'sphere', centre, color: soundRange.children[0].material.color.getHex() };
+  if (a.cls === 'UCSoundFX') {
+    if (String(actorProp(a, 'bAtPlayer') ?? 'False') !== 'True')
+      out.push({ ...heard, size: +read('FXRadius', 1024), unit: 'units', props: ['FXRadius'], fields: fields('FXRadius') });
+  } else {
+    const snd = String(actorProp(a, 'AmbientSound') || (a.cls === 'AmbientSound' ? '' : 'None'));
+    if (snd && snd !== 'None') out.push({ ...heard, size: byteReach(+(actorProp(a, 'SoundRadius') ?? (a.cls === 'AmbientSound' ? 64 : 32))), unit: 'byte',
+      props: ['SoundRadius'], fields: fields('SoundRadius') });
   }
-  const snd = a && String(actorProp(a, 'AmbientSound') || (a.cls === 'AmbientSound' ? '' : 'None'));
-  actorOverlays.bind(soundRange, p, !!(a && snd && snd !== 'None'));
-  if (!soundRange.visible) return;
-  const r = +(actorProp(a, 'SoundRadius') ?? (a.cls === 'AmbientSound' ? 64 : 32));
-  soundRange.scale.setScalar(25 * (r + 1));
+  if (a.cls === 'UCTriggerBox') {           // its box upright on the map's axes, or its cylinder (collision-volume.js)
+    const { cylinder, half, scale } = collisionSize(a, actorProp), color = p.children.find((c) => c.userData.tbox)?.material.color.getHex();
+    if (cylinder) out.push({ of: 'collision', shape: 'cylinder', centre, radius: half[0], height: half[1], scale, color,
+      props: ['CylinderRadius', 'CylinderHeight'], fields: fields('CylinderRadius', 'CylinderHeight') });
+    else out.push({ of: 'collision', shape: 'box', centre, size: [half[0] * 2, half[2] * 2, half[1] * 2], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], scale, color,
+      props: ['BoxX', 'BoxY', 'BoxZ'], fields: fields('BoxX', 'BoxY', 'BoxZ') });
+  }
+  return out;
+}
+// a block's own box for its side handles (block-handles.js), from its edits: its middle, its size, its turned axes
+function blockRange(b) {
+  const q = rotations.quat(b.rot), axis = (k) => { const v = T([0, 1, 2].map((i) => +(i === k))).applyQuaternion(q); return [v.x, v.z, v.y]; };
+  return { of: 'block', shape: 'box', centre: b.lo.map((v, k) => (v + b.hi[k]) / 2), size: b.hi.map((v, k) => v - b.lo[k]), axes: [0, 1, 2].map(axis),
+    color: b.hole ? 0xff8080 : undefined };
+}
+// the one selected object whose dots show, while no other tool has the view; a block's sides with Scale (R)
+function handleTarget() {
+  if (!selected || selected === groupPivot || placing || lkPicking || aimPicking || routeTest || surfaceTools.mode || textureTransfer?.armed
+    || measure?.active || vertexEdit?.active || (anim && anim.p === selected) || objectHidden(selected)) return null;
+  return selected;
+}
+function handleRanges(p) {
+  if (p.userData.kind === 'box') return tc.mode === 'scale' ? [blockRange(p.userData.box)] : [];
+  return rangesOf(p);
+}
+// A dot taken: the edits as it found them (one undo step for the whole drag, pushed when it is let go having changed
+// something: Esc, or a drag that changed nothing, leaves Ctrl+Z and Ctrl+Y as they were); what it changes, to put back
+function beginHandleDrag(p) {
+  if (!requireUnlocked(p)) return null;
+  const a = p.userData.actor, own = a && edits.props?.[a.name];
+  return { before: JSON.stringify(edits), pos: p.position.clone(), scale: p.scale.clone(), props: own ? { ...own } : null };
+}
+// as it goes: a block's proxy (written when let go: a hole's cut follows the proxy), an object's properties (from
+// what they were: a size the drag gave back is its own again) and place
+function previewHandleDrag(p, res, saved) {
+  const a = p.userData.actor;
+  if (res.centre) p.position.copy(T(res.centre));
+  if (!a) { const s = res.range.size; p.scale.set(s[0], s[2], s[1]); return; }
+  ownPropsBack(a, saved);
+  for (const [key, text] of Object.entries(res.props || {})) putProp(a, key, text);
+  refreshLight(p);
+  showSoundRange(p);
+}
+// let go: the block's sides into its lo/hi (as Width, Depth and Height do), an object's place with its other edits
+function endHandleDrag(p, res, saved) {
+  const a = p.userData.actor, b = p.userData.box, r2 = (x) => Math.round(x * 100) / 100;
+  if (b) {
+    const { centre, size } = res.range, lo = centre.map((v, k) => r2(v - size[k] / 2)), hi = centre.map((v, k) => r2(v + size[k] / 2));
+    if (lo.every((v, k) => v === b.lo[k]) && hi.every((v, k) => v === b.hi[k])) return cancelHandleDrag(p, saved);
+    b.lo = lo; b.hi = hi;
+    p.position.copy(T(lo.map((v, k) => (v + hi[k]) / 2)));
+    p.scale.set(hi[0] - lo[0], hi[2] - lo[2], hi[1] - lo[1]);
+    dressBlock(p);
+  } else if (Object.entries(res.props || {}).every(([k, text]) => text === (saved.props?.[k] ?? a.props?.[k])) && p.position.equals(saved.pos)) {
+    return cancelHandleDrag(p, saved);
+  }
+  pushUndo(saved.before);                 // one Ctrl+Z: the edits as the drag found them (its properties went in as it went)
+  if (res.centre && a) commit(p);         // the box's middle moved with its side: its new place (and the change)
+  else { setDirty(); showDetails(); }
+  status(res.note, 'ok');
+}
+// Esc, or a drag that changed nothing: as it was, and no undo step (none was pushed)
+function cancelHandleDrag(p, saved) {
+  const a = p.userData.actor;
+  p.position.copy(saved.pos);
+  p.scale.copy(saved.scale);
+  if (a) {
+    ownPropsBack(a, saved);
+    refreshLight(p);
+    showSoundRange(p);
+  }
+  wake();
+}
+// an object's own property edits as they were when the drag began
+function ownPropsBack(a, saved) {
+  if (saved.props) edits.props[a.name] = { ...saved.props }; else if (edits.props) delete edits.props[a.name];
 }
 async function playSound(name, btn) {
   if (btn && name) btn.dataset.splay = name;
@@ -7037,7 +8593,7 @@ async function pickSound(current, onPick) {
 // own (a door, a lamp, a machine) it takes one of them (a menu says which); onto a sound of the Inspector it
 // replaces that one. The tiles of the other sections can be dragged onto the 3D view too (placed there).
 let SOUNDS_PKG = 'UCSounds', dragSound = null, dragTile = false;
-const soundOpen = new Set();
+const soundOpen = new Set([soundFavs.group]);
 async function soundsNow(force) {
   if (!soundCat || force) soundCat = await api('/api/sounds');
   SOUNDS_PKG = soundCat.package || SOUNDS_PKG;
@@ -7051,10 +8607,19 @@ async function buildSounds() {
     try { await soundsNow(); } catch (e) { el.innerHTML = `<div class="hint bad">${escapeHtml(e.message)}</div>`; return; }
   }
   const words = $('#sndsearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const list = soundCat.sounds.filter((x) => !!x.own === mine && words.every((w) => x.name.toLowerCase().includes(w)));
+  const matches = (name) => words.every((w) => name.toLowerCase().includes(w));
+  const list = soundCat.sounds.filter((x) => !!x.own === mine && matches(x.name));
   soundBrowser.setCatalog(soundCat);
+  // Favourites first (kept per project), the sounds of this tab; a sound no longer in the game or the project is missing
+  const favs = soundFavs.list().length ? soundFavs.entries((id) => soundCat.sounds.find((x) => x.name === id))
+    .filter(({ fav, item }) => (item ? !!item.own === mine && matches(item.name) : matches(fav.id))) : [];
   let html = `<div class="hint sintro">${mine ? 'Imported sounds.' : 'Game sounds.'} Select for details. ▶ previews. Drag into the scene or onto a sound field.</div>`;
-  if (!list.length) { el.innerHTML = html + `<div class="hint">${mine && !words.length ? 'No sounds of yours yet.' : 'No sound has these words.'}</div>`; return; }
+  if (!list.length && !favs.length) { el.innerHTML = html + `<div class="hint">${mine && !words.length ? 'No sounds of yours yet.' : 'No sound has these words.'}</div>`; return; }
+  if (favs.length) {
+    html += `<details data-sgroup="${escapeHtml(soundFavs.group)}" ${mine || words.length || soundOpen.has(soundFavs.group) ? 'open' : ''}><summary>${escapeHtml(soundFavs.group)} <small>${favs.length}</small></summary><div class="sound-grid">`;
+    for (const { fav, item } of favs) html += item ? soundBrowser.tileHtml(item) : soundFavs.missing(fav);
+    html += '</div></details>';
+  }
   const groups = new Map();
   for (const x of list) { if (!groups.has(x.group)) groups.set(x.group, []); groups.get(x.group).push(x); }
   for (const [g, items] of groups) {
@@ -7070,7 +8635,7 @@ async function buildSounds() {
   el.innerHTML = html;
   for (const d of el.querySelectorAll('details')) d.addEventListener('toggle', () => {
     if (mine || words.length) return;
-    if (d.open) { soundOpen.add(d.dataset.sgroup); if (!d.querySelector('.srow')) buildSounds(); } else soundOpen.delete(d.dataset.sgroup);
+    if (d.open) { soundOpen.add(d.dataset.sgroup); if (!d.querySelector('.sound-grid')) buildSounds(); } else soundOpen.delete(d.dataset.sgroup);
   });
   soundBrowser.wireTiles();
 }
@@ -7235,7 +8800,7 @@ document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.bcreat
   canvas.addEventListener('dragover', (e) => {
     if (!script || !dragTile && !dragSound) return;
     e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; canvas.classList.add('asset-drop');
-    dropHint.hidden = false; dropHint.textContent = dragSound ? 'Drop to place or assign sound' : 'Drop to place object';
+    dropHint.hidden = false; dropHint.textContent = dragSound ? 'Drop to place or assign sound' : e.altKey ? 'Drop on an object to replace it (Alt)' : 'Drop to place object';
   });
   canvas.addEventListener('dragleave', () => { canvas.classList.remove('asset-drop'); if (!fileDepth) dropHint.hidden = true; });
   canvas.addEventListener('drop', async (e) => {
@@ -7247,9 +8812,12 @@ document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.bcreat
       const tile = draggedTile, currentMap = script;
       dragTile = false;
       draggedTile = null;
+      // Alt: it replaces the object it is let go on, or the selection that object is part of (Replace with...)
+      const onto = e.altKey ? replaceTargetsAt(at) : null;
       try {
         await tile?.onclick?.(new MouseEvent('click'));
-        if (script === currentMap && placing) finishPlacing(at);
+        if (script === currentMap && placing && onto) { const item = placing; cancelPlacing(); await replaceWith(item, onto); }
+        else if (script === currentMap && placing) finishPlacing(at);
       } catch (error) { log('Place: ' + error.message, 'bad'); }
       finally { cancelPlacing(); }
       return;
@@ -7284,10 +8852,7 @@ document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.bcreat
 async function dropSound(name, at) {
   const currentMap = script;
   if (!currentMap) return;
-  const r = mouseRay(at);
-  const hp = visibleHits(r.intersectObjects(proxies.children, true))[0], hw = visibleHits(r.intersectObjects(worldMeshes, false))[0];
-  let o = null;
-  if (hp && (!hw || hp.distance <= hw.distance + 4)) { o = hp.object; while (o.parent !== proxies) o = o.parent; }
+  const o = proxyUnder(at);
   const a = o && o.userData.actor;
   const here = () => { if (script === currentMap) soundEffectAt(name, at); };
   if (!a) return here();
@@ -7309,6 +8874,14 @@ async function dropSound(name, at) {
     } })),
     { sep: true },
     { label: `A sound effect here (${short})`, run: here }]);
+}
+// the object under a point of the 3D view (at: clientX, clientY), not behind a wall; null when there is none
+function proxyUnder(at) {
+  const r = mouseRay(at);
+  const hp = visibleHits(r.intersectObjects(proxies.children, true))[0], hw = visibleHits(r.intersectObjects(worldMeshes, false))[0];
+  let o = null;
+  if (hp && (!hw || hp.distance <= hw.distance + 4)) { o = hp.object; while (o.parent !== proxies) o = o.parent; }
+  return o;
 }
 function soundEffectAt(name, at) {
   const item = (palette || []).flatMap((c) => c.items || []).find((it) => it.cls === 'UCSoundFX' && (it.preset || {}).bOnTouch !== 'False');
@@ -7510,9 +9083,13 @@ async function fillPaths() {
   }
   const item = palette.flatMap((c) => c.items || []).find((it) => it.cls === 'PathNode') || { radius: 12, height: 14.5 };
   pushUndo();
-  for (const q of r.added)                // about where a path node stands; the rebuild drops it onto the floor
-    edits.added.push({ name: nextName('UCEdit'), cls: 'PathNode', loc: UE(new THREE.Vector3(q.x, q.y + 40, q.z)), rot: [0, 0, 0],
-                       radius: item.radius, height: item.height, props: {} });
+  const made = [];
+  for (const q of r.added) {              // about where a path node stands; the rebuild drops it onto the floor
+    const e = { name: nextName('UCEdit'), cls: 'PathNode', loc: UE(new THREE.Vector3(q.x, q.y + 40, q.z)), rot: [0, 0, 0],
+                radius: item.radius, height: item.height, props: {} };
+    edits.added.push(e);
+    made.push(e.name);
+  }
   setDirty(); rebuildProxies();
   $('#navbtn').classList.add('on');
   await navView.show(navKey());
@@ -7525,6 +9102,7 @@ async function fillPaths() {
     + (r.apart ? ` ${r.apart} group${r.apart > 1 ? 's' : ''} of path points could not be joined: the game does not link them there (steep stairs, a ledge).` : '');
   status(msg, 'ok');
   log(msg, 'ok');
+  warnHiddenKinds(made.map(proxyOf), 'Added');
 }
 // The two layers of navigation (Gabby, 18 Oct 2026), each on or off by itself, like Unity's navigation overlay:
 // AI paths (the nodes' network, P) and the walkable area (the navigation mesh); Test route works with either.
@@ -7720,11 +9298,12 @@ function addRoutePoint(a, loc) {
     putProp(a, 'Orders', 'Patrolling');
     putProp(a, 'OrderTag', tag);
   }
-  makeProxy(Object.assign({ kind: 'path' }, pt), 'added');
+  const made = makeProxy(Object.assign({ kind: 'path' }, pt), 'added');
   if (points.length) faceToward(pt, (points[0].loc || UE(proxyOf(points[0].name).position)));
   setDirty();
   const q = proxyOf(a.name);
   if (q) { if (selected !== q) select(q); else renderProps(q); }
+  warnHiddenKinds([made], 'Added');
 }
 function idleOrders(a) {                   // what they do without a route: the map's own orders, unless those were the patrol
   const o = a.props && a.props.Orders;
@@ -7980,8 +9559,8 @@ function wireInspectorSections(root) {
 function inspectorObjectControls(p) {
   const box = $('#details')?.firstElementChild;
   if (!box || !p) return;
-  const keys = p === groupPivot ? selKeys() : [keyOf(p)], locked = selectionLocked(p);
-  const targets = p === groupPivot ? members() : [p], hidden = targets.every(objectHidden), a = p.userData.actor;
+  const keys = p === groupPivot ? selKeys() : [keyOf(p)], locked = selectionLocked(p), own = selectionLocked(p, true);     // own: its padlock (else its kind's)
+  const targets = p === groupPivot ? members() : [p], hidden = targets.every(objectEyeOff), a = p.userData.actor;
   const fields = document.createElement('fieldset');
   fields.className = 'inspector-fields';
   fields.disabled = locked;
@@ -7990,13 +9569,15 @@ function inspectorObjectControls(p) {
   bar.className = 'inspector-state';
   bar.innerHTML = `${a ? `<label title="Include this object in the game after Rebuild. Its settings are kept while disabled."><input type="checkbox" data-game-enabled ${edits.disabled?.[a.name] ? '' : 'checked'} ${locked ? 'disabled' : ''}> Enabled in game</label>` : '<span class="hint">Scene controls</span>'}
     <button type="button" class="hstate" data-inspector-eye aria-label="${hidden ? 'Show in Scene' : 'Hide in Scene'}" title="${hidden ? 'Show in Scene (and reveal hidden parents)' : 'Hide in Scene only; stays in game'}" aria-pressed="${hidden}">${ICON[hidden ? 'eyeoff' : 'eye']}</button>
-    <button type="button" class="hstate" data-inspector-lock aria-label="${locked ? 'Unlock selection' : 'Lock selection'}" title="${locked ? 'Unlock selection' : 'Lock selection against accidental edits'}" aria-pressed="${locked}">${ICON[locked ? 'lock' : 'unlock']}</button>`;
+    <button type="button" class="hstate" data-inspector-lock aria-label="${own ? 'Unlock selection' : 'Lock selection'}" title="${own ? 'Unlock selection' : 'Lock selection against accidental edits'}" aria-pressed="${own}">${ICON[own ? 'lock' : 'unlock']}</button>
+    ${targets.some((m) => m.userData.actor) ? `<button type="button" class="hstate" data-inspector-props aria-label="Properties menu" title="Properties: copy, paste, reset to the class defaults, presets">${ICON.more}</button>` : ''}`;
   box.append(bar);
-  if (locked) { const hint = document.createElement('p'); hint.className = 'hint inspector-lock-hint'; hint.textContent = 'Locked in the editor. Unlock to make changes.'; box.append(hint); }
+  if (locked) { const hint = document.createElement('p'); hint.className = 'hint inspector-lock-hint'; hint.textContent = own ? 'Locked in the editor. Unlock to make changes.' : `${kindsIn(targets, 'locked')}: locked in the Show menu of the 3D view. Unlock them there to make changes.`; box.append(hint); }
   box.append(fields);
   bar.querySelector('[data-game-enabled]')?.addEventListener('change', e => setGameEnabled([a.name], e.target.checked));
   bar.querySelector('[data-inspector-eye]').onclick = () => { setObjectView(keys, 'hidden', !hidden); showDetails(); };
-  bar.querySelector('[data-inspector-lock]').onclick = () => { setObjectView(keys, 'locked', !locked); showDetails(); };
+  bar.querySelector('[data-inspector-lock]').onclick = () => { setObjectView(keys, 'locked', !own); showDetails(); };
+  bar.querySelector('[data-inspector-props]')?.addEventListener('click', (e) => openPropsMenu(p, e.currentTarget).catch((err) => log('Properties: ' + err.message, 'bad')));
 }
 function revealInspector(el) {
   if (!el?.closest('#details')) return;
@@ -8014,6 +9595,7 @@ async function focusInspector(spec, selector) {
   if (target) { target.scrollIntoView({ block: 'nearest' }); (target.matches('input,button,select,textarea') ? target : target.querySelector('input,button,select,textarea,summary'))?.focus({ preventScroll: true }); }
 }
 function inspectorFieldGroup(f) {
+  if (f.group === 'Model') return 'Model behaviour';
   if (f.group !== 'Character') return f.group;
   if (['Orders', 'OrderTag', 'bInWorld'].includes(f.prop)) return 'Behaviour';
   if (['Alliance', 'InitialAlliances'].includes(f.prop)) return 'Relations';
@@ -8023,16 +9605,32 @@ function inspectorFieldGroup(f) {
 }
 const INSPECTOR_LABELS = { Tag: 'Engine tag (legacy)', KeyIDNeeded: 'Key ID', bPickable: 'Lockpickable', bBreakable: 'Breakable', bFrobbable: 'Opens by hand', bOneWay: 'One-way', MoveTime: 'Open time (s)', StayOpenTime: 'Stay open (s)', bToggleLock: 'Toggle lock', FailEvent: 'Wrong-code event', cameraTag: 'Camera tag', turretTag: 'Turret tag', doorTag: 'Door tag', OrderTag: 'Target tag', UnfamiliarName: 'Unknown name', BindName: 'Dialogue name', bImportant: 'Mission critical', PauseTime: 'Wait (s)', Nextpatrol: 'Next point', PatrolAnim: 'Waiting animation', gazeTag: 'Look at', gazeDuration: 'Look time (s)', bKillZone: 'Instant death', bSolidBox: 'Solid', bAnyPawn: 'Any character', ReTriggerDelay: 'Repeat delay (s)', bSpecialLit: 'Special-lit only' };
 
+// a group of the Properties as a foldout: Tags & events, sounds, inventory and health folded at first
+function groupSectionStart(group) {
+  return inspectorSectionStart(group, group === 'Links' ? 'Tags & events' : group, !['Links', 'Sound', 'Door sounds', 'Inventory', 'Health'].includes(group));
+}
+// the Properties of a class (editor/props.py fields_for), asked the first time
+async function classFields(cls) {
+  if (!propSchema[cls]) {
+    try { const r = await api('/api/props?cls=' + encodeURIComponent(cls)); propSchema[cls] = r.fields || []; propItems = r.items || propItems; }
+    catch (e) { propSchema[cls] = []; }
+  }
+  return propSchema[cls];
+}
+// the options of a field that holds an item of the game, by kind, with the one it holds chosen
+function itemOptions(v) {
+  return `<option value="">(nothing)</option>${[...new Set(propItems.map((x) => x.cat))].map((c) => `<optgroup label="${escapeHtml(c)}">${propItems.filter((x) => x.cat === c).map((x) => `<option value="${x.cls}" ${x.cls.toLowerCase() === String(v ?? '').toLowerCase() ? 'selected' : ''}>${escapeHtml(x.name)} · ${escapeHtml(x.cls.split('.').pop())}</option>`).join('')}</optgroup>`).join('')}`;
+}
+// a collision box shows the sizes of its shape only: a box its X, Y and Z, a cylinder its radius and height
+function shapeField(a, f) {
+  if (a.cls !== 'UCTriggerBox') return true;
+  return isCylinder(a, actorProp) ? !['BoxX', 'BoxY', 'BoxZ'].includes(f.prop) : !['CylinderRadius', 'CylinderHeight'].includes(f.prop);
+}
 async function renderProps(p) {
   if (propertySlider && propertySlider.p === p) return;
   const a = p.userData.actor, box = $('#propsec');
   if (!box || !a) return;
-  let fields = propSchema[a.cls];
-  if (!fields) {
-    try { const r = await api('/api/props?cls=' + encodeURIComponent(a.cls)); fields = r.fields || []; propItems = r.items || propItems; }
-    catch (e) { fields = []; }
-    propSchema[a.cls] = fields;
-  }
+  const fields = await classFields(a.cls);
   await loadFactions();
   if (fields.some((f) => f.kind === 'mapurl') && !allMapNames) {
     try { allMapNames = (await api('/api/newmap_info')).maps; } catch (e) { allMapNames = []; }
@@ -8056,7 +9654,7 @@ async function renderProps(p) {
   if (character) drawRoute(a);
   else if (a.cls === 'PatrolPoint') for (const o of routeUsers(a)) drawRoute(o);
   const redraw = () => renderProps(p);
-  const itemSel = (id, v) => `<select id="${id}" style="max-width:190px"><option value="">(nothing)</option>${[...new Set(propItems.map((x) => x.cat))].map((c) => `<optgroup label="${escapeHtml(c)}">${propItems.filter((x) => x.cat === c).map((x) => `<option value="${x.cls}" ${x.cls.toLowerCase() === v.toLowerCase() ? 'selected' : ''}>${escapeHtml(x.name)} · ${escapeHtml(x.cls.split('.').pop())}</option>`).join('')}</optgroup>`).join('')}</select>`;
+  const itemSel = (id, v) => `<select id="${id}" style="max-width:190px">${itemOptions(v)}</select>`;
   let html = scriptTagHtml(a), group = '';
   const wires = [() => wireScriptTag(a, p, redraw)];
   if (canReplaceModel(p)) {
@@ -8067,23 +9665,19 @@ async function renderProps(p) {
   wires.push(lk.wire);
   fields.forEach((f, k) => {
     if (f.kind === 'mesh') return; // One shared appearance control for all mesh actors.
-    if (a.cls === 'UCTriggerBox') {
-      const cylinder = isCylinder(a, actorProp);
-      if (cylinder && ['BoxX', 'BoxY', 'BoxZ'].includes(f.prop)) return;
-      if (!cylinder && ['CylinderRadius', 'CylinderHeight'].includes(f.prop)) return;
-    }
-    const nextGroup = f.group === 'Model' ? 'Model behaviour' : inspectorFieldGroup(f);
+    if (!shapeField(a, f)) return;
+    const nextGroup = inspectorFieldGroup(f);
     if (nextGroup !== group) {
       if (group) html += '</div></details>';
       group = nextGroup;
-      html += inspectorSectionStart(group, group === 'Links' ? 'Tags & events' : group, !['Links', 'Sound', 'Door sounds', 'Inventory', 'Health'].includes(group));
+      html += groupSectionStart(group);
     }
     const id = 'pp' + k, tip = f.help ? ` title="${escapeHtml(f.help)}"` : '';
     const label = INSPECTOR_LABELS[f.prop] || f.label;
-    const lab = `<label style="width:auto;min-width:96px"${tip}>${escapeHtml(label)}</label>`;
-    const v = propValue(a, f);
-    if (f.prop === 'BindName' && window.__gamecons?.data?.actors[a.name]?.length) {
-      html += `<div class="row">${lab}<input type="text" readonly aria-label="Original conversation BindName" value="${escapeHtml(unquote(v))}" style="flex:1;min-width:0" title="Used by the original conversations"></div>`;
+    const lab = `<label style="width:auto;min-width:96px" data-prop="${escapeHtml(f.prop)}"${tip}>${escapeHtml(label)}</label>`;
+    const v = propValue(a, f), readOnly = readOnlyReason(a, f.prop);
+    if (readOnly) {
+      html += `<div class="row">${lab}<input type="text" readonly aria-label="Original conversation BindName" value="${escapeHtml(unquote(v))}" style="flex:1;min-width:0" title="${escapeHtml(readOnly)}"></div>`;
     } else if (f.kind === 'collision_shape') {
       html += `<div class="row">${lab}<select id="${id}" aria-label="Collision shape" style="flex:1;min-width:0;padding:0 8px"${tip}><option value="False" ${!isCylinder(a, actorProp) ? 'selected' : ''}>Box</option><option value="True" ${isCylinder(a, actorProp) ? 'selected' : ''}>Cylinder</option></select></div>`;
       wires.push(() => { $('#' + id).onchange = () => {
@@ -8097,8 +9691,8 @@ async function renderProps(p) {
         setDirty(); refreshTriggerBox(p); wake(); redraw();
       }; });
     } else if (f.kind === 'bool') {
-      html += `<div class="row"><label style="width:auto"${tip}><input type="checkbox" id="${id}" ${String(v).toLowerCase() === 'true' ? 'checked' : ''}> ${escapeHtml(label)}</label></div>`;
-      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, $('#' + id).checked ? 'True' : 'False'); showSoundRange(p); redraw(); }; });
+      html += `<div class="row"><label style="width:auto" data-prop="${escapeHtml(f.prop)}"${tip}><input type="checkbox" id="${id}" ${propShown('bool', v) ? 'checked' : ''}> ${escapeHtml(label)}</label></div>`;
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText('bool', $('#' + id).checked)); showSoundRange(p); redraw(); }; });
       if (f.prop === 'bInWorld') { html += stayPutHtml(a); wires.push(() => wireStayPut(a, p)); }
     } else if (f.kind === 'mapurl') {
       const [toMap, toTag] = unquote(v).split('#');
@@ -8126,17 +9720,17 @@ async function renderProps(p) {
         ts.onchange = save;
       });
     } else if (f.kind === 'byte') {
-      html += `<div class="row slider-row">${lab}<input type="range" id="${id}" aria-label="${escapeHtml(f.label)}" min="0" max="255" value="${+v || 0}" style="flex:1;min-width:0;padding:0"><input type="number" id="${id}n" aria-label="${escapeHtml(f.label)} value" min="0" max="255" value="${+v || 0}" style="width:58px"></div>`;
+      html += `<div class="row slider-row">${lab}<input type="range" id="${id}" aria-label="${escapeHtml(f.label)}" min="0" max="255" value="${+v || 0}" style="flex:1;min-width:0;padding:0"><input ${numberField(true)} id="${id}n" aria-label="${escapeHtml(f.label)} value" min="0" max="255" value="${+v || 0}" style="width:58px"></div>`;
       wires.push(() => {
         const r = $('#' + id), n = $('#' + id + 'n');
         wirePropertySlider(p, r, n, f.prop);
       });
     } else if (f.kind === 'lightcolor') {
       // the colour of the light: UnrealEd's hue (0-255) and saturation (0 = full colour, 255 = white)
-      const l = liveLight(a), hex = '#' + ueLightRGB(l.hue, l.sat).map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+      const l = liveLight(a), hex = lightHex(l);
       html += `<div class="row">${lab}<input type="color" data-light-color id="${id}c" value="${hex}" title="pick the colour (sets Hue and Saturation)" style="width:46px;height:28px;padding:1px">
         <span class="hint" data-light-hint style="margin:0">brightness ${l.b}, radius ${l.radius}</span></div>
-        <div class="row slider-row"><label for="${id}" style="width:auto;min-width:96px">Hue</label><input type="range" id="${id}" aria-label="Hue" min="0" max="255" value="${l.hue}" style="flex:1;min-width:0;padding:0;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)"><input type="number" id="${id}n" aria-label="Hue value" min="0" max="255" value="${l.hue}" style="width:58px"></div>`;
+        <div class="row slider-row"><label for="${id}" style="width:auto;min-width:96px" data-prop="${escapeHtml(f.prop)}">Hue</label><input type="range" id="${id}" aria-label="Hue" min="0" max="255" value="${l.hue}" style="flex:1;min-width:0;padding:0;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)"><input ${numberField(true)} id="${id}n" aria-label="Hue value" min="0" max="255" value="${l.hue}" style="width:58px"></div>`;
       wires.push(() => {
         const r = $('#' + id), n = $('#' + id + 'n'), c = $('#' + id + 'c');
         wirePropertySlider(p, r, n, 'LightHue');
@@ -8149,8 +9743,8 @@ async function renderProps(p) {
         };
       });
     } else if (f.kind === 'int' || f.kind === 'float') {
-      html += `<div class="row">${lab}<input type="number" id="${id}" value="${escapeHtml(String(+v || 0))}" step="${f.kind === 'int' ? 1 : 0.05}" style="width:80px"></div>`;
-      wires.push(() => { $('#' + id).onchange = () => { const n = +$('#' + id).value || 0; setProp(a, f.prop, f.kind === 'int' ? String(Math.round(n)) : n.toFixed(6)); showSoundRange(p); redraw(); }; });
+      html += `<div class="row">${lab}<input ${numberField(f.kind === 'int')} id="${id}" value="${escapeHtml(String(propShown(f.kind, v)))}" step="${propRow(f.kind).step}" style="width:80px"></div>`;
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText(f.kind, $('#' + id).value)); showSoundRange(p); redraw(); }; });
     } else if (f.kind === 'text') {
       html += `<div id="${id}" class="game-document"></div>`;
       wires.push(() => window.__gameDocuments?.mount($('#' + id), {
@@ -8237,13 +9831,14 @@ async function renderProps(p) {
         };
       });
     } else if (f.kind === 'name' || f.kind === 'string') {
-      const shown = f.kind === 'name' && String(v) === 'None' ? '' : unquote(v);
+      const shown = propShown(f.kind, v);
       html += `<div class="row">${lab}<input type="text" id="${id}" value="${escapeHtml(shown)}" placeholder="${f.kind === 'name' ? 'None' : ''}" style="flex:1;min-width:0"></div>`;
-      wires.push(() => { $('#' + id).onchange = () => { const t = $('#' + id).value.trim(); setProp(a, f.prop, f.kind === 'name' ? (t.replace(/\W/g, '_') || 'None') : t); redraw(); }; });
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText(f.kind, $('#' + id).value)); redraw(); }; });
     } else if (f.kind === 'choice' || f.kind === 'enum') {
       const opts = f.options.includes(String(v)) ? f.options : [String(v)].concat(f.options);
       html += `<div class="row">${lab}<select id="${id}">${opts.map((o) => `<option ${o === String(v) ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}</select></div>`;
-      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, $('#' + id).value); redraw(); }; });
+      // (a light's Effect: a spotlight shows its cone, the others their sphere)
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, $('#' + id).value); refreshLight(p); redraw(); }; });
     } else if (f.kind === 'anim') {
       // the animation of a patrol point: one of the characters patrolling through it (their models)
       const users = routeUsers(a);
@@ -8289,12 +9884,12 @@ async function renderProps(p) {
       return;
     } else if (f.kind === 'half' || f.kind === 'radius') {
       // Box dimensions and cylinder height are displayed whole; radius stays a radius.
-      const factor = f.kind === 'half' ? 2 : 1, min = 2 * factor;
-      html += `<div class="row">${lab}<input type="number" id="${id}" aria-label="Collision ${escapeHtml(label.toLowerCase())}" value="${Math.round((+v || 0) * factor)}" step="${4 * factor}" min="${min}" style="width:80px"${tip}></div>`;
-      wires.push(() => { $('#' + id).onchange = () => { const raw = +$('#' + id).value; setProp(a, f.prop, (Math.max(min, Number.isFinite(raw) ? raw : min) / factor).toFixed(6)); refreshTriggerBox(p); wake(); redraw(); }; });
+      const size = propRow(f.kind);
+      html += `<div class="row">${lab}<input ${numberField()} id="${id}" aria-label="Collision ${escapeHtml(label.toLowerCase())}" value="${propShown(f.kind, v)}" step="${size.step}" min="${size.min}" style="width:80px"${tip}></div>`;
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText(f.kind, $('#' + id).value)); refreshTriggerBox(p); wake(); redraw(); }; });
     } else if (f.kind === 'gravity') {
       const z = /Z=(-?[\d.]+)/.exec(String(v)) ? +/Z=(-?[\d.]+)/.exec(String(v))[1] : -950;
-      html += `<div class="row">${lab}<input type="number" id="${id}" value="${z}" step="50" style="width:80px"${tip}><span class="hint" style="margin:0">the game: -950</span></div>`;
+      html += `<div class="row">${lab}<input ${numberField()} id="${id}" value="${z}" step="50" style="width:80px"${tip}><span class="hint" style="margin:0">the game: -950</span></div>`;
       wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, `(X=0.000000,Y=0.000000,Z=${(+$('#' + id).value || 0).toFixed(6)})`); redraw(); }; });
     } else if (f.kind === 'mesh') {
       const cur = meshOf(a);
@@ -8302,11 +9897,11 @@ async function renderProps(p) {
       wires.push(() => { $('#' + id + 'c').onclick = () => inspectorAction(p, () => beginModelReplacement(p)); });
     } else if (f.kind === 'item') {
       html += `<div class="row">${lab}${itemSel(id, classRef(v))}</div>`;
-      wires.push(() => { $('#' + id).onchange = () => { const c = $('#' + id).value; setProp(a, f.prop, c ? `Class'${c}'` : 'None'); redraw(); }; });
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText('item', $('#' + id).value)); redraw(); }; });
     } else if (f.kind === 'faction') {
-      const shown = String(v) === 'None' ? '' : String(v);
+      const shown = propShown('faction', v);
       html += `<div class="row">${lab}<input type="text" id="${id}" list="factionlist" value="${escapeHtml(shown)}" placeholder="None" style="flex:1;min-width:0"></div>`;
-      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, $('#' + id).value.trim().replace(/\W/g, '_') || 'None'); loadFactions(); redraw(); }; });
+      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText('faction', $('#' + id).value)); loadFactions(); redraw(); }; });
     } else if (f.kind === 'relations') {
       html += `<div class="row">${lab}</div>` + relationsHtml(a, id);
       wires.push(() => wireRelations(a, id, redraw));
@@ -8338,7 +9933,7 @@ async function renderProps(p) {
       html += `<div class="row">${lab}</div>`;
       for (const [i, pairs] of rows) {
         const m = new Map(pairs);
-        if (f.kind === 'inventory') html += `<div class="row" style="padding-left:8px">${itemSel(`${id}_${i}`, classRef(m.get('Inventory')))} × <input type="number" id="${id}_${i}n" value="${+m.get('Count') || 1}" min="1" style="width:46px"><button id="${id}_${i}x" title="remove">✕</button></div>`;
+        if (f.kind === 'inventory') html += `<div class="row" style="padding-left:8px">${itemSel(`${id}_${i}`, classRef(m.get('Inventory')))} × <input ${numberField(true)} id="${id}_${i}n" value="${+m.get('Count') || 1}" min="1" style="width:46px"><button id="${id}_${i}x" title="remove">✕</button></div>`;
         else html += `<div class="row" style="padding-left:8px;flex-wrap:wrap">${pairs.filter(([, val]) => val.startsWith('"') || /^-?\d/.test(val)).map(([k2, val]) => `<input type="text" data-sk="${k2}" data-row="${i}" value="${escapeHtml(structShown(val))}" placeholder="${escapeHtml(k2)}" title="${escapeHtml(k2)}" style="width:80px">`).join('')}<button id="${id}_${i}x" title="remove">✕</button></div>`;
       }
       if (free !== undefined) html += `<div class="row" style="padding-left:8px"><button id="${id}_add">+ ${f.kind === 'inventory' ? 'item' : 'account'}</button></div>`;
@@ -8390,7 +9985,7 @@ async function renderProps(p) {
     html += pm.html;
     wires.push(pm.wire);
   }
-  { const ap = allPropsSection(behaveApi, a, p); html += ap.html; wires.push(ap.wire); }    // UnrealEd's whole Properties
+  { const ap = allPropsSection(behaveApi, [a], p); html += ap.html; wires.push(ap.wire); }    // UnrealEd's whole Properties
   if (links.length) {
     html += inspectorSection('connections', 'Connections', links.map((l, k) => `<div class="row"><span style="color:${l.dir === 'out' ? '#ffa040' : '#40c0ff'}">${l.dir === 'out' ? '→' : '←'} ${escapeHtml(l.why)}</span><a href="#" data-link="${k}" style="color:var(--accent, #5aa2ff)">${escapeHtml(l.name)}${NAMES[l.cls] ? ' (' + escapeHtml(NAMES[l.cls]) + ')' : ''}</a></div>`).join(''));
   }
@@ -8398,6 +9993,7 @@ async function renderProps(p) {
   if (propertySlider && propertySlider.p === p) return;
   box.innerHTML = html;
   wireInspectorSections(box);
+  markPropSections(box, a);
   for (const w of wires) w();
   for (const l of box.querySelectorAll('[data-link]')) l.onclick = (e) => { e.preventDefault(); const q = proxyOf(links[+l.dataset.link].name); if (q) select(q); };
 }
@@ -9450,12 +11046,18 @@ $('#linksbtn').onclick = () => openLinks().catch((e) => { linkBox.innerHTML = `<
 // without a route, exits to maps that do not exist, no start, no light; objects inside walls (the engine,
 // on the map as last rebuilt). What you added or changed is checked fully; the original objects of a
 // map of the game only for what breaks the map.
+// the objects of the map that are in the game: not deleted, not disabled
+function inGameActors() { return allActors().filter((a) => !edits.deleted[a.name] && !edits.disabled?.[a.name]); }
+// a Key ID as Check map and the Doors table compare them: its name in lower case, '' for none
+function keyIdOf(v) { const id = propShown('name', v ?? '').toLowerCase(); return id === 'none' ? '' : id; }   // (None in any case: no key)
+// the Key IDs of the keys among these objects (those in the game), for a door's Key ID to be looked up in
+function mapKeyIds(acts = inGameActors()) { return new Set(acts.map((b) => keyIdOf(actorProp(b, 'KeyID'))).filter(Boolean)); }
 const checkBox = $('#checkbox');
 async function checkMap() {
   checkBox.style.display = 'block';
   checkBox.innerHTML = '<div class="hint">Checking...</div>';
   const out = [];
-  const acts = allActors().filter((a) => !edits.deleted[a.name] && !edits.disabled?.[a.name]);
+  const acts = inGameActors(), keyIds = mapKeyIds(acts);
   const mine = new Set([...(edits.added || []).map((a) => a.name), ...Object.keys(edits.props || {}), ...Object.keys(edits.moved || {})]);
   const tags = new Set(acts.map((a) => tagOf(a).toLowerCase()).filter((t) => t && t !== 'none'));
   const label = (a) => `${hierLabel(a)} (${a.name})`;
@@ -9471,7 +11073,7 @@ async function checkMap() {
       if (v && v.toLowerCase() !== 'none' && !tags.has(v.toLowerCase())) add('warn', `${label(a)}: ${k} "${v}" is the Tag of nothing in the map.`, a.name);
     }
     const key = String(actorProp(a, 'KeyIDNeeded') || '');
-    if (key && key.toLowerCase() !== 'none' && !acts.some((b) => String(actorProp(b, 'KeyID') || '').toLowerCase() === key.toLowerCase()))
+    if (keyIdOf(key) && !keyIds.has(keyIdOf(key)))
       add('info', `${label(a)} opens with the key "${key}": no key with that ID is in this map (JC must bring it from another map or get it in a dialogue).`, a.name);
     const url = unquote(actorProp(a, 'URL') || '');
     if (a.cls === 'Teleporter' && url) {
@@ -9693,6 +11295,7 @@ const ICON = {
   unnest: svg('<rect x="3" y="11" width="10" height="10" rx="2"/><path d="M13 3h8v8M21 3l-8 8"/>'),
   stick: svg('<path d="M21 3v18"/><rect x="12" y="8" width="6" height="8" rx="1"/><path d="M3 12h6"/><path d="m6 9 3 3-3 3"/>'),
   chev: svg('<path d="m6 9 6 6 6-6"/>'),
+  more: svg('<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>'),
 };
 // a button with an icon: the label hides in a narrow panel (the title keeps the full name)
 const ib = (id, icon, label, title, cls = '') => `<button class="ib${cls ? ' ' + cls : ''}" id="${id}" title="${escapeHtml(title)}">${ICON[icon]}<span>${label}</span></button>`;
@@ -9705,7 +11308,8 @@ function inspectorPrimaryActions(p) {
   const connect = button('lkconnect', 'connect', 'Connect', 'Connect — choose another object to create an interaction') + `<button type="button" id="lkconnectarea" class="inspector-primary connect" aria-label="Connect within radius" title="Connect within radius — select a group" style="width:18px;min-width:18px">⌄</button>`;
   return `<div class="inspector-primary-actions" role="group" aria-label="Object actions">${isCharacter(a) ? dialogue + connect : connect + dialogue}</div>`;
 }
-function num(id, v, label = '') { return `<input type="number" id="${id}" value="${v}" step="1"${label ? ` aria-label="${label}" title="${label}"` : ''}>`; }
+// a number of the Transform: a field that takes maths (number-expr.js, worked out below)
+function num(id, v, label = '') { return `<input ${numberField()} id="${id}" value="${v}" step="1"${label ? ` aria-label="${label}" title="${label}"` : ''}>`; }
 function positionRows(c) {
   // Display viewport axes (Y up); field IDs and values retain the game's XYZ
   // contract so typed edits, scrubbing, tutorial hooks and saved maps agree.
@@ -9715,6 +11319,21 @@ function positionRows(c) {
 // Keep the fields and the preview alive while scrubbing. Write edits only on release,
 // through the same commit path as the gizmo; a cancelled drag never enters the undo stack.
 const details = $('#details');
+// Translation must not snap or resize a block just because the gizmo's grid is on: its corners move as it did, to a
+// hundredth of a unit (a group's turn moves its middle by sines and cosines), both by as much so that its size stays;
+// the proxy goes to the middle they give
+function shiftBlock(p, from) {
+  const b = p.userData.box, offset = UE(p.position.clone().sub(from)).map((v) => Math.round(v * 100) / 100);
+  const by = (v, k) => Math.round((v + offset[k]) * 1e6) / 1e6;      // without the float's noise (101.22999999999999)
+  b.lo = b.lo.map(by);
+  b.hi = b.hi.map(by);
+  p.position.copy(from).add(T(offset));
+}
+// Nor must turning it: its corners stay about its middle, its turn is the proxy's (as the Inspector's own fields)
+function turnBlock(p) {
+  p.userData.box.rot = rotations.rot(p.quaternion);
+  dressBlock(p);
+}
 function finishInspectorDrag(cancel = false) {
   const d = inspectorDrag;
   if (!d) return;
@@ -9730,10 +11349,7 @@ function finishInspectorDrag(cancel = false) {
   }
   pushUndo();
   if (d.p.userData.kind === 'box') {
-    // Translation must not snap or resize a block just because the gizmo's grid is on.
-    const b = d.p.userData.box, offset = UE(d.p.position.clone().sub(d.pos));
-    b.lo = b.lo.map((v, k) => v + offset[k]);
-    b.hi = b.hi.map((v, k) => v + offset[k]);
+    shiftBlock(d.p, d.pos);
     setDirty(); showDetails();
   } else if (d.structureStarted) commitStructure(d.structureMove);
   else commit(d.p);
@@ -9747,7 +11363,7 @@ details.addEventListener('pointerdown', (e) => {
   const id = label.htmlFor;
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   const input = document.getElementById(id);
-  if (!input || !details.contains(input) || input.disabled || input.readOnly || !Number.isFinite(input.valueAsNumber)) return;
+  if (!input || !details.contains(input) || input.disabled || input.readOnly || !Number.isFinite(plainNumber(input.value))) return;
   inspectorDrag = { p: inspected, pos: inspected.position.clone(), axis: { px: 'x', py: 'z', pz: 'y' }[id],
     pointer: e.pointerId, x: e.clientX, delta: 0, structureStarted: false };
   details.setPointerCapture(e.pointerId);
@@ -9776,14 +11392,14 @@ window.addEventListener('blur', () => finishInspectorDrag(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) finishInspectorDrag(true); });
 // Every number of the Inspector, like Unity and PlayCanvas: drag its label left or right to change it, a step
 // every 4 pixels (Shift: finer), Esc puts it back. The field's own change handler saves it when the button is let go.
+// A field of several objects showing — (their values differ) moves each one from its own value: +=8 on each.
 {
   let numDrag = null;
   const numberOf = (label) => {
     if (!label || label.classList.contains('scrub') || label.parentElement?.classList.contains('row') !== true) return null;
-    const input = label.parentElement.querySelector('input[type=number]');
+    const input = label.parentElement.querySelector('input:is([type=number], [data-expr])');
     return input && !input.disabled && !input.readOnly ? input : null;
   };
-  const decimals = (step) => (String(step).split('.')[1] || '').length;
   const endNumDrag = (cancel) => {
     const d = numDrag;
     if (!d) return;
@@ -9799,8 +11415,8 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) finis
     if (!input || e.button !== 0 || inspectorDrag || numDrag) return;
     e.preventDefault();
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-    const step = parseFloat(input.step) || 1;
-    numDrag = { input, label, step, start: Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : 0, text: input.value,
+    const step = parseFloat(input.step) || 1, offset = input.hasAttribute('data-mixed');
+    numDrag = { input, label, step, offset, start: plainNumber(input.value) || 0, text: input.value,
       x: e.clientX, travel: 0, pointer: e.pointerId,
       esc: (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); endNumDrag(true); } } };
     label.setPointerCapture(e.pointerId);
@@ -9813,15 +11429,86 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) finis
     if (!(e.buttons & 1)) { endNumDrag(false); return; }
     d.travel += (e.clientX - d.x) * (e.shiftKey ? 0.25 : 1);
     d.x = e.clientX;
-    let v = d.start + Math.round(d.travel / 4) * d.step;
-    if (d.input.min !== '') v = Math.max(+d.input.min, v);
-    if (d.input.max !== '') v = Math.min(+d.input.max, v);
-    const text = String(+v.toFixed(decimals(d.step)));
+    const steps = Math.round(d.travel / 4);
+    const text = d.offset ? steppedBy(steps, { step: d.step }) : stepped(d.start, steps, { step: d.step, min: d.input.min, max: d.input.max });
     if (text !== d.input.value) { d.input.value = text; d.input.dispatchEvent(new Event('input', { bubbles: true })); }
   });
   details.addEventListener('pointerup', (e) => { if (numDrag && e.pointerId === numDrag.pointer) endNumDrag(false); });
   details.addEventListener('pointercancel', (e) => { if (numDrag && e.pointerId === numDrag.pointer) endNumDrag(true); });
 }
+// Maths in the number fields, as Unity's (number-expr.js): what is typed (2+3, 10/4, pi, +=16, *=0.8...) is worked
+// out before the field's own change handler reads it, and the sum shows in the status bar once that handler is done;
+// a mistake puts the value back. Esc puts back the value the field had when it was entered; the arrow keys step it,
+// as they did when these were number fields. A field of several objects (the multi-object Inspector, multiFields)
+// gives each one its own value: +=16 on its own, L(a,b) spread in their order, R(a,b) at random (evaluateAll).
+const multiFields = new WeakMap();        // field -> {names, values (as shown, in their order), apply(a value for each)}
+const rawFields = new WeakMap();          // a field of All properties -> {key, type, def, category, options, apply(a text for each object)}
+{
+  const entered = new WeakMap();          // field -> its text when it was entered
+  const sums = new WeakMap();             // change event -> what the status bar says after it
+  let cancelling = null;                  // the field Esc is leaving: its change, if the browser sends one, is dropped
+  const fieldOf = (t) => (t instanceof HTMLInputElement && t.matches('[data-expr]') ? t : null);
+  const nameOf = (f) => f.getAttribute('aria-label') || f.closest('.row')?.querySelector('label, .ap-name')?.textContent.trim() || 'Value';
+  const before = (f) => entered.get(f) ?? f.defaultValue;
+  const STEP_KEYS = { ArrowUp: 1, ArrowDown: -1 };
+  details.addEventListener('focusin', (e) => { const f = fieldOf(e.target); if (f) entered.set(f, f.value); });
+  details.addEventListener('keydown', (e) => {
+    const f = fieldOf(e.target);
+    if (!f) return;
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      f.value = before(f);
+      cancelling = f; f.blur(); cancelling = null;
+      return;
+    }
+    const v = plainNumber(f.value);
+    if (!STEP_KEYS[e.key] || !Number.isFinite(v)) return;
+    e.preventDefault();
+    f.value = stepped(v, STEP_KEYS[e.key], { step: parseFloat(f.step) || 1, min: f.min, max: f.max });
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+    f.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  details.addEventListener('change', (e) => {
+    const f = fieldOf(e.target);
+    if (!f) return;
+    if (f === cancelling) { e.stopImmediatePropagation(); return; }
+    const text = f.value.trim();
+    if (!text) return;                    // empty: what the field makes of it (the game's value, the class default)
+    // the field's own value for +=: as it was entered, or the default it shows when empty; several objects: each one's
+    const many = multiFields.get(f);
+    const r = many ? evaluateAll(text, many.values.map(plainNumber))
+      : evaluate(text, { current: [before(f), f.placeholder].map(plainNumber).find(Number.isFinite) });
+    if (r.error) {
+      e.stopImmediatePropagation();
+      f.value = before(f);
+      status(`${nameOf(f)}: "${text}": ${r.error}; ${many ? 'nothing changes' : `the value stays ${f.value || 'empty'}`}.`, 'bad');
+      return;
+    }
+    if (many) {                           // each object its value, one Ctrl+Z (the field is drawn again)
+      e.stopImmediatePropagation();
+      const values = r.values.map((v) => +fieldText(v, f.dataset.expr === 'int'));
+      if (many.apply(values) !== false) status(`${nameOf(f)}: ${Number.isFinite(plainNumber(text)) ? '' : text + ' = '}${valuesText(values)} on ${values.length} objects.`, 'ok');
+      return;
+    }
+    f.value = fieldText(r.value, f.dataset.expr === 'int');
+    entered.set(f, f.value);
+    if (!Number.isFinite(plainNumber(text))) sums.set(e, `${nameOf(f)}: ${text} = ${f.value}`);
+  }, true);
+  details.addEventListener('change', (e) => { if (sums.has(e)) status(sums.get(e), 'ok'); });
+}
+// Right click on a field of several objects whose values differ: Set all to <object>'s value (Unity's "Set to Value of");
+// on a field or a section's title, its copy, paste and reset (propMenuItems; typing in a field keeps the browser's menu)
+details.addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('.row');
+  const f = [e.target, ...(row ? row.querySelectorAll('input, select') : [])].find((x) => multiFields.has(x));
+  const many = f && multiFields.get(f), choices = many ? valueChoices(many.names, many.values) : [];
+  const typing = e.target === document.activeElement && e.target.matches('textarea, input[type=text], input:not([type])');
+  const own = typing ? [] : propMenuItems(e.target);
+  if (!choices.length && !own.length) return;
+  e.preventDefault();
+  openMenu(e.clientX, e.clientY, own.concat(own.length && choices.length ? [{ sep: true }] : [], choices.map((c) => ({ label: `Set all to ${c.name}'s value: ${valueText(c.value)}`,
+    off: selectionLocked(), run: () => many.apply(many.names.map(() => c.value)) }))));
+});
 
 // A pinned Inspector is a view preference, not an object lock or a map edit.
 // Resolve by stable key so rebuilding proxies never leaves event handlers on a dead object.
@@ -9871,6 +11558,480 @@ function refreshInspectorPin() {
   label.title = label.textContent;
 }
 
+// ---- Several objects in the Inspector (multi-inspector.js), as Unity's multi-object editing: the Transform they
+// share, Narrow the selection, Tag and Event of any objects, the Properties every one's class has (the Light section
+// when they are all lights) and All properties when they are all of one class. A field typed or picked is set on
+// each of them, one Ctrl+Z; L(a,b) counts them in the order of the list above (the order they were picked).
+const multiApi = { escapeHtml, multiField: (el, entry) => multiFields.set(el, entry) };
+const MULTI_HINT = '<div class="hint" style="margin:2px 0 4px">A value typed is set on all of them: +=16 adds to each one\'s own, L(0,512) spreads them in the order above, R(0,360) gives each a random one. Right click a field showing —: Set all to one\'s value.</div>';
+const MOVE_AXES = { x: 0, y: 1, z: 2 }, TURN_AXES = { pitch: 0, yaw: 1, roll: 2 };
+// what a member is called in Set all to, and what it is for Narrow the selection (an object's class)
+function memberName(p) { const [label, name] = objectLabel(p); return isStruct(p) ? label : name; }
+function memberKind(p) { const d = p.userData; return d.actor ? d.actor.cls : isStruct(p) ? 'Structure' : d.drawn ? 'Drawing' : 'Block'; }
+function narrowTo(kind) {
+  const keep = members().filter((m) => memberKind(m) === kind);
+  setMulti(keep);
+  status(`${keep.length} ${clsShown(kind)} kept in the selection.`, 'ok');
+}
+// a member's Transform as the Inspector shows it (multi-edit.js TRANSFORM): the game's axes, degrees, a model's size
+// in %; what it cannot change is left out (a structure with doors does not turn, blocks and structures have no %)
+function transformOf(p) {
+  const d = p.userData, [x, y, z] = UE(p.position), t = { x, y, z };
+  if (!isStruct(p) || structures[d.name].rotatable !== false) [t.pitch, t.yaw, t.roll] = objectRotation(p).map((v) => Math.round(v * 360 / YAW));
+  if (d.actor && canScale(p)) t.scale = Math.round(p.scale.x * builtOf(p) * 100);
+  return t;
+}
+function applyTransform(p, key, v) {
+  if (key in MOVE_AXES) { const c = UE(p.position); c[MOVE_AXES[key]] = v; p.position.copy(T(c)); }
+  else if (key in TURN_AXES) { const r = objectRotation(p); r[TURN_AXES[key]] = Math.round(v * YAW / 360); setObjectRotation(p, r); }
+  else p.scale.setScalar(Math.max(5, v) / 100 / builtOf(p));
+}
+// a field of the shared Transform typed: each member its value (in their order), one Ctrl+Z; a structure carries
+// its objects, a block moved or turned keeps its size
+function setTransforms(list, key, values) {
+  if (!requireUnlocked(groupPivot)) return false;
+  pushUndo();
+  const moves = list.map((p, i) => {
+    const st = isStruct(p) ? beginStructMove(p) : null, from = p.position.clone();
+    applyTransform(p, key, values[i]);
+    if (st) followStructure(st);
+    return { st, from };
+  });
+  list.forEach((p, i) => {
+    const { st, from } = moves[i];
+    if (st) commitStructure(st, true);
+    else if (p.userData.kind === 'box') { if (key in MOVE_AXES) shiftBlock(p, from); else turnBlock(p); }
+    else commit(p);
+  });
+  setDirty();
+  if (!tc.dragging) placeGroupPivot();
+  showDetails();
+  return true;
+}
+function transformRows(ms) {
+  const list = uncarried(ms), own = list.map(transformOf);
+  return TRANSFORM.map((t) => {
+    const have = list.filter((p, i) => t.key in own[i]);
+    return { ...t, id: 'mt' + t.key, aria: t.title, step: 1, of: list.length, names: have.map(memberName),
+      values: own.filter((o) => t.key in o).map((o) => o[t.key]), apply: (values) => setTransforms(have, t.key, values) };
+  }).filter((r) => r.names.length);
+}
+const LINK_FIELDS = ['Tag', 'Event'];
+// Tag and Event of an object whose class has no Properties of its own (one the game's class defaults do not know)
+const linkField = (prop) => ({ group: 'Links', prop, label: prop, kind: 'name', help: '', default: ['None'] });
+// what several objects leave to one object at a time: the name of its own conversations, its own document
+const ONE_AT_A_TIME = new Set(['BindName', 'textTag']);
+// a character the original conversations of the game find by its conversation name (BindName)
+function hasOriginalConversations(a) { return !!window.__gamecons?.data?.actors[a.name]?.length; }
+// why a property stays as it is on an object, read only in the Inspector and the tables and never pasted or reset
+// on it: the conversation name of a character the original conversations use (renamed, they no longer bind); ''
+// when it can change
+function readOnlyReason(a, prop) { return prop === 'BindName' && hasOriginalConversations(a) ? 'Used by the original conversations' : ''; }
+function fieldOf(a, prop) { return (propSchema[a.cls] || []).find((f) => f.prop === prop) || (LINK_FIELDS.includes(prop) ? linkField(prop) : null); }
+// what shows objects' properties in the 3D view, after they changed: a light's colour, a collision box's shape
+function refreshProps(list) {
+  for (const p of list) { tintLight(p); refreshTriggerBox(p); }
+  wake();
+}
+// properties set on several objects, one Ctrl+Z: changes [[key, its text for each object]]; lights show their colour
+function setPropsAll(list, changes) {
+  if (!requireUnlocked(groupPivot)) return false;
+  pushUndo();
+  for (const [key, texts] of changes) list.forEach((p, i) => putProp(p.userData.actor, key, texts[i]));
+  setDirty();
+  refreshProps(list);
+  showDetails();
+  return true;
+}
+// the rows of a property of several objects (multi-inspector.js): each one's own field of its class, its value as
+// that field shows it, written as it stores it; a light's colour is a picker (hue and saturation), then its hue
+function propRows(list, prop, of) {
+  const actors = list.map((p) => p.userData.actor), own = actors.map((a) => fieldOf(a, prop)), f = own[0];
+  const names = actors.map((a) => a.name);
+  const row = { ...propRow(f.kind), id: 'mp' + prop, prop, label: INSPECTOR_LABELS[prop] || f.label, title: f.help, names, of,
+    values: actors.map((a, i) => propShown(own[i].kind, propValue(a, own[i]))),
+    apply: (values) => {
+      const done = setPropsAll(list, [[prop, values.map((v, i) => propText(own[i].kind, v))]]);
+      if (done && f.kind === 'faction') loadFactions();          // the list of factions knows a new one
+      return done;
+    } };
+  if (f.kind === 'faction') row.list = 'factionlist';
+  else if (f.kind === 'name') row.placeholder = 'None';
+  else if (f.kind === 'item') row.optionsHtml = itemOptions;
+  else if (row.row === 'choice') row.options = f.options || [];
+  if (f.kind !== 'lightcolor') return [row];
+  const colour = { id: 'mpcolour', row: 'color', prop, label: f.label, title: 'Pick the colour (sets Hue and Saturation)', names, of,
+    values: actors.map((a) => lightHex(liveLight(a))),
+    apply: (hexes) => {
+      const hs = hexes.map(ueHueSat);
+      return setPropsAll(list, [['LightHue', hs.map(([hue]) => String(hue))], ['LightSaturation', hs.map(([, sat]) => String(sat))]]);
+    } };
+  return [colour, { ...row, label: 'Hue', title: 'Hue, 0-255 (the colour picker sets it with the saturation)' }];
+}
+// the rest of the Inspector of several objects, once their classes' Properties are known (renderProps's for one)
+async function renderMulti(ms) {
+  const box = $('#multisec'), list = ms.filter((p) => p.userData.actor);
+  if (!box || !list.length) return;
+  const actors = list.map((p) => p.userData.actor), classes = [...new Set(actors.map((a) => a.cls))];
+  await Promise.all(classes.map(classFields));
+  if (selected !== groupPivot || !document.body.contains(box)) return;
+  // the fields every one has, in the first one's order; with blocks or structures selected too, Tag and Event alone
+  const first = propSchema[actors[0].cls] || [], kindOf = (prop) => fieldOf(actors[0], prop)?.kind;
+  const common = (prop) => !ONE_AT_A_TIME.has(prop) && !!propRow(kindOf(prop))
+    && actors.every((a) => { const f = fieldOf(a, prop); return f && f.kind === kindOf(prop) && shapeField(a, f); });
+  const props = (list.length < ms.length ? LINK_FIELDS : [...new Set([...LINK_FIELDS, ...first.map((f) => f.prop)])]).filter(common);
+  const groups = new Map();
+  for (const prop of props) {
+    const group = inspectorFieldGroup(fieldOf(actors[0], prop));
+    (groups.get(group) || groups.set(group, []).get(group)).push(...propRows(list, prop, ms.length));
+  }
+  let html = '';
+  const wires = [];
+  for (const [group, rows] of groups) { const m = multiRows(multiApi, rows); html += groupSectionStart(group) + m.html + '</div></details>'; wires.push(m.wire); }
+  const left = [...new Set(first.filter((f) => !props.includes(f.prop) && !['hidden', 'mesh'].includes(f.kind)).map((f) => INSPECTOR_LABELS[f.prop] || f.label))];
+  if (list.length === ms.length && left.length) html += `<div class="hint">${classes.length > 1 ? 'Not common to all of them, or one object at a time' : 'One object at a time (select one)'}: ${escapeHtml(left.join(', '))}.</div>`;
+  if (classes.length === 1 && list.length === ms.length) { const ap = allPropsSection(behaveApi, actors, groupPivot); html += ap.html; wires.push(ap.wire); }
+  box.innerHTML = html;
+  wireInspectorSections(box);
+  markPropSections(box, actors[0]);
+  for (const w of wires) w(box);
+}
+
+// ---- The object tables (object-table.js, object-table-view.js), as Unity's Light Explorer: Window > Lights table,
+// Doors table, Characters table. A property's cell is the Inspector's field of several objects (propRows), here for
+// its row, or for every selected row that has it: one Ctrl+Z. The columns the editor works out are these:
+const TABLE_CELLS = {                     // column key -> its cell for an object (null: it has none)
+  enabled: (a) => ({ value: !edits.disabled?.[a.name], row: 'bool' }),
+  name: (a) => ({ value: hierLabel(a) }),
+  cls: (a) => ({ value: clsShown(a.cls) }),
+  attitude: (a) => (factionData?.classes[a.cls] ? { value: npcDisposition(a), row: 'choice', options: ATTITUDES.map(([, t]) => t) } : null),
+  relations: (a) => (factionData?.classes[a.cls] ? { value: relationsOf(a).map(relationText).join(', ') } : null),
+  keyfound: (a, keys) => {                // a door's Key ID: whether a key of the map has it (keys: mapKeyIds, as Check map)
+    const f = fieldOf(a, 'KeyIDNeeded'), id = f ? keyIdOf(propValue(a, f)) : '';
+    return f ? { value: !id ? '' : keys.has(id) ? 'yes' : 'no' } : null;
+  },
+};
+const TABLE_WRITES = {                    // column key -> how that column is written on the objects (list: proxies)
+  enabled: (list, values) => setGameEnabled(list.map((p) => p.userData.actor.name), values[0]),
+  attitude: (list, values) => setAttitudes(list.map((p) => p.userData.actor), values),
+};
+// a relation as the Relations column says it: JC (Player) hostile (fixed)
+const relationText = (r) => `${facLabel(r.name)} ${ATTITUDES.find(([k]) => k === levelKey(r.level))[1]}${r.fixed ? ' (fixed)' : ''}`;
+// how characters treat JC (friendly, neutral, hostile), one Ctrl+Z; a fixed relation stays fixed
+function setAttitudes(actors, values) {
+  pushUndo();
+  let full = 0;
+  actors.forEach((a, i) => {
+    const key = ATTITUDES.find(([, t]) => t === values[i])?.[0], own = relationsOf(a).find((r) => r.name.toLowerCase() === 'player');
+    if (!key || !setRelation(a, 'Player', key, !!own?.fixed, false)) full++;
+  });
+  setDirty(); showDetails();
+  if (full) log(`${full} character${full === 1 ? ' has' : 's have'} no free relation slot: towards JC ${full === 1 ? 'it stays' : 'they stay'} as before.`, 'warn');
+}
+// the field of a property's column for these objects: a light's colour picker (colour), else the property's own
+const tableField = (list, c) => propRows(list, c.prop, list.length).find((r) => (r.row === 'color') === !!c.colour);
+function tableCell(p, c, keys) {
+  const a = p.userData.actor;
+  if (TABLE_CELLS[c.key]) return TABLE_CELLS[c.key](a, keys);
+  const f = fieldOf(a, c.prop);
+  if (!f || !propRow(f.kind)) return null;
+  const r = tableField([p], c), readOnly = r && readOnlyReason(a, c.prop);
+  if (readOnly) return { value: r.values[0], title: readOnly, label: r.label };         // no row: read only, as in the Inspector
+  return r && { value: r.values[0], row: r.row, options: r.options, list: r.list, placeholder: r.placeholder, step: r.step, min: r.min, max: r.max,
+    title: r.title, label: r.label, one: ONE_AT_A_TIME.has(c.prop) };
+}
+// the rows of a table: every object of its kind, its classes' Properties known (characters: the factions too)
+async function tableRows(table) {
+  const objects = () => proxies.children.filter((p) => p.userData.actor && p.userData.kind === table.kind);
+  await Promise.all([...new Set(objects().map((p) => p.userData.actor.cls))].map(classFields));
+  if (table.columns.some((c) => c.key === 'attitude')) await loadFactions();
+  const keys = table.columns.some((c) => c.key === 'keyfound') ? mapKeyIds() : new Set();
+  return objects().map((p) => {
+    const a = p.userData.actor, cells = {};
+    for (const c of table.columns) { const cell = tableCell(p, c, keys); if (cell) cells[columnKey(c)] = cell; }
+    return { name: a.name, label: hierLabel(a), cls: clsShown(a.cls), cells };
+  });
+}
+// the names of the objects selected: the tables' selected rows
+function pickedNames() {
+  return new Set((selected === groupPivot ? members() : selected ? [selected] : []).filter((p) => p.userData.actor).map((p) => p.userData.actor.name));
+}
+// an edit of a table on the objects named (a locked one refuses it, as in the Inspector)
+function writeTable(names, c, values) {
+  const list = names.map(proxyOf).filter(Boolean);
+  if (!list.length || !list.every((p) => requireUnlocked(p))) return false;
+  return TABLE_WRITES[c.key] ? TABLE_WRITES[c.key](list, values) : tableField(list, c).apply(values);
+}
+const objectTables = createObjectTables({ escapeHtml, status, rows: tableRows, write: writeTable, picked: pickedNames,
+  pick: (names) => setMulti(names.map(proxyOf).filter(Boolean)), toggle: (name) => toggleMulti(proxyOf(name)),
+  frame: (name) => { const p = proxyOf(name); if (p) { select(p); focusSelected(); } } });
+
+// ---- Copy and paste of properties, Reset and presets (prop-sets.js), as Unity's component menu: ⋮ in the Inspector's
+// bar (the eye's and the padlock's), right click on a section's title or on a field, Edit > Copy properties and Paste
+// properties. A paste, a preset or a reset lists what it changes first, ticked (Tag, Event and the conversation name
+// not: they stay each object's own unless ticked), then writes it, one Ctrl+Z. Presets are kept in the project.
+let propClip = null;                     // Copy properties, or a section's Copy: {set, what (as the menus say it), of (the object)}
+let valueClip = null;                    // Copy value: {prop, kind, declared or category, options, values (one for each of its keys), text}
+const menuText = (t) => (t.length > 48 ? t.slice(0, 47) + '…' : t);
+// an object as prop-sets.js plans for it: each key of its class's Properties (and Movement for a character) with what
+// is set in All properties, in the editor, in the map, the class default, the class that declares it and whether it
+// is read only here (readOnlyReason); rawNames: its class's All properties
+function propState(a, rawNames = null) {
+  const own = edits.props?.[a.name] || {}, raw = edits.rawprops?.[a.name] || {}, props = {};
+  const state = (key, def, declared) => ({ raw: raw[key], edited: own[key], base: a.props && key in a.props ? a.props[key] : def ?? undefined, def,
+    declared, readOnly: !!readOnlyReason(a, baseOf(key)) });
+  for (const [key, k] of classKeys(propSchema[a.cls] || [])) props[key] = state(key, k.def, k.field.declared);
+  if (isCharacter(a)) for (const key of MOVEMENT) props[key] = state(key, null);
+  return { name: a.name, cls: a.cls, props, raw: { ...raw }, rawNames };
+}
+// a section of the Inspector as copy and paste take it: {keys} of a group of the Properties or of Movement, {raw}: All
+// properties (what was set there); null: not a section of properties
+function sectionOf(a, key) {
+  if (key === 'allprops') return { raw: true };
+  const keys = key === 'movement' ? (isCharacter(a) ? MOVEMENT : [])
+    : [...classKeys(propSchema[a.cls] || [])].filter(([, k]) => inspectorFieldGroup(k.field) === key).map(([k]) => k);
+  return keys.length ? { keys: new Set(keys) } : null;
+}
+// only(o) of the plans: the keys of that section of each object (none when it has not that section)
+function sectionOnly(objects, actors, key) {
+  const keys = new Map(objects.map((o, i) => [o, sectionOf(actors[i], key)?.keys || new Set()]));
+  return (o) => keys.get(o);
+}
+// what the menus and the lists call a property: its label in the Properties (one of several values: with its number),
+// else its name (Movement, All properties)
+function propLabel(actors, key) {
+  const f = actors.map((a) => fieldOf(a, baseOf(key))).find(Boolean), i = /\((\d+)\)$/.exec(key);
+  return f ? (INSPECTOR_LABELS[f.prop] || f.label) + (i ? ' ' + (+i[1] + 1) : '') : key;
+}
+// a value as they show it: as its field shows it (on, off, a class's name), else UnrealEd's text; none: the game's
+function propValueText(actors, key, v) {
+  if (v == null) return "the game's";
+  const f = actors.map((a) => fieldOf(a, baseOf(key))).find(Boolean);
+  return valueText(f && propRow(f.kind) ? propShown(f.kind, v) : v);
+}
+// the objects with an actor of what is inspected (several: the selection), their classes' Properties known
+async function propTargets(p) {
+  const list = (p === groupPivot ? members() : [p]).filter((m) => m.userData.actor);
+  await Promise.all([...new Set(list.map((m) => m.userData.actor.cls))].map(classFields));
+  return list;
+}
+
+// Copy properties (section: {key, title} of the Inspector, else the whole object)
+function copyProps(p, section = null) {
+  const a = p.userData.actor, s = section && sectionOf(a, section.key), o = propState(a);
+  propClip = { set: s?.raw ? rawSet(o) : copySet(o, s?.keys || null), what: section ? section.title : 'properties', of: a.name };
+  const n = Object.keys(propClip.set.props).length + Object.keys(propClip.set.raw).length;
+  status(`${a.name}: ${propClip.what} copied (${n} values). Paste them on other objects: ⋮ in the Inspector, right click a section's title, or Edit > Paste properties.`, 'ok');
+}
+// Copy value: a field's values (one for each of its keys) with what Paste value matches in a field like it
+// (prop-sets.js fieldPaste: its property, kind, declaration, a choice's options)
+function copyValue(field, values, text) {
+  valueClip = { ...field, values, text };
+  status(`Copied ${field.prop}: ${text}. Right click a field like it > Paste value.`, 'ok');
+}
+// the properties of each class as All properties has them (class_props: name -> its category), for what a paste
+// sets there: the objects' classes, and the one it was copied from (unknown: each goes where the name is)
+async function rawNamesOf(actors, set) {
+  const names = new Map(), of = async (cls) => new Map((await classProps(behaveApi, cls)).props.map((q) => [q.name, q.group]));
+  if (!Object.keys(set.raw || {}).length) return names;
+  for (const cls of new Set(actors.map((a) => a.cls))) {
+    try { names.set(cls, await of(cls)); }
+    catch (e) { log(`${clsShown(cls)}: its All properties could not be read (${e.message}); their values are not pasted on it.`, 'warn'); }
+  }
+  if (set.cls && !names.has(set.cls)) names.set(set.cls, await of(set.cls).catch(() => null));
+  return names;
+}
+// Paste properties, a section of them or a preset (set): what it changes on each object listed, the ticked ones written
+async function pasteProps(targets, set, { section = null, title, action = 'Paste' }) {
+  const actors = targets.map((m) => m.userData.actor), raw = await rawNamesOf(actors, set);
+  const objects = actors.map((a) => propState(a, raw.get(a.cls) || null));
+  const from = { ...set, rawNames: raw.get(set.cls) || null };       // its class's All properties: each goes where it is the same
+  const plans = section?.key === 'allprops' ? pastePlan({ ...from, props: {} }, objects)
+    : pastePlan(from, objects, section ? sectionOnly(objects, actors, section.key) : () => null);
+  return reviewChanges(targets, plans, { title, action,
+    intro: `On ${targets.length === 1 ? actors[0].name : targets.length + ' objects'}, only what ${targets.length === 1 ? 'its class has' : 'their classes have'}: tick what to set. Tag, Event and the conversation name stay each object's own unless ticked. Ctrl+Z undoes it.` });
+}
+// Paste properties of what Copy properties (or a section's Copy) kept
+function pasteClip(targets, section = null) {
+  if (!propClip) return false;
+  return pasteProps(targets, propClip.set, { section, title: `Paste ${section ? section.title : propClip.what} of ${propClip.of}` });
+}
+// Reset to the class defaults (section: {key, title}, else the whole object; All properties: what was set there goes)
+function resetProps(targets, section = null) {
+  const actors = targets.map((m) => m.userData.actor), objects = actors.map((a) => propState(a));
+  const raw = section?.key === 'allprops';
+  const plans = raw ? clearRawPlan(objects) : resetPlan(objects, section ? sectionOnly(objects, actors, section.key) : () => null);
+  return reviewChanges(targets, plans, { title: raw ? 'Clear what is set in All properties' : `Reset ${section ? section.title : 'the properties'} to the class defaults`,
+    action: raw ? 'Clear' : 'Reset', intro: raw ? 'Each value set in All properties goes: the objects are as the map has them. Ctrl+Z undoes it.'
+      : 'Back to the default of the class (Movement: the game\'s). Tag, Event and the conversation name only when ticked. Ctrl+Z undoes it.' });
+}
+// what a paste, a preset or a reset changes, listed and ticked first: the ticked changes written
+async function reviewChanges(targets, plans, { title, intro, action }) {
+  const actors = targets.map((m) => m.userData.actor);
+  const keys = await askChanges({ title, intro, rows: changeRows(plans), action,
+    label: (key) => propLabel(actors, key), shown: (key, v) => propValueText(actors, key, v) });
+  return keys ? writeChanges(targets, chosenPlans(plans, keys)) : false;
+}
+// the changes of prop-sets.js's plans written: the Properties' (edits.props) and All properties' (edits.rawprops), one Ctrl+Z
+function writeChanges(targets, plans) {
+  plans = plans.filter((p) => p.changes.length);
+  if (!plans.length || !targets.every((m) => requireUnlocked(m))) return false;
+  pushUndo();
+  for (const plan of plans) for (const c of plan.changes) {
+    if (c.props !== undefined) storeProp('props', plan.name, c.key, c.props);
+    if (c.raw !== undefined) storeProp('rawprops', plan.name, c.key, c.raw);
+  }
+  setDirty();
+  refreshProps(targets);
+  loadFactions();                            // a faction pasted is in the list of factions
+  showDetails();
+  const n = plans.reduce((sum, p) => sum + p.changes.length, 0);
+  status(`${plans.length === 1 ? plans[0].name : plans.length + ' objects'}: ${n} value${n === 1 ? '' : 's'} changed. Ctrl+Z undoes it; Rebuild puts it in the game.`, 'ok');
+  return true;
+}
+// a value of an object in edits.props or edits.rawprops: a text put, null taken away (with what is left empty)
+function storeProp(store, name, key, value) {
+  const all = edits[store] || (edits[store] = {}), mine = all[name] || (all[name] = {});
+  if (value === null) delete mine[key]; else mine[key] = value;
+  if (!Object.keys(mine).length) delete all[name];
+  if (!Object.keys(all).length) delete edits[store];
+}
+
+// Presets: kept in the project (its preferences: .deusedix-project-ui.json; without a project, in this browser)
+const presetsKey = () => projectStorageKey('presets', projectContext);
+function presetList() { try { return readPresets(localStorage.getItem(presetsKey())); } catch { return []; } }
+function keepPresets(list) {
+  try { if (list.length) localStorage.setItem(presetsKey(), presetsText(list)); else localStorage.removeItem(presetsKey()); return true; }
+  catch (e) { status('The presets could not be kept: ' + e.message, 'bad'); return false; }
+}
+// the presets that fit all of these objects (their classes or the classes above them), their classes' chains known
+async function presetsOf(actors) {
+  const classes = [...new Set(actors.map((a) => a.cls))];
+  await Promise.all(classes.map(chainOf));
+  return presetsFor(presetList(), actors.map((a) => chainNow[a.cls] || [a.cls]));
+}
+// Save as preset: the properties of an object (or one section of them), for others of its class in this project
+async function savePreset(p, section = null) {
+  const a = p.userData.actor, s = section && sectionOf(a, section.key), o = propState(a);
+  const set = s?.raw ? rawSet(o) : copySet(o, s?.keys || null);
+  const name = await askName({ title: `Save ${section ? section.title : 'the properties'} of ${a.name} as a preset`, action: 'Save preset',
+    hint: `Kept in this project, for every ${clsShown(a.cls)} and the classes under it: ⋮ in the Inspector > Apply preset. Tag, Event and the conversation name are not kept. A name used already for this class is replaced.`,
+    check: (n) => { const name = presetName(n); if (!name) throw new Error('Use a name of 1 to 60 characters.'); return name; } });
+  if (!name || !keepPresets(withPreset(presetList(), name, set, section ? section.title : ''))) return;
+  status(`Preset "${name}" saved for ${clsShown(a.cls)}: ⋮ in the Inspector > Apply preset puts it on the selection.`, 'ok');
+}
+function applyPreset(targets, preset) { return pasteProps(targets, preset, { title: `Apply the preset "${preset.name}"`, action: 'Apply' }); }
+// Presets...: those that fit the selection, to apply or delete
+async function managePresets(targets) {
+  const actors = targets.map((m) => m.userData.actor);
+  const chosen = await askPresets({ title: `Presets for ${targets.length === 1 ? clsShown(actors[0].cls) : 'the ' + targets.length + ' selected'}`, presets: await presetsOf(actors),
+    describe: (pr) => `${clsShown(pr.cls)}${pr.section ? ' · ' + pr.section : ''} · ${Object.keys(pr.props).length + Object.keys(pr.raw).length} values`,
+    remove: (pr) => confirm(`Delete the preset "${pr.name}" of ${clsShown(pr.cls)} from this project?`) && keepPresets(withoutPreset(presetList(), pr.cls, pr.name)) });
+  if (chosen) await applyPreset(targets, chosen);
+}
+
+// ⋮ in the Inspector: copy, paste and reset the whole object (several: paste and reset on all of them), its presets
+async function openPropsMenu(p, button) {
+  const targets = await propTargets(p), actors = targets.map((m) => m.userData.actor);
+  if (!targets.length) return;
+  const one = targets.length === 1 ? targets[0] : null, locked = selectionLocked(p), presets = await presetsOf(actors);
+  const r = button.getBoundingClientRect();
+  openMenu(r.left, r.bottom + 2, [
+    { label: 'Copy properties', off: !one, run: () => copyProps(one) },
+    { label: propClip ? `Paste properties of ${propClip.of}…` : 'Paste properties…', off: !propClip || locked, run: () => pasteClip(targets) },
+    { label: 'Reset properties to the class defaults…', off: locked, run: () => resetProps(targets) },
+    { sep: true },
+    { label: 'Save as preset…', off: !one, run: () => savePreset(one) },
+    ...presets.slice(0, 8).map((pr) => ({ label: `Apply preset: ${pr.name}${pr.section ? ` (${pr.section})` : ''}…`, off: locked, run: () => applyPreset(targets, pr) })),
+    { label: 'Presets…', off: !presets.length, run: () => managePresets(targets) },
+  ]);
+}
+// Edit > Copy properties and Paste properties...: of the selection (its class's Properties read first, as ⋮ does)
+async function copySelectionProps() {
+  if (!selected?.userData.actor) { status('Copy properties: select one object first.', 'warn'); return; }
+  const [one] = await propTargets(selected);
+  if (one) copyProps(one);
+}
+async function pasteSelectionProps() {
+  if (!propClip) { status('Paste properties: copy the properties of an object first (⋮ in the Inspector, or Edit > Copy properties).', 'warn'); return; }
+  const targets = selected ? await propTargets(selected) : [];
+  if (!targets.length) { status('Paste properties: select the objects to paste them on.', 'warn'); return; }
+  await pasteClip(targets);
+}
+
+// Right click in the Inspector: on a section's title its copy, paste, reset and preset; on a field Copy value, Paste
+// value, Reset to the class default and back to the map's value (several objects: on all of them)
+function propMenuItems(target) {
+  const p = inspectedObject(), targets = p ? (p === groupPivot ? members() : [p]).filter((m) => m.userData.actor) : [];
+  if (!targets.length) return [];
+  const locked = selectionLocked(p), summary = target.closest('details.inspector-section > summary');
+  if (summary) return sectionItems(targets, { key: summary.parentElement.dataset.inspectorSection, title: summary.textContent.trim() }, locked);
+  const input = target.closest('.ap-row')?.querySelector('[data-ap]');
+  if (input && rawFields.has(input)) return rawFieldItems(targets.map((m) => m.userData.actor), rawFields.get(input), locked);
+  const prop = target.closest('.row')?.querySelector('[data-prop]')?.dataset.prop;
+  return prop ? fieldItems(targets, prop, locked) : [];
+}
+function sectionItems(targets, section, locked) {
+  if (!targets.some((m) => sectionOf(m.userData.actor, section.key))) return [];
+  const one = targets.length === 1 ? targets[0] : null, t = section.title;
+  return [
+    { label: `Copy ${t}`, off: !one, run: () => copyProps(one, section) },
+    { label: propClip ? `Paste ${t} of ${propClip.of}…` : `Paste ${t}…`, off: !propClip || locked, run: () => pasteClip(targets, section) },
+    { label: section.key === 'allprops' ? 'Clear what is set here…' : `Reset ${t} to the class defaults…`, off: locked, run: () => resetProps(targets, section) },
+    { label: `Save ${t} as preset…`, off: !one, run: () => savePreset(one, section) },
+  ];
+}
+// a field of the Properties: its keys on each object that has it (with what it sets with it, a light's saturation)
+function fieldItems(targets, prop, locked) {
+  const list = targets.filter((m) => fieldOf(m.userData.actor, prop)), actors = list.map((m) => m.userData.actor);
+  const objects = actors.map((a) => propState(a));
+  const keysOf = objects.map((o, i) => valueKeys(fieldOf(actors[i], prop), classKeys(propSchema[actors[i].cls] || [])).filter((k) => k in o.props));
+  if (!list.length || !keysOf[0].length) return [];
+  const f = fieldOf(actors[0], prop), first = keysOf[0], shown = objects.map((o, i) => keysOf[i].map((k) => shownOf(o.props[k]) ?? null));
+  const text = (values) => menuText(values.map((v, i) => propValueText(actors, first[i], v)).join(', '));
+  const same = shown.every((v) => JSON.stringify(v) === JSON.stringify(shown[0]));
+  const like = (g) => ({ prop, kind: g.kind, declared: g.declared, options: g.options });     // what Paste value matches
+  const copy = { label: 'Copy value', off: !same, run: () => copyValue(like(f), shown[0], text(shown[0])) };
+  // a value read only on one of them (the conversation name the original conversations use): copied, never changed
+  if (objects.some((o, i) => keysOf[i].some((k) => o.props[k].readOnly))) return [copy];
+  const paste = valueClip && objects.map((o, i) => fieldPaste(valueClip, { ...like(fieldOf(actors[i], prop)), keys: keysOf[i] }));
+  const only = (o) => new Set(keysOf[objects.indexOf(o)]);
+  const plansOf = (props) => objects.map((o, i) => pastePlan({ props: props(i), raw: {} }, [o])[0]);
+  const reset = resetPlan(objects, only), edited = objects.some((o, i) => keysOf[i].some((k) => o.props[k].edited !== undefined || o.props[k].raw !== undefined));
+  const mapOwn = objects.some((o, i) => keysOf[i].some((k) => !sameText(o.props[k].base, o.props[k].def)));
+  return [
+    copy,
+    { label: valueClip ? `Paste value: ${valueClip.text}` : 'Paste value', off: !paste?.every(Boolean) || locked, run: () => writeChanges(list, plansOf((i) => Object.fromEntries(paste[i]))) },
+    { label: `Reset to the class default: ${text(first.map((k) => objects[0].props[k].def))}`, off: locked || !reset.some((p) => p.changes.length), run: () => writeChanges(list, reset) },
+    ...(edited && mapOwn ? [{ label: list.length === 1 ? `Revert to the map's value: ${text(first.map((k) => objects[0].props[k].base ?? null))}` : "Revert to the maps' values",
+      off: locked, run: () => writeChanges(list, plansOf((i) => Object.fromEntries(keysOf[i].map((k) => [k, null])))) }] : []),
+  ];
+}
+// a field of All properties (all-props.js rawField: its key, type, class default, category, options (an enum's),
+// apply(a text for each object))
+function rawFieldItems(actors, r, locked) {
+  const values = actors.map((a) => edits.rawprops?.[a.name]?.[r.key] ?? actorProp(a, r.key) ?? '');
+  const same = new Set(values.map(String)).size === 1, mine = actors.some((a) => r.key in (edits.rawprops?.[a.name] || {}));
+  const like = { prop: r.key, kind: r.type, category: r.category, options: r.options };       // what Paste value matches
+  const copy = { label: 'Copy value', off: !same || values[0] === '', run: () => copyValue(like, [values[0]], menuText(String(values[0]))) };
+  const clear = { label: 'Clear: as the map has it', off: locked || !mine, run: () => r.apply(actors.map(() => '')) };
+  // read only on one of them (the conversation name the original conversations use): copied, or what was set here
+  // taken away (back to the map's, the one they use), never changed to another
+  if (actors.some((a) => readOnlyReason(a, baseOf(r.key)))) return [copy, clear];
+  const paste = valueClip && fieldPaste(valueClip, { ...like, keys: [r.key] });
+  return [
+    copy,
+    { label: valueClip ? `Paste value: ${valueClip.text}` : 'Paste value', off: !paste || paste[0][1] == null || locked, run: () => r.apply(actors.map(() => paste[0][1])) },
+    { label: `Reset to the class default: ${menuText(r.def || '(empty)')}`, off: locked || !r.def || values.every((v) => sameText(v, r.def)), run: () => r.apply(actors.map(() => r.def)) },
+    clear,
+  ];
+}
+// a section of properties says what its title's right click does
+function markPropSections(root, a) {
+  for (const s of root.querySelectorAll('details.inspector-section')) if (sectionOf(a, s.dataset.inspectorSection))
+    s.querySelector('summary').title = 'Right click: copy, paste or reset this section, or save it as a preset';
+}
+
 function showDetails(live) {
   refreshInspectorPin();
   if (!live && bottomTab === 'prefabs') void prefabBrowser.render();
@@ -9884,14 +12045,16 @@ function showDetails(live) {
   if (p === groupPivot) {
     if (live) return;
     const ms = members(), nest = groupPivot.userData.nest && nestById(groupPivot.userData.nest);
-    const what = (m) => isStruct(m) ? [structures[m.userData.name].label, 'structure'] : m.userData.actor ? [hierLabel(m.userData.actor), m.userData.actor.name] : ['Block', m.userData.box.name];
     const up = nest && parentNest('n:' + nest.id);
     const head = nest
       ? `<div class="row"><label>Nest</label><input type="text" id="nlabel" value="${escapeHtml(nest.label)}" style="flex:1;min-width:0" title="Its name in the Hierarchy"></div>
         <div class="hint" style="margin:4px 0">${ms.length} objects · Move and rotate together. Double-click to select a member.${up ? ` In <a href="#" id="nup">${escapeHtml(up.label)}</a>.` : ''}</div>`
       : `<b>${ms.length} selected</b><div class="hint" style="margin:4px 0">Move or rotate together. Nest (Ctrl+G) to keep this group.</div>`;
+    const narrow = narrowRows(multiApi, kindCounts(ms.map(memberKind)).map((k) => ({ ...k, label: clsShown(k.kind) })), narrowTo);
+    const transform = multiRows(multiApi, transformRows(ms));
     el.innerHTML = `<div class="box">${head}
-      <div style="max-height:200px;overflow:auto;margin:4px 0">${ms.map((m, i) => { const [l, n] = what(m); return `<div class="row" style="margin:1px 0"><a href="#" data-gm="${i}" style="color:var(--acc)">${escapeHtml(l)}</a><small class="hint" style="margin:0 0 0 6px">${escapeHtml(n)}</small></div>`; }).join('')}</div>
+      <div style="max-height:200px;overflow:auto;margin:4px 0">${ms.map((m, i) => { const [l, n] = objectLabel(m); return `<div class="row" style="margin:1px 0"><a href="#" data-gm="${i}" style="color:var(--acc)">${escapeHtml(l)}</a><small class="hint" style="margin:0 0 0 6px">${escapeHtml(n)}</small></div>`; }).join('')}</div>
+      ${narrow.html}${inspectorSection('transform', 'Transform', transform.html + MULTI_HINT, true)}<div id="multisec"></div>
       <div class="row actions">${nest ? ib('gunnest', 'unnest', 'Un-nest', `Un-nest (${menuKey('unnest')}): take them out of the nest`) : ib('gnest', 'nest', 'Nest', `Nest them (${menuKey('nest')}): one thing in the Hierarchy, moved as one`)}${placeButtons('gdrop')}${ib('gdup', 'dup', 'Duplicate', 'Duplicate them (Ctrl+D)')}${ib('gcopy', 'copy', 'Copy', 'Copy them (Ctrl+C): paste here or in another map (Ctrl+V)')}${ib('gdel', 'trash', '', 'Delete them (Del)', 'danger')}</div></div>`;
     for (const l of el.querySelectorAll('[data-gm]')) l.onclick = (ev) => { ev.preventDefault(); select(ms[+l.dataset.gm]); focusSelected(); };
     $('#gdrop').onclick = () => placeSelected(); $('#gdropmode').onclick = (ev) => openPlaceMenu(ev.currentTarget); $('#gdup').onclick = duplicateSelected; $('#gcopy').onclick = copySelected; $('#gdel').onclick = deleteSelected;
@@ -9906,6 +12069,8 @@ function showDetails(live) {
       if (!v || v === nest.label) return;
       pushUndo(); nest.label = v.slice(0, 80); setDirty();
     };
+    wireInspectorSections(el); narrow.wire(el); transform.wire(el);
+    renderMulti(ms).catch((e) => log('Inspector: ' + e.message, 'bad'));
     inspectorObjectControls(p);
     return;
   }
@@ -10076,7 +12241,7 @@ function showDetails(live) {
     if (isEffectPoint(a) || d.tilt || canTilt(p)) html += `<div class="row"><label title="Up and down: 90 points its front straight up, -90 straight down">Pitch °</label>${num('ppitch', Math.round((d.tilt || 0) * 360 / YAW))}</div>`;
     if (d.roll || canTilt(p)) html += `<div class="row"><label title="Sideways: turns it about its front">Roll °</label>${num('proll', Math.round((d.roll || 0) * 360 / YAW))}</div>`;
     if (canScale(p)) {
-      const s = Math.round(p.scale.x * (d.source === 'map' ? (builtScale[a.name] || 1) : 1) * 100);
+      const s = Math.round(p.scale.x * builtOf(p) * 100);
       html += `<div class="row"><label title="Deus Ex objects scale uniformly">Scale %</label>${num('psc', s)}</div>`;
     }
     html += '</div></details>';
@@ -10167,7 +12332,7 @@ function showDetails(live) {
       p.rotation.y = yawToRad(Math.round(+$('#pyaw').value * YAW / 360));
       if ($('#ppitch')) { d.tilt = signedRot((+$('#ppitch').value || 0) * YAW / 360); applyTilt(p); }
       if ($('#proll')) { d.roll = signedRot((+$('#proll').value || 0) * YAW / 360); applyTilt(p); }
-      if ($('#psc')) p.scale.setScalar(Math.max(5, +$('#psc').value || 100) / 100 / (d.source === 'map' ? (builtScale[d.actor.name] || 1) : 1));
+      if ($('#psc')) p.scale.setScalar(Math.max(5, +$('#psc').value || 100) / 100 / builtOf(p));
       commit(p);
     }
   };
@@ -10259,17 +12424,7 @@ function showDetails(live) {
     });
     preview();
   }
-  if ($('#blight')) $('#blight').onclick = () => {          // a light for the room a hole makes
-    const b = d.box, c = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, b.hi[2] - 24];
-    const reach = Math.hypot(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]) * 0.6;
-    pushUndo();
-    const e = { name: nextName('UCEdit'), cls: 'Light', loc: c.map(r1), rot: [0, 0, 0], radius: 8, height: 8,
-                props: Object.assign(lightProps({}), { LightRadius: Math.max(8, Math.min(255, Math.round(reach / 25) - 1)) }) };
-    edits.added.push(e);
-    setDirty();
-    select(makeProxy(Object.assign({ kind: 'light' }, e, { light: { hue: 32, sat: 160 } }), 'added'));
-    log('A light in the room: change its colour and brightness in its Properties; Rebuild lights the room.', 'ok');
-  };
+  if ($('#blight')) $('#blight').onclick = () => addHoleLight(d.box);          // a light for the room a hole makes
   $('#bdrop').onclick = () => inspectorAction(p, () => placeSelected()); $('#bdropmode').onclick = (ev) => inspectorAction(p, () => openPlaceMenu(ev.currentTarget)); $('#bdup').onclick = () => inspectorAction(p, duplicateSelected); $('#bdel').onclick = () => inspectorAction(p, deleteSelected); $('#bcopy').onclick = () => inspectorAction(p, copySelected);
   if ($('#bparent')) $('#bparent').onclick = (e) => { e.preventDefault(); select(structures[actorStruct[d.actor.name]].obj); };
   if ($('#bout')) $('#bout').onclick = (e) => { e.preventDefault(); takeOut(keyOf(p)); };
@@ -10280,6 +12435,7 @@ function showDetails(live) {
 }
 
 function showChanges() {
+  window.dispatchEvent(new Event('deusedix:edits'));     // the edits changed (or were saved): the object tables follow
   $('#save').disabled = temporaryTutorial();
   $('#save').title = temporaryTutorial() ? 'Temporary tutorial: Play/Rebuild use scratch data; closing discards all map changes.' : 'Save map changes';
   const changes = exerciseOnly(edits, publishedLayout);
@@ -10315,7 +12471,7 @@ function autosaveState() {
   return { ...preferences, key: autosaveKey(), dirty: dirty || !!window.__story?.dirty,
     tutorial: temporaryTutorial(), busy: !!(gameView?.active || mapLoading || mapSaveQueue.pending || window.__story?.saving ||
       $('#busy')?.style.display === 'flex' || window.__projectNavigation || projectHub?.visible ||
-      tc.dragging || inspectorDrag || propertySlider || moveStart || placing ||
+      tc.dragging || inspectorDrag || dragHandles?.dragging || propertySlider || moveStart || placing ||
       document.querySelector('dialog[open]') || Date.now() - lastEditingInput < 1500) };
 }
 function save({ automatic = false } = {}) {
@@ -10417,6 +12573,9 @@ window.addEventListener('beforeunload', (e) => { if (!window.__projectNavigation
 // ---------------------------------------------------------------- keyboard
 // flying keys by position on the keyboard (Shift, Caps Lock or a text field do not change them)
 const MOVE = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyQ: 'q', KeyE: 'e' };
+// Previous / Next selection: Ctrl+Shift and the two keys right of P, by their place (è and + on an Italian keyboard),
+// by the key itself when the input gives no place (an on-screen keyboard)
+const SELECTION_STEPS = { BracketLeft: -1, BracketRight: 1, '[': -1, ']': 1 };
 window.addEventListener('keydown', (e) => {
   if (!script || gameView?.active || projectHub?.visible || document.querySelector('dialog[open]')) return;
   if (e.key === 'Escape' && textureTransfer?.engaged) { e.preventDefault(); textureTransfer.cancel(); status('Texture placement cancelled.'); return; }
@@ -10427,6 +12586,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (cam.look) {                      // right button held: the keys fly the camera, wherever the focus is
+    // Esc or Shift+P ends a pilot while it flies too (the view goes back: the flying stops with it)
+    if (pilot && (e.key === 'Escape' || (e.code === 'KeyP' && e.shiftKey))) { e.preventDefault(); resetInput(); endPilot(); return; }
     const m = MOVE[e.code];
     if (m) { cam.keys[m] = true; e.preventDefault(); }
     cam.keys.shift = e.shiftKey;
@@ -10438,6 +12599,8 @@ window.addEventListener('keydown', (e) => {
   // camera bookmarks, as Unreal Editor's: Ctrl+1..9 (or Shift, in a browser that keeps Ctrl+digit) keeps the view, 1..9 goes back
   const digit = /^Digit([1-9])$/.exec(e.code || '');
   if (digit && mapName && !e.altKey) { e.preventDefault(); if (e.ctrlKey || e.shiftKey) keepView(digit[1]); else goToView(digit[1]); return; }
+  // selection slots: Ctrl+Alt+1..9 keeps the selection, Alt+1..9 selects it again
+  if (digit && mapName) { e.preventDefault(); if (e.ctrlKey) keepSelection(digit[1]); else recallSelection(digit[1]); return; }
   if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) {
     e.preventDefault();
     if (redoStep()) status('Redone.');
@@ -10447,16 +12610,23 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && k === 'g') { e.preventDefault(); if (e.shiftKey) unnestSelection(); else nestSelection(); return; }
   if (e.ctrlKey && k === 'd') { e.preventDefault(); duplicateSelected(); return; }
   if (e.ctrlKey && k === 'c') { expectClipboardEvent('copy', copySelected); return; }
+  if (e.ctrlKey && k === 'x') { expectClipboardEvent('cut', cutSelected); return; }
+  // selecting, as Unity's (Edit menu): Select all, Invert selection, Previous / Next selection, Deselect
+  if (e.ctrlKey && !e.shiftKey && k === 'a') { e.preventDefault(); selectAll(); return; }
+  if (e.ctrlKey && !e.shiftKey && k === 'i') { e.preventDefault(); invertSelection(); return; }
+  if (e.ctrlKey && e.shiftKey && SELECTION_STEPS[e.code || e.key]) { e.preventDefault(); stepSelection(SELECTION_STEPS[e.code || e.key]); return; }
+  if (e.shiftKey && !e.ctrlKey && !e.altKey && k === 'd') { select(null); return; }
   if (e.ctrlKey && k === 'v') { expectClipboardEvent('paste', pasteClipboard); return; }
   if (placing && placing.draw && drawTools.key(e.key)) { e.preventDefault(); return; }   // stairs, roof: [ ] , .
-  // R while placing an object: a quarter turn more (it keeps the turn for the next ones of the same kind)
-  if (k === 'r' && !e.ctrlKey && placing && !placing.draw && !placing.route && !placing.box && !placing.hole) {
-    e.preventDefault();
-    placing.turn = ((placing.turn || 0) + YAW / 4) % YAW;
-    if (lastPlacingMove) movePlacing(lastPlacingMove);
-    status(`Turned ${Math.round((placing.turn / YAW) * 360)}° (R turns it again). Click where it goes.`);
-    return;
-  }
+  // R while placing an object: a quarter turn more (turnPlacing)
+  if (k === 'r' && !e.ctrlKey && placing && !placing.draw && !placing.route && !placing.box && !placing.hole) { e.preventDefault(); turnPlacing(); return; }
+  // V (Edit vertices' key) held while the gizmo moves something: vertex snapping; a tap outside a drag stays Edit vertices
+  if (k === 'v' && !e.ctrlKey && !e.altKey && (tc.dragging || vertexSnapKey)) { e.preventDefault(); holdVertexSnap(true); return; }
+  // the grid step halved or doubled (Ctrl+[ / Ctrl+], by the keys' place as Previous / Next selection); Push to grid
+  if (e.ctrlKey && !e.shiftKey && SELECTION_STEPS[e.code || e.key]) { e.preventDefault(); stepGrid(SELECTION_STEPS[e.code || e.key]); return; }
+  if (e.ctrlKey && k === '\\') { e.preventDefault(); pushToGrid(); return; }
+  // the selection to the view: where it looks from (Ctrl+Shift+F, Align with view), onto what it looks at (Ctrl+Alt+F)
+  if (e.ctrlKey && k === 'f' && e.shiftKey !== e.altKey) { e.preventDefault(); if (e.shiftKey) alignWithView(); else moveToView(); return; }
   if (k === 'w') setMode('translate');
   else if (k === 'e') setMode('rotate');
   else if (k === 'r') setMode('scale');
@@ -10470,18 +12640,28 @@ window.addEventListener('keydown', (e) => {
   else if ((k === 'escape' || k === 'enter') && placing && placing.route) endRoute();
   else if ((k === 'f2' || (k === 'enter' && !placing)) && currentFolder()) { e.preventDefault(); renameFolder(currentFolder()); }
   else if (k === 'escape' && lkPicking) { lkEndPick(); status('Cancelled.'); }
+  else if (k === 'escape' && aimPicking) { endAimPick(); status('Aim cancelled.'); }
+  else if (k === 'escape' && classReplace) cancelClassReplace();
   else if (k === 'escape' && modelReplace) { cancelModelReplacement(); }
+  else if (k === 'escape' && pilot) endPilot();
   else if (k === 'escape') { if (measure?.active) measure.exit(); else if (vertexEdit?.active) vertexEdit.exit(); else { cancelPlacing(); select(null); } }
+  else if (k === 'p' && e.shiftKey) togglePilot();
   else if (k === 'p') togglePaths();
   else if (k === 'q') surfaceTools.toggle();
   else if (k === 'b') startPlacing({ box: true, size: [128, 128, 16], tex: 'ClenGreyCncrt_A' }, $('#addbox'));
+  else if (k === 'f' && e.shiftKey) alignViewToSelected();
   else if (k === 'f') focusSelected();
+  else if (k === 'h' && e.shiftKey) toggleIsolation();
   else if (k === 'h') $('#helpbtn').click();
+  else if (k === 't') aimAtPointer();
+  else if (k === 'z') toggleGizmo('pivot');
+  else if (k === 'x') toggleGizmo('space');
   else if (k === 'l') setLightMode({ shaded: 'lit', lit: 'unlit', unlit: 'shaded' }[lightMode] || 'shaded');
 });
 $('#lightmode').onchange = () => setLightMode($('#lightmode').value);
 // the texture picker: a picture next to every texture field, a grid of the map's and the game's textures
-createTexturePicker({ api, getMapTextures: () => {
+// this map's textures with their pictures: the picker's first list, the command palette's first textures
+function mapTextures() {
   if (!mapName) return [];
   const base = `/cache/${mapName}/`;
   const out = texList.map((name) => {
@@ -10490,7 +12670,74 @@ createTexturePicker({ api, getMapTextures: () => {
   });
   for (const n of Object.keys((edits && edits.textures) || {})) out.unshift({ name: n, url: texUrl(n), size: '' });
   return out;
-} });
+}
+const texturePicker = createTexturePicker({ api, menu: openMenu, findInMap: (name) => findInMap(searchToken('tex', name, true)), getMapTextures: mapTextures, storage: safeStorage,
+  favourites: favouriteShelf(favourites, 'textures') });
+// ---------------------------------------------------------------- the command palette (Ctrl+K; command-palette.js)
+// As Unity's Search window. The menus' commands, the Settings pages and the panels come from the menus (menubar.js);
+// from here the map's objects (as the Hierarchy's search finds them: its words and tokens), the Objects browser's
+// classes, the textures (the texture picker's) and the sounds (the Sounds browser's), each with what Enter does.
+// The map's objects a query of the Hierarchy's search finds (an empty one: all of them), by their label: Enter selects
+// one and frames it
+function paletteObjects(text) {
+  if (!mapName) return [];
+  const ctx = searchContext(new Set(selected === groupPivot ? members() : selected ? [selected] : []));
+  const matches = searchMatcher(parseSearch(text), ctx), out = [];
+  for (const p of sceneObjects()) {
+    const [label, name] = objectLabel(p), own = isStruct(p) ? label : name, a = p.userData.actor;
+    if (!matches(searchFacts(p, label, own, ctx))) continue;
+    out.push({ texts: [label, own, a?.cls || ''], label, detail: a ? `${name} · ${clsShown(a.cls)}` : name, icon: () => keyIcon(keyOf(p)),
+      run: () => { if (p.parent) { select(p); focusSelected(); } } });
+  }
+  return out.sort((x, y) => x.label.localeCompare(y.label));
+}
+// the items of the Objects browser (your characters first, as there; an item of Most used under its own category),
+// each once: Enter starts placing it
+function paletteClasses() {
+  if (!script || gameView?.active) return [];
+  const mine = window.__characters?.paletteCategory(), seen = new Set(), out = [];
+  const categories = [...(mine?.items.length ? [mine] : []), ...(palette || []).filter((c) => c.category !== 'Most used'),
+    ...(palette || []).filter((c) => c.category === 'Most used')];
+  for (const c of categories) for (const it of c.items) {
+    const id = it.custom || JSON.stringify([it.cls, it.name, it.preset]), label = it.custom ? it.name : itemLabel(it);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ texts: [label, it.cls, c.category, it.sub || ''], label, detail: label === it.cls ? c.category : `${c.category} · ${it.cls}`,
+      run: () => startPlacing(placingOf(it)) });
+  }
+  return out;
+}
+// the textures: this map's, then the rest of the game's (the texture picker's list); Enter shows one in the picker
+async function paletteTextures() {
+  const own = mapTextures().map((t) => t.name), seen = new Set(own.map((n) => n.toLowerCase()));
+  const index = await texturePicker.index().catch(() => null);
+  const item = (name, pkg) => ({ texts: [name, pkg], label: name, detail: pkg, run: () => texturePicker.browse(name) });
+  return [...own.map((n) => item(n, 'This map')),
+    ...(index?.packages || []).flatMap((p) => p.textures.filter((t) => !seen.has(t[0].toLowerCase())).map((t) => item(t[0], p.name)))];
+}
+// the sounds of the Sounds browser, yours too: Enter shows one there
+const soundShort = (x) => x.short || x.name.split('.').pop();
+async function paletteSounds() {
+  return (await soundsNow()).sounds.map((x) => ({ texts: [soundShort(x), x.group, x.name], label: soundShort(x),
+    detail: x.own ? 'My sounds' : x.group, run: () => revealSound(x) }));
+}
+// a sound in the Sounds browser (My sounds for one of yours), found by its name and chosen: its Inspector plays it
+// and has Find in map
+async function revealSound(x) {
+  window.__workspace?.show('browser');
+  $('#sndsearch').value = soundShort(x);
+  showTab(x.own ? 'mysounds' : 'sounds');
+  await soundBrowser.selectByName(x.name);
+  $(`#sounds [data-snd="${CSS.escape(x.name)}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+// the sections of the asset browser (Objects, Models, Sounds...): Enter shows one
+function paletteSections() {
+  return !script ? [] : Object.entries(BTABS).map(([id, [, , title]]) => ({ texts: [title, 'Asset browser'], label: title, detail: 'Asset browser',
+    run: () => { window.__workspace?.show('browser'); showTab(id); } }));
+}
+createCommandPalette({ escapeHtml, status, recentKey: () => projectStorageKey('searches', projectContext),
+  busy: () => !!gameView?.active || !!cam.look || !!projectHub?.visible,
+  objects: paletteObjects, tokenValues: searchValues, classes: paletteClasses, textures: paletteTextures, sounds: paletteSounds, sections: paletteSections });
 orthoViews = createOrthoViews({
   renderer, scene, canvas, tc, camera, forward, wake, SNAP, pick, requireUnlocked,
   get selected() { return selected; },
@@ -10498,6 +12745,7 @@ orthoViews = createOrthoViews({
   placing: () => !!placing,
   busy: () => !mapName,
   vertexEdit: () => vertexEdit,
+  handles: () => dragHandles,
   // does the ray meet the selection (or one of the several objects selected)?
   hitsSelection(ray) {
     const own = selected === groupPivot ? new Set(members()) : new Set([selected]);
@@ -10524,20 +12772,41 @@ vertexEdit = createVertexEditor({
     if (edges) { edges.geometry.dispose(); edges.geometry = new THREE.EdgesGeometry(p.geometry); }
   },
 });
+dragHandles = createDragHandles({
+  scene, camera, canvas, SNAP, wake,
+  snapOn: () => snap,
+  note: (text) => { viewNote?.show(text); status(text); },
+  target: handleTarget, ranges: handleRanges,
+  editable: (p) => tc.object === p && tc.visible && !tc.dragging,      // the gizmo is on it: it can be changed
+  begin: beginHandleDrag, preview: previewHandleDrag, end: endHandleDrag, cancel: cancelHandleDrag,
+});
+viewGrid = createViewGrid({ scene, camera, step: () => SNAP.move, floor: gridFloor });
+try { viewGrid.on = localStorage.getItem('deusedix.viewGrid') === '1'; } catch { /* no storage */ }
 vpBar = createViewportToolbar({
+  keyOf: (id) => window.__menubar?.keyOf?.(id),
   getLightMode: () => viewModes.mode || lightMode, setLightMode,
   getMode: () => tc.mode, setMode: (m) => setMode(m),
   getSnap: () => snap, setSnap: (on) => { snap = on; applySnap(); status('grid snap ' + (snap ? 'on' : 'off')); },
   getSteps: () => SNAP,
-  setStep: (kind, v) => {
-    if (window.__menubar?.setPref) window.__menubar.setPref(kind === 'move' ? 'gridMove' : 'gridRotate', v);
-    else { SNAP[kind] = v; applySnap(); }
-    status(kind === 'move' ? `Grid step ${v} units` : `Rotation step ${v}°`);
-  },
+  setStep: setGridStep,
+  getGrid: () => !!viewGrid?.on, setGrid: setViewGrid,
   getNav: () => ({ paths: showPaths, walk: navView.on }),
   setNavLayer: (k) => (k === 'paths' ? togglePaths() : toggleNav()),
   testRoute: () => { if (!showPaths && !navView.on) togglePaths(true); $('#routebtn').click(); },
   fillPaths: () => fillPaths(),
+  stepSelection: (dir) => stepSelection(dir),
+  canStepSelection: (dir) => selectionHistory.canStep(script, dir, selKeys()),
+  getSceneView: () => ({ isolated: sceneView.isolated, reveal: sceneView.reveal, hidden: eyeOffCount, canIsolate: !!selected,
+    pilot: pilot ? viewLabel(pilot) : '', canPilot: !!selectionFront() }),
+  togglePilot: () => togglePilot(),
+  toggleIsolation: () => toggleIsolation(),
+  toggleReveal: () => toggleRevealHidden(),
+  getGizmo: () => ({ ...gizmo }),
+  toggleGizmo: (name) => toggleGizmo(name),
+  // the Show menu (scene-kinds.js): each kind with its states, how many of it the map has, the icons' size
+  getKinds: () => SHOW_KINDS.map(k => ({ ...k, ...Object.fromEntries(KIND_STATES.map(s => [s, kindFilter().has(s, k.id)])) })),
+  countKinds: showKindCounts, setKind: setKindView, soloKind, resetKinds,
+  getIconSize: () => kindFilter().iconSize, setIconSize,
   getIcons: () => showIcons,
   setIcons: (on) => {
     showIcons = on;
@@ -10546,6 +12815,10 @@ vpBar = createViewportToolbar({
     status(on ? 'Icons shown' : 'Icons hidden: lights, AI paths and logic points stay in the Hierarchy');
   },
 });
+viewAxes = createViewAxes(canvas, { north: () => mapNorth, look: lookFromAxis });
+viewNote = createViewNote(canvas);
+// Play ends the isolation (Unity's does too): the map comes back whole after Stop
+window.addEventListener('deusedix:play-state', (e) => { if (e.detail?.active && sceneView.exit()) refreshObjectView(); });
 let lightGainFrame = 0;
 function flushLightGain() {
   cancelAnimationFrame(lightGainFrame);
@@ -10559,21 +12832,40 @@ $('#lightgain').oninput = () => {
 };
 $('#lightgain').onchange = flushLightGain;
 window.addEventListener('keyup', (e) => { const m = MOVE[e.code]; if (m) cam.keys[m] = false; cam.keys.shift = e.shiftKey; });
+// what the 3D view is doing, for the shortcut helper (shortcut-bar.js; shortcut-help.js modeOf picks the mode): a few flags
+function shortcutState() {
+  return { map: !!script && !gameView?.active && !projectHub?.visible, fly: cam.look, pilot: !!pilot, aim: aimPicking,
+    route: !!placing?.route, draw: placing?.draw || '', place: !placing ? '' : placing.box ? 'block' : 'object',
+    vertices: !!vertexEdit?.active, measure: !!measure?.active, faces: !!surfaceTools.mode,
+    cutscene: !!window.__cutscene?.isOpen(), selected: !!selected, tool: tc.mode };
+}
 
 // for debugging from the browser console
 window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, renderer, SNAP, applySnap, placeSelected, mapPose,
+  get snapOn() { return snap; },                // Edit > Grid snap's tick (menubar.js)
+  setGizmo, get gizmo() { return { ...gizmo }; }, armAim,      // the toolbar's Center / Pivot and Global / Local (Settings); Edit > Aim at a point
   get orthoViews() { return orthoViews; },
+  get gameFov() { return { ...gameFov }; }, viewFov, applyViewCamera,     // Settings > Camera; cutscene.js (its first key, Look through)
   get vertexEdit() { return vertexEdit; },
+  get dragHandles() { return dragHandles; },
+  pushToGrid, setViewGrid, get gridShown() { return !!viewGrid?.on; },      // Edit > Push to grid, View > Grid
+  alignWithView, moveToView, alignViewToSelected, togglePilot, get piloting() { return !!pilot; },   // Edit > Align with view, View > Pilot
   get shapeEditor() { return shapeEditor; },
   armClip: () => armClip(), intersectBlocks: () => cutBlocks(true), deintersectBlocks: () => cutBlocks(false),
   orderBlocks: (first) => orderBlocks(first),
   mirrorSelection: (axis) => mirrorSelection(axis),
   copyAsT3D: () => copyAsT3D(),
+  copyProperties: copySelectionProps, pasteProperties: pasteSelectionProps, get propertyClip() { return propClip?.of || ''; },
   setViewMode: (mode) => setViewMode(mode),
   get viewMode() { return viewModes.mode; },
   pasteT3D: () => pasteT3D(),
   selectAllOfClass: () => selectAllOfClass(selected?.userData?.actor?.cls),
+  findReferences: () => findReferences(),        // Edit > Find references (the Hierarchy's search: ref:<name>)
+  replaceSelection, replaceWith,                // Edit > Replace with... (an assistant: replaceWith(a browser item))
   get measure() { return measure; }, keepView, goToView,
+  selectAll, invertSelection, cutSelected, stepSelection, keepSelection, recallSelection,     // Edit menu
+  objectTables,                                 // Window > Lights table, Doors table, Characters table
+  shortcutState,                                // the shortcut helper (menubar.js, shortcut-bar.js)
   modelImport: { readModelFiles, modelPayload, bakeClips, isAnimatedRoot, clipFrames, skinSpread, simplifyModel, modelTris, modelParts },   // for tests: Import model's steps
   async usePlayerCharacter(id) {
     if (!mapName) throw new Error('Open a map first, then choose its player character.');
@@ -10595,6 +12887,8 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   stopGame: () => gameView?.stop(), get playing() { return !!gameView?.active; },
   configureAutosave: () => autosave?.check(),
   revealInspector, showAllObjects, unlockAllObjects, setObjectView, setGameEnabled,
+  toggleIsolation, toggleRevealHidden, sceneView,                   // View > Isolate selection, Show hidden objects for now
+  get kinds() { return kindFilter().toJSON(); }, setKindView, soloKind, resetKinds, setIconSize,     // the 3D view's Show menu
   surfaceTools, loadMaps, openMap, openNewMap, openMapPicker: () => startScreen.openPicker(),
   closeMap: () => !mapLoading && startScreen.closeMap(), confirmLeave: () => startScreen.confirmLeave(),
   endTutorialSession, resetTutorialView, get temporaryTutorial() { return temporaryTutorial(); },
@@ -10607,7 +12901,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   get added() { return edits.added; },
   selectActor(name) {
     const p = proxies.children.find((c) => c.userData.actor && c.userData.actor.name === name);
-    if (p) { select(p); focusSelected(); } else log(`${name}: not in the scene.`, 'warn');
+    if (p) { select(p); focusSelected({ instant: true }); } else log(`${name}: not in the scene.`, 'warn');
   },
   selectedLoc() { return selected && selected.userData.actor ? UE(selected.position) : null; },
   cameraPoint(dist) { const v = camera.position.clone().add(forward().multiplyScalar(dist)); return UE(v); },
@@ -10656,8 +12950,8 @@ function viewShot({ from, lookAt, focus, keep = false, clean = false } = {}) {
 }
 // what an AI assistant's calls use (agent.js): the editor's own steps, so that what it does is what a click does
 window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorProp, setProp, unsetProp, pushUndo, setDirty,
-  proxyOf, select, setMulti, focusSelected, deleteSelected, commit, rebuildProxies, showDetails, hierLabel, boxKind,
-  placeOnRay, placeWith, startPlacing, cancelPlacing, undoStep, redoStep, viewShot, isCharacter,
+  proxyOf, select, setMulti, focusSelected: () => focusSelected({ instant: true }), deleteSelected, commit, rebuildProxies, showDetails, hierLabel, boxKind,
+  placeOnRay, placeWith, startPlacing, cancelPlacing, undoStep, redoStep, viewShot, isCharacter, warnHiddenKinds,
   save: () => saveWorkspace(), openMap, mapList: () => mapList, palette: () => palette, chainOf: (cls) => chainNow[cls] || null,
   get lightMode() { return lightMode; }, setLightMode, api,
   structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,
@@ -10665,7 +12959,7 @@ window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorPro
 // the cutscene cameras (cutscene.js) use these
 window.__editor.cutKit = { T, UE, canvas, proxyOf, select, focusSelected, pushUndo, undoPop: () => undo.pop(), setDirty, allActors,
   hierLabel, isCharacter, status, log, lkList, lkStartPick, lkNewAct, lkSentence, lkActText, showDetails: () => showDetails(),
-  pickSound, playSound, makeProxy, nextName };
+  pickSound, playSound, makeProxy, nextName, intoDefaultFolder, warnHiddenKinds };
 window.__closeAnim = () => closeAnim();
 window.addEventListener('deusedix:original-conversations', () => { buildHierarchy(); showDetails(); });
 $('#storybtn').onclick = () => window.__story && window.__story.open();

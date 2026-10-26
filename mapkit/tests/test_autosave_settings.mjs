@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
+import { CAMERA_SETTINGS, cameraSetting } from '../editor/static/view-camera.js';
 
 const source = await readFile(new URL('../editor/static/menubar.js', import.meta.url), 'utf8');
 const autosaveSource = await readFile(new URL('../editor/static/autosave.js', import.meta.url), 'utf8');
@@ -43,7 +44,7 @@ class Element {
 
 function setup(saved = {}) {
   const storage = new Map([['deusedix.prefs', JSON.stringify(saved)]]);
-  const nodes = [], calls = [];
+  const nodes = [], calls = [], keyBar = [];
   const editor = { cam: {}, configureAutosave: () => calls.push('configure') };
   const document = {
     createElement: tag => new Element(tag),
@@ -52,15 +53,16 @@ function setup(saved = {}) {
   const context = vm.createContext({
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)) },
     document, window: { addEventListener() {}, dispatchEvent() {}, __editor: editor },
-    $: () => ({ value: 'classic' }), ed: () => editor, normalizeAutosaveSettings,
+    $: () => ({ value: 'classic' }), ed: () => editor, normalizeAutosaveSettings, CAMERA_SETTINGS, cameraSetting,   // menubar.js's imports
     themes: () => [{ label: 'Deus Ex · Classic' }], keyOf: () => 'G', recording: null,
+    keyBar: { show: (on) => keyBar.push(on) },                  // the shortcut helper (shortcut-bar.js)
   });
   const preferences = source.slice(source.indexOf("const PREFS = 'deusedix.prefs';"), source.indexOf('\nconst desktop ='));
   const settings = source.slice(source.indexOf('const DEFAULTS ='), source.indexOf('\nfunction recordKey('));
   vm.runInContext(preferences + '\n' + settings + '\nthis.api = { openSettings, setPref, prefs, DEFAULTS };', context);
   context.api.openSettings('general');
   return {
-    ...context.api, storage, calls,
+    ...context.api, storage, calls, keyBar,
     get dialog() { return nodes[0]; },
     control(name) { return nodes[0].querySelector(`[data-p="${name}"]`); },
     saved() { return JSON.parse(storage.get('deusedix.prefs')); },
@@ -128,6 +130,19 @@ test('Back to defaults restores five-minute autosave without deleting unrelated 
   assert.equal(app.saved().customPreference, 'keep');
   assert.deepEqual(app.saved().keys, { save: 'Ctrl+Shift+S' });
   assert.deepEqual(app.calls, ['configure']);
+});
+
+test('the shortcut helper: off at first, switched by its box, off again with Back to the defaults', () => {
+  const app = setup();
+  assert.equal(app.DEFAULTS.keyHelper, false);
+  assert.equal(app.control('keyHelper').checked, false);
+  app.control('keyHelper').change(true);
+  assert.equal(app.saved().keyHelper, true);
+  assert.equal(app.keyBar.at(-1), true);
+  assert.equal(setup(app.saved()).control('keyHelper').checked, true);
+  app.dialog.querySelector('[data-resetall]').onclick();
+  assert.equal('keyHelper' in app.saved(), false);
+  assert.equal(app.keyBar.at(-1), false);
 });
 
 test('external preference updates use the same validation and notify the scheduler', () => {

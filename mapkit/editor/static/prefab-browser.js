@@ -1,11 +1,12 @@
 // Project-local, baked prefabs. Placement and capturing map edits stay with app.js.
+// favourites: the stars of the cards and their group at the top (browser-tiles.js favouriteShelf), or none.
 export function createPrefabBrowser({
   api, escapeHtml, onPlace, onSave, getDefaultName = () => '',
-  canSave = () => true, isTemporary = () => false, status = () => {}, onSaved = () => {},
+  canSave = () => true, isTemporary = () => false, status = () => {}, onSaved = () => {}, favourites = null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
-  let items = null, loading = null, generation = 0, rendered = 0, modal = null, saving = false;
+  let items = null, loading = null, generation = 0, rendered = 0, modal = null, saving = false, favouritesOpen = true;
   const link = document.createElement('link');
   link.rel = 'stylesheet'; link.href = '/static/prefab-browser.css';
   if (!$('link[href="/static/prefab-browser.css"]')) document.head.appendChild(link);
@@ -17,6 +18,7 @@ export function createPrefabBrowser({
   }
 
   function invalidate() { items = null; loading = null; generation++; }
+  favourites?.subscribe(() => { void render(); });   // a star clicked: drawn again from the list it has
 
   function list() {
     if (items) return Promise.resolve(items);
@@ -54,21 +56,32 @@ export function createPrefabBrowser({
       return;
     }
     if (ticket !== rendered || revision !== generation) return;
-    const shown = entries.filter(item => query.every(word => `${item.label || ''} ${sourceName(item.source)}`.toLowerCase().includes(word)));
+    const matches = text => query.every(word => text.toLowerCase().includes(word));
+    const shown = entries.filter(item => matches(`${item.label || ''} ${sourceName(item.source)}`));
+    // Favourites first (kept per project); a prefab deleted from the library shows as missing
+    const favs = (favourites?.entries(id => entries.find(item => item.id === id)) || [])
+      .filter(({ fav, item }) => matches(item ? `${item.label || ''} ${sourceName(item.source)}` : fav.label));
     const reason = unavailable();
     const intro = `<div class="prefab-toolbar"><button data-pf-save class="primary" ${reason ? 'disabled' : ''} title="${esc(reason || 'Save the selected structure or nested group')}">Save selection as prefab…</button></div>
       <div class="hint sintro">Project library. Each prefab is a baked, independent structure, including nested groups and their objects. Rebuild the source map before saving to capture the latest geometry. Placing or saving does not change your clipboard.</div>`;
-    container.innerHTML = intro + (shown.length ? `<div class="prefab-cards">${shown.map((item, index) => {
+    const card = item => {
       const counts = item.counts || {};
       return `<article class="prefab-card"><div class="prefab-copy"><b>${esc(item.label || item.id)}</b>
         <small>Source: ${esc(sourceName(item.source) || 'Project map')}</small>
         <small>${count(counts.structures)} structures · ${count(counts.brushes)} brushes · ${count(counts.actors)} objects</small></div>
-        <button data-pf-place="${index}" title="Place an independent copy">Place</button></article>`;
-    }).join('')}</div>` : `<div class="hint" role="status">${entries.length ? 'No prefabs match these words.' : 'No prefabs saved yet. Select a built nest or structure → Save selection as prefab. Rebuild after geometry changes.'}</div>`);
+        ${favourites ? favourites.star(item.id, item.label || item.id) : ''}<button data-pf-place="${esc(item.id)}" title="Place an independent copy">Place</button></article>`;
+    };
+    const gone = fav => `<article class="prefab-card fav-missing" title="${esc(favourites.goneTitle(fav))}"><div class="prefab-copy"><b>${esc(fav.label)}</b>
+        <small>Missing: no longer in this project's library</small></div>${favourites.star(fav.id, fav.label)}</article>`;
+    const favouritesHtml = favs.length ? `<details class="prefab-favourites" ${favouritesOpen ? 'open' : ''}><summary>${esc(favourites.group)} <small>${favs.length}</small></summary>
+      <div class="prefab-cards">${favs.map(({ fav, item }) => (item ? card(item) : gone(fav))).join('')}</div></details>` : '';
+    container.innerHTML = intro + favouritesHtml + (shown.length ? `<div class="prefab-cards">${shown.map(card).join('')}</div>` : `<div class="hint" role="status">${entries.length ? 'No prefabs match these words.' : 'No prefabs saved yet. Select a built nest or structure → Save selection as prefab. Rebuild after geometry changes.'}</div>`);
     container.setAttribute('aria-busy', 'false');
     container.querySelector('[data-pf-save]').onclick = () => { void save(); };
+    const group = container.querySelector('.prefab-favourites');
+    if (group) group.addEventListener('toggle', () => { favouritesOpen = group.open; });
     for (const button of container.querySelectorAll('[data-pf-place]')) button.onclick = async () => {
-      try { await onPlace(shown[Number(button.dataset.pfPlace)]); }
+      try { await onPlace(entries.find(item => item.id === button.dataset.pfPlace)); }
       catch (error) { status('Cannot place prefab: ' + (error?.message || error), 'bad'); }
     };
   }

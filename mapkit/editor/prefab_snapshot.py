@@ -1,7 +1,8 @@
 """Provenance checks for reusable, baked authoring prefabs.
 
-Nesting and browser order do not change the built scene. All other non-empty
-edits must match the build receipt; a clean original map can be copied directly.
+Nesting, browser order and the folder new objects go in do not change the built
+scene. All other non-empty edits must match the build receipt; a clean original
+map can be copied directly.
 """
 import hashlib
 import json
@@ -24,7 +25,7 @@ def engine_edits(edits):
         return value
 
     return {k: normal(v) for k, v in edits.items()
-            if k not in ('nests', 'order') and v not in ({}, [], None)}
+            if k not in ('nests', 'order', 'defaultFolder') and v not in ({}, [], None)}
 
 
 def _digest(value):

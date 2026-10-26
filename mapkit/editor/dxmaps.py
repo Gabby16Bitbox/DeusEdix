@@ -494,6 +494,15 @@ def build(map_name, log=print, options=None):
         lights = lights or _light(cls)
         nav = nav or cls in NAV
         lines.append('  EDIT deleted %s' % n)
+    # an object of the map given another class in the editor (Replace with...): the map's own goes, as a deleted one,
+    # and the added one comes in under its name with the others
+    for a in edits.get('added') or []:
+        if isinstance(a.get('replaces'), dict):
+            cmds.append('UC_DEL %s' % _cmdname(a['name']))
+            cls = (a['replaces'].get('cls') or '').split('.')[-1]
+            lights = lights or _light(cls)
+            nav = nav or cls in NAV
+            lines.append('  EDIT replaced %s (%s)' % (a['name'], cls))
     blocks, pastes = [], {}
     for e in edits.get('prefabs') or []:            # structures copied from other maps
         if e.get('deleted'):

@@ -108,11 +108,23 @@ def _block(text, cls):
     return (m.group(1), m.group(2)) if m else (None, '')
 
 
+def _scene(map_name):
+    """The map as the editor last looked at it (cache/<map>/scene.t3d), '' before that."""
+    path = CACHE / map_name / 'scene.t3d'
+    return path.read_text(encoding='latin-1', errors='replace') if path.exists() else ''
+
+
+def true_north(map_name):
+    """The yaw the game's compass calls North in this map (DeusExLevelInfo's TrueNorth; 0 without one): the 3D
+    view's heading."""
+    m = re.search(r'^\s*TrueNorth=(-?\d+)', _block(_scene(map_name), 'DeusExLevelInfo')[1], re.M)
+    return int(m.group(1)) % 65536 if m else 0
+
+
 def current(map_name):
     """What the map has now (the editor's last look at it, cache/<map>/scene.t3d): the names of its
     actors and its values."""
-    path = CACHE / map_name / 'scene.t3d'
-    text = path.read_text(encoding='latin-1', errors='replace') if path.exists() else ''
+    text = _scene(map_name)
     level, lbody = _block(text, 'LevelInfo')
     dx, dbody = _block(text, 'DeusExLevelInfo')
     mus, mbody = _block(text, 'DXOggMusicInfo')

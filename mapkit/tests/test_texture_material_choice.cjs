@@ -48,5 +48,5 @@ test('removed materials and invalid choices are rejected', () => {
 });
 test('context menu only uses a face hit belonging to its selected object', () => {
   assert.match(source,/surface\?\.owner === o \? texRowForHit\(texList, surface.hit\)/);
-  assert.match(source,/menuFor\(sel.includes\(want\) \? want : sel\[0\] \|\| want, \{ owner: o, hit: textureHit \}\)/);
+  assert.match(source,/menuFor\(sel.includes\(want\) \? want : sel\[0\] \|\| want, \{ owner: o, hit: textureHit, under \}\)/);   // under: Select under cursor
 });

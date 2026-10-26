@@ -1,0 +1,29 @@
+/* The command palette (Ctrl+K, command-palette.js), as Unity's Search window: a light box near the top of the editor
+   over a faint veil, the results under small headings, the chosen row in the theme's accent, a command's key on the
+   right, what cannot run now greyed */
+#cmdpal { position:fixed; inset:0; z-index:1500; display:flex; justify-content:center; align-items:flex-start;
+  padding-top:min(12vh, 110px); background:color-mix(in srgb, var(--bg) 30%, transparent); }
+#cmdpal[hidden] { display:none; }
+#cmdpal .cp-win { width:min(640px, calc(100vw - 32px)); max-height:min(540px, calc(100vh - 140px)); display:flex; flex-direction:column;
+  background:color-mix(in srgb, var(--panel) 94%, transparent); border:1px solid var(--line); border-radius:var(--radius-window, 3px);
+  box-shadow:0 18px 48px #0008; overflow:hidden; backdrop-filter:blur(6px); }
+#cmdpal .cp-bar { flex:none; display:flex; align-items:center; gap:8px; height:40px; padding:0 12px; border-bottom:1px solid var(--line); }
+#cmdpal .cp-bar svg { flex:none; width:15px; height:15px; fill:none; stroke:var(--dim); stroke-width:1.8; stroke-linecap:round; }
+#cmdpal .cp-bar input { flex:1; min-width:0; height:30px; padding:0; border:0; outline:none; background:transparent; color:var(--text); font-size:14px; box-shadow:none; }
+#cmdpal .cp-list { flex:1 1 auto; min-height:0; overflow:auto; padding:2px 4px 6px; }
+#cmdpal .cp-head { display:flex; align-items:baseline; gap:8px; padding:9px 8px 3px; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); }
+#cmdpal .cp-head small { margin-left:auto; font-size:11px; letter-spacing:0; text-transform:none; opacity:.8; }
+#cmdpal .cp-row { display:flex; align-items:center; gap:8px; height:26px; padding:0 8px; border-radius:var(--radius-row, 1px); color:var(--text);
+  white-space:nowrap; cursor:default; }
+#cmdpal .cp-row.on { background:var(--accent-soft); color:var(--heading); }
+#cmdpal .cp-row.off { opacity:.45; }
+#cmdpal .cp-label { flex:none; max-width:60%; overflow:hidden; text-overflow:ellipsis; }
+#cmdpal .cp-row.checked .cp-label::after { content:"✓"; margin-left:6px; color:var(--acc); }
+#cmdpal .cp-detail { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--dim); font-size:11px; }
+#cmdpal .cp-row kbd { flex:none; margin-left:auto; font-size:11px; }
+#cmdpal .hier-icon { display:inline-flex; flex:none; width:16px; height:16px; }
+#cmdpal .hier-icon svg { display:block; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+#cmdpal .cp-empty { padding:16px 12px; color:var(--dim); }
+#cmdpal .cp-foot { flex:none; display:flex; flex-wrap:wrap; gap:4px 14px; padding:6px 12px; border-top:1px solid var(--line); color:var(--dim); font-size:11px; }
+#cmdpal .cp-foot b { color:var(--acc); font-weight:600; }
+#cmdpal .cp-foot kbd { font-size:10px; }

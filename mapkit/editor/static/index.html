@@ -137,6 +137,11 @@
   /* its + (a folder, a cube, a wedge, a cylinder) before the search, as in Unity */
   #left .hier-top { display:flex; align-items:center; gap:4px; margin:5px 8px 5px; }
   #left .hier-top #hsearch { margin:0; width:auto; flex:1; min-width:0; }
+  /* the search's tokens (t:, tag:, snd:, is:, ref:...) and their values, offered under it as light chips */
+  #hsuggest { display:flex; flex-wrap:wrap; gap:3px; margin:-1px 8px 6px; }
+  #hsuggest[hidden] { display:none; }
+  #hsuggest button { height:18px; min-height:18px; max-width:100%; padding:0 7px; border:1px solid var(--line); border-radius:9px; background:transparent; color:var(--dim); font-size:11px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #hsuggest button:hover, #hsuggest button.on { color:var(--text); border-color:var(--accent-border); background:var(--accent-soft); }
   #left .hier-add { flex:none; width:24px; height:24px; padding:0; display:inline-flex; align-items:center; justify-content:center; }
   #left .hier-add svg { width:13px; height:13px; }
   #hier .hrename { height:20px; padding:0 4px; margin:0; font-size:12px; min-width:0; flex:1; width:calc(100% - 60px); }
@@ -220,7 +225,7 @@
   .row label.scrub { cursor:ew-resize; user-select:none; touch-action:none; flex-shrink:0; }
   .row label.scrub:hover { color:var(--acc); }
   body.inspector-scrubbing, body.inspector-scrubbing * { cursor:ew-resize !important; user-select:none !important; }
-  .row input[type=number] { width:100%; }
+  .row input:is([type=number], [data-expr]) { width:100%; }
   .warn { color:var(--warn); }
   .bad { color:var(--bad); }
   .ok { color:var(--ok); }
@@ -316,6 +321,7 @@
 <link rel="stylesheet" href="/static/menubar.css">
 <link rel="stylesheet" href="/static/workspace.css">
 <link rel="stylesheet" href="/static/sound-browser.css">
+<link rel="stylesheet" href="/static/browser-tiles.css">
 <script type="importmap">
 { "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -379,7 +385,8 @@
 </div>
 <div id="left">
   <h3>Hierarchy</h3>
-  <div class="hier-top"><button id="hieradd" class="hier-add" title="Create: a folder or a block (cube, wedge, cylinder, cone, sphere, dome)" aria-label="Create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><input id="hsearch" placeholder="Search this map" aria-label="Search hierarchy"></div>
+  <div class="hier-top"><button id="hieradd" class="hier-add" title="Create: a folder or a block (cube, wedge, cylinder, cone, sphere, dome)" aria-label="Create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><input id="hsearch" placeholder="Search: words, t: tag: snd: is: ref:" aria-label="Search hierarchy" title="Words find a name, a label or a class. Tokens: t:light (class or kind), tag:, event:, name:, label:, snd: (a sound it uses), tex: (a texture), mesh: (its model), is:hidden / locked / disabled / added / original / nested / selected, ref:Name (what points at it, what it points at). key=value: the whole value; &quot;quotes&quot; for spaces; -word leaves out. Esc clears."></div>
+  <div id="hsuggest" aria-label="Search tokens" hidden></div>
   <div id="hier"></div>
 </div>
 <canvas id="view"></canvas>
@@ -396,6 +403,7 @@
     <input id="sndsearch" placeholder="Search sounds" aria-label="Search sounds" style="display:none">
     <input id="gvsearch" placeholder="Search voices or lines" aria-label="Search game voices" style="display:none">
     <span class="bgrow"></span>
+    <label class="btiles" id="btiles" title="Tile size (Ctrl+wheel over the tiles)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 2.5h10M1 6h10M1 9.5h10"/></svg><input type="range" aria-label="Tile size"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="4" height="4"/><rect x="7" y="1" width="4" height="4"/><rect x="1" y="7" width="4" height="4"/><rect x="7" y="7" width="4" height="4"/></svg></label>
     <button id="bimportany" title="Import your own 3D models (glTF/GLB, FBX, OBJ, DAE) or sounds (WAV, MP3, OGG, FLAC): or drop the files on the browser">Import...</button>
     <input type="file" id="bimportfile" multiple accept=".glb,.gltf,.fbx,.obj,.mtl,.dae,.bin,.png,.jpg,.jpeg,.tga,.bmp,.webp,.wav,.mp3,.ogg,.oga,.flac,.m4a,.aac,.opus,.webm" style="display:none">
     <button id="bimport" style="display:none" title="Import a 3D model (glTF/GLB, FBX, OBJ, DAE) made in Blender, 3ds Max, Maya...">Import model...</button>
@@ -432,11 +440,11 @@
       <button class="btab" data-tab="mymodels" title="Your 3D models (Import...): made into a package of the map editor that the game draws like its own">My models</button>
       <button class="btab" data-tab="mysounds" title="Your sounds (Import...): made into a package of the map editor that the game plays like its own">My sounds</button>
     </nav>
-    <div class="bpane" id="palette"></div>
-    <div class="bpane" id="pieces" style="display:none"></div>
-    <div class="bpane" id="prefabs" style="display:none"></div>
-    <div class="bpane" id="models" style="display:none"></div>
-    <div class="bpane" id="sounds" style="display:none"></div>
+    <div class="bpane tiles" id="palette"></div>
+    <div class="bpane tiles" id="pieces" style="display:none"></div>
+    <div class="bpane tiles" id="prefabs" style="display:none"></div>
+    <div class="bpane tiles" id="models" style="display:none"></div>
+    <div class="bpane tiles" id="sounds" style="display:none"></div>
     <div class="bpane" id="gamevoices" style="display:none"></div>
   </div>
 </div>
@@ -459,11 +467,28 @@
     <tr><td>Right mouse + W A S D, Q E</td><td>fly around (Shift = faster)</td></tr>
     <tr><td>Mouse wheel</td><td>move forward and back</td></tr>
     <tr><td>Middle mouse drag</td><td>pan the view</td></tr>
+    <tr><td>Alt + left drag / Alt + right drag</td><td>turn round the selection (without one: what is under the mouse) / go toward it</td></tr>
+    <tr><td>Mouse wheel while flying</td><td>fly speed (kept in Settings &gt; Camera, with the field of view and clipping)</td></tr>
+    <tr><td><kbd>F</kbd></td><td>frame the selection; press it again to come closer</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> / <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd></td><td>align the selection with the view: where the view looks from, turned its way (a camera, a spotlight, a character with its eyes there) / move it onto what the view looks at, its turn kept</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>P</kbd></td><td>look from the selection along its front / pilot it: the view looks through it and flying takes it along, until <kbd>Shift</kbd>+<kbd>P</kbd> again or <kbd>Esc</kbd> (one Ctrl+Z)</td></tr>
+    <tr><td>Axis widget (top right of the view)</td><td>click an end to look from that side (Y: from above); Shift+click opens that Top, Front or Side view</td></tr>
     <tr><td>Left click</td><td>select an object, or a structure by clicking its walls</td></tr>
+    <tr><td>Click again on the same spot / Ctrl + right click</td><td>the next thing behind, round again / the list of everything under the pointer</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd> <kbd>Ctrl</kbd>+<kbd>I</kbd> <kbd>Shift</kbd>+<kbd>D</kbd> <kbd>Ctrl</kbd>+<kbd>X</kbd></td><td>select all, invert the selection, deselect, cut</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> / <kbd>]</kbd>, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+1-9 / <kbd>Alt</kbd>+1-9</td><td>previous / next selection; keep the selection in a slot / select it again</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>H</kbd></td><td>isolate the selection: only it is shown, until pressed again</td></tr>
+    <tr><td>Hierarchy search</td><td>words (a name, a label, a class) and tokens, as Unity's: <code>t:light</code>, <code>tag:</code>, <code>event:</code>, <code>snd:</code>, <code>tex:</code>, <code>mesh:</code>, <code>is:hidden</code> (locked, disabled, added, original, nested, selected), <code>ref:Name</code> (what points at it and what it points at); <code>=</code> for the whole value, quotes for spaces, <code>-</code> leaves out. The 3D view dims the rest; matches behind walls glow. Under the box: <kbd>Up</kbd> / <kbd>Down</kbd>, <kbd>Tab</kbd> or <kbd>Enter</kbd> put a token in; <kbd>Esc</kbd> clears the search. Right click &gt; Find references; Find in map in the Sounds, Models (right click) and Textures (right click) browsers</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd> (Edit &gt; Search everything…)</td><td>one search over every menu command (with its key; greyed: not now), this map's objects (<kbd>Enter</kbd> selects and frames one), the objects to place, textures and sounds (opened in their browser), the Settings pages and the panels. <code>&gt;</code> commands only, <code>@</code> this map only, the Hierarchy's tokens (<code>t:light</code>, <code>tag:</code>, <code>is:</code>…) search the map. <kbd>Up</kbd> / <kbd>Down</kbd>, <kbd>Enter</kbd>, <kbd>Esc</kbd>; an empty box offers the last 20 searches</td></tr>
+    <tr><td>Settings &gt; General &gt; Shortcut helper</td><td>the keys of what you are doing (selecting, a gizmo tool, placing, drawing, a patrol route, Edit vertices, faces, Measure, Pilot, flying, a cutscene) at the right of the status bar, off at first; hold <kbd>Shift</kbd>, <kbd>Ctrl</kbd> or <kbd>Alt</kbd> to see what they do then; click a key to change it. Settings &gt; Keyboard shortcuts &gt; <b>Press a key</b>: what a key does in each context</td></tr>
     <tr><td>Hierarchy (left panel)</td><td>every object of the level, inside its structure or by kind: click to select, double click (or <kbd>F</kbd>) to go to it, the bin to delete it</td></tr>
+    <tr><td>Right click a folder &gt; New objects go here / <kbd>Alt</kbd>+click a folder's arrow</td><td>what you place, paste, draw or make with the Hierarchy's + goes into that folder: bold, named at the top of the Hierarchy (&times; stops it; hidden or locked, it takes nothing until shown and unlocked). A Ctrl+D copy stays beside its original. Right click in the Hierarchy (or its panel menu &#8943;) &gt; Expand all / Collapse all; <kbd>Alt</kbd>+click opens or closes a folder with every folder inside it</td></tr>
     <tr><td>Browser (bottom panel)</td><td>Objects: every object of the game with a 3D preview (your characters first). Pieces: every object of the original levels made of brushes (fences, railings, grates, pipes, signs, lamps, ladders...). Click one, then a floor or a wall</td></tr>
-    <tr><td><kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>gizmo (also in the 3D view's toolbar): move; rotate (objects every way: pitch and roll too; structures and groups round the vertical); scale (the middle square: evenly, by how far the mouse goes; structures and blocks: one axis at a time too)</td></tr>
-    <tr><td>3D view's toolbar</td><td>Move / Rotate / Scale, grid snap with its grid step and rotation step (type a number or pick one with the arrow), and the bulb that shows or hides the icons of lights, AI paths and logic points</td></tr>
+    <tr><td>The star of a tile (Browser, texture picker) / <kbd>Ctrl</kbd> + wheel over the tiles</td><td>keeps it in Favourites, the group at the top of its section (in the texture picker the first source on the left), for this project; one whose asset is gone shows as missing, its star takes it out / the size of the tiles: a list, small, medium or large, as the slider at the top right of the Browser and of the texture picker (the page and the 3D view do not zoom)</td></tr>
+    <tr><td>Right click &gt; Replace with… (Edit menu) / <kbd>Alt</kbd> + an item of the browser let go on an object</td><td>the selection (or that object) becomes another object, character or model, each where it was, turned and sized as it was, under its own name: Tag, Event and what names it (rules, routes, cutscenes, the Story) stay; what no longer fits is listed first; one Ctrl+Z</td></tr>
+    <tr><td><kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>gizmo (also in the 3D view's toolbar): move; rotate (objects every way: pitch and roll too; structures and groups round the vertical); scale (the middle square: evenly, by how far the mouse goes; structures and blocks: one axis at a time too). <kbd>T</kbd> (or <kbd>E</kbd> + Ctrl+Shift+click) aims the selection at the point under the pointer</td></tr>
+    <tr><td>Dots on the selection</td><td>drag one: a light's reach and a spotlight's cone, how far a sound is heard, a trigger's or a collision box's size; with <kbd>R</kbd> a block's side (the opposite side stays, on the grid with snap). <kbd>Alt</kbd>: both sides, <kbd>Shift</kbd>: every side alike, <kbd>Esc</kbd>: cancel; one Ctrl+Z</td></tr>
+    <tr><td>3D view's toolbar</td><td>Move / Rotate / Scale, Center / Pivot (<kbd>Z</kbd>: where a group turns) and Global / Local (<kbd>X</kbd>: the map's axes or the object's own), grid snap with its grid step and rotation step (type a number or pick one with the arrow), the grid shown in the view at the floor of the selection, and the bulb that shows or hides the icons of lights, AI paths and logic points; next to it the Show menu: each kind (structures, characters, lights, sounds, zones...) shown or hidden, locked (not picked or snapped to), with or without its icons (a click on a name: only that kind), and the icons' size. The Hierarchy's kind folders have the same eye and padlock</td></tr>
     <tr><td>Tools &gt; Draw wall / road / floor / ceiling</td><td>click points on the ground (Shift: 45°), Enter or double-click to finish, Backspace takes the last point back, Esc stops</td></tr>
     <tr><td>Map &gt; Sky &amp; time of day</td><td>day, sunset or night: a sky of your own (or a picture, or a game sky) and a sun through the holes open to the sky</td></tr>
     <tr><td>Inspector: drag X, Y or Z</td><td>move by 1 unit per pixel dragged left or right, even with grid snap on; Shift = finer (0.1 unit), Esc = cancel, Ctrl+Z = undo the whole drag. Click the number to type it</td></tr>
@@ -471,6 +496,9 @@
     <tr><td>Hierarchy icons</td><td>Bulbs for lights, people for NPCs, cubes for objects, doors for movers and routes for AI paths. NPCs are green (ally), grey (neutral) or red (enemy) towards JC at map start, including your unsaved relation changes. Hover over an icon for its meaning</td></tr>
     <tr><td>Textures (right panel)</td><td><b>Edit texture</b> opens the Texture Editor (brush, eraser, fill, clone, blur, lighten/darken, text, adjustments, seamless tiling, 256-colour preview); then on this object, on every object (or face) with that texture, or kept in My textures. <b>Import</b> opens a picture of yours there. Drag a texture's small picture onto a built face to put it there. In the Texture Editor: <kbd>F</kbd> focuses on the selection, <b>Crop…</b> previews a crop (Enter crops, Esc leaves it), Ctrl+C / Ctrl+X / Ctrl+V copy and paste a part (drag it, Enter puts it down), Ctrl+T free transform (move, scale, turn), right click for a menu, X swaps the colours</td></tr>
     <tr><td>Ctrl+click or Shift+click / Ctrl+drag or Shift+drag</td><td>several objects at once (in the Hierarchy: Ctrl+click one more, Shift+click the rows in between): move and turn them together, Delete, Ctrl+D, Ctrl+C / Ctrl+V, End</td></tr>
+    <tr><td>Several selected: the Inspector</td><td>the fields they share, a dim — where they differ: what is typed is set on all of them (one Ctrl+Z); +=16 on each one's own value, L(0,512) spreads them evenly, R(0,360) at random; right click a field: Set all to one's value; the buttons of each kind narrow the selection</td></tr>
+    <tr><td>Inspector: ⋮ (next to the padlock), right click a section's title or a field</td><td>copy the properties of an object, or of one section (Light, Movement...), and paste them on the selection: a list of what changes first, one Ctrl+Z (Tag, Event and the conversation name only when ticked); Copy value / Paste value of one field; Reset to the class default; Save as preset keeps them in the project for every object of that class (⋮ &gt; Apply preset, Presets... to delete)</td></tr>
+    <tr><td>Window &gt; Lights table / Doors table / Characters table</td><td>every light, door or character of the map in a table: click a heading to sort, a row to select it (double click: go to it), type in a cell to change it (on every selected row the table shows, one Ctrl+Z); a filter and Only the selection</td></tr>
     <tr><td>+ Hole (bottom bar)</td><td>cuts through what it touches at Rebuild: a doorway in a wall, a pit in a floor, an opening in a ceiling, a new room. The 3D view previews the cut at once; the sides of the hole come with the rebuild</td></tr>
     <tr><td>Texture fields (the small picture)</td><td>click it: the textures of this map and of the whole game, with pictures and search; a click tries one, a double click keeps it</td></tr>
     <tr><td>Animate... (selection panel)</td><td>keys of position, rotation and scale on a timeline (like Premiere's Motion): move the playhead, move the object with the gizmo or type values; ▶ plays it. Doors, elevators, moving blocks too. Interactions play it</td></tr>
@@ -498,6 +526,9 @@
     <tr><td>Play from here</td><td>opens the game on this map with JC where you are looking, after a mission state and flags; then you play</td></tr>
     <tr><td><kbd>End</kbd></td><td>drop the object onto whatever is below it</td></tr>
     <tr><td><kbd>G</kbd></td><td>grid snap on/off; its steps are in the 3D view's toolbar (and Settings &gt; Editing)</td></tr>
+    <tr><td><kbd>V</kbd> held while moving with the gizmo</td><td>vertex snapping: the corner of the selection nearest the pointer goes onto the corner of the map or of another object under the pointer (a dot marks it, orange once it is on a corner); a tap of <kbd>V</kbd> outside a move stays Edit vertices</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd> dragging the gizmo's middle square</td><td>surface snapping: it slides over what is under the pointer and rests on it (in Stick mode one object also turns to it). <kbd>Ctrl</kbd> alone while dragging: grid snap the other way for that drag</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>\</kbd>, <kbd>Ctrl</kbd>+<kbd>[</kbd> / <kbd>]</kbd></td><td>push the selection onto the grid (Edit menu; an object keeps its height); halve / double the grid step. The grid button of the 3D view's toolbar shows a grid at the floor of the selection, a cell a grid step</td></tr>
     <tr><td><kbd>L</kbd> (or the list in the top bar)</td><td>lighting of the view: Shaded (the editor's soft light), Lit (the game's lights and shadows, from the last rebuild), Unlit (textures only)</td></tr>
     <tr><td><kbd>P</kbd> (AI paths in the top bar)</td><td>the network the characters walk on, as the last rebuild made it (green both ways, yellow one way). Add path nodes from Objects &gt; AI where they must be able to walk</td></tr>
     <tr><td>Walkable area (View, or the Navigation menu of the 3D view)</td><td>where a man can walk, made with Recast from the map: green near the AI paths, amber walkable but far from any path node (add one there), red where no path node reaches. With Test route it also draws the straight way on the walkable area next to the AI's node-to-node one</td></tr>

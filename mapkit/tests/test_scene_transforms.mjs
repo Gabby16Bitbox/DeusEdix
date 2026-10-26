@@ -8,6 +8,8 @@ import {createSurfacePlacement} from '../editor/static/surface-placement.js';
 import {createDrawTools} from '../editor/static/draw-tools.js';
 import {createSelectionOutline} from '../editor/static/selection-outline.js';
 import {createTextureScale, stretchOnResize} from '../editor/static/texture-scale.js';
+import {pushMove} from '../editor/static/grid-snap.js';
+import {putBeside} from '../editor/static/hierarchy-folders.js';
 const rotations=createRotations(THREE), placementGeometry=createSurfacePlacement(THREE);
 const source=fs.readFileSync(new URL('../editor/static/app.js',import.meta.url),'utf8');
 const body=name=>{const i=source.indexOf(`function ${name}(`);assert.ok(i>=0,name);return source.slice(i,source.indexOf('\n}',i)+2);};
@@ -25,8 +27,9 @@ function setup(){
   placeModeLabel:x=>x,normalToRotation:n=>({pitch:Math.round(Math.atan2(n[2],Math.hypot(n[0],n[1]))*65536/(2*Math.PI)),yaw:Math.round(Math.atan2(n[1],n[0])*65536/(2*Math.PI))}),
   rotationToVector:(p,y)=>[Math.cos(p*2*Math.PI/65536)*Math.cos(y*2*Math.PI/65536),Math.cos(p*2*Math.PI/65536)*Math.sin(y*2*Math.PI/65536),Math.sin(p*2*Math.PI/65536)],
   movedPose:p=>p.offset.some(Boolean)||p.yaw||p.pitch||p.roll||(p.scale||[1,1,1]).some(v=>v!==1),
+  putBeside,nests:()=>c.edits.nests||=[],objOf:k=>k,warnHiddenKinds:(list,done)=>{c.warned=[list,done];},
  });
- for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','commitStructure','structureOf','surfaceHit','dropTarget','stickTarget','placeOnSurfaces','dupStructure','dupOne','duplicateSelected','lightProps','beginTransformUndo'])vm.runInContext(body(name),c);
+ for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','duplicateSelected','lightProps','beginTransformUndo'])vm.runInContext(body(name),c);
  let seq=0;
  c.nextName=()=>`copy${++seq}`;c.nextPid=()=>`p${++seq}`;
  c.keyOf=p=>p.userData.kind==='structure'?'s:'+p.userData.name:'a:'+p.userData.actor.name;
@@ -41,6 +44,29 @@ function setup(){
  return {c,piece,history,logs};
 }
 const near=(a,b,eps=0.003)=>assert.ok(a.distanceTo(b)<eps,`${a.toArray()} != ${b.toArray()}`);
+test('snapping (V, Ctrl+Shift: pickable) skips what is locked, by its padlock or its kind; Drop to floor still lands on it',()=>{
+ const {c}=setup();vm.runInContext(body('visibleHits'),c);          // the page's own: what is locked is not pickable
+ const floor=new THREE.Mesh(new THREE.BoxGeometry(400,10,400),new THREE.MeshBasicMaterial());floor.userData.world=true;floor.position.y=-100;c.world.add(floor);
+ const block=new THREE.Group();block.userData={kind:'box',box:{name:'UCEditBox0'}};block.add(new THREE.Mesh(new THREE.BoxGeometry(100,10,100),new THREE.MeshBasicMaterial()));c.proxies.add(block);
+ let locked=false;c.keyOf=o=>o.userData.box?'b:'+o.userData.box.name:null;c.objectLocked=o=>locked&&o===block;
+ c.scene.updateMatrixWorld(true);
+ const down=new THREE.Raycaster(new THREE.Vector3(0,100,0),new THREE.Vector3(0,-1,0));
+ assert.equal(c.solidAlong(down,new Set()).object.parent,block);
+ assert.equal(c.solidAlong(down,new Set(),true).object.parent,block,'not locked: snapped onto');
+ locked=true;
+ assert.equal(c.solidAlong(down,new Set()).object.parent,block,'Drop to floor: a surface all the same');
+ assert.equal(c.solidAlong(down,new Set(),true).object,floor,'snapping: not onto what is locked');
+});
+test('V snapping and the Ctrl+Shift slide ask solidAlong for what can be picked (pickable: not what is locked)',()=>{
+ const {c}=setup(),asked=[];
+ c.solidAlong=(r,ignored,pickable)=>{asked.push(pickable);return null;};
+ c.mouseRay=()=>new THREE.Raycaster();c.ringAround=()=>[[0,0],[4,0]];
+ vm.runInContext(body('cornersUnder')+'\n'+body('slideOver'),c);
+ assert.equal(c.cornersUnder([10,10],new Set()).length,0);
+ c.moving={parts:{list:[],ignored:new Set()}};c.dragPointer=[10,10];
+ c.slideOver(new THREE.Group());
+ assert.deepEqual(asked,[true,true,true],'two rays of V, one of the slide');
+});
 test('UE pitch/yaw/roll composition round-trips including gimbal limits',()=>{
  for(const r of [[1234,8765,-4567],[16384,32000,5000],[-16384,9123,10000],[0,16384,0]]){
   const q=rotations.quat(r);assert.ok(Math.abs(q.dot(rotations.quat(rotations.rot(q))))>0.9999999);
@@ -76,6 +102,48 @@ test('Stick includes pieces and uses correct nonuniform-scale normals/contact',(
 });
 test('no surface is explicit and never creates an Undo entry',()=>{
  const {c,piece,history,logs}=setup();piece();c.placeOnSurfaces('drop');assert.equal(history.length,0);assert.match(logs[0][0],/no reachable surface/);
+});
+test('Push to grid puts a piece and a block on the grid in one Undo; already there, no Undo',()=>{
+ const {c,piece,history}=setup(),st=piece('trim',{offset:[13,-21,37]});
+ vm.runInContext(['gridAnchor','pushToGrid','shiftBlock'].map(body).join('\n'),c);Object.assign(c,{pushMove,SNAP:{move:16}});
+ const block=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial());block.userData={kind:'box',box:{lo:[-61,3,0],hi:[67,131,128]}};
+ block.position.copy(T([3,67,64]));c.proxies.add(block);c.selection=[st.obj,block];c.selected=c.groupPivot;
+ c.pushToGrid();assert.equal(history.length,1);
+ assert.deepEqual([...c.edits.groups.trim.offset],[16,-16,32]);near(st.obj.position,T([16,-16,32]));
+ assert.deepEqual(block.userData.box.lo,[-64,0,0]);assert.deepEqual(block.userData.box.hi,[64,128,128]);near(block.position,T([0,64,64]));
+ c.pushToGrid();assert.equal(history.length,1,'on the grid already: nothing to undo');
+});
+test('a structure moved: what Delete and Replace with... keep of its objects (their place) moves with it',()=>{
+ const {c,piece}=setup(),st=piece('booth');st.actors=['Lamp1','Crate1','Other1'];
+ c.edits.added.push({name:'Lamp1',cls:'Spotlight',loc:[10,0,64],replaces:{cls:'Light',orig:[10,0,64]}},{name:'Other1',cls:'Barrel1',loc:[0,40,0]});
+ c.edits.deleted.Crate1={cls:'CrateUnbreakableSmall',orig:[-20,0,0]};
+ const ms=c.beginStructMove(st.obj);st.obj.position.add(T([32,-16,8]));c.followStructure(ms);c.commitStructure(ms,true);
+ assert.deepEqual([...c.edits.groups.booth.offset],[32,-16,8]);
+ assert.deepEqual([...c.edits.added[0].replaces.orig],[42,-16,72]);           // found there at Rebuild: the map's own goes
+ assert.deepEqual([...c.edits.deleted.Crate1.orig],[12,-16,8]);
+ assert.deepEqual([...c.edits.added[0].loc],[10,0,64]);                        // the replacement itself stays where it was
+ assert.equal(c.edits.added[1].replaces,undefined);
+});
+test('a moved structure taken apart: what Delete and Replace with... keep goes back to the script place',()=>{
+ const {c,piece}=setup(),st=piece('booth');st.actors=['Lamp1','Crate1'];
+ c.baseActors=[{name:'Lamp1',cls:'Light',loc:[10,0,64],rot:[0,0,0]},{name:'Crate1',cls:'CrateUnbreakableSmall',loc:[-20,0,0],rot:[0,0,0]}];
+ c.edits.added.push({name:'Lamp1',cls:'Spotlight',loc:[10,0,64],replaces:{cls:'Light',orig:[10,0,64]}});
+ c.edits.deleted.Crate1={cls:'CrateUnbreakableSmall',orig:[-20,0,0]};
+ const ms=c.beginStructMove(st.obj);st.obj.position.add(T([32,0,0]));c.followStructure(ms);c.commitStructure(ms,true);
+ c.bakeOut(st,[],['Lamp1','Crate1']);                      // un-nested: the build no longer moves them with the structure
+ assert.deepEqual([...c.edits.added[0].replaces.orig],[10,0,64]);
+ assert.deepEqual([...c.edits.deleted.Crate1.orig],[-20,0,0]);
+});
+test('a block turned with a group: its corners to a hundredth of a unit, its size kept, its proxy at their middle',()=>{
+ const {c}=setup();vm.runInContext(['shiftBlock','turnBlock','commit'].map(body).join('\n'),c);Object.assign(c,{anim:null,dressBlock(){}});
+ const b={name:'UCEditBox0',lo:[100.1,0,0],hi:[228.1,64,32],rot:[0,0,0]},a=15*Math.PI/180;
+ const p=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial());p.userData={kind:'box',box:b};c.proxies.add(p);
+ const turned=[164.1*Math.cos(a)-32*Math.sin(a),164.1*Math.sin(a)+32*Math.cos(a),16];      // its middle, the group turned 15 degrees about 0
+ p.position.copy(T(turned));p.quaternion.copy(rotations.quat([0,2731,0]));c.commit(p);
+ for(const v of [...b.lo,...b.hi])assert.ok(String(v).split('.')[1]===undefined||String(v).split('.')[1].length<=2,String(v));
+ b.hi.forEach((v,k)=>assert.ok(Math.abs(v-b.lo[k]-[128,64,32][k])<1e-9,'size'));
+ near(p.position,T(b.lo.map((v,k)=>(v+b.hi[k])/2)),1e-9);near(p.position,T(turned),0.01);
+ assert.equal(b.rot[1],2731);
 });
 test('drawn floor keeps arbitrary rotation after commit and recreation',()=>{
  const edits={drawn:[]},scene=new THREE.Scene(),tool=createDrawTools({THREE,T,scene,getEdits:()=>edits,status(){},escapeHtml:s=>s,getSnap:()=>false,texList:()=>[]});
@@ -120,6 +188,14 @@ test('Alt-copy starts in place and its drag shares the same Undo snapshot',()=>{
  c.beginTransformUndo();assert.equal(history.length,2,'the next normal drag gets its own Undo');
 });
 
+test('Duplicate keeps a copy beside its original in its folder, not in the folder new objects go in',()=>{
+ const {c}=setup(),light=c.makeProxy({name:'Light28',cls:'Light',kind:'light',loc:[80,90,100],rot:[0,0,0]},'added');c.edits.added.push(light.userData.actor);
+ c.edits.nests=[{id:'n1',label:'Room',items:['a:Light28','a:Lamp3']},{id:'n2',label:'Office 2 props',items:[]}];c.edits.defaultFolder='n2';
+ c.selected=light;assert.equal(c.duplicateSelected(),true);
+ const copy='a:'+c.edits.added.at(-1).name;
+ assert.deepEqual([[...c.warned[0]],c.warned[1]],[[copy],'Duplicated'],'a copy of a kind the Show menu hides or locks says so');
+ assert.deepEqual([...c.edits.nests[0].items],['a:Light28',copy,'a:Lamp3']);assert.deepEqual([...c.edits.nests[1].items],[]);
+});
 test('unsupported members cannot silently turn a mixed Duplicate into only a light',()=>{
  const {c,piece,history,logs}=setup(),st=piece('story');st.copyable=false;
  const light=c.makeProxy({name:'Light28',cls:'Light',kind:'light',loc:[0,0,0],rot:[0,0,0]},'map');c.selection=[st.obj,light];c.selected=c.groupPivot;
@@ -129,5 +205,7 @@ test('unsupported members cannot silently turn a mixed Duplicate into only a lig
 test('marquee includes independent pieces as well as actors',()=>{
  const {c,piece}=setup();const st=piece('railing');c.camera.position.set(0,100,500);c.camera.lookAt(0,0,0);c.camera.updateMatrixWorld();
  c.canvas={getBoundingClientRect:()=>({left:0,top:0,width:800,height:600})};c.liveStruct=p=>p===st.obj;c.canGroup=p=>p===st.obj;c.objectLocked=()=>false;c.setMulti=list=>c.rectangleResult=list;
- vm.runInContext(body('marqueeSelect'),c);c.marqueeSelect(0,0,800,600);assert.ok(c.rectangleResult.includes(st.obj));
+ c.isIcon=()=>false;c.iconShown=()=>true;
+ vm.runInContext(body('marqueeSelect')+'\n'+body('pickables'),c);c.marqueeSelect(0,0,800,600);assert.ok(c.rectangleResult.includes(st.obj));
+ c.isIcon=p=>p===st.obj;c.iconShown=()=>false;c.selected=null;c.marqueeSelect(0,0,800,600);assert.ok(!c.rectangleResult.includes(st.obj),'an icon not drawn is not taken');
 });
