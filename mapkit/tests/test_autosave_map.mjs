@@ -32,6 +32,7 @@ function setup({ automaticResponses = false } = {}) {
     script: 'map_a', mapName: '01_A', projectContext: { id: 'project-a', kind: 'custom' },
     mapGeneration: 1, edits: { moved: { Crate0: [1, 2, 3] } }, editRevision: 1,
     dirty: true, mapLoading: false, lastEditingInput: 0, projectHub: { visible: false }, gameView: null, openingExperimentalBsp: false,
+    buildJob: null, waitsForRebuild: () => false,       // no Rebuild running (rebuildMap)
     tc: { dragging: false }, inspectorDrag: null, dragHandles: null, propertySlider: null, moveStart: null, placing: null,
     tutorialSession: { revision: 1 }, mapSaveQueue: createSaveQueue(), autosave: null,
     window: { __story: story, __menubar: { prefs: {} }, __projectNavigation: false },
@@ -174,6 +175,26 @@ test('map changes invalidate pending completions and queued writes for the old m
   assert.equal(app.state.dirty, true);
   assert.equal(app.notices.length, 0);
   assert.equal(app.statuses.length, 0);
+});
+
+test('a save queued behind another saves the edits of the same map even when they are another object now', async () => {
+  const app = setup();
+  const first = app.save({ automatic: true }); await tick();
+  const queued = app.save(); await tick();             // Rebuild's own save, behind the autosave
+  app.state.edits = JSON.parse(JSON.stringify(app.state.edits));     // the look-only view puts back an equal copy
+  app.requests[0].resolve({ ok: true }); assert.equal(await first, true); await tick();
+  assert.equal(app.requests.length, 2, 'the queued save is sent');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.requests[1].body.moved)), { Crate0: [1, 2, 3] });
+  app.requests[1].resolve({ ok: true });
+  assert.equal(await queued, true);
+  // the same map opened again (loaded once more): another generation, the old save is not sent
+  const again = app.save(); await tick();
+  const later = app.save(); await tick();
+  app.state.mapGeneration++;
+  app.requests[2].resolve({ ok: true });
+  assert.equal(await again, false);
+  assert.equal(await later, false);
+  assert.equal(app.requests.length, 3);
 });
 
 test('changing maps during workspace save never saves the new maps Story on behalf of the old one', async () => {

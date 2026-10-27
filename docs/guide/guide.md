@@ -45,9 +45,9 @@ game (from a few seconds to a minute); after that it opens at once.
 ## Opening and closing maps
 
 The editor starts on **New Map / Open Map**, with a card for Dr. Hale's tutorial and your eight
-most recent maps. **New Map** opens the existing empty-room/copy dialog. **Open Map** searches
-your maps, recent maps and original levels grouped by mission. You can search by filename,
-location or mission name. The list in the top bar remains a quick switcher:
+most recent maps. **New Map** opens the dialog of an empty room, a copy of a map or one of your
+map templates. **Open Map** searches your maps, recent maps and original levels grouped by mission.
+You can search by filename, location or mission name. The list in the top bar remains a quick switcher:
 
 - **Script-built maps**: maps made from scripts (`tools\mapkit\maps\`), including new empty rooms.
   Your changes are kept next to the script and applied on every rebuild.
@@ -229,7 +229,23 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   Changes and Messages can be expanded when needed. Right-click an object for actions for
   its type: a character offers Dialogues and Animation Studio; a light offers Light settings.
   The **padlock** at the top keeps the Inspector on this object while you select others (to drag
-  something onto its fields); press it again to follow the selection.
+  something onto its fields); press it again to follow the selection. **Right click > Properties…** (in the 3D
+  view or the Hierarchy) opens a floating Inspector of that one object instead, while the panel keeps following the
+  selection (see *Properties and connections*).
+- **History** (a tab next to the Inspector; **Window > History** or `Ctrl+U`), as Unity's Undo History: every
+  change of this map by its name (*Move 3 objects*, *Light brightness of Light4*, *Apply texture Wall_A*, *Fill
+  AI paths*), the newest at the top and **Map opened** at the bottom. The step the map is at is marked, the steps
+  Redo would bring back are dimmed. Click a step to go back (or forward) to it: the map is drawn once, however
+  many steps that takes, and the status bar says how many; `Up` / `Down` move in the list, `Enter` goes (the
+  focus stays on the step gone to). **Edit > Undo** and **Redo** say the step they take (*Undo Move 3 objects*),
+  and after `Ctrl+Z` the status bar says what was undone. A click that changes nothing (on the gizmo, an animation
+  key or a key of the cutscene timeline, let go where it was) is no step, and the steps Redo would bring back stay.
+  `Ctrl+U` brings the panel to the front, or hides it when it is there already (while a panel or the 3D view is
+  maximized over it, `Ctrl+U` shows it and the layout comes back). The last 100 steps are kept (past that the
+  bottom row says *Before the oldest step kept*). The history belongs to the map open: opening another map, a
+  Rebuild (it loads the map again) or reloading the page starts it again, empty. Your changes are not lost with
+  it: **Save** and autosave (Settings > General, every 5 minutes at first) keep them. While a character is posed
+  with *Pose here*, `Ctrl+Z` is the pose's own and the History panel waits.
 - **The 3D view's toolbar** (top left of the view, like Unity's): **Move**, **Rotate**, **Scale**
   (`W` `E` `R`), **Center / Pivot** (`Z`) and **Global / Local** (`X`) for the gizmo (see *Objects*),
   the **arrows** of the previous and next selection, **grid snap** (`G`) with its
@@ -247,6 +263,18 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   The panel menu also offers docking and hiding. Resize by dragging its edge. **Window** shows
   hidden panels and offers Default, Scene and Inspect layouts, plus Reset layout. The layout
   is remembered on this computer. Floating panels remain inside the editor window.
+  **Saved layouts**, as Unity's Layout menu: **Window > Save layout as…** keeps the panels as they are (where each
+  one is docked, how wide, which tab is in front) under a name of yours, for writing the Story, a lighting pass,
+  texture work or play-testing with the Console. Each one is then an item of the Window menu (**Layout:** and its
+  name) that puts them back at once; a name used again replaces it. Up to 10, kept in this browser for every project
+  (they are yours, not the project's). **Delete layout…** lists them with a Delete button each; **Export layouts…**
+  writes them all to `deusedix-layouts.json`, **Import layouts…** adds those of such a file (on another computer, or
+  after clearing the browser), one with a name you have already replacing yours.
+  **Maximize panel** (`Shift+Space`, Window menu), as Unity's: the docked panel under the pointer fills the
+  editor, with its tabs; over the 3D view, the 3D view fills it (floating panels stay). `Shift+Space` again, or
+  `Esc`, puts the layout back; so does any change of the panels (docking, hiding, a layout from the menu). The
+  layout you had is never changed by it, nor stored maximized. Over a floating panel or a window nothing happens
+  (the status bar says so). The key can be changed in Settings > Keyboard shortcuts.
 
 ### Visibility, selection and game activation
 
@@ -423,6 +451,7 @@ Click an object to select it. Then:
 | right click > **Replace with…** (Edit menu), or `Alt` + an item of the browser let go on an object | make the selection (or that object) another object, character or model, keeping its name, place, turn, size, Tag, Event and the rules and Story that name it (see *Replace with* below) |
 | `Alt` + drag a transform handle | duplicate in place, then move the copies with the handle; one Undo removes the copies and their move |
 | `Ctrl+C`, `Ctrl+V` | copy and paste where you are looking, even into another map: open the other map, copy, come back, paste |
+| `Ctrl+C`, `Ctrl+A`, `Up` / `Down`, `Esc` in the Console's log | the Console's own: copy the lines picked (a text selected with the mouse: that text), pick every line shown, pick the line before or after (`Shift`: one more), let them go; the map's objects are neither copied nor selected (see *Scripts and the Console*) |
 | `Ctrl+X` (Edit > Cut) | copy, then delete: one `Ctrl+Z` puts it back. What cannot be copied (a door of the map) is not deleted |
 | `Ctrl+A`, `Ctrl+I`, `Shift+D` | select all, invert the selection, deselect (Edit menu); hidden and locked things are left out |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | the previous / next selection (`è` and `+` on an Italian keyboard), also the arrows of the 3D view's toolbar |
@@ -433,7 +462,10 @@ Click an object to select it. Then:
 | `Ctrl+K` (Edit > Search everything…) | one search over the menus' commands, this map's objects, the objects to place, textures, sounds, the Settings pages and the panels (see *Searching everything*) |
 | `Ctrl`+wheel over the Browser's tiles (or the texture picker's) | the size of the tiles: a list, small, medium or large, as the slider at the top right of each; the tile under the pointer stays under it (see *The screen*) |
 | `Delete` (or the bin icon) | delete |
-| `Ctrl+Z` / `Ctrl+Y` | undo / redo (also `Ctrl+Shift+Z`): a texture applied from the Texture Editor is one step, Ctrl+Z takes it away and Ctrl+Y puts it back |
+| `Ctrl+Z` / `Ctrl+Y` | undo / redo (also `Ctrl+Shift+Z`): a texture applied from the Texture Editor is one step, Ctrl+Z takes it away and Ctrl+Y puts it back; the status bar says what was undone, Edit > Undo / Redo the step they take (*Undo Move 3 objects*) |
+| `Ctrl+U` (Window > History) | the History panel: every change of this map by name, newest first; a click goes back (or forward) to that step (see *The screen*) |
+| `Shift+Space` (Window > Maximize panel) | the docked panel under the pointer, or the 3D view, fills the editor; again, or `Esc`, the layout is back (see *The screen*) |
+| right click > **Properties…** | a floating Inspector of that object, beside the panel, that stays on it whatever you select; up to 3 (see *Properties and connections*) |
 | `G` | grid snap on/off; its steps are in the 3D view's toolbar |
 | `Ctrl` while dragging the gizmo | grid snap the other way for as long as it is held: free with snap on, on the grid with snap off |
 | `Ctrl+[` / `Ctrl+]` | halve / double the grid step (`Ctrl+è` and `Ctrl++` on an Italian keyboard); while drawing stairs `[` and `]` stay the stairs' |
@@ -1099,6 +1131,19 @@ class) are set on all of them at once, a dim **—** where they differ: see *Edi
 To give objects the settings of another, or keep settings for later, see *Copy, paste and presets of
 properties* below.
 
+**Properties… windows**, as Unity's floating Inspector: **right click > Properties…** on an object, a block, a
+drawing or a structure (in the 3D view or the Hierarchy) opens a window with its Inspector, the same sections as the
+panel (Transform, Properties, Interactions, All properties, Textures...), while the panel goes on following the
+selection. Wiring logic often needs two objects in sight: a keypad and its door, a trigger and the SpecialEvent it
+fires, a character and the computer that sets its flag. The window is live: what changes the object anywhere (the
+gizmo, `Ctrl+Z`, the panel, another window) shows in it, and what you change in it is one step of the History, undone
+with `Ctrl+Z` as in the panel (a field you are typing in waits until you leave it). Its buttons (Duplicate, Copy,
+Delete...) first select its object, as the panel's do. Drag its title to move it, its corner to resize it; the square
+maximizes it. Up to **3** at once: a fourth closes the one used longest ago. A window closes with its object (deleted)
+or its map (closed, another map opened, or loaded again by a Rebuild, as the padlock lets go then); Properties… on an
+object that has one brings it to the front. The lines of an object's links and routes in the 3D view stay those of
+the panel's object, and the faces of a structure are edited from the panel.
+
 | Object | Properties |
 |---|---|
 | everything | **Engine tag (legacy)** (the native target name), **Event** (what it triggers), and the separate **Scripting tag** for new groups |
@@ -1654,6 +1699,17 @@ game runs, as it is written: **Logic** shows what the rules and the scripts do, 
 JC uses Button1: open Door3*, *→ open Door3*, *⏸ L4 did not run: only if JC carries Multitool, and that
 does not hold*); a name selects that object in the map, a rule's id goes to its object. **Scripts** shows
 only the lines from scripts (`log()`) and from the Console, **Problems** only errors and warnings.
+As Unity's Console, **Collapse** shows identical lines as one, with how many came at its right (*×240*: a script
+warning written at every frame is one line), and **Time** puts before each line the seconds since Play started
+(*12.4*, *1:05.0*; the lines read back from an earlier log have none). Both stay as you leave them, and during Play
+the Console follows the log even while it is hidden, so that each line has its time. **Copy** puts lines on the
+clipboard as they read (with their time and count when shown): the lines picked (click a line, `Ctrl`+click one
+more, `Shift`+click those in between) or, with none picked, every line shown (the filter and *Find in log* choose
+them). In the log, `Ctrl+C` copies them too (a text selected with the mouse: that text), `Ctrl+A` picks every line
+shown, `Up` / `Down` the line before or after (`Shift`: one more) and `Esc` lets them go: these keys stay the
+Console's, the map's objects are not copied. The name of an object of the open map in any line is a link that
+selects it, as in the logic lines (*ScriptWarning: DeusExMover 01_Lab.DeusExMover3 (Function ...) Accessed None*);
+a name written with another map's name (Play went on to that map) is not one of this map's.
 During **Play**, the line at the bottom sends a command to the game's own console (`summon`, `set`, a
 cheat...). The game runs a cheat (`god`, `summon`, `fly`...) only with its cheats on: the first one you type turns
 them on for that game, and the Console says so.
@@ -1794,8 +1850,36 @@ prepared imported tile to the desktop also works in browsers that support file d
   leading to no point, patrol points with the same Tag, no light in the map, characters but no AI paths;
 - notes: a door whose key is not in this map (JC must bring it), unsaved changes.
 
+It also looks at where things are, as Unity's Search finds objects overlapping others:
+
+- **the same object twice at one spot**: two things of the same class within 2 units of each other,
+  turned the same way and with the same properties (All properties too), probably a double paste (`Ctrl+D`,
+  `Ctrl+V`, an `Alt`+drag let go where it began). In the game they are both there: two pickups, two lights, a
+  door twice. **delete the extra one** deletes the copy added last (the one there first stays). Two sounds,
+  triggers or lights put at one spot on purpose are set differently (another sound, Event, radius...), and are
+  left alone;
+- **a decoration or a thing to pick up left in the air**: its bottom more than 8 units above what is under
+  it (the floor, a table, a block, another object: a ray straight down from its middle, as Drop to floor
+  casts). What the 3D view hides (Isolate, the Show menu, an eye) counts too: a bottle on a table hidden in the
+  view is on that table. The game drops these when the map starts. **drop to floor** does Drop to floor on it,
+  onto what is under it whether the view shows it or not. Left out by
+  what they are: the game's classes made to hang, to sit on a wall or to stay where they are put (their own
+  *Physics* is not *Falling* in the game's classes: lamps on chains and hanging decorations, light bulbs,
+  switches and buttons, taps and showers, fans, turrets, cameras and keypads, wall computers and ATMs,
+  trees and outdoor things, vehicles, statues, Revision's ceiling lights and towel racks, and the
+  editor's imported models), and anything whose *Physics* is set to something other than *Falling* (Stick
+  to surface sets *None* on what it sticks to a wall) or whose *bCollideWorld* is *False*: set one of these
+  on a thing that hangs on purpose and Check map leaves it alone;
+- **a path node linked to no other point** (as the last Rebuild made the AI paths): no character goes
+  there. Move it within reach of another one, on the floor with nothing in between, and Rebuild.
+
+Each fix is one `Ctrl+Z`, and the list is checked again after it. The warnings of the **Build report** in
+Messages (after a Rebuild: an object inside a wall, a zone that leaks...) end with a **Check map** link that
+opens it.
+
 What you added or changed is checked fully; the original objects of a map of the game only for what
-breaks the map (they have links the story and the game's scripts use).
+breaks the map (they have links the story and the game's scripts use): two of the map's own objects at one
+spot, or one of them in the air, are as the game has them.
 
 ## AI paths and patrols
 
@@ -2035,6 +2119,22 @@ The game's `Cigarettes` object is a packet, not a single cigarette.
   built at once: add Pieces, Objects, characters and blocks, then **Rebuild**.
 - **A copy of a map**: any map of the game or of yours under the new name, as a map of your own
   (`maps\`): change it as you like, the original stays as it is.
+- **A map template** of the project: its tile shows its picture and name, its description is under the tiles
+  and in its tooltip. The new map is the template's base (the room of the map it was saved from, built at once,
+  or a copy of that map) with what was made in it, under the new name, mission and place name; the pictures
+  you imported are copied into the new map's own folder, and a map exit that led into the old map leads into
+  the new one. **×** on a tile deletes the template (the maps made from it stay as they are).
+
+**File > Save map as template...** (as Unity's *Save As Scene Template*) keeps the open map, as it is now
+(saved or not), as a template of the project: give it a name and a description; the 3D view as you see it,
+without the gizmo, outlines and icons, becomes its picture (frame a nice view first). It keeps the place:
+blocks, drawings, structures (pasted and the map's own, moved or deleted), objects, lights, the start, map
+exits, zones, sounds, the sky, the time of day and Map settings, folders, and the pictures they use. It leaves
+out what belongs to that map's story: the characters (with their tactics and animations), Interactions (and
+usable objects and scripting tags), cutscenes and their cameras, the texts of computers, books and data cubes,
+the Story itself, the *Conversation name* (BindName) of any object, the place name and the opening lines of
+Map settings; the walkable area is made again by the next Rebuild. Only maps made with New map (an empty room or
+a copy) and the project's map files can be templates: a map built by a script of its own cannot.
 
 **Install** puts the new map in the game.
 
@@ -2402,18 +2502,58 @@ letters) is shown in two parts: split it into two lines to give each its voice.
 | Button | |
 |---|---|
 | **Save** (`Ctrl+S`) | writes your changes to the map's changes file |
-| **Rebuild** | saves and builds the map with your changes (about a minute) |
+| **Rebuild** | saves and builds the map with your changes (about a minute), in the background: see *Rebuild in the background* below |
 | **View in game** | opens the game on the last rebuilt map and shows a screenshot from where you are in the editor (the first time, the game has to start); **Close game** closes it |
 | **Install** | puts the rebuilt map into the game (`Revision\DeusEdixMaps`); the game must be closed |
 | **Revert all changes** (Changes panel) | forgets every change made on this map |
 
 **View in game** shows the last rebuild: rebuild first to see your changes.
 
+### Rebuild in the background
+
+**Rebuild** (and *Full rebuild*, *Rebuild lighting*, *Rebuild AI paths* in the Map menu and the Rebuild
+button's arrow) no longer covers the editor while it works. A chip beside the status in the menu bar says
+the stage the build is at, the time so far and how long the last build of this map took (*last time
+0:41*), with **Cancel**. The stages are the ones the build really has: *Saving* and *Walkable area* (the
+page, before the engine), then *Preparing*, *Loading the map*, *Applying edits*, *CSG and BSP*, *AI paths*,
+*Lighting* and *Writing the .dx*, read from the engine's own log as it works (a lighting-only build skips
+CSG and BSP, a build of objects only skips most of them).
+
+While it runs the 3D view is **look-only**: you can fly, orbit, select (in the view or the Hierarchy), frame
+with `F`, keep and recall views and selections (`1`…`9`), measure, switch the lighting and the AI paths,
+and read the Inspector. Editing waits until the build ends: every object is locked as by its padlock (no
+gizmo, the Inspector's fields greyed, the Hierarchy's drag and delete off), the asset browser is dimmed,
+and the keys that change the map (`Delete`, `Ctrl+Z`, `Ctrl+V`, `Ctrl+D`, `End`, `B`...) only say so in the
+status bar; `Tab` still moves through the editor, and `Enter` or `Space` press the button that has the focus (the
+chip's **Cancel** too). What waits for an answer of the server (a texture applied, a sign's picture, the sky, Pose
+here's Save, Paste T3D) is refused while the build runs, and so is its answer when the build started while it was
+on its way, or when it comes while the map is being opened again after the build: the tool says so and nothing
+changes (make it again when the map is open). A change a tool window or a menu command would still make is taken
+back at once, and Messages says so, so the map stays the one being built (the build would not have it, and reloading
+the map after it would lose it). The AI assistant's changes wait too (it is told a Rebuild runs). Save, Play, View
+in game, Install, opening another map, closing this one and switching projects wait too, and a second Rebuild
+cannot start (the server refuses it, from another tab as well) until this one ends. If the map cannot be saved
+first, nothing is built, and Messages says so.
+
+**Cancel** stops the build's own engine process (a map made by a script: the script and the engine it
+started), never anything else and never the game, and puts the map's last build back: the 3D view, the
+**Lit** view, Play and Install see the map exactly as before you pressed Rebuild. Your saved changes stay
+saved, ready for the next Rebuild. Pressed while the map is still being saved or its walkable area made,
+the build does not start at all. A build that compiles the project's player characters first (*Map
+settings > Player characters*) stops when its engine starts.
+
+At the end **Messages** gets the build's lines and a **Build report** on top of them: the time of each stage
+(where the minute went: lighting or paths), what the engine counted (BSP nodes and surfaces and the zones
+it found, after CSG; the lights it lit with; the AI path points, the reach specs it made and pruned and the
+map's own links it put back), and the warnings (objects inside walls, zones that leak, stretched textures,
+edits skipped...), each with a **Check map** link that opens Check map on the map just built.
+
 ### Play from here
 
 **Play from here** opens the game on this map with JC standing on the floor below the camera,
 looking where you look, and then the controls are yours: walk around, talk, test a dialogue or an
-event. In its window you choose:
+event. In its window (**Play settings...** in the Map menu and under the arrow between Rebuild and Play) you
+choose, besides a play scenario (below):
 
 - **Mission state**: *the map as it starts*.
 - **Other flags**: any flag, as `Name=1` or `Name=0`, separated by commas.
@@ -2426,6 +2566,45 @@ the game will not have your latest dialogues. For existing maps,
 **Install** keeps the previous copy in `maps\backup\`, refuses if your copy was changed by
 something else since your rebuild, and archives the changes, which are now part of the map.
 
+### Play scenarios and JC's loadout
+
+As Unity's Play mode scenarios, a **play scenario** is a way to start Play kept under a name in the project, for
+every map of it. The list right of **Play** in the menu bar chooses the one Play starts with: **Camera** (none: JC
+below the camera, as the game starts him), one of the scenarios, or **Edit scenarios…**, which opens the Play window.
+There **Scenario** picks the one to change; **Save** keeps the changes in it, **Save as…** keeps them under a new name
+(a name already used is replaced; at most 30 scenarios) and makes it the one Play starts with, **Delete** deletes it.
+**Play** in the window plays the choices as they are, kept or not. A scenario keeps:
+
+- **JC starts**: *below the camera* (where you look when Play starts), *at the PlayerStart* (or where the mission
+  preset puts him), or *at a point kept with the scenario*: **Here** keeps the place below the camera and where it
+  looks. A point belongs to its map: on another map JC starts below the camera.
+- the **Mission state** and the **Other flags**, as above;
+- **JC's loadout**: **Items** (weapons, ammo and pickups of the game and of your project, each with how many: ammo is an
+  item of its own), **Augmentations**, **Skills** (each at a level, *Untrained* to *Master*), **Skill points**,
+  **Credits**, **Health** (1 to 100, every part of the body) and a **Cheat**: *God* (he takes no damage) or
+  *Invisible* (enemies do not see him). An empty field is as the game starts him.
+
+The game gives the loadout with its own console commands, before you get the controls. The items lie on the floor
+in front of JC, not in his inventory (pick them up), at most 40 of them. Where JC starts says how: *below the
+camera* or *at a point*, they are laid in rows across his view, each one taking half a second before you get the
+controls; *at the PlayerStart*, the game's own `summon` puts each one in front of him, all at once with the other
+commands. The rest goes straight on him. **Messages** lists every command Play sent (*Loadout: set DeusExPlayer bCheatsEnabled True | augadd AugCloak
+| set SkillLockpicking CurrentLevel 3 | set DeusExPlayer Credits 500 | god*): `augadd`, `summon`, `god` and
+`invisible 1` work only with the game's cheats on, which the loadout turns on for that game; credits, skill points,
+health and skill levels are `set` on JC and his skills.
+
+**Checked before Play**, as Unity checks a scenario: an item, an augmentation or a skill in neither the game nor your
+project (a scenario from before a package was taken away), a mission preset that does not end in this map and a
+point kept on another map are left out. The Play window says so under the loadout, Messages when Play starts, and
+Play goes on without them; the server checks the classes again.
+
+**While the game plays in the editor**, its header has **Pause** (the game's own pause), **Slow motion** (`slomo
+0.25`; pressed again, `slomo 1`), **Ghost** (JC flies through walls; pressed again, `walk`) and **God**. Each sends
+the game's console command through the Console's channel (the Console shows it) and stays pressed while it is on;
+God starts pressed when the scenario gives it. The buttons wait for the game to run, and while the map is still
+loading a command waits for it. The game keeps its speed in its own settings (`slomo` saves it there): when the game
+closes, the editor puts the speed back as it was, so the next game does not start slow.
+
 ## Where things are kept
 
 Everything is in DeusEdix's folder (`%LOCALAPPDATA%\Programs\DeusEdix`), except the maps you install:
@@ -2437,6 +2616,7 @@ Everything is in DeusEdix's folder (`%LOCALAPPDATA%\Programs\DeusEdix`), except 
 | `tools\mapkit\story\<map>.json` | the map's story; `UCEd_<map>.uc` in `src\DeusEdix\Classes` is generated from it |
 | `tools\mapkit\textures\<map>\` | the pictures you imported or made in the Texture Editor; `textures\_library\` = My textures |
 | `tools\mapkit\prefabs\` | what you copied with `Ctrl+C` |
+| `tools\mapkit\maps\templates\` | your map templates (File > Save map as template...): a folder each with its edits, picture, the pictures it uses and, for a copied map, that map's file |
 | `tools\mapkit\anims\` | the Animation Studio's animations, skeletons (`rigs`) and frames (`baked`); `dist\DeusEdixAnims.u` is made from them |
 | `tools\mapkit\editor\cache\` | what the editor computed (models, textures, animations of the game, AI paths, class defaults); safe to delete |
 | `tools\mapkit\editor\cache\game-revision\`, `game-vanilla\` | what is made from the game itself, once for every project of that game (object models and previews, the maps read for the Pieces, texture pictures, conversations, voices, animations, characters): a new project opens with it ready; safe to delete |
@@ -2465,6 +2645,8 @@ Protocol), so any assistant that speaks it can connect: Claude Code, or another 
    the editor; untick it and none can any more.
 2. Connect the assistant once. The same window shows the command for your PC, for Claude Code:
    `claude mcp add deusedix -- "<DeusEdix>\deusedix-cli.exe" --run "<DeusEdix>\tools\mapkit\deusedix_mcp.py"`
+   (the dialog shows your own folders as `%LOCALAPPDATA%`..., so a screenshot of it does not show your Windows user
+   name; **Copy**, or copying the text, gives the real command)
    Other assistants start the same command as an MCP server (stdio).
 3. Open a project and a map in DeusEdix and ask the assistant. The window says when it last called.
 

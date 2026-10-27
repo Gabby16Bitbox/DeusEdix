@@ -4,6 +4,9 @@
 .game-view-header strong { font-size:12px; font-weight:600; }
 .game-view-hint { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim,#a1aab9); }
 .game-view-header button { flex:none; font-size:11px; padding:3px 8px; min-height:24px; }
+/* Pause, Slow motion, Ghost, God: pressed while the game has them on */
+.game-view-controls { display:flex; flex:none; gap:3px; }
+.game-view-controls button[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent-border); color:var(--heading); }
 .game-view-stage { flex:1; min-height:0; position:relative; background:#080a0e; }
 /* Native child windows sit above WebView pixels. Leave a real gutter for the
    workspace grips; raising their CSS z-index alone cannot cover that HWND. */
@@ -19,3 +22,4 @@
 .game-playing #left, .game-playing #right, .game-playing #bottom { opacity:.65; }
 .game-playing #startscreen { visibility:hidden; }
 @media (max-width:850px) { .game-view-hint { display:none; } .game-view-header strong { flex:1; } }
+@media (max-width:620px) { .game-view-controls button { padding:3px 5px; } }

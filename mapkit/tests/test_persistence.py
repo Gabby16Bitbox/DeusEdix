@@ -153,7 +153,9 @@ class MapSaveRouteTests(unittest.TestCase):
                          documents=noop, maplinks=noop, object_tags=noop, player_profiles=noop,
                          edits_path=lambda script: self.target, traceback=traceback,
                          project_server=SimpleNamespace(error_payload=lambda exc: dict(error=str(exc))))
-        exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
+        # the validators the route runs (server.check_edits), with the no-op ones above
+        shared = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'check_edits']
+        exec(compile(ast.Module(body=shared + [function], type_ignores=[]), str(source), 'exec'), namespace)
         raw = json.dumps(draft).encode('utf-8')
         handler = SimpleNamespace(path='/api/edits?script=my_map', headers={'Content-Length': str(len(raw))},
                                   rfile=io.BytesIO(raw), _send=lambda status, body: (status, body))

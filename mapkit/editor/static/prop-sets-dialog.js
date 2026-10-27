@@ -64,19 +64,23 @@ export function askChanges({ title, intro, rows, label, shown, action }) {
     } });
 }
 
-// A preset's name: check(name) gives it back as it is kept, or throws why not
-export function askName({ title, hint, value = '', action, check }) {
-  return ask({ title, action, body: `<label for="ps-name">Preset name</label><input id="ps-name" maxlength="60" autocomplete="off" required value="${esc(value)}" style="width:100%">
+const PRESET_WORDS = { apply: 'Apply…', applyTitle: 'See what it changes on the selection, then apply it', deleteTitle: 'Delete this preset of the project',
+  empty: 'No presets left for this class.' };
+
+// A preset's name (label: what it names): check(name) gives it back as it is kept, or throws why not
+export function askName({ title, hint, value = '', action, check, label = 'Preset name' }) {
+  return ask({ title, action, body: `<label for="ps-name">${esc(label)}</label><input id="ps-name" maxlength="60" autocomplete="off" required value="${esc(value)}" style="width:100%">
     <p class="hint">${esc(hint)}</p>`, done: (d) => check(d.querySelector('#ps-name').value) });
 }
 
 // The presets of a class: each with what it sets (describe(preset)), Apply (resolves with that preset) and Delete
-// (remove(preset): true when it is deleted, then the list without it)
-export function askPresets({ title, presets, describe, remove }) {
+// (remove(preset): true when it is deleted, then the list without it). words: what the buttons say of it (a window
+// layout's list), apply null: no Apply
+export function askPresets({ title, presets, describe, remove, words = PRESET_WORDS }) {
   const list = presets.slice();
   const body = () => (list.length ? list.map((p, i) => `<div class="ps-preset"><b title="${esc(p.name)}">${esc(p.name)}</b><small>${esc(describe(p))}</small>`
-    + `<button type="button" data-ps-apply="${i}" title="See what it changes on the selection, then apply it">Apply…</button><button type="button" data-ps-del="${i}" title="Delete this preset of the project">Delete</button></div>`).join('')
-    : '<p class="hint" role="status">No presets left for this class.</p>');
+    + `${words.apply ? `<button type="button" data-ps-apply="${i}" title="${esc(words.applyTitle)}">${esc(words.apply)}</button>` : ''}<button type="button" data-ps-del="${i}" title="${esc(words.deleteTitle)}">Delete</button></div>`).join('')
+    : `<p class="hint" role="status">${esc(words.empty)}</p>`);
   return ask({ title, action: '', body: '<div class="ps-list" data-ps-presets></div>', done: () => null,
     wire: (d, finish) => {
       const box = d.querySelector('[data-ps-presets]');

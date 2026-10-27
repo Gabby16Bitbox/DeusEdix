@@ -127,6 +127,7 @@ class TutorialRouteTests(unittest.TestCase):
         self.play = types.SimpleNamespace(
             pending_install=Mock(return_value=True), flags_text=Mock(return_value=''),
             start=Mock(side_effect=lambda *a, **k: self.events.append('play') or 'started'),
+            loadout_run=Mock(return_value=dict(commands=[], steps=[], lines=[])),     # no scenario loadout (test_play_loadout)
         )
         self.namespace = {
             '__name__': 'tutorial_routes_fixture', 'BaseHTTPRequestHandler': BaseHTTPRequestHandler,
@@ -155,9 +156,10 @@ class TutorialRouteTests(unittest.TestCase):
             'documents': types.SimpleNamespace(validate=Mock()),
             'maplinks': types.SimpleNamespace(validate_travel=Mock()),
             'sounds': types.SimpleNamespace(rekey=Mock(return_value=[])),
+            'build_job': types.SimpleNamespace(running=Mock(return_value=False)),     # no background Rebuild (test_build_job)
         }
         tree = ast.parse(SOURCE.read_text(encoding='utf-8-sig'), filename=str(SOURCE))
-        names = {'Handler', 'tutorial_write_guard', 'tutorial_can_reset', 'tutorial_runtime', 'UserTurn'}
+        names = {'Handler', 'tutorial_write_guard', 'tutorial_can_reset', 'tutorial_runtime', 'UserTurn', 'check_edits'}
         # Execute the production tag-validator import too. Injecting a fake global
         # here previously concealed a missing import that broke every real save.
         selected = ast.Module(body=[node for node in tree.body if

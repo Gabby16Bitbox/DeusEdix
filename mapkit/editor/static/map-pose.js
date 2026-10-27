@@ -251,7 +251,7 @@ export function createMapPose(d) {
       x0: e.clientX, y0: e.clientY, off: [hx - e.clientX, hy - e.clientY],   // the ray from the handle's own spot, not the pointer's
       prev: S.contact[chain] ? h.position.clone() : null, before: snapshot() };
     if (S.drag.moveChar) {                                         // the character's place in the map: one undo
-      d.pushUndo();
+      d.pushUndo(`Move ${S.a.name} (Pose here)`);
       // the hands stay where they hold (in the map), the feet go with the body
       S.drag.hands = Object.fromEntries(['l_arm', 'r_arm'].filter((c) => S.stuck.has(c)).map((c) => [c, S.grp.localToWorld(new THREE.Vector3().fromArray(S.anim.ik[c].keys[0].v))]));
       S.drag.touch = Object.fromEntries(Object.keys(S.drag.hands).filter((c) => S.contact[c]).map((c) => [c, S.grp.localToWorld(S.contact[c].clone())]));
@@ -518,8 +518,10 @@ export function createMapPose(d) {
     for (let i = 1; i < P.length; i += 3) minY = Math.min(minY, P[i]);
     S.ankle = Math.max(1, J('l_foot').y - minY);
   }
+  // Save and Animate wait for a Rebuild (d.refuseWhileBuilding throws, the status says so): the pose stays open
   async function save() {
     const a = S.a;
+    d.refuseWhileBuilding('the pose waits');
     status('Saving...');
     if (!S.name) {
       const list = await d.api('/api/studio');
@@ -532,10 +534,12 @@ export function createMapPose(d) {
     rebuildKeys();
     const anim = JSON.parse(JSON.stringify(S.anim));
     anim.name = S.name;
+    d.refuseWhileBuilding('the pose waits');       // a Rebuild started while the animations were listed
     anim.pose_here = { char: a.name, params: S.params, root: S.root,
       contact: Object.fromEntries(Object.entries(S.contact).map(([c, v]) => [c, v.toArray()])) };
     await S.St.store(anim, a.cls, (t) => status(t));
-    d.pushUndo();
+    d.refuseWhileBuilding('the pose waits');
+    d.pushUndo(`Pose ${a.name} here`);
     const edits = d.edits();
     edits.anims = edits.anims || {};
     edits.anims[a.name] = Object.assign({}, edits.anims[a.name], { idle: anim.name, rate: 1, own: true, still: true, loc: d.UE(S.g.position) });
@@ -551,6 +555,7 @@ export function createMapPose(d) {
   // keys from the panel and lose what is animated in the Studio.
   async function animate() {
     const a = S.a, cls = a.cls;
+    d.refuseWhileBuilding('the pose waits');
     const list = await d.api('/api/studio');
     const used = new Set((list.anims || []).map((x) => x.name.toLowerCase()));
     const base = 'Anim' + String(a.name).replace(/\W/g, '').slice(0, 30);
@@ -567,10 +572,12 @@ export function createMapPose(d) {
     anim.name = name;
     anim.source = 'made';
     delete anim.pose_here;
+    d.refuseWhileBuilding('the pose waits');       // a Rebuild started while the animations were listed
     await d.api('/api/studio_anim', anim);
+    d.refuseWhileBuilding('the pose waits');
     // it is the character's animation when idle at once (Crypt Test, 20 Oct 2026: it had to be picked by hand
     // afterwards); the Studio's Save bakes it on the character's models
-    d.pushUndo();
+    d.pushUndo(`Pose ${a.name} as ${name}`);
     const edits = d.edits();
     edits.anims = edits.anims || {};
     edits.anims[a.name] = Object.assign({}, edits.anims[a.name], { idle: name, rate: 1, own: true, still: true, loc: d.UE(S.g.position) });
@@ -619,7 +626,7 @@ export function createMapPose(d) {
       return;
     }
     const before = snapshot();
-    d.pushUndo();
+    d.pushUndo(`Pose ${S.a.name}: ${kind}`);
     start(true);
     const p = S.params;
     S.front = null;                                           // set by railing, table and elbows only

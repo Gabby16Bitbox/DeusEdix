@@ -45,6 +45,9 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
     for (const row of getEdits().surfaces || []) if (row.op === 'flags' && row.targets.some(t => t.brush === f.brush && (t.poly === '*' || t.poly === f.poly))) v = (v | row.args[0]) & ~row.args[1];
     return v;
   }
+  // what each change of the faces is called as an undo step (the History panel, Edit > Undo); the rest are Align's modes
+  const OP_STEPS = { texture: 'Face texture', flags: 'Face flags', shadows: 'Shadow detail', pan: 'Pan the texture',
+    scale: 'Scale the texture', rotate: 'Rotate the texture', 'flip-u': 'Flip the texture U', 'flip-v': 'Flip the texture V' };
   function queue(op, args = [], targets = selected().map(target)) {
     if (!targets.length) return;
     if (op === 'texture' && (args.length !== 1 || typeof args[0] !== 'string' || args[0].length > 240 || !/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/.test(args[0]))) {
@@ -57,7 +60,7 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
       (op === 'scale' ? args.some(v => v < .001 || v > 1000) : args.some(v => !Number.isInteger(v) || Math.abs(v) > 32767)))) {
       status(op === 'scale' ? 'Scale factors must be between 0.001 and 1000.' : 'Pan uses whole texels between -32767 and 32767.', 'warn'); return;
     }
-    pushUndo();
+    pushUndo(OP_STEPS[op] || `Align the texture: ${op}`);
     const edits = getEdits();
     (edits.surfaces ||= []).push({ op, args, targets });
     setDirty();

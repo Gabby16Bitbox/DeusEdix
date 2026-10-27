@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createHistory, recordStep, travelStep, namedStep } from '../editor/static/history-names.js';
 
 const source = fs.readFileSync(process.env.DEUSEDIX_TEST_APP || new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const body = name => {
@@ -11,15 +12,15 @@ const body = name => {
 };
 
 function fixture() {
-  const calls = [], undo = [], redoStack = [];
+  const calls = [], undoHistory = createHistory();
   const originals = ['DoorA', 'DoorB', 'Lamp'].map((name, i) => ({name, cls: i < 2 ? 'DeusExMover' : 'Light', kind: i < 2 ? 'mover' : 'light', loc: [i * 10, 0, 0], rot: [0, 0, 0]}));
   const proxies = {children: [], remove(p) { this.children = this.children.filter(o => o !== p); p.parent = null; }, clear() { for (const p of this.children) p.parent = null; this.children = []; }};
   const wall = {userData: {kind: 'structure', name: 'Room'}, visible: true};
-  const c = vm.createContext({
+  const c = vm.createContext({ buildJob: null,
     edits: {deleted: {}, moved: {}, added: [], boxes: [], drawn: [], groups: {}, prefabs: [], copies: [], nests: [{id:'n1', items: ['a:DoorA', 'a:DoorB']}],
       props: {DoorA: {bLocked: 'True'}}, motions: {DoorA: {pos: [{t:0,v:[0,0,0]}, {t:1,v:[0,40,0]}]}}},
     baseActors: originals, proxies, structures: {Room: {name:'Room', obj:wall, placement:{}, actors:['DoorA','DoorB','Lamp']}}, actorStruct: {DoorA:'Room',DoorB:'Room'},
-    undo, redoStack, selected: null, groupPivot: {userData:{}}, anim: null, textureTransfer: null, surfaceTexturePreview: null,
+    undoHistory, recordStep, namedStep, historyChanged() {}, objectLabel: (p) => [p.userData.actor?.name ?? p.userData.name, ''], selected: null, groupPivot: {userData:{}}, anim: null, textureTransfer: null, surfaceTexturePreview: null,
     confirm: message => { calls.push(['confirm', message]); return c.answer; }, answer:true,
     requireUnlocked: () => !c.locked, locked: false, isStruct:p => p?.userData.kind === 'structure', members: () => c.groupMembers || [],
     poseOf: () => ({offset:[0,0,0],yaw:0}), poseToPose: () => loc => loc.map((v,i) => v + (c.offset?.[i] || 0)), r1: v => v,
@@ -37,9 +38,9 @@ function fixture() {
     makeBoxProxy: b => { proxies.children.push({parent:proxies, children:[{geometry:b.name}], userData:{kind:'box',box:b}}); },
     drawTools: {proxy: () => {}},
   });
-  vm.runInContext(['removeOne','confirmMoverDeletion','deleteSelected','animIsMover','pushUndo','afterHistory','rebuildProxies','forgetKeys','dropEmptyNests','removeStructure'].map(body).join('\n'), c);
+  vm.runInContext(['removeOne','confirmMoverDeletion','deleteSelected','animIsMover','pushUndo','stepOf','afterHistory','rebuildProxies','forgetKeys','dropEmptyNests','removeStructure'].map(body).join('\n'), c);
   c.rebuildProxies(); c.selected = proxies.children[0]; calls.length = 0;
-  return {c, calls, wall, proxies, undo, redoStack};
+  return {c, calls, wall, proxies, undo: undoHistory.undo, undoHistory};
 }
 const copy = value => JSON.parse(JSON.stringify(value));
 
@@ -53,7 +54,7 @@ test('Cancel leaves door, model, links, selection and undo untouched', () => {
 });
 
 test('Delete removes only mover and its mesh; actual history rebuild restores it and redo removes it', () => {
-  const {c, wall, proxies, undo, redoStack} = fixture(), before = copy(c.edits), door = c.selected;
+  const {c, wall, proxies, undo, undoHistory} = fixture(), before = copy(c.edits), door = c.selected;
   c.deleteSelected();
   assert.equal(door.parent, null); assert.deepEqual(proxies.children.map(p => p.userData.actor.name), ['DoorB','Lamp']);
   assert.equal(c.structures.Room.obj, wall); assert.equal(wall.visible, true); assert.deepEqual(copy(c.edits.groups), {});
@@ -61,9 +62,10 @@ test('Delete removes only mover and its mesh; actual history rebuild restores it
   assert.deepEqual(copy(c.edits.props), before.props); assert.deepEqual(copy(c.edits.motions), before.motions);
   assert.deepEqual(copy(c.edits.nests[0].items), ['a:DoorB']); assert.equal(undo.length,1);
   const deleted = JSON.stringify(c.edits);
-  redoStack.push(JSON.stringify(c.edits)); c.edits = JSON.parse(undo.pop()); c.afterHistory();
+  assert.equal(undo[0].label, 'Delete DoorA');
+  c.edits = JSON.parse(travelStep(undoHistory, 'undo', JSON.stringify(c.edits)).state); c.afterHistory();
   assert.deepEqual(copy(c.edits), before); assert.equal(proxies.children[0].children[0].geometry, 'mesh:DoorA');
-  undo.push(JSON.stringify(c.edits)); c.edits = JSON.parse(redoStack.pop()); c.afterHistory();
+  c.edits = JSON.parse(travelStep(undoHistory, 'redo', JSON.stringify(c.edits)).state); c.afterHistory();
   assert.equal(JSON.stringify(c.edits), deleted); assert.ok(!proxies.children.some(p => p.userData.actor.name === 'DoorA'));
 });
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { createRotations } from '../editor/static/rotation.js';
+import { namedStep } from '../editor/static/history-names.js';
 const rotations = createRotations(THREE);
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
@@ -22,6 +23,7 @@ function setup() {
   const initial = { name: 'Light1', cls: 'Light', kind: 'light', loc: [260, 140, 128], rot: [0, 8192, 0] };
   const calls = [], history = [], locked = new Set();
   const context = vm.createContext({ THREE, rotations, scene, proxies, world, groupPivot, selected: null,
+    waitsForRebuild: () => false,                         // sayLocked's: no Rebuild running (rebuildMap)
     objectRotation: p => p.userData.actor ? [p.userData.actor.rot?.[0] || 0, ((Math.round(-p.rotation.y*65536/(2*Math.PI))%65536)+65536)%65536, p.userData.actor.rot?.[2] || 0] : rotations.rot(p.quaternion),
     setObjectRotation: (p, r) => p.quaternion.copy(rotations.quat(r)),
     script: 'regression', baseActors: [initial], builtScale: {}, actorStruct: { Light1: 'Room' }, textureTransfer: null, surfaceTexturePreview: null,
@@ -43,6 +45,7 @@ function setup() {
     selectionLocked: p => locked.has(context.keyOf(p)), requireUnlocked: p => !locked.has(context.keyOf(p)),
     viewState: () => ({ hidden: new Set(), locked: new Set() }),
     tc: { mode: 'translate', detach() {} }, status: (...args) => calls.push(args), log() {},
+    namedStep, keyLabel: k => [k.slice(k.indexOf(':') + 1), ''],
     pushUndo: () => history.push(JSON.stringify(context.edits)), setDirty() {}, showChanges() {}, buildHierarchy() {}, buildStructList() {},
     applyTextureOverrides() {}, applyLighting() {}, applyObjectVisibility() {}, disposeEffectPoint() {}, disposeViewportIcons() {}, select: p => { context.selected = p; }, selectNest() {}, selectKeys() {},
     makeBoxProxy() {}, syncStructures: () => { for (const id of context.edits.unnest) if (id.startsWith('a:')) delete context.actorStruct[id.slice(2)]; },

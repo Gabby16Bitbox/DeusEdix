@@ -1,18 +1,33 @@
-// The editor's panels (Hierarchy, Inspector, Browser, Console), in the same webview. Only the panel roots are moved;
+// The editor's panels (Hierarchy, Inspector, Browser, Console, History), in the same webview. Only the panel roots are moved;
 // their contents and event handlers remain owned by the editor.
+import { readLayouts, findLayout, layoutName, withLayout, withoutLayout, layoutsFile, importLayouts, nextMaximized, shownLayout,
+  uncovered } from './window-layouts.js';
+
 const STORAGE = 'deusedix.workspace.v1';
-const IDS = ['hierarchy', 'inspector', 'browser', 'console'];
+// the layouts saved under a name (Window > Save layout as…): the user's, kept in this browser for every project
+const LAYOUTS = 'deusedix.workspace.layouts.v1';
+const IDS = ['hierarchy', 'inspector', 'browser', 'console', 'history'];
 const DOCKS = ['left', 'right', 'bottom'];
-const LABELS = { hierarchy: 'Hierarchy', inspector: 'Inspector', browser: 'Browser', console: 'Console' };
-const ROOTS = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'console' };
+const LABELS = { hierarchy: 'Hierarchy', inspector: 'Inspector', browser: 'Browser', console: 'Console', history: 'History' };
+const ROOTS = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'console', history: 'history' };
+// where each panel docks at first: the Console a tab of the bottom dock next to the Browser (Unity's Project | Console),
+// History a tab of the right one next to the Inspector (where Unity's Undo History is often docked)
+const HOME = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'bottom', history: 'right' };
 const clone = value => JSON.parse(JSON.stringify(value));
 const bounded = (value, min, max, fallback) => Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 
 export function defaultLayout() {
   return { version: 1, sizes: { left: 208, right: 272, bottom: 216 }, active: { left: 'hierarchy', right: 'inspector', bottom: 'browser' },
-    // the Console is a tab of the bottom dock, next to the Browser (Unity's Project | Console)
-    panels: Object.fromEntries(IDS.map((id, i) => [id, { dock: DOCKS[i] || 'bottom', hidden: false, rect: { x: 228 + i * 28, y: 40 + i * 28, w: 360, h: 360 } }])) };
+    panels: Object.fromEntries(IDS.map((id, i) => [id, { dock: HOME[id], hidden: false, rect: { x: 228 + i * 28, y: 40 + i * 28, w: 360, h: 360 } }])) };
 }
+// shown in front: not hidden, and floating or the tab its dock shows
+export function inFront(layout, id) {
+  const panel = layout.panels[id];
+  return !!panel && !panel.hidden && (panel.dock === 'float' || layout.active[panel.dock] === id);
+}
+// seen now: in front, and not covered by the panel or the 3D view maximized (Shift+Space). Ctrl+U hides it then, and
+// shows it otherwise (which puts the layout back)
+export function frontNow(layout, maximized, id) { return inFront(layout, id) && uncovered(layout.panels[id], maximized); }
 
 export function validateLayout(value) {
   const out = defaultLayout();
@@ -64,7 +79,12 @@ function createWorkspace() {
   if (window.__workspace || IDS.some(id => !document.getElementById(ROOTS[id]))) return;
   let state;
   try { state = validateLayout(JSON.parse(localStorage.getItem(STORAGE))); } catch (_) { state = defaultLayout(); }
+  let saved = [];
+  try { saved = readLayouts(JSON.parse(localStorage.getItem(LAYOUTS)), validateLayout); } catch (_) { saved = []; }
   let interaction = null, menu = null, notifyFrame = 0, lastGeometry = '', floatOrder = 0;
+  // Shift+Space: the dock ('left', 'right', 'bottom') or the 3D view ('view') filling the editor, or null; where the
+  // pointer was last, out of the menus (Window > Maximize panel maximizes what was under it before the menu)
+  let maximized = null, pointer = null;
   const root = document.createElement('div');
   root.id = 'workspace';
   root.setAttribute('aria-label', 'Editor panels');
@@ -83,6 +103,7 @@ function createWorkspace() {
   root.appendChild(drop);
 
   const persist = () => { try { localStorage.setItem(STORAGE, JSON.stringify(state)); } catch (_) { /* Layout also works without browser storage. */ } };
+  const persistSaved = () => { try { localStorage.setItem(LAYOUTS, JSON.stringify(saved)); } catch (_) { /* kept until the page is closed */ } };
   const announce = text => { live.textContent = text; };
   const notify = () => {
     if (notifyFrame) return;
@@ -215,10 +236,12 @@ function createWorkspace() {
   }
 
   function apply() {
+    const shown = shownLayout(state, maximized);       // the 3D view maximized: no dock shows
     for (const dock of DOCKS) {
       const available = IDS.filter(id => state.panels[id].dock === dock && !state.panels[id].hidden);
       if (!available.includes(state.active[dock])) state.active[dock] = available[0] || null;
-      zones[dock].zone.hidden = !available.length;
+      zones[dock].zone.hidden = !IDS.some(id => shown.panels[id].dock === dock && !shown.panels[id].hidden);
+      zones[dock].zone.classList.toggle('ws-maximized', maximized === dock);
       const active = state.active[dock];
       zones[dock].options.setAttribute('aria-label', active ? LABELS[active] + ' panel options' : 'Panel options');
       zones[dock].collapse.setAttribute('aria-label', active ? 'Hide ' + LABELS[active] : 'Hide panel');
@@ -237,7 +260,8 @@ function createWorkspace() {
       if (floating) frame.removeAttribute('aria-labelledby'); else frame.setAttribute('aria-labelledby', tab.id);
       if (!floating) frame.style.cssText = '';
     }
-    const { width, height } = dimensions(), fit = fitLayout(state, width, height);
+    root.classList.toggle('ws-has-maximized', DOCKS.includes(maximized));
+    const { width, height } = dimensions(), fit = fitLayout(shown, width, height);
     for (const [dock, variable] of [['left', 'lw'], ['right', 'rw'], ['bottom', 'bh']]) {
       document.documentElement.style.setProperty('--' + variable, fit.sizes[dock] + 'px');
       zones[dock].grip.setAttribute('aria-valuenow', String(Math.round(fit.sizes[dock])));
@@ -253,13 +277,14 @@ function createWorkspace() {
       restore.dataset.panels = restoreKey; restore.replaceChildren();
       for (const id of hidden) { const b = makeButton(LABELS[id], 'Show ' + LABELS[id], () => { show(id); focusPanel(id); }); restore.appendChild(b); }
     }
-    restore.hidden = !hidden.length;
+    restore.hidden = !hidden.length || !!maximized;
     const geometry = JSON.stringify([width, height, fit, state.active]);
     if (geometry !== lastGeometry) { lastGeometry = geometry; notify(); }
   }
 
   function movePanel(id, dock, rect) {
     if (!IDS.includes(id) || ![...DOCKS, 'float'].includes(dock)) return;
+    maximized = null;
     const panel = state.panels[id]; panel.dock = dock; panel.hidden = false;
     if (rect) panel.rect = { ...panel.rect, ...rect };
     if (DOCKS.includes(dock)) state.active[dock] = id;
@@ -267,13 +292,13 @@ function createWorkspace() {
   }
   function show(id) {
     if (!IDS.includes(id)) return;
-    state.panels[id].hidden = false;
+    maximized = null; state.panels[id].hidden = false;
     const dock = state.panels[id].dock; if (DOCKS.includes(dock)) state.active[dock] = id;
     apply(); persist();
   }
   function hide(id) {
     if (!IDS.includes(id)) return;
-    state.panels[id].hidden = true; closeMenu(); apply(); persist(); announce(LABELS[id] + ' hidden. Restore it from View or the panel button.');
+    maximized = null; state.panels[id].hidden = true; closeMenu(); apply(); persist(); announce(LABELS[id] + ' hidden. Restore it from View or the panel button.');
   }
   function targetAt(event) {
     const r = root.getBoundingClientRect(), x = event.clientX - r.left, y = event.clientY - r.top;
@@ -351,17 +376,69 @@ function createWorkspace() {
   });
   function preset(name) {
     if (!['default', 'scene', 'inspect'].includes(name)) return;
-    finishInteraction(null, true); closeMenu(); state = defaultLayout();
+    finishInteraction(null, true); closeMenu(); maximized = null; state = defaultLayout();
     if (name === 'scene') { state.panels.browser.hidden = true; state.panels.hierarchy.hidden = true; }
     if (name === 'inspect') { state.panels.browser.dock = 'left'; state.active.left = 'hierarchy'; state.sizes.right = 370; }
     apply(); persist(); announce(name === 'default' ? 'Default layout restored' : name === 'scene' ? 'Scene layout' : 'Inspect layout');
+  }
+  // Window > Save layout as…, the saved layouts, Delete, Export and Import (menubar.js); a name given is kept cleaned
+  // (layoutName), one already used is replaced
+  function saveNamed(name) {
+    const clean = layoutName(name);
+    saved = withLayout(saved, clean, clone(state)); persistSaved();
+    return clean;
+  }
+  function loadNamed(name) {
+    const found = findLayout(saved, name);
+    if (!found) return false;
+    finishInteraction(null, true); closeMenu(); maximized = null; state = validateLayout(clone(found.state));
+    apply(); persist(); announce(found.name + ' layout');
+    return true;
+  }
+  function deleteNamed(name) { saved = withoutLayout(saved, name); persistSaved(); }
+  // a file's layouts added (Export's file, or a single layout): the names put in
+  function importNamed(text, fileName) {
+    const result = importLayouts(saved, text, validateLayout, fileName);
+    saved = result.list; persistSaved();
+    return result.names;
+  }
+  // where the pointer is, for Shift+Space (out of the menus: Window > Maximize panel takes what it was over before them)
+  window.addEventListener('pointermove', event => {
+    if (!event.target.closest?.('#menubar, .mb-list, .ws-menu, #ctxmenu')) pointer = [event.clientX, event.clientY];
+  }, true);
+  // what is under the pointer: a dock, the 3D view (its own bars too), or null (a floating panel, a window, the menus)
+  function underPointer() {
+    const el = pointer && document.elementFromPoint(pointer[0], pointer[1]);
+    if (!el) return null;
+    const zone = el.closest('.ws-zone');
+    if (zone) return zone.dataset.dock;
+    if (el.closest('#view, #ortho')) return 'view';
+    if (root.contains(el) || el.closest('.tool-window, dialog')) return null;
+    const view = document.getElementById('view')?.getBoundingClientRect();         // over the 3D view's own bars
+    return view && pointer[0] >= view.left && pointer[0] < view.right && pointer[1] >= view.top && pointer[1] < view.bottom ? 'view' : null;
+  }
+  // Shift+Space (app.js; Window > Maximize panel): what is under the pointer fills the editor; pressed again (or Esc) the
+  // layout is back. The real layout is not changed, nor stored. The one maximized, or null; false when nothing there
+  // can be maximized
+  function toggleMaximize() {
+    if (root.inert) return false;
+    const next = nextMaximized(maximized, underPointer());
+    if (!maximized && !next) return false;
+    maximized = next; closeMenu(); apply();
+    announce(!maximized ? 'Layout back' : maximized === 'view' ? '3D view maximized' : (LABELS[state.active[maximized]] || 'Panel') + ' maximized');
+    return maximized;
   }
   document.documentElement.classList.add('has-workspace');
   root.inert = document.body.classList.contains('no-map');
   window.__workspace = {
     show, hide, toggle: id => { if (IDS.includes(id)) state.panels[id].hidden ? show(id) : hide(id); }, dock: movePanel,
     isVisible: id => IDS.includes(id) && !state.panels[id].hidden,
+    // a panel's key (History's Ctrl+U): brought to the front, or hidden when it is in front already
+    toggleFront: id => { if (IDS.includes(id)) frontNow(state, maximized, id) ? hide(id) : show(id); },
     getState: () => clone(state), preset, reset: () => preset('default'), refresh: apply,
+    layouts: () => saved.map(l => l.name), saveLayout: saveNamed, loadLayout: loadNamed, deleteLayout: deleteNamed,
+    exportLayouts: () => layoutsFile(saved), importLayouts: importNamed,
+    toggleMaximize, get maximized() { return maximized; },
   };
   // app.js may apply its legacy saved widths during module startup. Run after it
   // and reconcile once more at DOMContentLoaded without changing those settings.

@@ -9,9 +9,12 @@ import {createSelectionOutline} from '../editor/static/selection-outline.js';
 import {createTextureScale, stretchOnResize} from '../editor/static/texture-scale.js';
 import {pushMove} from '../editor/static/grid-snap.js';
 import {putBeside} from '../editor/static/hierarchy-folders.js';
+import {createHistory,recordStep,renameStep,namedStep,dropStep,travelStep,currentName} from '../editor/static/history-names.js';
+import {airGap} from '../editor/static/map-check.js';
 const rotations=createRotations(THREE), placementGeometry=createSurfacePlacement(THREE);
 const source=fs.readFileSync(new URL('../editor/static/app.js',import.meta.url),'utf8');
 const body=name=>{const i=source.indexOf(`function ${name}(`);assert.ok(i>=0,name);return source.slice(i,source.indexOf('\n}',i)+2);};
+const line=start=>{const i=source.indexOf(start);assert.ok(i>=0,start);return source.slice(i,source.indexOf('\n',i));};
 const T=a=>new THREE.Vector3(a[0],a[2],a[1]), UE=v=>[v.x,v.z,v.y], r1=v=>Math.round(v*10)/10;
 function setup(){
  const scene=new THREE.Scene(),world=new THREE.Group(),proxies=new THREE.Group(),groupPivot=new THREE.Group();scene.add(world,proxies,groupPivot);
@@ -21,14 +24,18 @@ function setup(){
   structures:{},edits:{groups:{},copies:[],prefabs:[],moved:{},deleted:{},boxes:[],added:[]},scene,world,proxies,groupPivot,mapKind:'script',actorStruct:{},
   selected:null,moveStart:null,mapGeneration:1,script:'fixture',camera:new THREE.PerspectiveCamera(),ray:new THREE.Raycaster(),builtScale:{},altCopyUndo:false,
   isStruct:p=>p?.userData.kind==='structure',objectHidden:()=>false,selectionLocked:()=>false,requireUnlocked:()=>true,
-  setDirty(){},showDetails(){},buildHierarchy(){},status(){},pushUndo:()=>history.push(JSON.stringify(c.edits)),log:(...x)=>logs.push(x),
+  setDirty(){},showDetails(){},buildHierarchy(){},status(){},pushUndo:(label)=>{history.push(JSON.stringify(c.edits));recordStep(c.undoHistory,'',label);},log:(...x)=>logs.push(x),
+  undoHistory:createHistory(),renameStep,namedStep,dropStep,currentName,historyChanged(){},objectLabel:p=>[p.userData.name??p.userData.actor?.name,''],tc:{dragging:true,mode:'translate'},
+  buildJob:null,transformStep:null,
   select:p=>{c.selected=p;},members:()=>c.selection||[],selKeys:()=>[],selectKeys(){},visibleHits:h=>h.filter(x=>{for(let p=x.object;p;p=p.parent)if(!p.visible)return false;return true;}),
   placeModeLabel:x=>x,normalToRotation:n=>({pitch:Math.round(Math.atan2(n[2],Math.hypot(n[0],n[1]))*65536/(2*Math.PI)),yaw:Math.round(Math.atan2(n[1],n[0])*65536/(2*Math.PI))}),
   rotationToVector:(p,y)=>[Math.cos(p*2*Math.PI/65536)*Math.cos(y*2*Math.PI/65536),Math.cos(p*2*Math.PI/65536)*Math.sin(y*2*Math.PI/65536),Math.sin(p*2*Math.PI/65536)],
   movedPose:p=>p.offset.some(Boolean)||p.yaw||p.pitch||p.roll||(p.scale||[1,1,1]).some(v=>v!==1),
   putBeside,nests:()=>c.edits.nests||=[],objOf:k=>k,warnHiddenKinds:(list,done)=>{c.warned=[list,done];},
  });
- for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','duplicateSelected','lightProps','beginTransformUndo'])vm.runInContext(body(name),c);
+ for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','duplicateSelected','lightProps','stepOf','beginTransformUndo','endTransformUndo','dropUndo'])vm.runInContext(body(name),c);
+ // a step's verb, the gizmo's pose, snapping's hits (as var: the test reads them on the context)
+ for(const start of ['const TOOL_VERBS = ','const gizmoPose = ','const pickableHits = '])vm.runInContext(line(start).replace(/^const /,'var '),c);
  let seq=0;
  c.nextName=()=>`copy${++seq}`;c.nextPid=()=>`p${++seq}`;
  c.keyOf=p=>p.userData.kind==='structure'?'s:'+p.userData.name:'a:'+p.userData.actor.name;
@@ -51,14 +58,14 @@ test('snapping (V, Ctrl+Shift: pickable) skips what is locked, by its padlock or
  c.scene.updateMatrixWorld(true);
  const down=new THREE.Raycaster(new THREE.Vector3(0,100,0),new THREE.Vector3(0,-1,0));
  assert.equal(c.solidAlong(down,new Set()).object.parent,block);
- assert.equal(c.solidAlong(down,new Set(),true).object.parent,block,'not locked: snapped onto');
+ assert.equal(c.solidAlong(down,new Set(),c.pickableHits).object.parent,block,'not locked: snapped onto');
  locked=true;
  assert.equal(c.solidAlong(down,new Set()).object.parent,block,'Drop to floor: a surface all the same');
- assert.equal(c.solidAlong(down,new Set(),true).object,floor,'snapping: not onto what is locked');
+ assert.equal(c.solidAlong(down,new Set(),c.pickableHits).object,floor,'snapping: not onto what is locked');
 });
 test('V snapping and the Ctrl+Shift slide ask solidAlong for what can be picked (pickable: not what is locked)',()=>{
  const {c}=setup(),asked=[];
- c.solidAlong=(r,ignored,pickable)=>{asked.push(pickable);return null;};
+ c.solidAlong=(r,ignored,among)=>{asked.push(among===c.pickableHits);return null;};
  c.mouseRay=()=>new THREE.Raycaster();c.ringAround=()=>[[0,0],[4,0]];
  vm.runInContext(body('cornersUnder')+'\n'+body('slideOver'),c);
  assert.equal(c.cornersUnder([10,10],new Set()).length,0);
@@ -185,8 +192,68 @@ test('Alt-copy starts in place and its drag shares the same Undo snapshot',()=>{
  assert.ok(c.duplicateSelected({offset:0}));assert.deepEqual([...c.edits.copies[0].offset],[10,20,30]);
  c.altCopyUndo=true;c.beginTransformUndo();assert.equal(history.length,1);assert.equal(c.altCopyUndo,false);
  c.beginTransformUndo();assert.equal(history.length,2,'the next normal drag gets its own Undo');
+ const names=c.undoHistory.undo.map(s=>s.label);                                // the copy's step took the drag in
+ assert.equal(names.length,2);assert.match(names[0],/^Duplicate and move /);assert.match(names[1],/^Move /);
 });
 
+test('a click on the gizmo that moves nothing leaves no step, Redo as it was, nothing written; a move is one step',()=>{
+ const {c,piece}=setup(),written=[];
+ vm.runInContext(body('gizmoDragChanged'),c);
+ Object.assign(c,{commit:p=>written.push(p.userData.actor.name),commitStructure:ms=>written.push(ms.st.name),unfoldTilt(){},localMoveFrom:null,groupStart:null,evenScale:null,scaleStart:null,moveStart:null});
+ const lamp=c.makeProxy({name:'Lamp1',cls:'Lamp1',kind:'prop',loc:[0,0,0],rot:[0,0,0]},'added');c.selected=lamp;
+ recordStep(c.undoHistory,'a','Move Light4');recordStep(c.undoHistory,'b','Delete Barrel');travelStep(c.undoHistory,'undo','c');
+ const before=JSON.stringify(c.undoHistory);
+ c.gizmoDragChanged({value:true});assert.equal(c.undoHistory.undo.at(-1).label,'Move Lamp1');     // while it is held
+ c.gizmoDragChanged({value:false});
+ assert.equal(JSON.stringify(c.undoHistory),before,'the History and Redo as they were');assert.deepEqual(written,[]);
+ c.gizmoDragChanged({value:true});lamp.position.x+=16;c.gizmoDragChanged({value:false});
+ assert.deepEqual(written,['Lamp1']);assert.deepEqual(c.undoHistory.undo.map(s=>s.label),['Move Light4','Move Lamp1']);assert.equal(c.undoHistory.redo.length,0);
+ c.gizmoDragChanged({value:true});lamp.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0),0.5);c.gizmoDragChanged({value:false});
+ assert.deepEqual(written,['Lamp1','Lamp1'],'a turn is a move too');
+ // an Alt copy let go where it began keeps its own step, named as it was
+ recordStep(c.undoHistory,'d','Duplicate Lamp1');c.altCopyUndo=true;
+ c.gizmoDragChanged({value:true});assert.equal(c.undoHistory.undo.at(-1).label,'Duplicate and move Lamp1');
+ c.gizmoDragChanged({value:false});assert.equal(c.undoHistory.undo.at(-1).label,'Duplicate Lamp1');assert.equal(written.length,2);
+ // a structure clicked: its move is over (nothing keeps autosave waiting), nothing written
+ const st=piece('rail');c.gizmoDragChanged({value:true});assert.ok(c.moveStart);c.gizmoDragChanged({value:false});
+ assert.equal(c.moveStart,null);assert.equal(written.length,2);
+ // several objects: a click writes none of them, a drag writes each
+ const other=c.makeProxy({name:'Lamp2',cls:'Lamp1',kind:'prop',loc:[64,0,0],rot:[0,0,0]},'added');
+ c.selection=[lamp,other];c.selected=c.groupPivot;c.beginGroupMove=()=>({m:c.selection.map(m=>({m,st:null}))});
+ const steps=c.undoHistory.undo.length;
+ c.gizmoDragChanged({value:true});c.gizmoDragChanged({value:false});
+ assert.equal(c.undoHistory.undo.length,steps);assert.equal(written.length,2);
+ c.gizmoDragChanged({value:true});c.groupPivot.position.z+=8;c.gizmoDragChanged({value:false});
+ assert.deepEqual(written.slice(2),['Lamp1','Lamp2']);assert.equal(c.undoHistory.undo.at(-1).label,'Move 2 objects');
+ assert.ok(st);
+});
+test('Check map measures the map, not the view: what Isolate or the Show menu hides still holds what is on it',()=>{
+ const {c,piece}=setup(),hidden=new Set();
+ vm.runInContext(['visibleHits','presentHits','hiddenByView','structureInMap','gapBelow','dropSelected'].map(body).join('\n'),c);
+ Object.assign(c,{airGap,objectHidden:o=>hidden.has(o),objectLocked:()=>false,commit(){},
+  keyOf:o=>o.userData.box?'b:'+o.userData.box.name:o.userData.actor?'a:'+o.userData.actor.name:o.userData.kind==='structure'?'s:'+o.userData.name:null});
+ const floor=new THREE.Mesh(new THREE.BoxGeometry(400,10,400),new THREE.MeshBasicMaterial());floor.userData.world=true;floor.position.y=-105;c.world.add(floor);
+ const table=new THREE.Group();table.userData={kind:'box',box:{name:'UCEditBox0'}};table.add(new THREE.Mesh(new THREE.BoxGeometry(60,10,60),new THREE.MeshBasicMaterial()));c.proxies.add(table);
+ const bottle=c.makeProxy({name:'Bottle1',cls:'WineBottle',kind:'prop',loc:[0,0,20],rot:[0,0,0]},'added');
+ const shape=new THREE.Mesh(new THREE.BoxGeometry(8,20,8),new THREE.MeshBasicMaterial());bottle.add(shape);bottle.userData.body=shape;
+ c.scene.updateMatrixWorld(true);
+ assert.equal(c.gapBelow(bottle),0,'on the table');
+ table.visible=false;hidden.add(table);                            // Isolate, or Blocks hidden in the Show menu
+ assert.equal(c.gapBelow(bottle),0,'on the table still: the view hides it, the map has it');
+ const ignored=new Set([bottle]);
+ assert.ok(Math.abs(c.dropTarget(bottle,ignored).point.y+100)<0.01,'the user\'s own Drop to floor: what is shown');
+ assert.ok(Math.abs(c.dropTarget(bottle,ignored,c.presentHits).point.y-5)<0.01);
+ bottle.position.y=60;c.scene.updateMatrixWorld(true);
+ assert.ok(Math.abs(c.gapBelow(bottle)-45)<0.01,'in the air over the table, not over the floor');
+ c.selected=bottle;c.dropSelected(c.presentHits);                    // Check map's fix
+ c.scene.updateMatrixWorld(true);
+ assert.ok(Math.abs(placementGeometry.bounds(bottle).min.y-5.5)<0.01,'dropped onto the hidden table, not through it');
+ // what is hidden for good is no surface: a deleted structure the Show menu hides too
+ c.proxies.remove(table);
+ const shelf=piece('shelf');shelf.obj.position.set(0,0,0);c.edits.groups.shelf.deleted=true;shelf.obj.visible=false;hidden.add(shelf.obj);
+ c.scene.updateMatrixWorld(true);
+ assert.ok(Math.abs(c.gapBelow(bottle)-105.5)<0.01,'down to the floor');
+});
 test('Duplicate keeps a copy beside its original in its folder, not in the folder new objects go in',()=>{
  const {c}=setup(),light=c.makeProxy({name:'Light28',cls:'Light',kind:'light',loc:[80,90,100],rot:[0,0,0]},'added');c.edits.added.push(light.userData.actor);
  c.edits.nests=[{id:'n1',label:'Room',items:['a:Light28','a:Lamp3']},{id:'n2',label:'Office 2 props',items:[]}];c.edits.defaultFolder='n2';

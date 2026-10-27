@@ -38,6 +38,15 @@ GAME = settings.PROFILE['short']
 STEAM_APP = settings.STEAM_APP
 CMD = SYS / 'UCLive.txt'
 CONSOLE_CMD = SYS / 'UCConsole.txt'
+# a play scenario's loadout (editor/play.py loadout_run): console commands the runner execs once, before the player
+# has the controls; there for a launch of the editor's, gone after it
+LOADOUT = SYS / 'UCLoadout.txt'
+# the game's own ini (Revision.ini): its slomo saves GameSpeed there (GameInfo.SetGameSpeed, then SaveConfig), and the
+# next game would start slow; a launch puts it back once the game is closed. The original game plays on copies of
+# its ini files (PLAY_INI below): nothing to put back there
+GAME_INI = settings.GAME_INI
+_GAMEINFO = re.compile(r'(?ims)^\[Engine\.GameInfo\][^\r\n]*\r?\n.*?(?=^\[|\Z)')
+_SPEED = re.compile(r'(?im)^GameSpeed=([^\r\n]*)\r?\n?')
 SHOTS = PROJECT / 'shots'
 RUNNER = '[%s.UCShotRunner]' % settings.PACKAGE
 MUTATOR = '?Mutator=%s.UCMutator' % settings.PACKAGE
@@ -64,6 +73,17 @@ def session_status():
     return _session().status()
 
 
+FILETIME_1970 = 116444736000000000           # 1 January 1970 as a Windows FILETIME (100 ns steps since 1601)
+
+
+def started_ms(status):
+    """When the game of a session_status started, in milliseconds since 1970 (the Console's Time: the seconds since
+    Play started), from its process's `created`; None while no game of the editor's runs."""
+    if not (status.get('running') and status.get('owned') and status.get('created')):
+        return None
+    return (int(status['created']) - FILETIME_1970) // 10000
+
+
 def running():
     return bool(_session().processes.list())
 
@@ -85,7 +105,7 @@ def _own_saved_state(map_name):
     return path
 
 
-def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='external'):
+def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='external', commands=()):
     snapshot = {}
 
     def prepare():
@@ -95,6 +115,7 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
         previous = _SECTION.search(INI.read_text(encoding='latin1'))
         snapshot['section'] = previous.group(0) if previous else ''
         snapshot['command'] = CMD.read_bytes() if CMD.is_file() else None
+        snapshot['speed'] = _speed_kept()
         snapshot['prepared'] = True
         # a game closed from outside leaves System\Running.ini, and the next start stops on the "Recovery Mode"
         # dialog (the editor's tests got stuck there, 20 Oct 2026): with no game running, it is only a stale mark
@@ -104,6 +125,7 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
             workspace.activate()
         _set_section(runner_lines)
         _set_console(True)
+        _set_loadout(commands)
         STATE.update(seq=0, command_written=False, maps=set())
         if live_mode:
             _write_cmd([])
@@ -136,6 +158,8 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
             raise RuntimeError('Another %s process is running; game settings have been left intact.' % GAME)
         _set_section(snapshot['section'].splitlines() if snapshot['section'] else None)
         _set_console(False)
+        _set_loadout(())
+        _speed_back(snapshot['speed'])
         if STATE['command_written']:
             if snapshot['command'] is None:
                 CMD.unlink(missing_ok=True)
@@ -223,6 +247,53 @@ def _set_console(on):
     STATE['console'] = 0
 
 
+def _set_loadout(commands):
+    """The loadout's file (LOADOUT): its commands, one a line, for a launch; gone without them."""
+    if commands:
+        LOADOUT.write_bytes(('\r\n'.join(commands) + '\r\n').encode('latin1'))
+    else:
+        LOADOUT.unlink(missing_ok=True)
+
+
+def game_speed(text):
+    """The GameSpeed an ini's text has in its [Engine.GameInfo] section, as written, or None."""
+    section = _GAMEINFO.search(text)
+    found = section and _SPEED.search(section.group(0))
+    return found.group(1).strip() if found else None
+
+
+def with_game_speed(text, value):
+    """The ini's text with its GameSpeed line back to `value` (None: without the line); a section without one stays."""
+    section = _GAMEINFO.search(text)
+    if not section or not _SPEED.search(section.group(0)):
+        return text
+    newline = '\r\n' if '\r\n' in section.group(0) else '\n'
+    body = _SPEED.sub(lambda m: '' if value is None else 'GameSpeed=%s%s' % (value, newline), section.group(0), count=1)
+    return text[:section.start()] + body + text[section.end():]
+
+
+def _speed_kept():
+    """(the game's ini's GameSpeed,) before a launch; () when it plays on copies of its ini or the ini is not there."""
+    if PLAY_INI is not None:
+        return ()
+    try:
+        return (game_speed(GAME_INI.read_text(encoding='latin1')),)
+    except OSError:
+        return ()
+
+
+def _speed_back(kept):
+    """After the game closed: GameSpeed as it was before the launch (a slomo left on saved another one); the rest of
+    the ini as the game left it, its line endings too."""
+    if not kept:
+        return
+    text = GAME_INI.read_bytes().decode('latin1')
+    if game_speed(text) != kept[0]:
+        tmp = GAME_INI.with_name(GAME_INI.name + '.deusedix-tmp')
+        tmp.write_bytes(with_game_speed(text, kept[0]).encode('latin1'))
+        os.replace(tmp, GAME_INI)
+
+
 def console(command, timeout=3.0):
     """One line for the game's own console while the editor's Play runs (UCConsoleLink): its answer
     ('' for most commands), or None when the game has not taken it yet (a map loading)."""
@@ -235,10 +306,13 @@ def console(command, timeout=3.0):
     STATE['console'] = n = STATE.get('console', 0) + 1
     tmp = CONSOLE_CMD.with_suffix('.tmp')
     tmp.write_bytes(('set UCConsoleLink Cmd %s\r\nset UCConsoleLink Seq %d\r\n' % (command, n)).encode('latin1', 'replace'))
-    os.replace(tmp, CONSOLE_CMD)
     end = time.time() + timeout
+    _while_busy(lambda: os.replace(tmp, CONSOLE_CMD), end)       # the game may be reading it
     while time.time() < end:
-        m = _CONSOLE_SECTION.search(INI.read_text(encoding='latin1', errors='replace'))
+        try:
+            m = _CONSOLE_SECTION.search(INI.read_text(encoding='latin1', errors='replace'))
+        except OSError:                                          # the game is writing it (SaveConfig)
+            m = None
         if m:
             values = dict(line.split('=', 1) for line in m.group(0).splitlines()[1:] if '=' in line)
             try:
@@ -248,6 +322,18 @@ def console(command, timeout=3.0):
                 pass
         time.sleep(0.1)
     return None
+
+
+def _while_busy(act, end):
+    """act() again while Windows refuses a file the game has open for a moment (it execs the console's command file
+    every 0.25 s), until `end`."""
+    while True:
+        try:
+            return act()
+        except PermissionError:
+            if time.time() >= end:
+                raise
+            time.sleep(0.05)
 
 
 def log_path():
@@ -326,12 +412,16 @@ def start(map_name='06_HongKong_WanChai_Rooftop', setup='', delay=6, start_map='
     return _wait_done(0, timeout).get('LiveResult', '')
 
 
-def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, display_mode='external'):
+def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, display_mode='external', steps=(),
+         commands=()):
     """'Play from here' of the map editor: the game on the installed map, JC at `at` facing yaw/pitch,
     the mission flags of a UCDbg* setup and/or 'Flag=1,Other=0'; then the player has the controls and
-    the runner switches itself off (bActive=False). Returns at once (the game takes ~30 s to start)."""
+    the runner switches itself off (bActive=False). Returns at once (the game takes ~30 s to start).
+    A play scenario's loadout (editor/play.py loadout_run) comes first: its console `commands`, run from LOADOUT by one
+    step, then its runner `steps` (the items in front of where JC will stand)."""
     step = 'go;play;%.1f;%.1f;%.1f;%d;%d' % (at[0], at[1], at[2], int(yaw) % 65536, int(pitch)) if at else 'go;play'
-    shots = (['w;waitmap;%s;90' % map_name] if setup else []) + ['w2;wait;1', step]
+    shots = ((['w;waitmap;%s;90' % map_name] if setup else []) + ['w2;wait;1']
+             + (['ld;console;exec %s' % LOADOUT.name] if commands else []) + list(steps) + [step])
     if setup:
         # a setup jumps to its map: start somewhere else (jumping to the same map reloads its saved state);
         # UNATCO Island -> Wan Chai Street crashed once, so the Street starts from the rooftop
@@ -341,7 +431,7 @@ def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, 
         launch = map_name
     _launch(map_name, [RUNNER, 'bActive=True', 'bLive=False', 'Setup=%s' % setup,
                       'SetupFlags=%s' % flags, 'StartDelay=1'] + ['Shots[%d]=%s' % (i, s) for i, s in enumerate(shots)], launch,
-            display_mode=display_mode)
+            display_mode=display_mode, commands=commands)
     return 'starting %s%s' % (map_name, ' after %s' % setup if setup else '')
 
 

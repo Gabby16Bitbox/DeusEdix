@@ -24,7 +24,7 @@ const SHORT = { save: 'Save', undo: 'Undo', redo: 'Redo', copy: 'Copy', paste: '
   alignview: 'Align with view', movetoview: 'Move to view', snap: 'Grid snap', drop: 'Drop', focus: 'Frame',
   viewtoselected: 'View from it', pilot: 'Pilot', pushgrid: 'Push to grid', gridless: 'Half grid', gridmore: 'Double grid',
   block: 'Block', paths: 'AI paths', light: 'Lighting', faces: 'Faces', vertices: 'Vertices', measure: 'Measure',
-  isolate: 'Isolate', nest: 'Nest', unnest: 'Un-nest', palette: 'Search', help: 'Help',
+  isolate: 'Isolate', nest: 'Nest', unnest: 'Un-nest', palette: 'Search', history: 'History', maximize: 'Maximize', help: 'Help',
   fwd: 'Forward', back: 'Back', left: 'Left', right: 'Right', down: 'Down', up: 'Up', cutkey: 'Add a key', cutplay: 'Play / pause' };
 
 const digits = (mods) => Array.from({ length: 9 }, (_, i) => mods + (i + 1));

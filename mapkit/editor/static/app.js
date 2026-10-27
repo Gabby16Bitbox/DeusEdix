@@ -34,6 +34,9 @@ import { classKeys, valueKeys, baseOf, sameText, shownOf, copySet, rawSet, paste
 import { askChanges, askName, askPresets } from './prop-sets-dialog.js';
 import { createOrthoViews } from './ortho-views.js';
 import { mountPlayStates } from './play-state.js';
+import { STARTS, CHEATS, SKILL_LEVELS, MAX_SCENARIOS, MAX_COUNT, MAX_SKILL_POINTS, MAX_CREDITS, PLAY_CONTROLS, scenarioName, scenarioDraft,
+  readScenarios, scenariosText, withScenario, withoutScenario, chooseScenario, activeScenario, withItem, scenarioProblems, withoutProblems,
+  playOverrides, pressedAtStart, scenarioSummary, loadoutSummary } from './play-scenarios.js';
 import { editorIcon } from './editor-icons.js';
 import { drawText, fontFamilies, fontOptions, importFont } from './text-style.js';
 import { TUTORIAL_SCRIPT, tutorialSession, installTutorialSession, isTemporaryTutorial, clearTutorialViewPreferences } from './tutorial-session.js';
@@ -77,6 +80,11 @@ import { createSearchView } from './search-view.js';
 import { columnKey } from './object-table.js';
 import { createObjectTables } from './object-table-view.js';
 import { createCommandPalette } from './command-palette.js';
+import { createHistory, clearHistory, recordStep, dropStep, renameStep, travelStep, menuLabel, currentName, historyRows, stepsTo,
+  namedStep, propertyName } from './history-names.js';
+import { createHistoryPanel } from './history-panel.js';
+import { INSPECTOR_EVENTS } from './inspector-windows.js';
+import { createInspectorWindows } from './inspector-windows-view.js';
 import { GIZMO_CHOICES, gizmoChoice, nextGizmoChoice, gizmoOption, groupPivotAt, snapSteps, AIM_TILTS, aimRotation } from './gizmo-tools.js';
 import { viewRotation, eyeHeight, sameRotation, turnsPart, planStays, SAME_PLACE, alignPlan, lookThrough } from './view-align.js';
 import { split as splitPoints, intersect as intersectPoints, subtract as subtractPoints } from './brush-ops.js';
@@ -84,6 +92,10 @@ import { mirrorPoint, mirrorBlock, mirrorDrawing, mirrorMotion, faceMirrored } f
 import { carryProps, seatedAt, turnOf, usesOf, misfits, NEEDS } from './replace-class.js';
 import { VIEW_MODES, createViewModes } from './view-modes.js';
 import { createSceneTextures } from './scene-textures.js';
+import { stackedCopies, fallsWhenLoaded, airGap } from './map-check.js';
+import { startTiles, templateNote, openSaveTemplate } from './map-templates.js';
+import { PAGE_STAGES, chipView, waitsForBuild, browserKey, PRESSABLE, isWarning, buildReport } from './build-progress.js';
+import { createBuildChip } from './build-chip.js';
 
 import { withPublishedLayout, exerciseOnly } from './published-layout.js';
 
@@ -91,7 +103,17 @@ import { scriptTag, originalTag, validScriptTag, tagMatches, TAG_VERBS } from '.
 
 installTutorialSession(window);
 
-const $ = (s) => document.querySelector(s);
+// The Inspector at work: null for the Inspector panel, else a Properties window (inspector-windows-view.js) while it
+// draws itself or handles an event. A window repeats the panel's markup, ids too (#px, #pp3...): a lookup looks in the
+// one at work first, and never in another Inspector.
+let inspectorView = null;
+const $ = (s) => (inspectorView ? inspectorView.find(s) : document.querySelector(s));
+// fn run with that Inspector at work (null: the panel), the one before back after it
+function inInspector(view, fn) {
+  const before = inspectorView;
+  inspectorView = view;
+  try { return fn(); } finally { inspectorView = before; }
+}
 const T = (a) => new THREE.Vector3(a[0], a[2], a[1]);          // Unreal -> three
 const UE = (v) => [r1(v.x), r1(v.z), r1(v.y)];                  // three -> Unreal
 const r1 = (x) => Math.round(x * 10) / 10;
@@ -113,7 +135,10 @@ let mapGeneration = 0, lastEditingInput = 0;
 const mapSaveQueue = createSaveQueue();
 let autosave = null;
 let gameView = null;
-let undo = [], dirty = false, selected = null, placing = null, snap = true;
+let buildJob = null;               // the Rebuild running in the background (rebuildMap): the view is look-only meanwhile
+let dirty = false, selected = null, placing = null, snap = true;
+const undoHistory = createHistory();   // Ctrl+Z's steps, each with its name (history-names.js)
+let historyPanel = null;           // Window > History: the steps listed (history-panel.js)
 let vpBar = null;                  // the 3D view's toolbar (viewport-toolbar.js)
 let viewAxes = null, viewNote = null;   // the 3D view's axis widget and its short notes (view-axes.js)
 let orthoViews = null;             // View > Top / Front / Side view (ortho-views.js)
@@ -126,6 +151,7 @@ let showIcons = true;              // the icons of lights, AI paths and logic po
 try { showIcons = localStorage.getItem('deusedix.viewIcons') !== '0'; } catch { /* no storage */ }
 let soundBrowser = null, soundCat = null;
 let inspectorPin = null, inspectorPinBar = null;
+let inspectorWindows = null;           // right click > Properties…: an Inspector of one object each (inspector-windows-view.js)
 let textureTransfer = null, surfaceTexturePreview = null;
 const texturePreviewInfo = new Map(), texturePreviewPending = new Map();
 let structures = {};          // name -> {label, category, pivot, placement, actors, copy_of, obj, ...}
@@ -433,9 +459,12 @@ function busy(text) {
   $('#busytext').textContent = text || '';
 }
 function status(t, cls = '') { $('#status').textContent = t; $('#status').className = cls; }
-function log(lines, cls = '') {
+function log(lines, cls = '') { logRows((Array.isArray(lines) ? lines : [lines]).map((text) => ({ text, cls }))); }
+// Messages, newest first: rows [{ text, cls, check }] (check: a Check map link after the text, as the Build report's
+// warnings have)
+function logRows(rows) {
   const el = $('#log');
-  el.innerHTML = (Array.isArray(lines) ? lines : [lines]).map((l) => `<div class="${cls}">${escapeHtml(l)}</div>`).join('') + el.innerHTML;
+  el.innerHTML = rows.map((r) => `<div class="${r.cls || ''}">${escapeHtml(r.text)}${r.check ? ' <a href="#" data-checkmap>Check map</a>' : ''}</div>`).join('') + el.innerHTML;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
@@ -475,7 +504,7 @@ async function saveWorkspace({ automatic = false, key = autosaveKey() } = {}) {
 }
 
 async function confirmProjectLeave() {
-  if (mapLoading || $('#busy')?.style.display === 'flex') return false;
+  if (mapLoading || $('#busy')?.style.display === 'flex' || waitsForRebuild('switching projects waits')) return false;
   if (gameView?.active && !(await gameView.stop())) return false;
   if (temporaryTutorial()) return true;
   const tools = unsavedProjectTools();
@@ -487,6 +516,7 @@ async function openMap(s) {
   if (!s) { startScreen.openPicker(); return false; }
   if (mapLoading || !mapList.some(m => m.script === s)) return false;
   if (s === script) return true;
+  if (waitsForRebuild('opening another map waits')) { $('#map').value = script || ''; return false; }
   if (gameView?.active && !(await gameView.stop())) return false;
   if (!(await startScreen.confirmLeave())) { $('#map').value = script || ''; return false; }
   const item = mapList.find(m => m.script === s);
@@ -532,7 +562,7 @@ async function clearMap() {
   disposeGroup(pathLines); disposeGroup(routeLines); disposeGroup(multiBoxes);
   world.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   world.clear(); for (const q of proxies.children) disposeEffectPoint(q); disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
-  script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); undo = []; redoStack.length = 0; dirty = false;
+  script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); clearHistory(undoHistory); historyChanged(); dirty = false;
   mapGeneration++;
   publishedLayout = null;
   bakedObjectTags = {};
@@ -587,7 +617,7 @@ async function loadScene(s, resetCamera) {
     builtBoxes = new Map((j.kind === 'script' || !j.kind || j.built ? edits.boxes || [] : []).map((b) => [b.name, boxSig(b)]));
     builtDrawn = new Map((j.kind === 'script' || !j.kind || j.built ? edits.drawn || [] : []).map((p) => [p.name, drawnSig(p)]));
     if (Array.isArray(edits.deleted)) edits.deleted = Object.fromEntries(edits.deleted.map((n) => [n, {}]));
-    undo = []; redoStack.length = 0; dirty = false; selected = null;      // another map's redo would bring its edits here
+    clearHistory(undoHistory); historyChanged(); dirty = false; selected = null;      // another map's redo would bring its edits here
     clearMaterials();
     // the sky colour Sky & time of day gave the background belongs to the map it was made on
     scene.background.set(getComputedStyle(document.documentElement).getPropertyValue('--viewport').trim() || '#0a0d16');
@@ -1216,19 +1246,20 @@ function wireTexSection(p) {
   const file = $('#texfile');
   if (!file) return;
   let pending = null;
-  for (const button of document.querySelectorAll('[data-texdrag]')) textureTransfer?.bind(button, () => {
+  const inspector = $('#details');        // the Inspector drawing them: the panel, or a Properties window
+  for (const button of inspector.querySelectorAll('[data-texdrag]')) textureTransfer?.bind(button, () => {
     const row = rows[+button.dataset.texdrag], override = texOverride(p, row);
     const ref = override?.tex || row.tex, ownName = edits.textures?.[ref] ? ref : shortTex(ref), own = edits.textures?.[ownName];
     return { ref, url: override ? texUrl(ref) : row.png, w: own?.w || row.w, h: own?.h || row.h, requiredLocal: own ? ownName : null };
   });
-  for (const b of document.querySelectorAll('[data-teximp]')) b.onclick = () => { pending = rows[+b.dataset.teximp]; file.value = ''; file.click(); };
-  for (const b of document.querySelectorAll('[data-texedit]')) b.onclick = () => {
+  for (const b of inspector.querySelectorAll('[data-teximp]')) b.onclick = () => { pending = rows[+b.dataset.teximp]; file.value = ''; file.click(); };
+  for (const b of inspector.querySelectorAll('[data-texedit]')) b.onclick = () => {
     const row = rows[+b.dataset.texedit], ov = texOverride(p, row);
     window.__texedit && window.__texedit.open(texContext(p, row, ov ? ov.tex : null));
   };
-  for (const b of document.querySelectorAll('[data-texorig]')) b.onclick = () => {
+  for (const b of inspector.querySelectorAll('[data-texorig]')) b.onclick = () => {
     const ov = texOverride(p, rows[+b.dataset.texorig]);
-    pushUndo();
+    pushUndo(stepOf('Restore the texture of', [p]));
     edits.retexture = (edits.retexture || []).filter((r) => r !== ov);
     setDirty(); rebuildProxies();
   };
@@ -1290,12 +1321,14 @@ function texContext(p, row, current) {
 async function applyTexture(ctx, png, to, document = null) {
   const textureScript = script, textureSessionRevision = tutorialSession.revision;
   if (!textureScript || (ctx.script && ctx.script !== textureScript)) throw new Error('The texture belongs to a map that is no longer open.');
+  refuseWhileBuilding('applying a texture waits');
   const target = ctx.kind === 'actor' ? proxyOf(ctx.target) : structures[ctx.target]?.obj;
   if (target && !requireUnlocked(target)) throw new Error('Unlock this object before changing its texture.');
   const info = await api('/api/texture_import?script=' + encodeURIComponent(script),
     { png, document, base: ctx.orig, world: ctx.kind === 'structure' ? ctx.size : null, existing: Object.keys(edits.textures || {}) });
   if (script !== textureScript || tutorialSession.revision !== textureSessionRevision) throw new Error('The map was closed before its texture could be applied.');
-  pushUndo();
+  refuseWhileBuilding('applying a texture waits');          // a Rebuild started meanwhile: nothing is applied
+  pushUndo(`Apply texture ${info.name}`);
   edits.textures = edits.textures || {};
   edits.textures[info.name] = { pcx: info.pcx, png: info.png, w: info.w, h: info.h, masked: info.masked, scale: info.scale, from: ctx.orig };
   const all = to === 'all';
@@ -1632,6 +1665,7 @@ function keysLocked(keys, own = false) {
 // their kind (they move with it, as in Unity); anything else of a group by their kind's too (keysLocked)
 function selectionLocked(p = selected, own = false) {
   if (!p) return false;
+  if (buildJob && !own) return true;          // a Rebuild runs: all of it waits (the look-only view)
   if (p === groupPivot) return keysLocked(groupKeys(), own);
   if (own ? ownLocked(p) : objectLocked(p)) return true;
   return isStruct(p) && proxies.children.some(m => m.userData.actor && actorStruct[m.userData.actor.name] === p.userData.name && ownLocked(m));
@@ -1653,8 +1687,9 @@ function requireKeysUnlocked(keys) {
   sayLocked(keysLocked(keys, true), stateTargets(keys));
   return false;
 }
-// why an edit is refused: by their own padlock, or by their kind's in the Show menu (named)
+// why an edit is refused: by their own padlock, or by their kind's in the Show menu (named), or a Rebuild running
 function sayLocked(own, list) {
+  if (waitsForRebuild()) return;
   const kinds = own ? '' : kindsIn(list, 'locked');
   status(kinds ? `${kinds}: locked in the Show menu of the 3D view. Unlock them there to edit this.` : 'This selection is locked. Unlock it in the Hierarchy to edit it.', 'warn');
 }
@@ -1676,12 +1711,14 @@ function saveViewState() {
 const isIcon = (p) => ICON_KINDS.includes(p.userData.kind) && !p.userData.model && !!p.userData.body;
 // an icon is drawn while the bulb (every icon) and its kind's icons (the Show menu) are on
 const iconShown = (p) => showIcons && !kindIs(p, 'noIcons');
+// a structure still in the map: not deleted, not taken apart
+function structureInMap(st) { return !poseOf(st).deleted && !st.dissolved; }
 function applyObjectVisibility() {
   for (const p of proxies.children) if (keyOf(p)) {
     p.visible = !objectHidden(p);
     if (isIcon(p)) p.userData.body.visible = iconShown(p);      // hidden icons cannot be clicked: pick them in the Hierarchy
   }
-  for (const st of Object.values(structures)) st.obj.visible = !poseOf(st).deleted && !st.dissolved && !objectHidden(st.obj);
+  for (const st of Object.values(structures)) st.obj.visible = structureInMap(st) && !objectHidden(st.obj);
   if (selected && (selectionLocked() || selectionHidden())) tc.detach();
   if (selected && objectHidden(selected)) { outline.visible = false; lightRange.visible = false; soundRange.visible = false; triggerZone.visible = false; }
   eyeOffCount = sceneObjects().filter(objectEyeOff).length;
@@ -1689,7 +1726,7 @@ function applyObjectVisibility() {
 }
 // what the eye and Isolate work on: the objects, blocks and drawings, and the structures still in the map
 function sceneObjects() {
-  return [...proxies.children.filter(p => keyOf(p)), ...Object.values(structures).filter(st => !poseOf(st).deleted && !st.dissolved).map(st => st.obj)];
+  return [...proxies.children.filter(p => keyOf(p)), ...Object.values(structures).filter(structureInMap).map(st => st.obj)];
 }
 function refreshObjectView() { applyObjectVisibility(); if (selected) select(selected); else buildHierarchy(); }
 function setObjectView(specs, property, value) {
@@ -1760,7 +1797,7 @@ function setGameEnabled(names, enabled) {
   if (!actors.length || actors.some(p => !requireUnlocked(p))) return;
   const changed = actors.filter(p => !!edits.disabled?.[p.userData.actor.name] === enabled);
   if (!changed.length) return;
-  pushUndo();
+  pushUndo(stepOf(enabled ? 'Enable' : 'Disable', changed, 'in game'));
   edits.disabled ||= {};
   for (const p of changed) { const name = p.userData.actor.name; if (enabled) delete edits.disabled[name]; else edits.disabled[name] = true; }
   if (!Object.keys(edits.disabled).length) delete edits.disabled;
@@ -1891,7 +1928,7 @@ function takeOutOf(st, pcs, objs) {    // (the undo is the caller's)
 function takeApart(st) {
   if (!requireUnlocked(st.obj)) return;
   if (!canTakeApart(st)) return;
-  pushUndo();
+  pushUndo(`Take apart ${st.label}`);
   const pcs = piecesInside(st), objs = objectsInside(st).filter((a) => !pcs.some((pc) => (pc.actors || []).includes(a)));
   takeOutOf(st, pcs, objs);
   const notes = new Map(), loose = [];
@@ -2055,7 +2092,7 @@ function nestKeys(keys) {
   if (!requireKeysUnlocked(keys)) return;
   if (!keys.length) { status('Select what to nest first: Ctrl+click several things (here or in the Hierarchy), or Ctrl+drag a rectangle.', 'warn'); return; }
   const poses = captureHierarchyActors(keys);
-  pushUndo();
+  pushUndo(namedStep('Nest', keys.map((k) => keyLabel(k)[0])));
   // one parent each: what was inside a structure of the map comes out of it first
   for (const k of keys) {
     const st = k.startsWith('a:') && structures[actorStruct[k.slice(2)]];
@@ -2076,7 +2113,7 @@ function unnestNest(id) {
   if (!n) return;
   if (!requireKeysUnlocked(['n:' + id])) return;
   const poses = captureHierarchyActors(['n:' + id]);
-  pushUndo();
+  pushUndo(`Un-nest ${n.label}`);
   const up = parentNest('n:' + id);
   if (up) up.items.splice(up.items.indexOf('n:' + id), 1, ...n.items);
   edits.nests = nests().filter((x) => x !== n);
@@ -2178,7 +2215,7 @@ function moveTo(spec, target) {
   if (plan.reason) { status(plan.reason, 'warn'); return; }
   if (plan.unchanged) return;
   const { key: k, st, pc, from, to } = plan, poses = captureHierarchyActors([spec]);
-  pushUndo();
+  pushUndo(namedStep('Move', [keyLabel(spec)[0]], 'in the Hierarchy'));
   if (st) takeOutOf(st, pc ? [pc] : [], pc ? [] : [spec.slice(2)]);
   if (from) from.items = from.items.filter((x) => x !== k);
   if (to && !to.items.includes(k)) to.items.push(k);
@@ -2198,7 +2235,7 @@ function moveManyTo(keys, target) {
   const todo = plans.filter(([, p]) => !p.unchanged);
   if (!todo.length) return;
   const poses = captureHierarchyActors(todo.map(([k]) => k)), to = target ? nestById(target) : null, moved = [];
-  pushUndo();
+  pushUndo(namedStep('Move', todo.map(([k]) => keyLabel(k)[0]), 'in the Hierarchy'));
   for (const [spec, { key: k, st, pc }] of todo) {
     if (st) takeOutOf(st, pc ? [pc] : [], pc ? [] : [spec.slice(2)]);
     const from = parentNest(k);
@@ -2336,6 +2373,8 @@ function menuFor(spec, surface = null) {
       for (const row of texList) items.push({ label: `Edit texture ${shortTex(texOverride(o, row)?.tex || row.tex)}…`, off: locked, run: editTex(row) });
     else if (texList.length) items.push({ label: 'Edit textures…', run: () => focusInspector(spec, '[data-inspector-section="textures"]') });
     if (a) items.push({ label: 'Interactions…', run: () => focusInspector(spec, '#lkwhen, #lkconnect') });
+    // as Unity's: a floating Inspector of this one object, that stays on it while others are selected (at most 3)
+    if (o && keyOf(o)) items.push({ label: 'Properties…', run: () => openProperties(o) });
     if (items.length) items.push({ sep: true });
   }
   const actOnSelection = (fn) => () => { if (!several) specSelect(spec); return fn(); };
@@ -2495,7 +2534,7 @@ function menuFor(spec, surface = null) {
     dragSpec = null; dragKeys = []; hierarchyDragging = false; outZone.hidden = true;
     if (plan.reason) { status(plan.reason, 'warn'); buildHierarchy(); return; }
     if (plan.unchanged && !plan.place) { buildHierarchy(); return; }
-    if (plan.place && !plan.moveNeeded) pushUndo();          // only the order changes (a move pushes its own undo)
+    if (plan.place && !plan.moveNeeded) pushUndo(namedStep('Reorder', keys.map((k) => keyLabel(k)[0])));   // only the order changes (a move pushes its own undo)
     if (!plan.place || plan.moveNeeded) moveManyTo(keys, plan.targetId);
     if (plan.place) {
       const { order, nestId } = plan.place;
@@ -2954,11 +2993,14 @@ async function signCanvas(sign, tw, th) {
 }
 // the picture of a sign's text, imported as a texture of the map (the previous one is dropped)
 async function updateSignTexture(b) {
+  refuseWhileBuilding('the sign\'s picture waits');
   const [w, h] = signSize(b);
   const tw = 512, th = Math.max(64, Math.min(512, 2 ** Math.round(Math.log2(512 * h / Math.max(1, w)))));
   const png = (await signCanvas(b.sign, tw, th)).toDataURL('image/png');
+  refuseWhileBuilding('the sign\'s picture waits');         // a Rebuild started while it was drawn: nothing is asked
   const info = await api('/api/texture_import?script=' + encodeURIComponent(script),
     { png, base: 'Sign', world: null, existing: Object.keys(edits.textures || {}) });
+  refuseWhileBuilding('the sign\'s picture waits');         // a Rebuild started meanwhile: the sign keeps its picture
   edits.textures = edits.textures || {};
   const old = b.sign.tex;
   if (old && old !== info.name && !edits.boxes.some((x) => x !== b && x.sign && x.sign.tex === old)) delete edits.textures[old];
@@ -3045,10 +3087,10 @@ const drawTools = createDrawTools({ THREE, T, scene, getEdits: () => edits, stat
   dress: (g) => dressDrawn(g) });
 // Map > Sky & time of day (sky-tool.js; the sky box by editor/zones.py)
 const skyTool = createSkyTool({ THREE, scene, getEdits: () => edits, getScript: () => script, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName,
-  warnHiddenKinds, proxyOf });
+  warnHiddenKinds, proxyOf, refuseWhileBuilding });
 // Pose here: a character posed against the map where it stands (map-pose.js)
 const mapPose = createMapPose({ THREE, scene, camera, canvas, world, proxies, mouseRay, visibleHits, wake, api, edits: () => edits, pushUndo, setDirty,
-  status, log, animsOf, animFrames, animatedModel, fitAnimated, meshOf, stopPreview, select, animsChanged, UE, commit });
+  status, log, animsOf, animFrames, animatedModel, fitAnimated, meshOf, stopPreview, select, animsChanged, UE, commit, refuseWhileBuilding });
 const surfaceTools = createSurfaceTools({ THREE, getEdits: () => edits, pushUndo, setDirty,
   deselect: () => select(null), status, log, escapeHtml,
   textures: () => [...Object.keys(mapTex), ...Object.keys(edits.textures || {}), ...texturePreviewInfo.keys()],
@@ -3123,7 +3165,7 @@ textureTransfer = createTextureTransfer({ canvas,
       const g = target.drawn, p = g.userData.drawn, tex = shortTex(texture.ref);
       if (!isCurrent() || g.parent !== proxies) throw new Error('The map changed before this texture could be applied.');
       if (!requireUnlocked(g)) throw new Error('Unlock this drawing first.');
-      pushUndo();
+      pushUndo(`Apply texture ${tex}`);
       if (tex === DRAW_DEFAULTS[p.kind][target.setting]) delete p[target.setting]; else p[target.setting] = tex;
       setDirty();
       drawTools.refresh(g);
@@ -3134,7 +3176,7 @@ textureTransfer = createTextureTransfer({ canvas,
       const p = target.block, b = p.userData.box;
       if (!isCurrent() || p.parent !== proxies) throw new Error('The map changed before this texture could be applied.');
       if (!requireUnlocked(p)) throw new Error('Unlock this block first.');
-      pushUndo();
+      pushUndo(`Apply texture ${shortTex(texture.ref)}`);
       b.tex = lastBlockTex = shortTex(texture.ref);
       setDirty();
       dressBlock(p);
@@ -3168,6 +3210,18 @@ function mouseRay(e) {
 }
 function visibleHits(hits, pickable = false) {
   return hits.filter((h) => { let o = h.object; while (o) { if (!o.visible || (pickable && keyOf(o) && objectLocked(o))) return false; o = o.parent; } return true; });
+}
+// what snapping lands on: what is shown and not locked
+const pickableHits = (hits) => visibleHits(hits, true);
+// Hits on what is in the map, shown in the 3D view or not (Isolate, the Show menu, an eye), as Check map measures it;
+// what is hidden for good (a deleted structure, a part of a model not drawn) is still left out
+function presentHits(hits) {
+  return hits.filter((h) => { for (let o = h.object; o; o = o.parent) if (!o.visible && !hiddenByView(o)) return false; return true; });
+}
+// an object of the map that only the 3D view hides
+function hiddenByView(o) {
+  const st = o.userData.kind === 'structure' ? structures[o.userData.name] : null;
+  return !!keyOf(o) && objectHidden(o) && (!st || structureInMap(st));
 }
 function pick(e) {
   if (measure?.active) return void measure.click(e);            // Measure: a click is a point
@@ -3420,9 +3474,28 @@ let scaleStart = null;                  // scale of an object when the drag bega
 // turns the object inside out past it.
 let evenScale = null;
 let altCopyUndo = false;
+let transformStep = null;             // the drag going on: where what it holds was (pose), the Alt copy's own step name (copied)
+// what a gizmo tool did, as a step names it (a drag in a Top, Front or Side view moves)
+const TOOL_VERBS = { translate: 'Move', rotate: 'Rotate', scale: 'Scale' };
+// where what the gizmo holds is, turned and sized as it is: the same when the drag ends, it moved nothing
+const gizmoPose = () => (selected ? [selected.position, selected.quaternion, selected.scale].flatMap((v) => v.toArray()) : []);
+// a drag begins: one step, named after the tool and what it holds ("Move 3 objects"); after an Alt copy, the copy's
+// step takes the drag in ("Duplicate and move 3 objects")
 function beginTransformUndo() {
-  if (!altCopyUndo) pushUndo();
+  const verb = tc.dragging ? TOOL_VERBS[tc.mode] : 'Move', list = selected === groupPivot ? members() : [selected];
+  transformStep = { pose: gizmoPose(), copied: altCopyUndo ? currentName(undoHistory) : null };
+  if (altCopyUndo) { renameStep(undoHistory, stepOf(`Duplicate and ${verb.toLowerCase()}`, list)); historyChanged(); }
+  else pushUndo(stepOf(verb, list));
   altCopyUndo = false;
+}
+// a drag let go: true when it moved something. A click on the gizmo that moved nothing takes its step back (an Alt
+// copy's step is named as it was): the History and Redo stay as they were, and nothing is written
+function endTransformUndo() {
+  const s = transformStep;
+  transformStep = null;
+  if (!s || gizmoPose().some((v, i) => Math.abs(v - s.pose[i]) > 1e-6)) return true;
+  if (s.copied) { renameStep(undoHistory, s.copied); historyChanged(); } else dropUndo();
+  return false;
 }
 canvas.addEventListener('pointerdown', (e) => {          // before the gizmo's own (capture)
   evenScale = null;
@@ -3496,16 +3569,18 @@ function followGroupMove(state) {
     if (g.st) followStructure(g.st);
   }
 }
-tc.addEventListener('dragging-changed', (e) => {
+// a drag of the gizmo (or in a Top, Front or Side view) begins (e.value) or is let go: what it moved is written then; a
+// click that moved nothing writes nothing (endTransformUndo)
+function gizmoDragChanged(e) {
   localMoveFrom = e.value && tc.dragging && tc.object ? { pos: tc.object.position.clone(), quat: tc.object.quaternion.clone() } : null;
   if (selected === groupPivot) {            // several objects: each one written when the drag ends
     if (e.value) {
       beginTransformUndo();
       groupStart = beginGroupMove();
     } else {
-      const sts = groupStart ? groupStart.m.filter((g) => g.st) : [];
-      for (const g of groupStart ? groupStart.m : []) { if (g.st) commitStructure(g.st, true); else commit(g.m); }
-      if (sts.length) setDirty();
+      const written = endTransformUndo() && groupStart ? groupStart.m : [];
+      for (const g of written) { if (g.st) commitStructure(g.st, true); else commit(g.m); }
+      if (written.some((g) => g.st)) setDirty();
       groupStart = null; evenScale = null; showDetails();
     }
     return;
@@ -3513,10 +3588,13 @@ tc.addEventListener('dragging-changed', (e) => {
   if (e.value) { beginTransformUndo(); if (isStruct(selected)) beginStructMove(); scaleStart = selected ? selected.scale.clone() : null; }
   else {
     evenScale = null;
+    const moved = endTransformUndo();
     if (selected && selected.userData.folded) unfoldTilt(selected);
-    commit(selected);
+    if (moved) commit(selected);
+    else moveStart = null;                  // a structure's drag that moved nothing ends here too
   }
-});
+}
+tc.addEventListener('dragging-changed', gizmoDragChanged);
 tc.addEventListener('objectChange', () => {
   evenScaleNow();
   stepLocalMove();
@@ -3619,7 +3697,7 @@ function cornersUnder(at, ignored) {
   scene.updateMatrixWorld(true);
   const out = [];
   for (const [dx, dy] of ringAround()) {
-    const h = solidAlong(mouseRay({ clientX: at[0] + dx, clientY: at[1] + dy }), ignored, true), pos = h?.object.geometry.getAttribute('position');
+    const h = solidAlong(mouseRay({ clientX: at[0] + dx, clientY: at[1] + dy }), ignored, pickableHits), pos = h?.object.geometry.getAttribute('position');
     if (pos) for (const i of [h.face.a, h.face.b, h.face.c]) out.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(h.object.matrixWorld));
   }
   return out;
@@ -3654,7 +3732,7 @@ function slideOver(o) {
   moving.parts = moving.parts || selectionParts();
   const list = moving.parts.list, r = mouseRay({ clientX: dragPointer[0], clientY: dragPointer[1] }), dir = r.ray.direction.clone();
   scene.updateMatrixWorld(true);
-  const hit = solidAlong(r, moving.parts.ignored, true);
+  const hit = solidAlong(r, moving.parts.ignored, pickableHits);
   if (!hit) return;
   const n = facingNormal(hit, dir), at = hit.point.clone();
   if (gridSnap()) at.fromArray(surfaceOnGrid(at.toArray(), n.toArray(), SNAP.move));
@@ -3692,7 +3770,7 @@ function pushToGrid() {
   if (!requireUnlocked()) return;
   const moves = selectionParts().list.map((p) => [p, pushMove(gridAnchor(p), SNAP.move, !!p.userData.actor)]).filter(([, d]) => d);
   if (!moves.length) { status(selected ? `Already on the grid (${SNAP.move} units).` : 'Select something to push onto the grid.', selected ? 'ok' : 'warn'); return; }
-  pushUndo();
+  pushUndo(stepOf('Push', moves.map(([p]) => p), 'to the grid'));
   const keep = selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
   for (const [p, d] of moves) {
     const ms = isStruct(p) ? beginStructMove(p) : null, from = p.position.clone();
@@ -3727,23 +3805,57 @@ function setViewGrid(on) {
 }
 
 // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): each change is one state (applying a texture from the Texture Editor too:
-// Ctrl+Z takes it away, Ctrl+Y puts it back; Gabby, 17 Oct 2026)
-const redoStack = [];
-function pushUndo(state = JSON.stringify(edits)) {      // state: the edits as a change found them (a drag keeps them)
-  undo.push(state);
-  if (undo.length > 100) undo.shift();
-  redoStack.length = 0;
+// Ctrl+Z takes it away, Ctrl+Y puts it back; Gabby, 17 Oct 2026), with a short name, as Unity's: Edit > Undo says the
+// step it takes, the status what was undone, Window > History lists them (history-names.js). The steps are the open
+// map's: a reload, or a Rebuild (it loads the map again), starts with none (the edits themselves are saved and autosaved)
+function pushUndo(label = '', state = JSON.stringify(edits)) {   // label: the change's name ("Move 3 objects");
+  if (buildJob) return;                                         // (none while a Rebuild runs: setDirty takes it back)
+  recordStep(undoHistory, state, label);                        // state: the edits as it found them (a drag keeps them)
+  historyChanged();
+}
+// the last step taken back unused (a drag let go where it began, a pool with no floor): its name goes with it, and Redo
+// is as it was (history-names.js dropStep)
+function dropUndo() {
+  if (buildJob) return;                // pushUndo kept none while a Rebuild runs
+  dropStep(undoHistory);
+  historyChanged();
 }
 function afterHistory() { rebuildProxies(); setDirty(); showDetails(); if (logicBox.style.display === 'block') renderLogic(); }
-function undoStep() {
-  if (!undo.length) return false;
-  redoStack.push(JSON.stringify(edits)); edits = JSON.parse(undo.pop()); afterHistory();
+// one step back ('undo') or forward ('redo') in the edits, nothing drawn yet: the step taken, or null
+function travel(way) {
+  const step = travelStep(undoHistory, way, JSON.stringify(edits));
+  if (step) edits = JSON.parse(step.state);
+  return step;
+}
+// Ctrl+Z and Ctrl+Y (and Edit's Undo and Redo): one step, drawn, and the status says which
+function historyStep(way) {
+  if (waitsForRebuild()) return false;
+  const step = travel(way);
+  if (!step) { status(way === 'undo' ? 'Nothing to undo.' : 'Nothing to redo.'); return false; }
+  afterHistory(); historyChanged();
+  status(`${way === 'undo' ? 'Undone' : 'Redone'}: ${step.label}`);
   return true;
 }
-function redoStep() {
-  if (!redoStack.length) return false;
-  undo.push(JSON.stringify(edits)); edits = JSON.parse(redoStack.pop()); afterHistory();
-  return true;
+function undoStep() { return historyStep('undo'); }
+function redoStep() { return historyStep('redo'); }
+// A click in the History panel: undone (or redone) until the map is at that step (at: the steps from now), drawn
+// once. Not while the game is played, a drag goes on or a pose is being made (Ctrl+Z is the pose's own then)
+function jumpHistory(at) {
+  if (!script || gameView?.active || tc.dragging || inspectorDrag || propertySlider || waitsForRebuild()) return;
+  if (mapPose.active) { status('Finish the pose first: while posing, Ctrl+Z and Ctrl+Y are the pose\'s own.', 'warn'); return; }
+  const { way, count } = stepsTo(at);
+  let n = 0;
+  while (n < count && travel(way)) n++;
+  if (!n) return;
+  afterHistory(); historyChanged();
+  status(`${n} ${n === 1 ? 'step' : 'steps'} ${way === 'undo' ? 'undone' : 'redone'}: the map is at "${currentName(undoHistory)}".`);
+}
+// the History panel again after any change of the steps (drawn in the next frame: once for many)
+function historyChanged() { historyPanel?.refresh(); }
+historyPanel = $('#history') && createHistoryPanel({ root: $('#history'), rows: () => historyRows(undoHistory), jump: jumpHistory });
+// a step's name for what a change does to these things (proxies): "Move Light4", "Move 3 objects"; tail after them
+function stepOf(verb, list, tail = '') {
+  return namedStep(verb, list.map((p) => objectLabel(p)[0]), tail);
 }
 
 // write the proxy's current transform into the edits
@@ -3790,12 +3902,14 @@ function commit(p) {
   showDetails();
 }
 
-// (a folder deleted or un-nested takes "New objects go here" with it: hierarchy-folders.js)
-function setDirty() { forgetGoneDefault(edits); editRevision++; dirty = true; showChanges(); buildStructList(); buildHierarchy(); status(`${mapName}: unsaved changes`, 'warn'); }
+// (a folder deleted or un-nested takes "New objects go here" with it: hierarchy-folders.js); a change while a Rebuild
+// runs is taken back at once (keepBuiltEdits)
+function setDirty() { if (buildJob) return keepBuiltEdits(); forgetGoneDefault(edits); editRevision++; dirty = true; showChanges(); buildStructList(); buildHierarchy(); status(`${mapName}: unsaved changes`, 'warn'); }
 
-function dropSelected() {
+// among: which hits count (Check map's fix: presentHits, what the 3D view hides too)
+function dropSelected(among = visibleHits) {
   if (!requireUnlocked()) return;
-  placeOnSurfaces('drop');
+  placeOnSurfaces('drop', among);
 }
 // what a command on the selection moves (list: a structure's own objects go with it, not on their own) and what the
 // rays of a placement leave out (ignored: the selection and the objects its structures carry)
@@ -3807,12 +3921,12 @@ function selectionParts() {
   for (const p of proxies.children) if (isCarried(p)) ignored.add(p);
   return { list: all.filter(p => !isCarried(p)), ignored };
 }
-function placeOnSurfaces(mode) {
+function placeOnSurfaces(mode, among = visibleHits) {
   const many = selected === groupPivot, { list, ignored } = selectionParts();
   const found = list.filter(p => !memberLocked(p))
-    .map(p => [p, mode === 'stick' ? stickTarget(p, ignored) : dropTarget(p, ignored)]).filter(([, hit]) => hit);
+    .map(p => [p, mode === 'stick' ? stickTarget(p, ignored) : dropTarget(p, ignored, among)]).filter(([, hit]) => hit);
   if (!found.length) { log(`${placeModeLabel(mode)}: no reachable surface for this selection.`, 'warn'); return; }
-  pushUndo();
+  pushUndo(mode === 'stick' ? stepOf('Stick', found.map(([p]) => p), 'to a surface') : stepOf('Drop', found.map(([p]) => p), 'to the floor'));
   const keep = many ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
   for (const [p, hit] of found) {
     const ms = isStruct(p) ? beginStructMove(p) : null;
@@ -3825,17 +3939,18 @@ function placeOnSurfaces(mode) {
   if (keep) selectKeys(keep.keys, keep.nest);
   log(`${found.length} item${found.length === 1 ? '' : 's'} ${mode === 'stick' ? 'stuck to the surface' : 'dropped to the floor'}.${found.length < list.length ? ' Some items had no reachable surface or are locked.' : ''} Ctrl+Z undoes.`, 'ok');
 }
-function surfaceHit(from, dir, ignored, far) {
+function surfaceHit(from, dir, ignored, far, among = visibleHits) {
   scene.updateMatrixWorld(true);
   ray.set(from, dir.clone().normalize()); ray.far = far;
   ray.camera = camera;                     // the icons (sprites) it meets face this camera: three.js needs it to hit them
-  try { return solidAlong(ray, ignored); } finally { ray.far = Infinity; }
+  try { return solidAlong(ray, ignored, among); } finally { ray.far = Infinity; }
 }
 // the first thing a ray meets that objects rest on: the map, a structure, a model, a block or a drawing (not what is
-// in `ignored`, nor an icon; pickable: nor what is locked, as snapping has it); the scene's matrices up to date
-function solidAlong(r, ignored, pickable = false) {
+// in `ignored`, nor an icon); among: which hits count, what is shown (visibleHits), pickableHits for snapping (not
+// what is locked), presentHits for Check map (what the view hides too); the scene's matrices up to date
+function solidAlong(r, ignored, among = visibleHits) {
   const hits = r.intersectObjects([...world.children, ...proxies.children], true);
-  return visibleHits(hits, pickable).find(h => h.distance > 0.05 && h.face && !placementGeometry.belongs(h.object, ignored)
+  return among(hits).find(h => h.distance > 0.05 && h.face && !placementGeometry.belongs(h.object, ignored)
     && !h.object.isSprite && (h.object.userData.world || structureOf(h.object) || h.object.parent?.userData.model === h.object
       || placementGeometry.belongs(h.object, new Set(proxies.children.filter(p => p.userData.model || p.userData.box || p.userData.drawn)))));
 }
@@ -3844,10 +3959,10 @@ function facingNormal(hit, dir) {
   const n = hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld));
   return n.dot(dir) > 0 ? n.negate() : n;
 }
-function dropTarget(p, ignored) {
+function dropTarget(p, ignored, among = visibleHits) {
   const box = placementGeometry.bounds(p), from = box.isEmpty() ? p.position.clone() : box.getCenter(new THREE.Vector3());
   if (!box.isEmpty()) from.y = box.min.y + 1;
-  const hit = surfaceHit(from, new THREE.Vector3(0, -1, 0), ignored, 5000);
+  const hit = surfaceHit(from, new THREE.Vector3(0, -1, 0), ignored, 5000, among);
   return hit ? { point: hit.point.clone(), n: new THREE.Vector3(0, 1, 0) } : null;
 }
 // ---- Drop to floor / Stick to surface: the Drop button's menu (and the right-click and Edit menus) chooses
@@ -4062,7 +4177,7 @@ async function aimSelectionAt(point) {
     .map(([p, now]) => [p, now, aimRotation(UE(p.position), to, now, !AIM_TILTS.has(aimKind(p.userData.actor)))])
     .filter(([, now, rot]) => rot && rot.some((v, i) => v !== now[i]));
   if (!turns.length) { status('Nothing to turn: it already looks there, or the point is straight above it.'); return; }
-  pushUndo();
+  pushUndo(stepOf('Aim', turns.map(([p]) => p)));
   for (const [p, , rot] of turns) { setObjectRotation(p, rot); commit(p); }
   if (selected === groupPivot) placeGroupPivot();               // Local: the gizmo follows the last one
   const kept = (selected === groupPivot ? members() : [selected]).length - list.length;
@@ -4141,7 +4256,7 @@ async function alignWithView() {
   if (!v) return;
   const plan = viewPlan(v);
   if (planStays(v.parts, plan)) { status(`${viewLabel(v)}: already where the view looks from, nothing changed.`); return; }
-  pushUndo();
+  pushUndo(stepOf('Align', v.parts.map((x) => x.p), 'with the view'));
   placeParts(v.parts, plan);
   writeParts(v.parts, v.keep);
   status(`${viewLabel(v)}: where the view looks from${v.eye ? ', the eyes at the camera' : ''}, turned its way. Ctrl+Z undoes.`, 'ok');
@@ -4163,7 +4278,7 @@ function moveToView() {
   const label = list.length === 1 ? objectLabel(list[0])[0] : `${list.length} objects`;
   if (shift.length() < SAME_PLACE) { status(`${label}: already where the view looks, nothing changed.`); return; }
   const parts = list.map(partNow), keep = selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
-  pushUndo();
+  pushUndo(stepOf('Move', list, 'to the view'));
   placeParts(parts, parts.map((part) => ({ at: UE(part.from.clone().add(shift)), rot: part.rot })));
   writeParts(parts, keep);
   status(`${label} moved to the view${hit ? '' : ` (nothing within ${VIEW_REACH} units there: in the air ahead)`}. Ctrl+Z undoes.`, 'ok');
@@ -4214,7 +4329,7 @@ function endPilot() {
   tc.visible = !!tc.object;            // drawn again on what it is attached to: nothing for an empty or a locked selection
   if (!alive) status('Pilot ended: what it flew is no longer there (deleted, Ctrl+Z, another map), nothing written.', 'warn');
   else if (viewMoved(v.start)) {
-    pushUndo();
+    pushUndo(stepOf('Pilot', v.parts.map((x) => x.p)));
     placeParts(v.parts, viewPlan(v));
     writeParts(v.parts, selected === v.selected ? v.keep : null);
     status(`${viewLabel(v)}: where the view was. Ctrl+Z undoes.`, 'ok');
@@ -4295,7 +4410,7 @@ function deleteSelected() {
     if (sts.some((st) => st.gameplay) && !confirm('Some of these structures contain objects the mission uses (doors, characters, named objects). Delete them anyway?')) return;
     if (!confirmMoverDeletion(ms, sts.length > 0)) return;
     if (anim && ms.includes(anim.p)) closeAnim();
-    pushUndo();
+    pushUndo(stepOf('Delete', ms));
     const gone = ms.map(keyOf);
     for (const m of ms) { if (isStruct(m)) removeStructure(structures[m.userData.name]); else removeOne(m); }
     if (nest) gone.push('n:' + nest, ...nestsWithin(nest).map((id) => 'n:' + id));     // a nest goes with what it held
@@ -4312,7 +4427,7 @@ function deleteSelected() {
   if (d.kind === 'structure') {
     const st = structures[d.name];
     if (st.gameplay && !confirm(`"${st.label}" contains objects the mission uses (doors, characters, named objects). Delete it anyway?`)) return;
-    pushUndo();
+    pushUndo(stepOf('Delete', [p]));
     removeStructure(st);
     forgetKeys(['s:' + st.name]);
     tc.detach(); select(null);
@@ -4320,7 +4435,7 @@ function deleteSelected() {
     return;
   }
   if (anim && anim.p === p) closeAnim();
-  pushUndo();
+  pushUndo(stepOf('Delete', [p]));
   forgetKeys([keyOf(p)]);
   removeOne(p);                         // the mover's real geometry belongs to this proxy, not the walls
   tc.detach(); selected = null;
@@ -4336,7 +4451,7 @@ function removeStructure(st) {             // a structure out of the map (the un
 function restoreStructure(name) {
   const st = structures[name];
   if (!st || st.copy_of) return;
-  pushUndo();
+  pushUndo(`Restore ${st.label}`);
   const e = edits.groups[name];
   if (e && e.deleted) { delete e.deleted; if (!(e.offset || []).some((v) => v) && !e.yaw) delete edits.groups[name]; }
   else {           // back where the script puts it, with its objects
@@ -4443,7 +4558,7 @@ function duplicateSelected({offset = 48} = {}) {
   }
   if (!list.length) return false;
   const nest = selected === groupPivot && groupPivot.userData.nest, news = [];
-  pushUndo();
+  pushUndo(stepOf('Duplicate', list));
   for (const m of list) news.push(isStruct(m) ? 's:' + dupStructure(structures[m.userData.name], offset) : keyOf(dupOne(m, offset)));
   let n = null;
   if (nest) {
@@ -4627,7 +4742,7 @@ async function pasteClipboard() {
   const count = clipboardPastes?.identity === identity ? clipboardPastes.count + 1 : 1;
   const delta = clipboardPasteDelta(clip, count);
   const news = [];
-  pushUndo();
+  pushUndo(namedStep('Paste', clip.items.map((it) => it.label || it.entry?.label || it.cls || it.drawn?.kind || 'block')));
   for (const original of clip.items) {
     const it = clipClone(original), at = add3(it.loc, delta);
     if (it.kind === 'prefab-entry') {
@@ -4671,7 +4786,7 @@ async function pasteClipboard() {
 function pasteLegacyClipboard() {
   const clip = clipboard();
   if (!clip) { status('Nothing to paste: select something and press Ctrl+C (in this or another map).', 'warn'); return; }
-  pushUndo();
+  pushUndo('Paste');
   const c = UE(pastePoint());
   if (clip.kind === 'group') {               // several: the group's bottom on the point, each in its place
     const half = (it) => it.clip.kind === 'box' ? (it.clip.box.hi[2] - it.clip.box.lo[2]) / 2 : (it.clip.height || 16);
@@ -4745,18 +4860,21 @@ async function copyAsT3D() {
   } catch (e) { status('Copy as T3D failed: ' + e.message, 'warn'); } finally { busy(''); }
 }
 async function pasteT3D(text) {
-  if (!script || gameView?.active) return;
+  if (!script || gameView?.active || waitsForRebuild('pasting waits')) return;
   if (text === undefined) {
     try { text = await navigator.clipboard.readText(); }
     catch (e) { status('Paste T3D: the clipboard cannot be read from the menu here; press Ctrl+V instead.', 'warn'); return; }
+    if (waitsForRebuild('pasting waits')) return;            // a Rebuild started while the clipboard was read
   }
   let got;
   try { got = await api('/api/t3d_import', { text }); } catch (e) { status('Paste T3D: ' + e.message, 'warn'); return; }
+  // a Rebuild started meanwhile, or the map being opened again after one: nothing is pasted
+  try { refuseWhileBuilding('pasting waits'); } catch (e) { status(e.message, 'warn'); return; }
   const left = [...got.skipped, ...got.notes];
   if (left.length) log(left.map((s) => 'Paste T3D: ' + s), 'warn');
   if (!got.boxes.length && !got.added.length) { status('Nothing pasted from the T3D (see Messages).', 'warn'); return; }
   const news = [];
-  pushUndo();
+  pushUndo('Paste T3D');
   for (const b of got.boxes) { b.name = nextName('UCEditBox'); edits.boxes.push(b); news.push('b:' + b.name); }
   for (const a of got.added) {
     const e = { name: nextName('UCEdit'), cls: a.cls, loc: a.loc, rot: a.rot, props: a.props, kind: addedKind(a.cls),
@@ -4806,40 +4924,228 @@ function playStart() {
   const pitch = Math.max(-12000, Math.min(12000, Math.round(cam.pitch * 32768 / Math.PI)));
   return { at: UE(p), yaw, pitch, floor: !!hit };
 }
+// Play scenarios, as Unity's Play mode scenarios: named ways to start Play kept in the project, where JC starts
+// and what he carries (play-scenarios.js). Play starts with the one chosen in the list next to it; the Play window
+// (Play settings...) makes, changes and deletes them.
+const scenariosKey = () => projectStorageKey('playScenarios', projectContext);
+const EDIT_SCENARIOS = ' edit';              // the list's last entry (a name is trimmed: none starts with a space)
+function playScenarios() { try { return readScenarios(localStorage.getItem(scenariosKey())); } catch { return readScenarios(null); } }
+function keepScenarios(state) {
+  try { if (state.list.length) localStorage.setItem(scenariosKey(), scenariosText(state)); else localStorage.removeItem(scenariosKey()); }
+  catch (e) { status('The play scenarios could not be kept: ' + e.message, 'bad'); return false; }
+  showScenarioPick();
+  return true;
+}
+// what a scenario may name here, for the check before Play: the game's and the mod's items, augmentations and skills
+// (play_info's loadout; an older server has none: the items the Properties of any class bring, the rest not checked),
+// this map's mission presets and its name
+async function playKnown(info) {
+  if (!info.loadout) await classFields('PlayerStart');
+  return { items: info.loadout?.items || (propItems.length ? propItems : null), augs: info.loadout?.augs || null,
+    skills: info.loadout?.skills || null, setups: info.setups, map: mapName };
+}
+// Play (the button, the menus): with the scenario chosen next to Play; none chosen, from the camera as always
+async function startPlay(mode = 'embedded') {
+  const s = !temporaryTutorial() && activeScenario(playScenarios());
+  if (!s || !script || gameView?.active) return gameView?.start(mode);
+  let info;
+  try { info = await api('/api/play_info?script=' + encodeURIComponent(script)); } catch (e) { log(e.message, 'bad'); return false; }
+  return playScenario(mode, s, info);
+}
+// a scenario played: what it names that is not here is left out first and said in Messages, as Unity checks a scenario
+async function playScenario(mode, s, info) {
+  const problems = scenarioProblems(s, await playKnown(info));
+  if (problems.length) log(problems.map((p) => `Play scenario "${s.name || 'Play settings'}": ${p.text}. Left out.`), 'warn');
+  const clean = withoutProblems(s, problems);
+  // the UNATCO route only where the project has it (as the camera's start: getStart)
+  return gameView.start(mode, { ...playOverrides(clean), route: clean.route && !STANDALONE }, pressedAtStart(clean));
+}
+// the list next to Play (Unity's scenario dropdown): Camera (no scenario), the scenarios, and Edit scenarios...
+const scenarioPick = document.createElement('select');
+scenarioPick.className = 'mb-scenario';
+scenarioPick.setAttribute('aria-label', 'Play scenario');
+(document.querySelector('.mb-pair') || $('#playhere')).after(scenarioPick);
+function showScenarioPick() {
+  const state = playScenarios(), s = activeScenario(state);
+  scenarioPick.innerHTML = `<option value="">Camera</option>${state.list.map((x) => `<option>${escapeHtml(x.name)}</option>`).join('')}
+    <option value="${EDIT_SCENARIOS}">Edit scenarios…</option>`;
+  scenarioPick.value = s ? s.name : '';
+  scenarioPick.title = s ? `Play scenario "${s.name}": ${scenarioSummary(s)}` : 'Play from the camera, JC as the game starts him';
+  scenarioPick.disabled = !script || !!gameView?.active;
+  scenarioPick.hidden = temporaryTutorial();
+}
+scenarioPick.onchange = () => {
+  if (scenarioPick.value === EDIT_SCENARIOS) { showScenarioPick(); void openPlay(); return; }
+  const state = chooseScenario(playScenarios(), scenarioPick.value), s = activeScenario(state);
+  if (keepScenarios(state)) status(s ? `Play starts with "${s.name}": ${scenarioSummary(s)}.` : 'Play starts from the camera.', 'ok');
+};
+for (const name of ['deusedix:play-state', 'deusedix:map-state', 'deusedix:project-state']) window.addEventListener(name, showScenarioPick);
+showScenarioPick();
+
+// The Play window: how to play (in the editor or the game's window) and a scenario, chosen, changed and kept, or
+// played once as it is
 async function openPlay() {
   if (!script || gameView?.active) return;
   if (!requirePlayerStart()) return;
   const box = $('#playbox');
   let info;
   try { info = await api('/api/play_info?script=' + encodeURIComponent(script)); } catch (e) { log(e.message, 'bad'); return; }
-  const s = playStart();
+  const known = await playKnown(info), tutorial = temporaryTutorial(), camera = playStart();
   const warn = [];
   if (info.running) warn.push('The game is already open: close it first (Close game).');
   if (dirty || window.__story?.dirty) warn.push('Play saves your edits and rebuilds a temporary game copy.');
-  box.innerHTML = `<b>${temporaryTutorial() ? 'Play tutorial' : 'Play from here'}</b> <span class="hint" style="margin:0">· ${escapeHtml(info.map)}</span>
-    <div class="hint" style="margin:6px 0 10px">${temporaryTutorial() ? 'Every test starts in the reception room. Then the controls are yours.' : `The game opens on this map with JC ${s.floor ? 'standing below the camera' : 'at the camera (no floor found below it)'}, looking where you look. Then the controls are yours.` }</div>
-    <div class="row"><label>Play in</label><select id="pmode"><option value="embedded">Editor</option><option value="external">Game window</option></select></div>
-    <div class="row"><label>Mission preset</label><select id="pstate"><option value="">Normal map start</option>
-      ${info.setups.map((x) => `<option value="${escapeHtml(x.name)}">${escapeHtml(x.text)}</option>`).join('')}</select></div>
-    ${STANDALONE ? '' : `<div class="row"><label></label><label style="width:auto"><input type="checkbox" id="proute" checked> UNATCO route (the editor's story needs it)</label></div>`}
-    <div id="play-states" style="margin:12px 0"></div>
-    ${warn.map((w) => `<div class="warn" style="margin:6px 0">${escapeHtml(w)}</div>`).join('')}
-    <div class="hint" style="margin:8px 0">JC starts at ${s.at.map((v) => Math.round(v)).join(', ')}. Shift+F1 releases the mouse; Stop ends the test.</div>
-    <div class="row" style="justify-content:flex-end"><button id="pcancel">Cancel</button><button id="pgo" class="primary" ${info.running ? 'disabled' : ''}>Play</button></div>`;
-  if (temporaryTutorial()) $('#pstate').disabled = true;
+  let kept = playScenarios(), draft = scenarioDraft(tutorial ? {} : activeScenario(kept) || {}), testStates = null;
+  const nameOf = (list, cls) => (list || []).find((c) => c.cls.toLowerCase() === cls.toLowerCase())?.name || cls.split('.').pop();
+  const options = (list, first) => `<option value="">${first}</option>${(list || []).map((c) => `<option value="${escapeHtml(c.cls)}">${escapeHtml(c.name)}</option>`).join('')}`;
+  const number = (id, low, high, hint) => `<input type="number" id="${id}" min="${low}" max="${high}" step="1" placeholder="${hint}">`;
+  const chosen = () => scenarioDraft({ ...draft, flags: testStates ? testStates.value : draft.flags });
+  const pointHere = () => { const c = playStart(); return { at: c.at, yaw: c.yaw, pitch: c.pitch, map: mapName }; };
+  function draw() {
+    testStates?.destroy();
+    const open = !!$('#playbox #ploadout')?.open;            // the loadout stays open when the window is drawn again
+    box.innerHTML = `<b>${tutorial ? 'Play tutorial' : 'Play settings'}</b> <span class="hint" style="margin:0">· ${escapeHtml(info.map)}</span>
+      ${tutorial ? '' : `<div class="row" style="margin-top:10px"><label for="pscen">Scenario</label><select id="pscen"><option value="">Camera (not kept)</option>
+        ${kept.list.map((x) => `<option>${escapeHtml(x.name)}</option>`).join('')}</select>
+        <button id="psave" title="Keep these choices in this scenario">Save</button><button id="psaveas" title="Keep these choices as a new scenario of this project">Save as…</button>
+        <button id="pdelete" title="Delete this scenario">Delete</button></div>`}
+      <div class="hint" style="margin:6px 0 10px">${tutorial ? 'Every test starts in the reception room. Then the controls are yours.'
+        : 'A scenario keeps where JC starts and what he carries, for every map of this project: Play starts with the one chosen in the list next to it. Then the controls are yours.'}</div>
+      <div class="row"><label for="pmode">Play in</label><select id="pmode"><option value="embedded">Editor</option><option value="external">Game window</option></select></div>
+      ${tutorial ? '' : `<div class="row"><label for="pstart">JC starts</label><select id="pstart">${Object.entries(STARTS).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
+        <div class="row" id="ppoint-row"><label></label><span id="ppoint" class="hint" style="flex:1;margin:0"></span>
+          <button id="ppoint-set" title="Keep the place below the camera, and where it looks, as the scenario's point on this map">Here</button></div>`}
+      <div class="row"><label for="pstate">Mission preset</label><select id="pstate"><option value="">Normal map start</option>
+        ${info.setups.map((x) => `<option value="${escapeHtml(x.name)}">${escapeHtml(x.text)}</option>`).join('')}</select></div>
+      ${STANDALONE ? '' : `<div class="row"><label></label><label style="width:auto"><input type="checkbox" id="proute"> UNATCO route (the editor's story needs it)</label></div>`}
+      <div id="play-states" style="margin:12px 0"></div>
+      ${tutorial ? '' : `<details id="ploadout" ${open ? 'open' : ''}><summary><b>JC's loadout</b> <span id="ploadout-sum" class="hint" style="margin:0"></span></summary>
+        <div class="row"><label for="pitem">Items</label><select id="pitem">${itemOptions('', known.items || [])}</select></div><div id="pitems"></div>
+        <div class="row"><label for="paug">Augmentations</label><select id="paug" ${known.augs ? '' : 'disabled'}>${options(known.augs, known.augs ? 'Add an augmentation…' : 'Restart the editor to list them')}</select></div><div id="paugs"></div>
+        <div class="row"><label for="pskill">Skills</label><select id="pskill" ${known.skills ? '' : 'disabled'}>${options(known.skills, known.skills ? 'Set a skill…' : 'Restart the editor to list them')}</select></div><div id="pskills"></div>
+        <div class="row"><label for="ppoints">Skill points</label>${number('ppoints', 0, MAX_SKILL_POINTS, 'as the game starts')}</div>
+        <div class="row"><label for="pcredits">Credits</label>${number('pcredits', 0, MAX_CREDITS, 'as the game starts')}</div>
+        <div class="row"><label for="phealth">Health</label>${number('phealth', 1, 100, 'full (each part of the body)')}</div>
+        <div class="row"><label for="pcheat">Cheat</label><select id="pcheat">${Object.entries(CHEATS).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
+        <div class="hint" style="margin:6px 0">The items lie in front of JC when he gets the controls, as the game's summon leaves them: pick them up. The rest is done with the game's own console commands (its cheats on for this game): Messages lists them.</div>
+      </details>`}
+      <div id="pproblems"></div>
+      ${warn.map((w) => `<div class="warn" style="margin:6px 0">${escapeHtml(w)}</div>`).join('')}
+      <div class="hint" id="pwhere" style="margin:8px 0"></div>
+      <div class="row" style="justify-content:flex-end"><button id="pcancel">Cancel</button><button id="pgo" class="primary" ${info.running ? 'disabled' : ''}>Play</button></div>`;
+    if (tutorial) $('#pstate').disabled = true;
+    testStates = mountPlayStates($('#play-states'), { mountField: mountStateField, value: draft.flags });
+    $('#pstate').value = info.setups.some((x) => x.name === draft.setup) ? draft.setup : '';
+    if ($('#proute')) $('#proute').checked = draft.route;
+    $('#pstate').onchange = () => { draft.setup = $('#pstate').value; drawLoadout(); };
+    if ($('#proute')) $('#proute').onchange = () => { draft.route = $('#proute').checked; };
+    $('#pcancel').onclick = () => { testStates.destroy(); box.style.display = 'none'; };
+    $('#pgo').onclick = async () => {
+      const s = chosen(), mode = $('#pmode').value;
+      testStates.destroy();
+      box.style.display = 'none';
+      if (s.name) keepScenarios(chooseScenario(kept, s.name));
+      await playScenario(mode, s, info);
+    };
+    if (!tutorial) drawScenario();
+    drawLoadout();
+  }
+  // the scenario's own fields: which one, where JC starts, his loadout
+  function drawScenario() {
+    $('#pscen').value = draft.name;
+    $('#psave').disabled = $('#pdelete').disabled = !draft.name;
+    $('#pstart').value = draft.start;
+    for (const [id, key] of [['ppoints', 'skillPoints'], ['pcredits', 'credits'], ['phealth', 'health']]) {
+      const input = $('#' + id);
+      input.value = draft[key] ?? '';
+      input.onchange = () => {                               // empty: as the game starts; else within the field's min and max
+        const v = Math.round(Number(input.value));
+        draft[key] = input.value.trim() === '' || !Number.isFinite(v) ? null : Math.min(+input.max, Math.max(+input.min, v));
+        input.value = draft[key] ?? '';
+        drawLoadout();
+      };
+    }
+    $('#pcheat').value = draft.cheat;
+    $('#pcheat').onchange = () => { draft.cheat = $('#pcheat').value; drawLoadout(); };
+    $('#pscen').onchange = () => { draft = scenarioDraft(kept.list.find((x) => x.name === $('#pscen').value) || {}); draw(); };
+    $('#pstart').onchange = () => {
+      draft.start = $('#pstart').value;
+      if (draft.start === 'point' && !draft.point) draft.point = pointHere();
+      drawLoadout();
+    };
+    $('#ppoint-set').onclick = () => { draft.point = pointHere(); drawLoadout(); };
+    $('#psave').onclick = () => {
+      const s = chosen();
+      try { kept = withScenario(kept, s); } catch (e) { status(e.message, 'bad'); return; }   // gone meanwhile, and too many
+      if (keepScenarios(kept)) status(`Play scenario "${s.name}" saved.`, 'ok');
+    };
+    $('#psaveas').onclick = async () => {
+      const s = chosen();
+      const name = await askName({ title: 'Save as a play scenario', label: 'Scenario name', action: 'Save scenario', value: s.name,
+        hint: `Kept in this project, for every map of it. A name already used is replaced. At most ${MAX_SCENARIOS} scenarios.`,
+        check: (text) => { const n = scenarioName(text); withScenario(kept, { ...s, name: n }); return n; } });
+      if (!name) return;
+      draft = scenarioDraft({ ...s, name });
+      if (keepScenarios((kept = chooseScenario(withScenario(kept, draft), name)))) status(`Play scenario "${name}" saved: Play starts with it.`, 'ok');
+      draw();
+    };
+    $('#pdelete').onclick = () => {
+      const name = draft.name;
+      if (!keepScenarios((kept = withoutScenario(kept, name)))) return;
+      status(`Play scenario "${name}" deleted.`, 'ok');
+      draft = { ...chosen(), name: '' };
+      draw();
+    };
+    // the lists' first entries say what they add; one picked goes in (a skill at Master), and the list is back to it
+    $('#pitem').options[0].textContent = known.items ? 'Add an item, a weapon or ammo…' : 'The items are not known yet';
+    $('#pitem').onchange = () => { if ($('#pitem').value) draft = withItem(draft, $('#pitem').value); $('#pitem').value = ''; drawLoadout(); };
+    $('#paug').onchange = () => { if ($('#paug').value) draft.augs = [...new Set([...draft.augs, $('#paug').value])]; $('#paug').value = ''; drawLoadout(); };
+    $('#pskill').onchange = () => {
+      const cls = $('#pskill').value;
+      if (cls && !draft.skills.some((r) => r.cls === cls)) draft.skills = [...draft.skills, { cls, level: SKILL_LEVELS.length - 1 }];
+      $('#pskill').value = ''; drawLoadout();
+    };
+    // the rows' own fields and buttons: a count, a skill's level, × takes one away
+    $('#ploadout').addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.dataset.plCount !== undefined) draft = withItem(draft, draft.items[+t.dataset.plCount].cls, Math.max(1, Number(t.value) || 1));
+      else if (t.dataset.plLevel !== undefined) draft.skills = draft.skills.map((r, i) => (i === +t.dataset.plLevel ? { ...r, level: +t.value } : r));
+      else return;
+      drawLoadout();
+    });
+    $('#ploadout').addEventListener('click', (e) => {
+      const t = e.target.closest('[data-pl-drop]');
+      if (!t) return;
+      const [part, i] = t.dataset.plDrop.split(':');
+      draft[part] = draft[part].filter((_, k) => k !== +i);
+      drawLoadout();
+    });
+  }
+  // the loadout's lists, what is not here (left out at Play) and where JC starts, as the choices are now
+  function drawLoadout() {
+    const s = chosen();
+    if (!tutorial) {
+      const drop = (part, i, what) => `<button type="button" data-pl-drop="${part}:${i}" title="Take ${escapeHtml(what)} away" aria-label="Take ${escapeHtml(what)} away">×</button>`;
+      $('#pitems').innerHTML = s.items.map((r, i) => `<div class="row pl-row"><label></label><span>${escapeHtml(nameOf(known.items, r.cls))}</span>
+        <input type="number" min="1" max="${MAX_COUNT}" value="${r.count}" data-pl-count="${i}" aria-label="How many">${drop('items', i, nameOf(known.items, r.cls))}</div>`).join('');
+      $('#paugs').innerHTML = s.augs.map((cls, i) => `<div class="row pl-row"><label></label><span>${escapeHtml(nameOf(known.augs, cls))}</span>${drop('augs', i, nameOf(known.augs, cls))}</div>`).join('');
+      $('#pskills').innerHTML = s.skills.map((r, i) => `<div class="row pl-row"><label></label><span>${escapeHtml(nameOf(known.skills, r.cls))}</span>
+        <select data-pl-level="${i}" aria-label="Level">${SKILL_LEVELS.map((l, k) => `<option value="${k}" ${k === r.level ? 'selected' : ''}>${l}</option>`).join('')}</select>${drop('skills', i, nameOf(known.skills, r.cls))}</div>`).join('');
+      $('#ploadout-sum').textContent = '· ' + (loadoutSummary(s) || 'as the game gives it');
+      $('#ppoint-row').style.display = s.start === 'point' ? '' : 'none';
+      $('#ppoint').textContent = s.point ? `${s.point.at.map((v) => Math.round(v)).join(', ')} on ${s.point.map || 'a map'}` : '';
+    }
+    const problems = scenarioProblems(s, known);
+    $('#pproblems').innerHTML = problems.map((p) => `<div class="warn" style="margin:6px 0">Left out at Play: ${escapeHtml(p.text)}.</div>`).join('');
+    const start = withoutProblems(s, problems).start;
+    $('#pwhere').textContent = (tutorial ? '' : start === 'playerstart' ? 'JC starts at the PlayerStart, or where the mission preset puts him. '
+      : start === 'point' ? `JC starts at ${s.point.at.map((v) => Math.round(v)).join(', ')}. `
+        : `JC starts ${camera.floor ? 'below the camera' : 'at the camera (no floor found below it)'}, at ${camera.at.map((v) => Math.round(v)).join(', ')}, looking where you look. `)
+      + 'Shift+F1 releases the mouse; Stop ends the test.';
+  }
+  draw();
   box.style.display = 'block';
-  const testStates = mountPlayStates($('#play-states'), { mountField: mountStateField });
-  $('#pcancel').onclick = () => { testStates.destroy(); box.style.display = 'none'; };
-  $('#pgo').onclick = async () => {
-    const flags = testStates.value;
-    testStates.destroy();
-    box.style.display = 'none';
-    await gameView.start($('#pmode').value, {
-      at: s.at, yaw: s.yaw, pitch: s.pitch, setup: $('#pstate').value, flags,
-      route: !!$('#proute')?.checked });
-  };
 }
-$('#playhere').onclick = () => gameView?.active ? gameView.stop() : gameView?.start('embedded');
+$('#playhere').onclick = () => gameView?.active ? gameView.stop() : startPlay('embedded');
 $('#factionsbtn').onclick = () => openFactions().catch((e) => log(e.message, 'bad'));
 $('#charbtn').onclick = () => window.__characters && window.__characters.open();
 // a character saved again in the Character Creator: its copies placed in this map take the new look
@@ -4847,7 +5153,7 @@ function updateCustom(id, props, body, cls) {
   let n = 0;
   for (const a of edits.added) {
     if (a.custom !== id) continue;
-    if (!n) pushUndo();
+    if (!n) pushUndo('Update your characters');
     a.props = Object.assign({}, props, { BindName: a.props && a.props.BindName ? a.props.BindName : `"UCEd_${a.name}"` });
     a.cls = cls || a.cls;
     a.radius = body.radius; a.height = body.height;
@@ -5001,7 +5307,7 @@ async function replaceWith(item, list = null) {
     if (!confirm(ask.join('\n'))) { status('Replace with cancelled.'); return false; }
   }
   if (anim && targets.includes(anim.p)) closeAnim();
-  pushUndo();
+  pushUndo(stepOf('Replace', targets, `with ${label}`));
   for (const x of plans) applyReplacement(x);
   setDirty(); rebuildProxies(); showDetails();
   log(`${plans.length === 1 ? plans[0].e.name : plans.length + ' objects'} replaced with ${label}, ${plans.length === 1 ? 'its' : 'their'} name, place, turn, size, Tag and Event kept. Ctrl+Z undoes it; Rebuild puts it in the game.`, 'ok');
@@ -5313,7 +5619,7 @@ async function refitPlaced(mesh) {
   if (!placed.length) return;
   const r = await meshInfo(mesh);
   if (!r) return;
-  pushUndo();
+  pushUndo(`Refit model ${mesh}`);
   const fresh = modelProps(mesh, r.info);
   for (const a of placed) for (const k of ['CollisionRadius', 'CollisionHeight', 'PrePivot']) a.props[k] = fresh[k];
   setDirty(); rebuildProxies();
@@ -5338,7 +5644,7 @@ async function placeModel(mesh, btn, extra = null) {
       cancelModelReplacement(); return;
     }
     if (isCharacter(who) && !confirm(`Replace the model of ${who.name}?\n\nThe character keeps its AI, dialogue and mission logic. The new model needs compatible animation sequences; otherwise walking, gestures or weapon attachment may look wrong.\n\nCollision and transform stay unchanged. Ctrl+Z undoes this change.`)) return;
-    pushUndo();
+    pushUndo(`Replace the model of ${who.name}`);
     putProp(who, 'Mesh', `${info.cls}'${mesh}'`);
     putProp(who, 'Skin', 'None');
     for (let i = 0; i < 8; i++) putProp(who, `MultiSkins(${i})`, 'None');
@@ -6822,7 +7128,7 @@ function setNewObjectsFolder(id) {
   if ((defaultFolder(edits)?.id ?? null) === id) return;
   const n = id && nestById(id);
   if (id && !n) { status('That folder no longer exists.', 'warn'); return; }
-  pushUndo();
+  pushUndo('New objects go here');
   setDefaultFolder(edits, id);
   setDirty();
   status(n ? `New objects go into "${n.label}": what you place, paste, draw or make with + (× at the top of the Hierarchy stops it).`
@@ -6882,7 +7188,7 @@ window.addEventListener('deusedix:panel-menu', (e) => {
   if (e.detail.id === 'hierarchy' && script) e.detail.items.push(...hierarchyCommands().map((c) => [c.label, c.run]));
 });
 function createFolder() {
-  pushUndo();
+  pushUndo('Create folder');
   const up = folderForNew();
   const n = newNest(nextNestLabel(), []);
   n.folder = true;                               // kept when it is empty
@@ -6896,7 +7202,7 @@ function createFolder() {
 function deleteFolder(id) {                      // an empty folder (one with things in it goes with them: Del)
   const n = nestById(id);
   if (!n || nestLeaves(n).length) return false;
-  pushUndo();
+  pushUndo(`Delete folder ${n.label}`);
   const gone = new Set(['n:' + id, ...nestsWithin(id).map((x) => 'n:' + x)]);
   edits.nests = nests().filter((x) => !gone.has('n:' + x.id));
   for (const x of nests()) x.items = x.items.filter((k) => !gone.has(k));
@@ -6925,7 +7231,7 @@ function renameFolder(id) {
     if (over) return;
     over = true;
     const v = input.value.trim();
-    if (keep && v && v !== n.label) { pushUndo(); n.label = v; setDirty(); if (currentFolder() === id && selected === groupPivot) showDetails(); }
+    if (keep && v && v !== n.label) { pushUndo(`Rename folder ${v}`); n.label = v; setDirty(); if (currentFolder() === id && selected === groupPivot) showDetails(); }
     const span = document.createElement('span');
     span.className = 'hl'; span.textContent = n.label;
     if (input.isConnected) input.replaceWith(span);
@@ -6960,7 +7266,7 @@ function floorAhead(spread = 128) {
 // in one nest (one undo); hole: they cut instead of adding
 function addShapeBlocks(pieces, { hole = false, tex = '', label = 'Shape' } = {}) {
   if (!mapName || !pieces.length) return;
-  pushUndo();
+  pushUndo(`${hole ? 'Cut' : 'Add'} ${label}`);
   const names = [];
   for (const pts of pieces) {
     if (!pts.every((p) => p.every(Number.isFinite))) continue;
@@ -6997,7 +7303,7 @@ const selectedBlocks = () => (selected === groupPivot ? members() : selected ? [
 // kind, in its nest; a turned block's turn is in the corners now
 function replaceBlocks(olds, pieces, what) {
   const tpl = olds[0].userData.box, gone = new Set(olds.map((p) => p.userData.box.name)), host = parentNest('b:' + tpl.name);
-  pushUndo();
+  pushUndo(stepOf(what, olds));
   edits.boxes = edits.boxes.filter((b) => !gone.has(b.name));
   for (const n of nests()) n.items = n.items.filter((k) => !(k.startsWith('b:') && gone.has(k.slice(2))));
   const keys = [];
@@ -7058,7 +7364,7 @@ function orderBlocks(first) {
   if (picked.some((p) => !requireUnlocked(p))) return;
   const names = new Set(picked.map((p) => p.userData.box.name));
   const moved = edits.boxes.filter((b) => names.has(b.name)), rest = edits.boxes.filter((b) => !names.has(b.name));
-  pushUndo();
+  pushUndo(stepOf('Order', picked, first ? 'first' : 'last'));
   edits.boxes = first ? [...moved, ...rest] : [...rest, ...moved];
   setDirty();
   showDetails();
@@ -7081,7 +7387,7 @@ function mirrorSelection(axis) {
   // a group about the middle of its bounds, whatever the toolbar's Center / Pivot puts its gizmo on
   const about = selected === groupPivot ? UE(new THREE.Vector3().fromArray(groupPivotAt('center', pivotItems(members(), 'center'))))
     : UE(selected.position), single = selected === groupPivot ? null : selected.userData;
-  pushUndo();
+  pushUndo(stepOf(`Mirror ${'XYZ'[axis]}`, todo));
   for (const p of todo) {
     const d = p.userData, name = d.box?.name || d.actor?.name;
     if (d.kind === 'box') Object.assign(d.box, mirrorBlock(d.box, axis, about));
@@ -7176,7 +7482,7 @@ function createSolid(shape) {
   } else c = camera.position.clone().addScaledVector(r.ray.direction, 600);
   const u = UE(c);
   if (snap) for (const k of [0, 1]) u[k] = Math.round(u[k] / 8) * 8;
-  pushUndo();
+  pushUndo(`Add ${shape}`);
   const b = { name: nextName('UCEditBox'), shape, lo: u.map((v) => r1(v - s / 2)), hi: u.map((v) => r1(v + s / 2)), tex: lastBlockTex, solid: true };
   edits.boxes.push(b);
   const folder = folderForNew();
@@ -7221,7 +7527,7 @@ const NAMES = {
 };
 
 function startPlacing(item, button) {
-  if (!script) return;
+  if (!script || waitsForRebuild()) return;
   if (classReplace) {                    // Replace with... waits: the item clicked replaces the selection (anything else ends it)
     const wanted = classReplace.generation === mapGeneration && replacingItem(item);
     endClassReplace();
@@ -7270,7 +7576,7 @@ function finishDraw() {
   const p = drawTools.finish(new Set((edits.drawn || []).map((x) => x.name)));
   cancelPlacing();
   if (!p) return;
-  pushUndo();
+  pushUndo(`Draw ${p.kind}`);
   (edits.drawn = edits.drawn || []).push(p);
   intoDefaultFolder(['d:' + p.name]);
   setDirty(); rebuildProxies();
@@ -7349,6 +7655,13 @@ function turnPlacing() {
   if (lastPlacingMove) movePlacing(lastPlacingMove);
   status(`Turned ${Math.round((placing.turn / YAW) * 360)}° (${menuKey('scale')} turns it again). Click where it goes.`);
 }
+// the step a click of the placing mode makes, named after what it puts down (placeWith)
+function placingName() {
+  if (placing.prefab) return `Place ${placing.prefab.label}`;
+  if (placing.route) return 'Add a patrol point';
+  if (placing.box) return `Add ${placing.sign ? 'a sign' : placing.water ? 'a pool' : placing.portal ? 'a zone portal' : placing.hole ? 'a hole' : 'a block'}`;
+  return `Place ${placing.mesh || itemLabel(placing)}`;
+}
 // what a click of the placing mode does at the surface found (r: placeOnRay). shift: keep placing copies (Shift+click);
 // quiet: no questions afterwards (an assistant placing it, agent.js: a script's trigger, a sound are its properties)
 function placeWith(r, { shift = false, quiet = false } = {}) {
@@ -7357,7 +7670,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     return;
   }
   const before = selected;                 // what it places is selected
-  pushUndo();
+  pushUndo(placingName());
   if (placing.prefab) {
     const clip = placing.prefab, c = UE(r.p), yaw = (prefabYaw(clip, r.n) + (placing.turn || 0)) % YAW;
     const pe = { pid: nextPid(), prefab: clip.id, label: clip.label, source: clip.source, pivot: clip.pivot, rotatable: clip.rotatable !== false, ...moverFields(clip),
@@ -7393,7 +7706,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     updateSignTexture(b).catch((e2) => log('Sign: ' + e2.message, 'bad'));
   } else if (placing.water || placing.portal) {
     const b = placing.water ? waterBox(r) : portalBox(r);
-    if (!b) { status(placing.water ? 'Click a floor for the pool.' : 'Click the floor inside a doorway (walls on both sides, a top).', 'warn'); return; }
+    if (!b) { dropUndo(); status(placing.water ? 'Click a floor for the pool.' : 'Click the floor inside a doorway (walls on both sides, a top).', 'warn'); return; }
     edits.boxes.push(b);
     intoDefaultFolder(['b:' + b.name]);
     setDirty();
@@ -7627,7 +7940,7 @@ function animRecord() {
   let dy = (radToYaw(p.rotation.y) - ((b.yaw + q.rot[1]) % YAW + YAW) % YAW) % YAW;
   if (dy > YAW / 2) dy -= YAW;
   if (dy < -YAW / 2) dy += YAW;
-  pushUndo();
+  pushUndo(stepOf('Animation key of', [p]));
   if (dp.some((v, k) => Math.abs(v - q.pos[k]) > 0.05)) animSetKey('pos', anim.t, dp);
   if (Math.abs(dy) > 1) animSetKey('rot', anim.t, [q.rot[0], Math.round(q.rot[1] + dy), q.rot[2]]);
   if (!anim.mover && Math.abs(p.scale.x / b.scale - q.scale) > 0.001) animSetKey('scale', anim.t, Math.round(p.scale.x / b.scale * 1000) / 1000);
@@ -7641,7 +7954,7 @@ function openAnim(p) {
   if (anim) closeAnim();
   if (p.userData.box && !p.userData.box.mover) {
     if (p.userData.box.hole || p.userData.box.water || p.userData.box.portal) { log('Holes, water and portals cannot move: a solid or detail block can.', 'warn'); return; }
-    pushUndo();
+    pushUndo(stepOf('Make', [p], 'a moving block'));
     p.userData.box.mover = true;              // a block that moves is a mover (a moving block)
     setDirty();
     log(`${p.userData.box.name} is now a moving block (a mover): it moves in the game as you animate it, carrying JC.`, 'ok');
@@ -7748,12 +8061,12 @@ function renderAnim() {
   wireAnim2(m, max);
 }
 function wireAnim2(m, max) {
-  const change = (fn) => { pushUndo(); fn(); setDirty(); renderAnim(); animApply(anim.t); };
+  const change = (fn, label = 'Edit the animation') => { pushUndo(label); fn(); setDirty(); renderAnim(); animApply(anim.t); };
   $('#anplay').onclick = () => { if (anim.playing && anim.dir > 0) { anim.playing = false; renderAnim(); } else animPlay(1); };
   $('#anback').onclick = () => animPlay(-1);
   $('#anstop').onclick = () => { anim.playing = false; anim.t = 0; animApply(0); renderAnim(); };
   $('#anclose').onclick = closeAnim;
-  $('#anclear').onclick = () => { if (confirm('Take away the whole animation of this object?')) change(() => { delete edits.motions[anim.name]; anim.sel = null; }); };
+  $('#anclear').onclick = () => { if (confirm('Take away the whole animation of this object?')) change(() => { delete edits.motions[anim.name]; anim.sel = null; }, 'Clear the animation'); };
   $('#anmode').onchange = (e) => change(() => { motionOf(anim.name, true).mode = e.target.value; });
   $('#anauto').onchange = (e) => change(() => { motionOf(anim.name, true).autoplay = e.target.checked; });
   const cu = $('#ancurve');
@@ -7761,7 +8074,7 @@ function wireAnim2(m, max) {
   const gl = $('#anglide');
   if (gl) gl.onchange = () => change(() => { for (const tr of ['pos', 'rot']) for (const k of motionOf(anim.name, true)[tr] || []) k.e = +gl.value; });
   const kd = $('#ankdel');
-  if (kd) kd.onclick = () => change(() => { m[anim.sel[0]].splice(anim.sel[1], 1); anim.sel = null; });
+  if (kd) kd.onclick = () => change(() => { m[anim.sel[0]].splice(anim.sel[1], 1); anim.sel = null; }, 'Delete an animation key');
   for (const b of animBox.querySelectorAll('[data-ankey]')) b.onclick = () => change(() => {
     const tr = b.dataset.ankey, mm = motionOf(anim.name, true), keys = mm[tr] = mm[tr] || [];
     const i = keys.findIndex((x) => Math.abs(x.t - anim.t) < 0.011);
@@ -7791,7 +8104,7 @@ function wireAnim2(m, max) {
     anim.t = key.t;
     animApply(anim.t);
     let moved = false;
-    pushUndo();
+    pushUndo('Move an animation key');
     const move = (ev) => {
       const r = track.getBoundingClientRect();
       const t = Math.max(0, Math.min(max, Math.round((ev.clientX - r.left) / r.width * max * 20) / 20));
@@ -7805,7 +8118,7 @@ function wireAnim2(m, max) {
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      if (moved) { keys.sort((a, b) => a.t - b.t); anim.sel = [tr, keys.indexOf(key)]; setDirty(); } else undo.pop();
+      if (moved) { keys.sort((a, b) => a.t - b.t); anim.sel = [tr, keys.indexOf(key)]; setDirty(); } else dropUndo();
       renderAnim();
       animApply(anim.t);
     };
@@ -7893,7 +8206,7 @@ function holeBox(r) {
 function addHoleLight(b) {
   const c = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, b.hi[2] - 24];
   const reach = Math.hypot(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]) * 0.6;
-  pushUndo();
+  pushUndo('Add a light to the hole');
   const e = { name: nextName('UCEdit'), cls: 'Light', loc: c.map(r1), rot: [0, 0, 0], radius: 8, height: 8,
               props: Object.assign(lightProps({}), { LightRadius: Math.max(8, Math.min(255, Math.round(reach / 25) - 1)) }) };
   edits.added.push(e);
@@ -8024,7 +8337,7 @@ function actorProp(a, key) {               // edited value, else the map's, else
 function setProp(a, key, value) {
   const target = proxyOf(a.name);
   if (target && !requireUnlocked(target)) return;
-  pushUndo();
+  pushUndo(`${propertyName(key)} of ${hierLabel(a)}`);
   edits.props = edits.props || {};
   const e = edits.props[a.name] || (edits.props[a.name] = {});
   e[key] = value;
@@ -8035,7 +8348,7 @@ function unsetProp(a, key) {               // back to the map's own value (or th
   if (!e || !(key in e)) return;
   const target = proxyOf(a.name);
   if (target && !requireUnlocked(target)) return;
-  pushUndo();
+  pushUndo(`Reset ${propertyName(key)} of ${hierLabel(a)}`);
   delete e[key];
   if (!Object.keys(e).length) delete edits.props[a.name];
   setDirty();
@@ -8045,6 +8358,7 @@ function unsetProp(a, key) {               // back to the map's own value (or th
 const behaveApi = {
   get edits() { return edits; }, actorProp, setProp, unsetProp, pushUndo, setDirty, status, UE, requireUnlocked,
   section: (key, title, body, open) => inspectorSection(key, title, body, open), api,
+  find: $,                              // the Inspector's own lookup (in a Properties window: that window's fields)
   multiField: (el, entry) => multiFields.set(el, entry), rawField: (el, entry) => rawFields.set(el, entry),
 };
 function previewPropertySlider(p) {
@@ -8118,7 +8432,7 @@ function updateScriptTagField(a) {
 }
 function wireScriptTag(a,p,redraw) {
   const input=$('#scriptingtag'); if (!input) return;
-  const change=(entry) => { if (!requireUnlocked(p)) return; pushUndo(); edits.objectTags ||= {}; if (entry) edits.objectTags[a.name]=entry; else delete edits.objectTags[a.name]; setDirty(); redraw(); };
+  const change=(entry) => { if (!requireUnlocked(p)) return; pushUndo(`Scripting tag of ${hierLabel(a)}`); edits.objectTags ||= {}; if (entry) edits.objectTags[a.name]=entry; else delete edits.objectTags[a.name]; setDirty(); redraw(); };
   input.oninput=() => input.setCustomValidity('');
   input.onchange=() => { const value=input.value.trim(); if (!validScriptTag(value)) { input.setCustomValidity('Use 1-64 letters, digits or underscores, starting with a letter or underscore.'); input.reportValidity(); return; } change({mode:'manual',value}); };
   $('[data-script-tag-auto]').onclick=() => change({mode:'auto'});
@@ -8345,7 +8659,7 @@ function wireStayPut(a, p) {
   if (!box) return;
   box.onchange = () => {
     if (!requireUnlocked(p)) { box.checked = !box.checked; return; }
-    pushUndo();
+    pushUndo(`${hierLabel(a)} ${box.checked ? 'stays put' : 'turns again'}`);
     edits.anims = edits.anims || {};
     const e = Object.assign({}, edits.anims[a.name]);
     if (box.checked) Object.assign(e, { still: true, loc: e.loc || UE(p.position) });
@@ -8365,7 +8679,8 @@ function animHtml(a) {
       <button id="anpose" title="Pose the character here, against the map around it (a hand on a railing, the back on a wall): its pose when idle">Pose here...</button></div>`, !!e.idle);
 }
 function wireAnim(a, p, redraw) {
-  animsOf(a.cls, meshOf(a)).then((info) => {
+  const view = inspectorView;               // the Inspector it is in, when the list comes
+  animsOf(a.cls, meshOf(a)).then((info) => inInspector(view, () => {
     const sel = $('#anidle');
     if (!sel || !document.body.contains(sel)) return;
     if (!info) { sel.innerHTML = '<option value="">(this character has no animations)</option>'; sel.disabled = true; return; }
@@ -8392,7 +8707,7 @@ function wireAnim(a, p, redraw) {
         sel.disabled = false;
         for (const k of Object.keys(animInfo)) delete animInfo[k];
       }
-      pushUndo();
+      pushUndo(`Animation of ${hierLabel(a)}`);
       edits.anims = edits.anims || {};
       const rate = Math.max(0.1, Math.min(4, +$('#anrate').value || 1));
       if (idle) { edits.anims[a.name] = Object.assign({}, edits.anims[a.name], { idle, rate, own: own || undefined, loc: UE(p.position) }); standForIdle(a.name); }
@@ -8405,13 +8720,14 @@ function wireAnim(a, p, redraw) {
     $('#anrate').onchange = save;
     $('#anstudio').onclick = () => window.__studio && window.__studio.open(a.cls);
     $('#anpose').onclick = () => { if (requireUnlocked(p)) mapPose.open(p); };
-    $('#anplay').onclick = async () => {
+    $('#anplay').onclick = async (ev) => {
+      const play = ev.currentTarget;
       if (previewing && previewing.g === p) { stopPreview(); return; }
       const s = sel.value.replace(/^studio:/, '') || (info.seqs.find((x) => x.name === 'BreatheLight') || {}).name;
-      if (s && await startPreview(p, a.cls, s, +$('#anrate').value || 1)) $('#anplay').textContent = '■';
+      if (s && await startPreview(p, a.cls, s, +$('#anrate').value || 1)) play.textContent = '■';
     };
     if (previewing && previewing.g === p) $('#anplay').textContent = '■';
-  });
+  }));
 }
 
 // ---------------------------------------------------------------- sounds (editor/sounds.py)
@@ -8540,7 +8856,7 @@ function endHandleDrag(p, res, saved) {
   } else if (Object.entries(res.props || {}).every(([k, text]) => text === (saved.props?.[k] ?? a.props?.[k])) && p.position.equals(saved.pos)) {
     return cancelHandleDrag(p, saved);
   }
-  pushUndo(saved.before);                 // one Ctrl+Z: the edits as the drag found them (its properties went in as it went)
+  pushUndo(stepOf('Resize', [p]), saved.before);   // one Ctrl+Z: the edits as the drag found them (its properties went in as it went)
   if (res.centre && a) commit(p);         // the box's middle moved with its side: its new place (and the change)
   else { setDirty(); showDetails(); }
   status(res.note, 'ok');
@@ -9034,7 +9350,6 @@ async function navBakeIfNeeded() {
     if (edits.navmesh) { delete edits.navmesh; await save(); }
     return;
   }
-  busy('Making the walkable area for the game...');
   try {
     const r = await bakePolys(THREE, worldMeshes.concat(pendingNavMeshes()), navSeeds(), navObstacles(), T, navLockedDoors());
     edits.navmesh = { v: 1, key: navKey(), polys: r.polys };
@@ -9090,7 +9405,7 @@ async function fillPaths() {
     return;
   }
   const item = palette.flatMap((c) => c.items || []).find((it) => it.cls === 'PathNode') || { radius: 12, height: 14.5 };
-  pushUndo();
+  pushUndo('Fill AI paths');
   const made = [];
   for (const q of r.added) {              // about where a path node stands; the rebuild drops it onto the floor
     const e = { name: nextName('UCEdit'), cls: 'PathNode', loc: UE(new THREE.Vector3(q.x, q.y + 40, q.z)), rot: [0, 0, 0],
@@ -9321,7 +9636,7 @@ function removeRoutePoint(a, i) {
   const { points, loop } = routeOf(a);
   const b = points[i];
   if (!b) return;
-  pushUndo();
+  pushUndo(`Remove a patrol point of ${hierLabel(a)}`);
   const rest = points.filter((x) => x !== b);
   if (!rest.length) { putProp(a, 'OrderTag', 'None'); putProp(a, 'Orders', idleOrders(a)); }
   else if (i === 0) {
@@ -9344,7 +9659,7 @@ function clearRouteOf(a) {
   const { points } = routeOf(a);
   const mine = points.filter((b) => edits.added.some((x) => x.name === b.name));
   if (mine.length < points.length && !confirm('This route uses patrol points of the map itself: they stay in the map, only this character stops using them. Go on?')) return;
-  pushUndo();
+  pushUndo(`Clear the patrol route of ${hierLabel(a)}`);
   const gone = new Set(mine.map((b) => b.name));
   edits.added = edits.added.filter((x) => !gone.has(x.name));
   if (edits.props) for (const n of gone) delete edits.props[n];
@@ -9498,7 +9813,7 @@ async function openFactions() {
   if ($('#fapply')) $('#fapply').onclick = () => {
     const fac = $('#ffac').value, to = $('#fto').value, lev = $('#flev').value, fixed = $('#ffix').checked;
     if (!fac) return;
-    pushUndo();
+    pushUndo(`Relations of ${facLabel(fac)}`);
     let n = 0, full = 0;
     for (const m of members) if (m.faction === fac) { if (setRelation(m.a, to, lev, fixed, false)) n++; else full++; }
     setDirty();
@@ -9531,7 +9846,7 @@ function loginsOf(a, fields) {
 // a change to the emails or bulletins of a computer (edits.texts): the computer then reads its texts
 // from the editor's package (TextPackage), a public terminal its own list of bulletins (bulletinTag)
 function editTexts(a, fn) {
-  pushUndo();
+  pushUndo(`Texts of ${hierLabel(a)}`);
   edits.texts = edits.texts || {};
   const t = edits.texts[a.name] || (edits.texts[a.name] = { emails: [], bulletins: [] });
   t.emails = t.emails || []; t.bulletins = t.bulletins || [];
@@ -9580,7 +9895,7 @@ function inspectorObjectControls(p) {
     <button type="button" class="hstate" data-inspector-lock aria-label="${own ? 'Unlock selection' : 'Lock selection'}" title="${own ? 'Unlock selection' : 'Lock selection against accidental edits'}" aria-pressed="${own}">${ICON[own ? 'lock' : 'unlock']}</button>
     ${targets.some((m) => m.userData.actor) ? `<button type="button" class="hstate" data-inspector-props aria-label="Properties menu" title="Properties: copy, paste, reset to the class defaults, presets">${ICON.more}</button>` : ''}`;
   box.append(bar);
-  if (locked) { const hint = document.createElement('p'); hint.className = 'hint inspector-lock-hint'; hint.textContent = own ? 'Locked in the editor. Unlock to make changes.' : `${kindsIn(targets, 'locked')}: locked in the Show menu of the 3D view. Unlock them there to make changes.`; box.append(hint); }
+  if (locked) { const hint = document.createElement('p'); hint.className = 'hint inspector-lock-hint'; hint.textContent = buildJob ? rebuildWaits() : own ? 'Locked in the editor. Unlock to make changes.' : `${kindsIn(targets, 'locked')}: locked in the Show menu of the 3D view. Unlock them there to make changes.`; box.append(hint); }
   box.append(fields);
   bar.querySelector('[data-game-enabled]')?.addEventListener('change', e => setGameEnabled([a.name], e.target.checked));
   bar.querySelector('[data-inspector-eye]').onclick = () => { setObjectView(keys, 'hidden', !hidden); showDetails(); };
@@ -9625,9 +9940,9 @@ async function classFields(cls) {
   }
   return propSchema[cls];
 }
-// the options of a field that holds an item of the game, by kind, with the one it holds chosen
-function itemOptions(v) {
-  return `<option value="">(nothing)</option>${[...new Set(propItems.map((x) => x.cat))].map((c) => `<optgroup label="${escapeHtml(c)}">${propItems.filter((x) => x.cat === c).map((x) => `<option value="${x.cls}" ${x.cls.toLowerCase() === String(v ?? '').toLowerCase() ? 'selected' : ''}>${escapeHtml(x.name)} · ${escapeHtml(x.cls.split('.').pop())}</option>`).join('')}</optgroup>`).join('')}`;
+// the options of a field that holds an item of the game, by kind, with the one it holds chosen (items: those offered)
+function itemOptions(v, items = propItems) {
+  return `<option value="">(nothing)</option>${[...new Set(items.map((x) => x.cat))].map((c) => `<optgroup label="${escapeHtml(c)}">${items.filter((x) => x.cat === c).map((x) => `<option value="${x.cls}" ${x.cls.toLowerCase() === String(v ?? '').toLowerCase() ? 'selected' : ''}>${escapeHtml(x.name)} · ${escapeHtml(x.cls.split('.').pop())}</option>`).join('')}</optgroup>`).join('')}`;
 }
 // a collision box shows the sizes of its shape only: a box its X, Y and Z, a cylinder its radius and height
 function shapeField(a, f) {
@@ -9636,7 +9951,7 @@ function shapeField(a, f) {
 }
 async function renderProps(p) {
   if (propertySlider && propertySlider.p === p) return;
-  const a = p.userData.actor, box = $('#propsec');
+  const view = inspectorView, a = p.userData.actor, box = $('#propsec');     // its Inspector, after the waits too
   if (!box || !a) return;
   const fields = await classFields(a.cls);
   await loadFactions();
@@ -9651,17 +9966,24 @@ async function renderProps(p) {
   if (lkList().some((l) => (l.do || []).some((x) => x.verb === 'travel')) && !allMapNames) {
     try { allMapNames = (await api('/api/newmap_info')).maps; } catch (e) { allMapNames = []; }
   }
-  if (inspectedObject() !== p || !document.body.contains(box)) return;
+  if (inInspector(view, inspectedObject) !== p || !document.body.contains(box)) return;
   if (lkList().some(l => (l.do || []).some(x => x.area)) && !await lkAreaReady()) return;
+  inInspector(view, () => drawProps(p, fields, box));
+}
+// the Properties of p drawn in box, once renderProps has what they need, with their Inspector at work
+function drawProps(p, fields, box) {
+  const a = p.userData.actor, view = inspectorView;
   if (inspectedObject() !== p || !document.body.contains(box)) return;
   const links = linksOf(a);
-  drawLinks(p, links);
-  lkDraw(a);
-  disposeGroup(routeLines);                 // the patrol route of a character, or the routes through a patrol point
   const character = fields.some((f) => f.prop === 'Orders');
-  if (character) drawRoute(a);
-  else if (a.cls === 'PatrolPoint') for (const o of routeUsers(a)) drawRoute(o);
-  const redraw = () => renderProps(p);
+  if (!view) {                              // its links and routes in the 3D view: the panel's object's
+    drawLinks(p, links);
+    lkDraw(a);
+    disposeGroup(routeLines);               // the patrol route of a character, or the routes through a patrol point
+    if (character) drawRoute(a);
+    else if (a.cls === 'PatrolPoint') for (const o of routeUsers(a)) drawRoute(o);
+  }
+  const redraw = () => inInspector(view, () => renderProps(p));     // later too (a pick in the 3D view): in its Inspector
   const itemSel = (id, v) => `<select id="${id}" style="max-width:190px">${itemOptions(v)}</select>`;
   let html = scriptTagHtml(a), group = '';
   const wires = [() => wireScriptTag(a, p, redraw)];
@@ -9690,7 +10012,7 @@ async function renderProps(p) {
       html += `<div class="row">${lab}<select id="${id}" aria-label="Collision shape" style="flex:1;min-width:0;padding:0 8px"${tip}><option value="False" ${!isCylinder(a, actorProp) ? 'selected' : ''}>Box</option><option value="True" ${isCylinder(a, actorProp) ? 'selected' : ''}>Cylinder</option></select></div>`;
       wires.push(() => { $('#' + id).onchange = () => {
         if (!requireUnlocked(p)) return;
-        pushUndo();
+        pushUndo(`Collision shape of ${hierLabel(a)}`);
         const cylinder = $('#' + id).value === 'True';
         putProp(a, 'bCylinder', cylinder ? 'True' : 'False');
         // Seed the first cylinder from this box. Later switches preserve both sets of dimensions.
@@ -9759,7 +10081,7 @@ async function renderProps(p) {
         actor:a, tag:unquote(propValue(a, fields.find(x=>x.prop==='textTag') || {prop:'textTag',default:['None']})),
         packageName:unquote(edits.props?.[a.name]?.TextPackage ?? a.props?.TextPackage ?? ''),
         special:unquote(v), current:edits.documents?.[a.name],
-        save:doc=>{pushUndo(); edits.documents ||= {}; if(doc) edits.documents[a.name]=doc; else delete edits.documents[a.name]; setDirty(); redraw();}
+        save:doc=>{pushUndo(`Document of ${hierLabel(a)}`); edits.documents ||= {}; if(doc) edits.documents[a.name]=doc; else delete edits.documents[a.name]; setDirty(); redraw();}
       }));
     } else if (f.prop === 'textTag' && edits.documents?.[a.name]) {
       html += `<p class="hint">Using your document copy. Restore original above to use the game text again.</p>`;
@@ -9853,8 +10175,8 @@ async function renderProps(p) {
       html += `<div class="row">${lab}<select id="${id}" style="flex:1;min-width:0"${tip}><option>...</option></select><button id="${id}p" data-animplay="1" title="Play it on the character">▶</button></div>`;
       if (!users.length) html += '<div class="hint" style="margin:0 0 4px">No character patrols through this point yet: draw a Patrol route in a character\'s Properties.</div>';
       wires.push(async () => {
+        const sel = $('#' + id), play = $('#' + id + 'p');      // this Inspector's, before the wait
         const lists = (await Promise.all(users.map((u) => animsOf(u.cls)))).filter(Boolean);
-        const sel = $('#' + id);
         if (!sel || !document.body.contains(sel)) return;
         const seqs = [], seen = new Set();
         for (const l of lists) for (const s of l.seqs) if (!seen.has(s.name)) { seen.add(s.name); seqs.push(s); }
@@ -9867,15 +10189,15 @@ async function renderProps(p) {
             edits.anims = edits.anims || {};
             for (const u of users) { const q = proxyOf(u.name); edits.anims[u.name] = Object.assign({ loc: q ? UE(q.position) : u.loc }, edits.anims[u.name], { own: true }); }
           }
-          pushUndo();
+          pushUndo(`${propertyName('PatrolAnim')} of ${hierLabel(a)}`);
           putProp(a, 'PatrolAnim', sel.value || 'None');
           if (s && !(+actorProp(a, 'PauseTime') > 0)) putProp(a, 'PauseTime', Math.max(3, Math.ceil(2 * s.frames / s.rate)).toFixed(6));
           setDirty(); redraw();
         };
-        $('#' + id + 'p').onclick = async () => {
+        play.onclick = async () => {
           const u = users[0], q = u && proxyOf(u.name);
           if (previewing && q && previewing.g === q) { stopPreview(); return; }
-          if (q && sel.value && await startPreview(q, u.cls, sel.value)) $('#' + id + 'p').textContent = '■';
+          if (q && sel.value && await startPreview(q, u.cls, sel.value)) play.textContent = '■';
         };
       });
     } else if (f.kind === 'sound') {
@@ -10322,8 +10644,8 @@ async function lkFixLabels() {
   if (generation !== mapGeneration) return;
   for (const l of lkList()) l.label = lkSentence(l);
 }
-function lkChange(l, fn, redraw) {
-  pushUndo();
+function lkChange(l, fn, redraw, label = 'Edit an interaction') {
+  pushUndo(label);
   fn();
   if (l && lkList().includes(l)) l.label = lkSentence(l);
   setDirty();
@@ -10951,7 +11273,7 @@ function lkCheck(add) {
 const newBox = $('#newbox');
 async function openNewMap() {
   if (!projectContext) { projectHub?.show(); return; }
-  const info = await api('/api/newmap_info');
+  const [info, templates] = await Promise.all([api('/api/newmap_info'), api('/api/map_templates').then((r) => r.templates, () => [])]);
   allMapNames = info.maps;
   const independent = isCustomProject(projectContext);
   let sourceLoading = false;
@@ -10961,8 +11283,9 @@ async function openNewMap() {
     <div class="row"><label>${independent ? 'Chapter' : 'Mission'}</label>${independent ? '<input type="number" id="nmmission" min="1" max="99" step="1" value="1">' : `<select id="nmmission">${info.missions.map(([n, label]) => `<option value="${n}" ${n === 6 ? 'selected' : ''}>${String(n).padStart(2, '0')} · ${escapeHtml(label)}</option>`).join('')}</select>`}</div>
     <div class="hint" style="margin:0 0 8px">${independent ? 'Group the maps of your campaign into chapters. Your project supplies the story.' : 'The map belongs to that part of the campaign: the mission’s goals, flags and InfoLinks work in it.'}</div>
     <div class="row"><label>Place name</label><input type="text" id="nmloc" placeholder="shown in the game (optional)"></div>
-    <div class="row"><label>Start from</label><label style="width:auto"><input type="radio" name="nmfrom" value="empty" checked> an empty room</label>
-      <label style="width:auto"><input type="radio" name="nmfrom" value="copy"> a copy of a map</label></div>
+    <div class="row"><label>Start from</label><div class="nm-tiles" role="radiogroup" aria-label="Start from">${startTiles(templates,
+      { empty: svg('<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>'), copy: ICON.dup })}</div></div>
+    <div id="nmtemplate" style="display:none"><div class="hint" id="nmtnote" style="margin:0 0 6px;white-space:pre-line"></div></div>
     <div id="nmempty"><div class="row"><label>Room (W D H)</label><input type="number" id="nmw" value="2048" step="64"><input type="number" id="nmd" value="2048" step="64"><input type="number" id="nmh" value="384" step="32"></div>
       <div class="row"><label>Floor</label><input type="text" id="nmfloor" value="${escapeHtml(t.floor)}" list="texlist2"></div>
       <div class="row"><label>Walls</label><input type="text" id="nmwalls" value="${escapeHtml(t.walls)}" list="texlist2"></div>
@@ -10986,22 +11309,40 @@ async function openNewMap() {
     } catch (e) { $('#nmsrc').innerHTML = ''; $('#nmmsg').textContent = e.message; }
     finally { sourceLoading = false; $('#nmsrc').disabled = false; $('#nmgo').disabled = false; $('#nmcopy-kind').disabled = false; }
   };
-  for (const r of newBox.querySelectorAll('[name=nmfrom]')) r.onchange = () => {
-    const copy = newBox.querySelector('[name=nmfrom]:checked').value === 'copy';
-    $('#nmempty').style.display = copy ? 'none' : ''; $('#nmcopy').style.display = copy ? '' : 'none';
+  // the tile chosen: what it asks for (a room's size and textures, the map to copy, what the template is)
+  const chosen = () => newBox.querySelector('[name=nmfrom]:checked');
+  const showFrom = () => {
+    const from = chosen().value, t = templates.find((x) => x.id === chosen().dataset.template);
+    $('#nmempty').style.display = from === 'empty' ? '' : 'none'; $('#nmcopy').style.display = from === 'copy' ? '' : 'none';
+    $('#nmtemplate').style.display = t ? '' : 'none';
+    if (t) $('#nmtnote').textContent = templateNote(t);
+  };
+  for (const r of newBox.querySelectorAll('[name=nmfrom]')) r.onchange = showFrom;
+  // a template's ×: out of the project (the maps made from it stay as they are)
+  for (const b of newBox.querySelectorAll('[data-nmdel]')) b.onclick = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const t = templates.find((x) => x.id === b.dataset.nmdel);
+    if (!t || !confirm(`Delete the map template "${t.name}"? The maps made from it stay as they are.`)) return;
+    try { await api('/api/map_template_delete', { id: t.id }); } catch (err) { $('#nmmsg').textContent = err.message; return; }
+    templates.splice(templates.indexOf(t), 1);
+    b.closest('.nm-tile').remove();
+    if (!chosen()) newBox.querySelector('[name=nmfrom][value=empty]').checked = true;
+    showFrom();
+    log(`Map template ${t.name} deleted.`);
   };
   $('#nmgo').onclick = async () => {
     if (sourceLoading) return;
     if (!(await startScreen.confirmLeave())) return;
-    const from = newBox.querySelector('[name=nmfrom]:checked').value;
+    const from = chosen().value;
     const body = { name: $('#nmname').value.trim(), mission: +$('#nmmission').value, location: $('#nmloc').value.trim(), from,
-                   source: $('#nmsrc').value, size: [+$('#nmw').value, +$('#nmd').value, +$('#nmh').value],
+                   source: $('#nmsrc').value, template: chosen().dataset.template || '', size: [+$('#nmw').value, +$('#nmd').value, +$('#nmh').value],
                    textures: { floor: $('#nmfloor').value.trim(), walls: $('#nmwalls').value.trim(), ceiling: $('#nmceil').value.trim() },
                    mood: $('#nmmood') ? $('#nmmood').value : 'normal' };
     if (!body.name) { $('#nmmsg').textContent = 'Give it a name.'; return; }
     if (from === 'copy' && !body.source) { $('#nmmsg').textContent = 'Choose a map to copy.'; return; }
     if (independent && (!Number.isInteger(body.mission) || body.mission < 1 || body.mission > 99)) { $('#nmmsg').textContent = 'Choose a chapter from 1 to 99.'; return; }
-    busy(from === 'copy' ? 'Copying the map...' : 'Building the new map (about half a minute)...');
+    const room = from === 'empty' || templates.find((x) => x.id === body.template)?.room;
+    busy(room ? 'Building the new map (about half a minute)...' : 'Copying the map...');
     try {
       const r = await api('/api/newmap', body);
       for (const l of r.lines || []) log(l);
@@ -11016,6 +11357,12 @@ async function openNewMap() {
   };
 }
 $('#newmap').onclick = () => openNewMap().catch((e) => log(e.message, 'bad'));
+// File > Save map as template... (map-templates.js): the map's place, with a picture of the view without the editor's marks
+function saveAsTemplate() {
+  if (!script) return;
+  openSaveTemplate({ api, script, mapName, edits, picture: viewShot({ clean: true }).url,
+    done: (t) => log(`Map template ${t.name} saved in the project: New map shows it beside An empty room.`, 'ok') });
+}
 
 // ---------------------------------------------------------------- Links: the ways in and out of the map
 const linkBox = $('#linkbox');
@@ -11060,6 +11407,29 @@ function inGameActors() { return allActors().filter((a) => !edits.deleted[a.name
 function keyIdOf(v) { const id = propShown('name', v ?? '').toLowerCase(); return id === 'none' ? '' : id; }   // (None in any case: no key)
 // the Key IDs of the keys among these objects (those in the game), for a door's Key ID to be looked up in
 function mapKeyIds(acts = inGameActors()) { return new Set(acts.map((b) => keyIdOf(actorProp(b, 'KeyID'))).filter(Boolean)); }
+// Check map's fixes, each one step of Ctrl+Z: the editor's own Delete or Drop to floor on that thing
+function checkFixOn(name, act) { const q = proxyOf(name); if (q) { select(q); act(); } }
+// a thing inside a block not built yet, put on top of it
+function putOnBlock(name, boxName) {
+  const a = edits.added.find((x) => x.name === name), b = (edits.boxes || []).find((x) => x.name === boxName);
+  if (!a || !b) return;
+  pushUndo(`Put ${hierLabel(a)} on its block`);
+  a.loc = [a.loc[0], a.loc[1], Math.round((b.hi[2] + (a.height || 16) + 0.5) * 10) / 10];
+  setDirty(); rebuildProxies();
+  log(`${name} is now on top of ${b.name}.`, 'ok');
+}
+// how far a thing is left in the air (map-check.js airGap): its bottom over the first surface under its middle (the ray
+// of Drop to floor, from higher up: a bottom a little in the floor is still on it), 0 when it is down. What the 3D view
+// hides counts (presentHits): a bottle on a table hidden by Isolate is on the table
+function gapBelow(p) {
+  const box = placementGeometry.bounds(p);
+  if (box.isEmpty()) return 0;
+  const hit = surfaceHit(box.getCenter(new THREE.Vector3()), new THREE.Vector3(0, -1, 0), new Set([p]), 5000, presentHits);
+  return hit ? airGap(box.min.y, hit.point.y) : 0;
+}
+// what Check map compares of two things at one spot: the properties each one has now, All properties' too (a double
+// paste has its original's; two sounds or triggers put there on purpose are set differently)
+function checkedProps(p) { return { ...ownProps(p), ...edits.rawprops?.[p.userData.actor.name] }; }
 const checkBox = $('#checkbox');
 async function checkMap() {
   checkBox.style.display = 'block';
@@ -11125,7 +11495,29 @@ async function checkMap() {
   for (const a of acts) {
     if (!mine.has(a.name) || /^(Light|Spotlight|PathNode|PatrolPoint|PlayerStart|Teleporter|AmbientSound|ZoneInfo)$/.test(a.cls) || !a.loc) continue;
     const box = solidBoxes.find((b) => [0, 1, 2].every((k) => a.loc[k] > b.lo[k] + 0.5 && a.loc[k] < b.hi[k] - 0.5));
-    if (box) out.push({ level: 'error', text: `${label(a)} is inside the block ${box.name}: in the game it falls out of the world or stays stuck.`, who: a.name, fix: { label: 'put it on top', box: box.name } });
+    if (box) out.push({ level: 'error', text: `${label(a)} is inside the block ${box.name}: in the game it falls out of the world or stays stuck.`, who: a.name, fix: { label: 'put it on top', run: () => putOnBlock(a.name, box.name) } });
+  }
+  // the same object twice at one spot (a double paste) and what the game drops to the floor left in the air
+  // (map-check.js), where the 3D view has them
+  const shown = new Map(proxies.children.filter((p) => p.userData.actor).map((p) => [p.userData.actor.name, p]));
+  const byName = new Map(acts.map((a) => [a.name, a])), rank = new Map((edits.added || []).map((a, i) => [a.name, i + 1]));
+  const things = acts.filter((a) => shown.has(a.name)).map((a) => ({ name: a.name, cls: a.cls, loc: UE(shown.get(a.name).position),
+    rot: objectRotation(shown.get(a.name)), rank: rank.get(a.name) || 0, mine: mine.has(a.name), props: checkedProps(shown.get(a.name)) }));
+  for (const s of stackedCopies(things))
+    out.push({ level: 'warn', text: `${label(byName.get(s.extra))} is on ${label(byName.get(s.of))}: the same object twice at one spot, probably a double paste (the game has both).`,
+      who: s.extra, fix: { label: 'delete the extra one', run: () => checkFixOn(s.extra, deleteSelected) } });
+  const ours = acts.filter((a) => mine.has(a.name) && shown.has(a.name));
+  await Promise.all([...new Set(ours.map((a) => a.cls))].map(chainOf));
+  for (const a of ours) {
+    if (!fallsWhenLoaded(chainNow[a.cls] || [a.cls], actorProp(a, 'Physics'), actorProp(a, 'bCollideWorld'))) continue;
+    const gap = gapBelow(shown.get(a.name));
+    if (gap) out.push({ level: 'warn', text: `${label(a)} is ${Math.round(gap)} units above what is under it: the game drops it when the map starts.`,
+      who: a.name, fix: { label: 'drop to floor', run: () => checkFixOn(a.name, () => dropSelected(presentHits)) } });
+  }
+  // path nodes the last Rebuild linked to no other point (ai-paths.js)
+  for (const n of pathData ? loosePoints(pathData) : []) {
+    const a = byName.get(n);
+    if (a && mine.has(n) && NAV_CLASSES.test(a.cls)) add('warn', `${label(a)} is linked to no other point (as last rebuilt): no character goes there. Move it within reach of another one, on the floor with nothing in between, and Rebuild.`, n);
   }
   // interactions
   lkCheck(add);
@@ -11141,16 +11533,7 @@ async function checkMap() {
     $('#ckclose').onclick = () => { checkBox.style.display = 'none'; };
     $('#ckagain').onclick = () => checkMap();
     for (const l of checkBox.querySelectorAll('[data-ck]')) l.onclick = (e) => { e.preventDefault(); const q = proxyOf(all[+l.dataset.ck].who); if (q) { select(q); focusSelected(); } };
-    for (const l of checkBox.querySelectorAll('[data-ckfix]')) l.onclick = (e) => {
-      e.preventDefault();
-      const c = all[+l.dataset.ckfix], a = edits.added.find((x) => x.name === c.who), b = (edits.boxes || []).find((x) => x.name === c.fix.box);
-      if (!a || !b) return;
-      pushUndo();
-      a.loc = [a.loc[0], a.loc[1], Math.round((b.hi[2] + (a.height || 16) + 0.5) * 10) / 10];
-      setDirty(); rebuildProxies();
-      log(`${c.who} is now on top of ${b.name}.`, 'ok');
-      checkMap();
-    };
+    for (const l of checkBox.querySelectorAll('[data-ckfix]')) l.onclick = (e) => { e.preventDefault(); all[+l.dataset.ckfix].fix.run(); checkMap(); };
   };
   render(null);
   try {
@@ -11166,6 +11549,7 @@ async function checkMap() {
   } catch (e) { render([{ level: 'warn', text: 'The geometry check failed: ' + e.message }]); }
 }
 $('#checkbtn').onclick = () => checkMap();
+$('#log').addEventListener('click', (e) => { if (e.target.closest('[data-checkmap]')) { e.preventDefault(); checkMap(); } });
 
 // ---------------------------------------------------------------- Map settings: music, information, ambient light
 // edits.level (editor/mapsettings.py): Revision's music (an OGG per moment: exploring, combat, conversations,
@@ -11234,7 +11618,7 @@ async function openMapSettings() {
   for (const b of mapBox.querySelectorAll('[data-mplay]')) b.onclick = () => playMusic(mapBox.querySelector(`[data-music="${b.dataset.mplay}"]`).value, b);
   $('#msapply').onclick = () => {
     if (script !== settingsScript) { mapBox.style.display = 'none'; return; }
-    pushUndo();
+    pushUndo('Map settings');
     const m = {};
     for (const sel of mapBox.querySelectorAll('[data-music]')) if (sel.value) m[sel.dataset.music] = sel.value;
     // the PS2 soundtrack option: the copied map's own PS2 tracks, else the same tracks
@@ -11347,7 +11731,7 @@ function finishInspectorDrag(cancel = false) {
   if (!d) return;
   inspectorDrag = null;
   document.body.classList.remove('inspector-scrubbing');
-  if (details.hasPointerCapture(d.pointer)) details.releasePointerCapture(d.pointer);
+  if (d.el.hasPointerCapture(d.pointer)) d.el.releasePointerCapture(d.pointer);
   if (cancel || d.p.position.equals(d.pos)) {
     d.p.position.copy(d.pos);
     if (d.structureStarted) { followStructure(d.structureMove); if (moveStart === d.structureMove) moveStart = null; }
@@ -11355,53 +11739,56 @@ function finishInspectorDrag(cancel = false) {
     showDetails(true);
     return;
   }
-  pushUndo();
+  pushUndo(stepOf('Move', [d.p]));
   if (d.p.userData.kind === 'box') {
     shiftBlock(d.p, d.pos);
     setDirty(); showDetails();
   } else if (d.structureStarted) commitStructure(d.structureMove);
   else commit(d.p);
 }
-details.addEventListener('pointerdown', (e) => {
-  const label = e.target.closest('label.scrub');
-  const inspected = inspectedObject();
-  if (!label || e.button !== 0 || inspectorDrag || !inspected || !requireUnlocked(inspected)) return;
-  e.preventDefault();
-  // Finish any typed number first: its change handler may replace all the labels.
-  const id = label.htmlFor;
-  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-  const input = document.getElementById(id);
-  if (!input || !details.contains(input) || input.disabled || input.readOnly || !Number.isFinite(plainNumber(input.value))) return;
-  inspectorDrag = { p: inspected, pos: inspected.position.clone(), axis: { px: 'x', py: 'z', pz: 'y' }[id],
-    pointer: e.pointerId, x: e.clientX, delta: 0, structureStarted: false };
-  details.setPointerCapture(e.pointerId);
-  document.body.classList.add('inspector-scrubbing');
-});
-details.addEventListener('pointermove', (e) => {
-  const d = inspectorDrag;
-  if (!d || e.pointerId !== d.pointer) return;
-  if (!(e.buttons & 1)) { finishInspectorDrag(); return; }
-  e.preventDefault();
-  d.delta += (e.clientX - d.x) * (e.shiftKey ? 0.1 : 1);
-  d.x = e.clientX;
-  const value = r1(d.pos[d.axis] + d.delta);
-  if (value === d.p.position[d.axis]) return;
-  if (isStruct(d.p) && !d.structureStarted) { d.structureMove = beginStructMove(d.p); d.structureStarted = true; }
-  d.p.position[d.axis] = value;
-  if (d.structureStarted) followStructure(d.structureMove);
-  showLightRange(d.p); showSoundRange(d.p);
-  showDetails(true);
-});
-details.addEventListener('pointerup', (e) => { if (inspectorDrag && e.pointerId === inspectorDrag.pointer) finishInspectorDrag(); });
-details.addEventListener('pointercancel', (e) => { if (inspectorDrag && e.pointerId === inspectorDrag.pointer) finishInspectorDrag(true); });
-details.addEventListener('lostpointercapture', () => finishInspectorDrag(true));
-details.addEventListener('click', (e) => { if (e.target.closest('label.scrub')) e.preventDefault(); });
+// the X, Y and Z labels of an Inspector's #details (the panel's, a Properties window's)
+function wireTransformScrub(details) {
+  details.addEventListener('pointerdown', (e) => {
+    const label = e.target.closest('label.scrub');
+    const inspected = inspectedObject();
+    if (!label || e.button !== 0 || inspectorDrag || !inspected || !requireUnlocked(inspected)) return;
+    e.preventDefault();
+    // Finish any typed number first: its change handler may replace all the labels.
+    const id = label.htmlFor;
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const input = label.parentElement.querySelector('input');        // its field: in this Inspector
+    if (!input || !details.contains(input) || input.disabled || input.readOnly || !Number.isFinite(plainNumber(input.value))) return;
+    inspectorDrag = { p: inspected, pos: inspected.position.clone(), axis: { px: 'x', py: 'z', pz: 'y' }[id],
+      pointer: e.pointerId, x: e.clientX, delta: 0, structureStarted: false, el: details };
+    details.setPointerCapture(e.pointerId);
+    document.body.classList.add('inspector-scrubbing');
+  });
+  details.addEventListener('pointermove', (e) => {
+    const d = inspectorDrag;
+    if (!d || e.pointerId !== d.pointer) return;
+    if (!(e.buttons & 1)) { finishInspectorDrag(); return; }
+    e.preventDefault();
+    d.delta += (e.clientX - d.x) * (e.shiftKey ? 0.1 : 1);
+    d.x = e.clientX;
+    const value = r1(d.pos[d.axis] + d.delta);
+    if (value === d.p.position[d.axis]) return;
+    if (isStruct(d.p) && !d.structureStarted) { d.structureMove = beginStructMove(d.p); d.structureStarted = true; }
+    d.p.position[d.axis] = value;
+    if (d.structureStarted) followStructure(d.structureMove);
+    showLightRange(d.p); showSoundRange(d.p);
+    showDetails(true);
+  });
+  details.addEventListener('pointerup', (e) => { if (inspectorDrag && e.pointerId === inspectorDrag.pointer) finishInspectorDrag(); });
+  details.addEventListener('pointercancel', (e) => { if (inspectorDrag && e.pointerId === inspectorDrag.pointer) finishInspectorDrag(true); });
+  details.addEventListener('lostpointercapture', () => finishInspectorDrag(true));
+  details.addEventListener('click', (e) => { if (e.target.closest('label.scrub')) e.preventDefault(); });
+}
 window.addEventListener('blur', () => finishInspectorDrag(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) finishInspectorDrag(true); });
 // Every number of the Inspector, like Unity and PlayCanvas: drag its label left or right to change it, a step
 // every 4 pixels (Shift: finer), Esc puts it back. The field's own change handler saves it when the button is let go.
 // A field of several objects showing — (their values differ) moves each one from its own value: +=8 on each.
-{
+function wireNumberScrub(details) {
   let numDrag = null;
   const numberOf = (label) => {
     if (!label || label.classList.contains('scrub') || label.parentElement?.classList.contains('row') !== true) return null;
@@ -11451,7 +11838,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) finis
 // gives each one its own value: +=16 on its own, L(a,b) spread in their order, R(a,b) at random (evaluateAll).
 const multiFields = new WeakMap();        // field -> {names, values (as shown, in their order), apply(a value for each)}
 const rawFields = new WeakMap();          // a field of All properties -> {key, type, def, category, options, apply(a text for each object)}
-{
+function wireNumberMaths(details) {
   const entered = new WeakMap();          // field -> its text when it was entered
   const sums = new WeakMap();             // change event -> what the status bar says after it
   let cancelling = null;                  // the field Esc is leaving: its change, if the browser sends one, is dropped
@@ -11506,27 +11893,70 @@ const rawFields = new WeakMap();          // a field of All properties -> {key, 
 }
 // Right click on a field of several objects whose values differ: Set all to <object>'s value (Unity's "Set to Value of");
 // on a field or a section's title, its copy, paste and reset (propMenuItems; typing in a field keeps the browser's menu)
-details.addEventListener('contextmenu', (e) => {
-  const row = e.target.closest('.row');
-  const f = [e.target, ...(row ? row.querySelectorAll('input, select') : [])].find((x) => multiFields.has(x));
-  const many = f && multiFields.get(f), choices = many ? valueChoices(many.names, many.values) : [];
-  const typing = e.target === document.activeElement && e.target.matches('textarea, input[type=text], input:not([type])');
-  const own = typing ? [] : propMenuItems(e.target);
-  if (!choices.length && !own.length) return;
-  e.preventDefault();
-  openMenu(e.clientX, e.clientY, own.concat(own.length && choices.length ? [{ sep: true }] : [], choices.map((c) => ({ label: `Set all to ${c.name}'s value: ${valueText(c.value)}`,
-    off: selectionLocked(), run: () => many.apply(many.names.map(() => c.value)) }))));
+function wirePropMenu(details) {
+  details.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.row');
+    const f = [e.target, ...(row ? row.querySelectorAll('input, select') : [])].find((x) => multiFields.has(x));
+    const many = f && multiFields.get(f), choices = many ? valueChoices(many.names, many.values) : [];
+    const typing = e.target === document.activeElement && e.target.matches('textarea, input[type=text], input:not([type])');
+    const own = typing ? [] : propMenuItems(e.target);
+    if (!choices.length && !own.length) return;
+    e.preventDefault();
+    openMenu(e.clientX, e.clientY, own.concat(own.length && choices.length ? [{ sep: true }] : [], choices.map((c) => ({ label: `Set all to ${c.name}'s value: ${valueText(c.value)}`,
+      off: selectionLocked(), run: () => many.apply(many.names.map(() => c.value)) }))));
+  });
+}
+// the Inspector's own drags, maths and right click on its #details: the panel's, and each Properties window's
+function wireInspectorBody(el) { wireTransformScrub(el); wireNumberScrub(el); wireNumberMaths(el); wirePropMenu(el); wireLabelClicks(el); }
+// A label's click works on its field in this Inspector: a Properties window repeats the panel's ids, and the browser
+// takes a label's for= to the first field of that id in the page (the panel's). In the panel the browser's own is right
+function wireLabelClicks(details) {
+  details.addEventListener('click', (e) => {
+    const label = e.target.closest?.('label[for]');
+    if (!label || e.defaultPrevented) return;             // (X, Y, Z: their drag's)
+    const field = details.querySelector('#' + CSS.escape(label.htmlFor));
+    if (!field || field === label.control) return;
+    e.preventDefault();
+    field.focus();
+    if (field.type === 'checkbox' || field.type === 'radio') field.click();
+  });
+}
+wireInspectorBody(details);
+// Properties… windows: an Inspector of one object each, beside the panel. An event in one puts its Inspector
+// at work while it is handled (inspectorView, for $); after it (the next task) the panel's is again
+inspectorWindows = createInspectorWindows({ object: heldObject, title: (p) => objectLabel(p)[0], render: (view, live) => showDetails(live, view),
+  wire: wireInspectorBody, status });
+let viewReset = 0;
+for (const type of INSPECTOR_EVENTS) window.addEventListener(type, (e) => {
+  inspectorView = inspectorWindows.viewAt(e.target);
+  if (inspectorView && !viewReset) viewReset = setTimeout(() => { viewReset = 0; inspectorView = null; });
+}, true);
+// a change made in a Properties window: the panel (it may show the same object) is drawn again after it
+let panelFrame = 0;
+window.addEventListener('deusedix:edits', () => {
+  if (inspectorView && !panelFrame) panelFrame = requestAnimationFrame(() => { panelFrame = 0; showDetails(); });
 });
+// right click > Properties…: the window of this object (held by its key, in this map), a new one or its own
+function openProperties(p) {
+  const key = keyOf(p);
+  if (key) inspectorWindows.open(key, mapGeneration);
+}
 
 // A pinned Inspector is a view preference, not an object lock or a map edit.
 // Resolve by stable key so rebuilding proxies never leaves event handlers on a dead object.
 function inspectedObject() {
+  if (inspectorView) return heldObject(inspectorView);     // a Properties window: its own object
   if (inspectorPin) {
-    const target = inspectorPin.generation === mapGeneration ? objOf(inspectorPin.key) : null;
-    if (target && target.parent) return target;
+    const target = heldObject(inspectorPin);
+    if (target) return target;
     inspectorPin = null;
   }
   return selected;
+}
+// what the padlock or a Properties window holds: its object by key, in the map it was taken in (null: gone)
+function heldObject(hold) {
+  const target = hold.generation === mapGeneration ? objOf(hold.key) : null;
+  return target && target.parent ? target : null;
 }
 function inspectorIsPinned() { inspectedObject(); return !!inspectorPin; }
 function unlockInspector() { inspectorPin = null; showDetails(); }
@@ -11534,7 +11964,7 @@ function inspectorAction(p, run) {
   // Legacy scene actions intentionally operate on selection. Explicit Inspector
   // buttons first select their displayed object, never an unrelated scene object.
   if (inspectedObject() !== p || !p?.parent) return;
-  if (selected !== p) select(p, true);
+  if (selected !== p) select(p, !inspectorView);          // from a Properties window the panel follows
   return run();
 }
 function refreshInspectorPin() {
@@ -11598,7 +12028,7 @@ function applyTransform(p, key, v) {
 // its objects, a block moved or turned keeps its size
 function setTransforms(list, key, values) {
   if (!requireUnlocked(groupPivot)) return false;
-  pushUndo();
+  pushUndo(stepOf(key in MOVE_AXES ? TOOL_VERBS.translate : key === 'scale' ? TOOL_VERBS.scale : TOOL_VERBS.rotate, list));
   const moves = list.map((p, i) => {
     const st = isStruct(p) ? beginStructMove(p) : null, from = p.position.clone();
     applyTransform(p, key, values[i]);
@@ -11644,7 +12074,7 @@ function refreshProps(list) {
 // properties set on several objects, one Ctrl+Z: changes [[key, its text for each object]]; lights show their colour
 function setPropsAll(list, changes) {
   if (!requireUnlocked(groupPivot)) return false;
-  pushUndo();
+  pushUndo(stepOf(`${changes.map(([key]) => propertyName(key)).join(', ')} of`, list));
   for (const [key, texts] of changes) list.forEach((p, i) => putProp(p.userData.actor, key, texts[i]));
   setDirty();
   refreshProps(list);
@@ -11727,7 +12157,7 @@ const TABLE_WRITES = {                    // column key -> how that column is wr
 const relationText = (r) => `${facLabel(r.name)} ${ATTITUDES.find(([k]) => k === levelKey(r.level))[1]}${r.fixed ? ' (fixed)' : ''}`;
 // how characters treat JC (friendly, neutral, hostile), one Ctrl+Z; a fixed relation stays fixed
 function setAttitudes(actors, values) {
-  pushUndo();
+  pushUndo(namedStep('Attitude to JC of', actors.map((a) => hierLabel(a))));
   let full = 0;
   actors.forEach((a, i) => {
     const key = ATTITUDES.find(([, t]) => t === values[i])?.[0], own = relationsOf(a).find((r) => r.name.toLowerCase() === 'player');
@@ -11878,13 +12308,13 @@ async function reviewChanges(targets, plans, { title, intro, action }) {
   const actors = targets.map((m) => m.userData.actor);
   const keys = await askChanges({ title, intro, rows: changeRows(plans), action,
     label: (key) => propLabel(actors, key), shown: (key, v) => propValueText(actors, key, v) });
-  return keys ? writeChanges(targets, chosenPlans(plans, keys)) : false;
+  return keys ? writeChanges(targets, chosenPlans(plans, keys), `${action} properties of`) : false;
 }
 // the changes of prop-sets.js's plans written: the Properties' (edits.props) and All properties' (edits.rawprops), one Ctrl+Z
-function writeChanges(targets, plans) {
+function writeChanges(targets, plans, label = 'Properties of') {
   plans = plans.filter((p) => p.changes.length);
   if (!plans.length || !targets.every((m) => requireUnlocked(m))) return false;
-  pushUndo();
+  pushUndo(stepOf(label, targets));
   for (const plan of plans) for (const c of plan.changes) {
     if (c.props !== undefined) storeProp('props', plan.name, c.key, c.props);
     if (c.raw !== undefined) storeProp('rawprops', plan.name, c.key, c.raw);
@@ -12009,10 +12439,10 @@ function fieldItems(targets, prop, locked) {
   const mapOwn = objects.some((o, i) => keysOf[i].some((k) => !sameText(o.props[k].base, o.props[k].def)));
   return [
     copy,
-    { label: valueClip ? `Paste value: ${valueClip.text}` : 'Paste value', off: !paste?.every(Boolean) || locked, run: () => writeChanges(list, plansOf((i) => Object.fromEntries(paste[i]))) },
-    { label: `Reset to the class default: ${text(first.map((k) => objects[0].props[k].def))}`, off: locked || !reset.some((p) => p.changes.length), run: () => writeChanges(list, reset) },
+    { label: valueClip ? `Paste value: ${valueClip.text}` : 'Paste value', off: !paste?.every(Boolean) || locked, run: () => writeChanges(list, plansOf((i) => Object.fromEntries(paste[i])), 'Paste a value on') },
+    { label: `Reset to the class default: ${text(first.map((k) => objects[0].props[k].def))}`, off: locked || !reset.some((p) => p.changes.length), run: () => writeChanges(list, reset, 'Reset a value of') },
     ...(edited && mapOwn ? [{ label: list.length === 1 ? `Revert to the map's value: ${text(first.map((k) => objects[0].props[k].base ?? null))}` : "Revert to the maps' values",
-      off: locked, run: () => writeChanges(list, plansOf((i) => Object.fromEntries(keysOf[i].map((k) => [k, null])))) }] : []),
+      off: locked, run: () => writeChanges(list, plansOf((i) => Object.fromEntries(keysOf[i].map((k) => [k, null]))), 'Revert a value of') }] : []),
   ];
 }
 // a field of All properties (all-props.js rawField: its key, type, class default, category, options (an enum's),
@@ -12040,15 +12470,24 @@ function markPropSections(root, a) {
     s.querySelector('summary').title = 'Right click: copy, paste or reset this section, or save it as a preset';
 }
 
-function showDetails(live) {
+// the Inspector panel's own part: its lock bar, the Properties windows following it, the Prefabs list; true when it
+// shows a sound or faces instead of an object
+function showPanel(live) {
   refreshInspectorPin();
+  inspectorWindows?.follow(live);
   if (!live && bottomTab === 'prefabs') void prefabBrowser.render();
-  if (!inspectorIsPinned() && soundBrowser?.selection()) { soundBrowser.renderInspector(); return; }
-  if (!inspectorIsPinned() && surfaceTools.hasSelection) { surfaceTools.panel(); return; }
+  if (!inspectorIsPinned() && soundBrowser?.selection()) { soundBrowser.renderInspector(); return true; }
+  if (!inspectorIsPinned() && surfaceTools.hasSelection) { surfaceTools.panel(); return true; }
+  return false;
+}
+// view: a Properties window (inspector-windows-view.js), drawn by this same code; none: the Inspector panel
+function showDetails(live, view = null) {
+  if (view !== inspectorView) return inInspector(view, () => showDetails(live, view));
+  if (!view && showPanel(live)) return;
   if (!live && propertySlider) finishPropertySlider(true);
   if (!live && inspectorDrag) finishInspectorDrag(true);
   const p = inspectedObject(), el = $('#details');
-  if (!live) { clearLinks(); disposeGroup(routeLines); }
+  if (!live && !view) { clearLinks(); disposeGroup(routeLines); }      // the lines of the panel's object
   if (!p) { el.innerHTML = '<div class="hint inspector-empty">Select an object to edit it.<br>Right-click for actions.<br>RMB + WASD: fly · Ctrl+click: multiselect</div>'; return; }
   if (p === groupPivot) {
     if (live) return;
@@ -12075,7 +12514,7 @@ function showDetails(live) {
     if ($('#nlabel')) $('#nlabel').onchange = () => {
       const v = $('#nlabel').value.trim();
       if (!v || v === nest.label) return;
-      pushUndo(); nest.label = v.slice(0, 80); setDirty();
+      pushUndo(`Rename folder ${v}`); nest.label = v.slice(0, 80); setDirty();
     };
     wireInspectorSections(el); narrow.wire(el); transform.wire(el);
     renderMulti(ms).catch((e) => log('Inspector: ' + e.message, 'bad'));
@@ -12085,7 +12524,7 @@ function showDetails(live) {
   const d = p.userData;
   if (d.kind === 'drawn') {                   // a drawn wall, road, floor or roof (draw-tools.js)
     if (live) return;
-    drawTools.inspector(el, d.drawn, { change: (fn) => { pushUndo(); fn(); setDirty(); drawTools.refresh(p); showDetails(); },
+    drawTools.inspector(el, d.drawn, { change: (fn) => { pushUndo(stepOf('Edit', [p])); fn(); setDirty(); drawTools.refresh(p); showDetails(); },
       remove: () => inspectorAction(p, deleteSelected) });
     return;
   }
@@ -12134,14 +12573,14 @@ function showDetails(live) {
     el.innerHTML = html;
     wireInspectorSections(el);
     wireTexSection(p);
-    surfaceTools.structurePanel(d.name);
+    if (!view) surfaceTools.structurePanel(d.name);      // its faces: the panel's (surface-ui.js)
     $('#sdrop').onclick = () => inspectorAction(p, () => placeSelected());
     $('#sdropmode').onclick = ev => inspectorAction(p, () => openPlaceMenu(ev.currentTarget));
     const apply = (ev) => {
       // Capture the checkbox before commit redraws the Inspector. Explicit Off
       // must survive future scale/rotate/move operations and save/reload.
       const textureChoice = ev?.target?.id === 'sstretch' ? $('#sstretch').checked : undefined;
-      pushUndo();
+      pushUndo(stepOf('Edit', [p]));
       const structureMove = beginStructMove(p);
       p.position.copy(T([+$('#px').value, +$('#py').value, +$('#pz').value]));
       if (st.rotatable) {
@@ -12158,7 +12597,7 @@ function showDetails(live) {
     wireMoverPanel(el, { getEntry: () => pasteEntry(st.name), change: update => {
       if (!requireUnlocked(p)) return;
       const entry = pasteEntry(st.name); if (!entry) return;
-      pushUndo(); update(entry); setDirty();
+      pushUndo(stepOf('Mover settings of', [p])); update(entry); setDirty();
     } });
     if ($('#mover-details')) $('#mover-details').onclick = () => { if (nativeMover) { inspectorPin = null; select(nativeMover); } };
     if ($('#bdup')) $('#bdup').onclick = () => inspectorAction(p, duplicateSelected);
@@ -12284,7 +12723,7 @@ function showDetails(live) {
     if (!how || !b) return;
     const size = [0, 1, 2].map((k) => b.hi[k] - b.lo[k]);
     const off = { up: [0, 0, size[2]], down: [0, 0, -size[2]], '+x': [size[0], 0, 0], '-x': [-size[0], 0, 0], '+y': [0, size[1], 0], '-y': [0, -size[1], 0] }[how];
-    pushUndo();
+    pushUndo(stepOf('Make', [p], 'slide'));
     edits.motions = edits.motions || {};
     edits.motions[b.name] = { pos: [{ t: 0, v: [0, 0, 0], e: 1 }, { t: 2, v: off, e: 1 }], rot: [], scale: [], mode: 'once', autoplay: false };
     setDirty(); showDetails();
@@ -12292,7 +12731,7 @@ function showDetails(live) {
   };
   if ($('#bcut')) $('#bcut').onclick = () => inspectorAction(p, () => window.__cutscene && window.__cutscene.open(d.actor.name));
   const apply = () => {
-    pushUndo();
+    pushUndo(stepOf('Edit', [p]));
     if (d.kind === 'box') {
       const b = d.box, cx = +$('#px').value, cy = +$('#py').value, cz = +$('#pz').value;
       const sx = Math.max(4, +$('#sx').value), sy = Math.max(4, +$('#sy').value), sz = Math.max(4, +$('#sz').value);
@@ -12352,7 +12791,8 @@ function showDetails(live) {
   if ($('#blast')) $('#blast').onclick = () => orderBlocks(false);
   if ($('#bvreset')) $('#bvreset').onclick = () => vertexEdit?.reset(p);
   if (d.kind === 'box' && d.box.sign) {
-    // the sign's text, style and size: drawn again and imported again (the back stays on its wall)
+    // the sign's text, style and size: drawn again and imported again (the back stays on its wall); an upload ends in
+    // this Inspector (view: a Properties window, or the panel), whichever is at work then
     const b = d.box;
     // the look in the form (the preview follows every key and click; the texture is made when a change is done)
     const form = () => ({ font: $('#sgfont').value, bold: $('#sgbold').classList.contains('on'), italic: $('#sgitalic').classList.contains('on'),
@@ -12371,7 +12811,7 @@ function showDetails(live) {
       cv.width = tw; cv.height = th; cv.getContext('2d').drawImage(drawn, 0, 0);
     };
     const sgChange = () => {
-      pushUndo();
+      pushUndo('Sign text');
       b.sign.text = $('#sgtext').value.replace(/\s+$/, '') || ' ';     // a picture: any letters (Chinese too)
       b.sign.look = form();
       const c = [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2), k = 'xy'.indexOf(b.sign.face[1]);
@@ -12383,7 +12823,7 @@ function showDetails(live) {
     panel.addEventListener('input', () => preview());
     for (const x of panel.querySelectorAll('textarea.sg, input.sg:not([type=file]), select.sg:not(#sgstyle)')) x.addEventListener('change', sgChange);
     $('#sgstyle').addEventListener('change', () => {                     // a preset: its colours and effects, the font kept
-      pushUndo();
+      pushUndo('Sign style');
       b.sign.style = $('#sgstyle').value;
       const keep = b.sign.look ? { font: b.sign.look.font, align: b.sign.look.align, size: b.sign.look.size } : {};
       b.sign.look = Object.assign(signLook({ style: b.sign.style }), keep);
@@ -12403,9 +12843,8 @@ function showDetails(live) {
       if (!f) return;
       try {
         const family = await importFont(f);
-        $('#sgfont').innerHTML = fontOptions(family);
         log(`Font "${family}" added: it is in every font list from now on.`, 'ok');
-        preview(); sgChange();
+        inInspector(view, () => { $('#sgfont').innerHTML = fontOptions(family); preview(); sgChange(); });
       } catch (err) { log('Font: ' + err.message, 'bad'); }
     };
     $('#sgbgpic').onclick = (e) => { e.preventDefault(); $('#sgbgfile').click(); };
@@ -12414,21 +12853,26 @@ function showDetails(live) {
       $('#sgbgfile').value = '';
       if (!f) return;
       try {
+        refuseWhileBuilding('the picture waits');
         const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('That picture could not be read.')); i.src = URL.createObjectURL(f); });
         const k = Math.min(1, 512 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
         cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
         cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        refuseWhileBuilding('the picture waits');               // a Rebuild started while it was read: nothing is asked
         const info = await api('/api/texture_import?script=' + encodeURIComponent(script),
           { png: cv.toDataURL('image/png'), base: 'SignPicture', world: null, existing: Object.keys(edits.textures || {}) });
-        edits.textures = edits.textures || {};
-        edits.textures[info.name] = { pcx: info.pcx, png: info.png, w: info.w, h: info.h, masked: false, scale: 1, from: 'sign-picture' };
-        $('#sgbgtex').value = info.name;
-        preview(); sgChange();
+        refuseWhileBuilding('the picture waits');               // a Rebuild started meanwhile: nothing is changed
+        inInspector(view, () => {
+          edits.textures = edits.textures || {};
+          edits.textures[info.name] = { pcx: info.pcx, png: info.png, w: info.w, h: info.h, masked: false, scale: 1, from: 'sign-picture' };
+          $('#sgbgtex').value = info.name;
+          preview(); sgChange();
+        });
       } catch (err) { log('Picture: ' + err.message, 'bad'); }
     };
+    const fonts = $('#sgfont');                                          // this Inspector's, before the wait
     fontFamilies().then(() => {                                          // the font list, once it is known
-      const s = $('#sgfont');
-      if (s && document.body.contains(s)) { const v = s.value; s.innerHTML = fontOptions(v); }
+      if (document.body.contains(fonts)) { const v = fonts.value; fonts.innerHTML = fontOptions(v); }
     });
     preview();
   }
@@ -12469,7 +12913,7 @@ function showChanges() {
   $('#changes').innerHTML = any ? `${parts.join('<br>')}${dirty ? ' <span class="warn">(unsaved)</span>' : ''}
     <div class="row"><button id="resetall">Revert all changes</button></div>` : 'No changes.';
   const r = $('#resetall');
-  if (r) r.onclick = () => { if (confirm('Revert all the changes made with the editor on this map?')) { pushUndo(); edits = Object.assign(EMPTY(), withPublishedLayout({}, publishedLayout)); rebuildProxies(); setDirty(); } };
+  if (r) r.onclick = () => { if (confirm('Revert all the changes made with the editor on this map?')) { pushUndo('Revert all changes'); edits = Object.assign(EMPTY(), withPublishedLayout({}, publishedLayout)); rebuildProxies(); setDirty(); } };
 }
 
 // ---------------------------------------------------------------- toolbar
@@ -12477,15 +12921,17 @@ function autosaveKey() { return script ? `${projectContext?.id || 'legacy'}:${sc
 function autosaveState() {
   const preferences = normalizeAutosaveSettings(window.__menubar?.prefs || {});
   return { ...preferences, key: autosaveKey(), dirty: dirty || !!window.__story?.dirty,
-    tutorial: temporaryTutorial(), busy: !!(gameView?.active || mapLoading || mapSaveQueue.pending || window.__story?.saving ||
+    tutorial: temporaryTutorial(), busy: !!(gameView?.active || buildJob || mapLoading || mapSaveQueue.pending || window.__story?.saving ||
       $('#busy')?.style.display === 'flex' || window.__projectNavigation || projectHub?.visible ||
       tc.dragging || inspectorDrag || dragHandles?.dragging || propertySlider || moveStart || placing ||
       document.querySelector('dialog[open]') || Date.now() - lastEditingInput < 1500) };
 }
 function save({ automatic = false } = {}) {
   if (!script || (automatic && temporaryTutorial())) return Promise.resolve(false);
-  const savingScript = script, savingEdits = edits, savingSession = tutorialSession.revision;
-  const current = () => script === savingScript && edits === savingEdits && tutorialSession.revision === savingSession;
+  // the same map still open (opened again, it is another generation): its edits now are saved, even when they are
+  // another object (Undo, Revert all, a Rebuild's look-only view putting back an equal copy)
+  const savingScript = script, savingGeneration = mapGeneration, savingSession = tutorialSession.revision;
+  const current = () => script === savingScript && mapGeneration === savingGeneration && tutorialSession.revision === savingSession;
   return mapSaveQueue.run(async () => {
     if (!current() || (automatic && (mapLoading || temporaryTutorial()))) return false;
     if (automatic && !dirty) return true;
@@ -12499,6 +12945,7 @@ function save({ automatic = false } = {}) {
   });
 }
 $('#save').onclick = () => {
+  if (waitsForRebuild('saving waits')) return;
   if (temporaryTutorial()) { status('The tutorial cannot be saved. Rebuild/Play use a temporary copy; Close map discards it.'); return; }
   save().catch((e) => log(e.message, 'bad'));
 };
@@ -12526,30 +12973,145 @@ async function openExperimentalBsp() {
     log(e.message, 'bad'); status('Local geometry could not be opened: see Messages', 'bad');
   } finally { openingExperimentalBsp = false; busy(''); }
 }
-async function rebuildMap(mode = 'auto') {
-  if (!script || gameView?.active) return;
-  const rebuildingScript = script;
-  try {
-    busy('Saving changes before Rebuild...');
-    await save();
-    if (script !== rebuildingScript) return;
-    await navBakeIfNeeded();
-    if (script !== rebuildingScript) return;
-    const baked = edits.navmesh?.polys;
-    busy('Rebuilding the map (about a minute)...');
-    const camPos = camera.position.clone(), yaw = cam.yaw, pitch = cam.pitch;
-    const r = await api('/api/build?script=' + encodeURIComponent(script), { mode });
-    log(r.lines, r.ok ? '' : 'bad');
-    if (r.ok) {
-      await loadScene(script, false); camera.position.copy(camPos); cam.yaw = yaw; cam.pitch = pitch; status(`${mapName}: rebuilt`, 'ok');
-      if (script === rebuildingScript) await navCheckAfterBuild(baked);
+// Rebuild in the background (editor/build_job.py), as Unity's long tasks: the chip in the status bar says the stage, the
+// time so far and the last build's, with Cancel (the previous build stays the map's). Meanwhile the view is look-only
+// (setBuilding): flying, selecting and reading the Inspector go on, editing waits. The Build report goes to Messages.
+const BUILD_POLL = 400;                // ms between two questions to the server about its build
+const buildChip = createBuildChip({ cancel: () => cancelBuild() });
+$('#status').after(buildChip.el);      // beside the status, in the menu bar
+let buildTimer = 0;
+// what waits while a Rebuild runs, as the status and the Inspector say it
+function rebuildWaits(what = 'editing waits') { return `Rebuilding ${buildJob.map}: ${what} until it ends (or Cancel it in the status bar).`; }
+function waitsForRebuild(what) {
+  if (!buildJob) return false;
+  status(rebuildWaits(what), 'warn');
+  return true;
+}
+// an edit that waits for the server (a texture imported, a T3D read): it throws while a Rebuild runs, asked before the
+// server is and again when it answers (a change landing meanwhile would be taken back), and while the map is being
+// opened (the end of a Rebuild opens it again: a change landing then would be lost with no word); the caller says it
+function refuseWhileBuilding(what = 'editing waits') {
+  if (buildJob) throw new Error(rebuildWaits(what));
+  if (mapLoading) throw new Error(`The map is being opened: ${what} until it is. Make the change again then.`);
+}
+// A key while a Rebuild runs: those that only look go on (build-progress.js LOOK_KEYS), the browser's own too (Tab, a
+// button's Enter and Space: browserKey), the others wait for it. True when the editor leaves the key alone
+function buildKeyGate(e) {
+  if (!buildJob || e.target.isContentEditable) return false;
+  const combo = window.__menubar?.comboOf(e) || '';
+  if (browserKey(combo, !!e.target.closest?.(PRESSABLE))) return true;
+  if (!waitsForBuild(combo)) return false;
+  e.preventDefault(); waitsForRebuild();
+  return true;
+}
+// the look-only view while a Rebuild runs (job), editing again after it (null): every object locked (selectionLocked:
+// no gizmo, the Inspector's fields off), nothing placed, the asset browser dimmed (build-chip.css), the chip ticking
+function setBuilding(job) {
+  if (job) cancelPlacing();
+  buildJob = job;
+  document.documentElement.classList.toggle('map-building', !!job);
+  clearInterval(buildTimer);
+  if (job) { buildTimer = setInterval(() => showBuild(job), 500); showBuild(job); } else buildChip.hide();
+  if (job) { applyObjectVisibility(); buildHierarchy(); showDetails(); }   // the gizmo off, the rows and the fields locked
+  else if (selected) select(selected);                                     // its gizmo back
+  else { buildHierarchy(); showDetails(); }
+}
+// a change made while a Rebuild runs by a tool the look-only view leaves usable (a tool window, a menu command): taken
+// back at once, so the map stays the one the build has (saved: the Rebuild saved it first)
+function keepBuiltEdits() {
+  const taken = JSON.stringify(edits) !== buildJob.edits;
+  edits = JSON.parse(buildJob.edits);
+  rebuildProxies(); showDetails();
+  if (taken) log(`Rebuilding ${buildJob.map}: a change made while it runs was taken back (the build has the map as it was saved). Make it again when the build has ended.`, 'warn');
+  waitsForRebuild();
+}
+// the page's stage now (PAGE_STAGES; null: the server's from here), the time of the one before kept for the report
+function pageStage(job, id) {
+  const now = performance.now();
+  if (job.stage) job.page.push({ label: PAGE_STAGES[job.stage], seconds: (now - job.stageAt) / 1000 });
+  Object.assign(job, { stage: id, stageAt: now });
+}
+// the chip for the build now: the page's stage, then the server's (its clock going on between two answers)
+function showBuild(job) {
+  const s = job.server, before = job.page.reduce((sum, p) => sum + p.seconds, 0), now = performance.now();
+  buildChip.show(chipView(s ? { label: s.label, elapsed: before + s.elapsed + (now - job.heard) / 1000, estimate: s.estimate, cancelling: job.cancelling }
+    : { label: PAGE_STAGES[job.stage || 'save'], elapsed: (now - job.at) / 1000, cancelling: job.cancelling }));
+}
+// the server's build asked about until it is over: its last status (build_job.py status)
+async function followBuild(job) {
+  for (let misses = 0; ;) {
+    await new Promise((r) => setTimeout(r, BUILD_POLL));
+    let s;
+    try { s = await api('/api/build_status'); misses = 0; } catch (e) {
+      if (++misses < 5) continue;
+      throw new Error('The Rebuild could not be followed: ' + e.message);
     }
+    if (s.token !== job.token) throw new Error('Another Rebuild replaced this one.');
+    Object.assign(job, { server: s, heard: performance.now() });
+    showBuild(job);
+    if (!['running', 'cancelling'].includes(s.state)) return s;
+  }
+}
+// the chip's Cancel: the server stops its build and puts the previous one back; before the server has it (saving, the
+// walkable area) rebuildMap stops there
+async function cancelBuild() {
+  const job = buildJob;
+  if (!job || job.cancelling) return;
+  job.cancelling = true;
+  showBuild(job);
+  if (!job.token) return;
+  try { Object.assign(job, { server: await api('/api/build_cancel', { token: job.token }), heard: performance.now() }); }
+  catch (e) { job.cancelling = false; log('Cancel: ' + e.message, 'bad'); }
+  showBuild(job);
+}
+// Messages at the end: the build's lines (its warnings only in the report, with Check map; none of a cancelled one: a
+// map script's half output), the Build report on top
+function logBuild(job, end) {
+  const lines = end.lines || [];
+  if (end.state !== 'cancelled') log(lines.filter((l) => !isWarning(l)), end.state === 'failed' ? 'bad' : '');
+  logRows(buildReport({ map: job.map, mode: job.mode, state: end.state, page: job.page, report: end.report || {}, lines }));
+}
+async function rebuildMap(mode = 'auto') {
+  if (!script || gameView?.active || waitsForRebuild('another Rebuild waits')) return;
+  const rebuildingScript = script, now = performance.now();
+  const job = { map: mapName, mode, page: [], at: now, stage: null, stageAt: now, edits: JSON.stringify(edits), token: null,
+    server: null, heard: now, cancelling: false };
+  const gone = () => script !== rebuildingScript || job.cancelling;
+  setBuilding(job);
+  try {
+    pageStage(job, 'save');
+    const saved = await save();
+    if (gone()) return;
+    if (!saved) { log(`${job.map}: the changes could not be saved, so nothing was built.`, 'bad'); status('rebuild failed: see Messages', 'bad'); return; }
+    pageStage(job, 'navmesh');
+    await navBakeIfNeeded();
+    if (gone()) return;
+    pageStage(job, null);
+    job.edits = JSON.stringify(edits);       // what the build has, its walkable area too: a change meanwhile goes back
+    const baked = edits.navmesh?.polys;
+    const camPos = camera.position.clone(), yaw = cam.yaw, pitch = cam.pitch;
+    Object.assign(job, { server: await api('/api/build_start?script=' + encodeURIComponent(script), { mode }), heard: performance.now() });
+    job.token = job.server.token;
+    if (job.cancelling) job.server = await api('/api/build_cancel', { token: job.token });    // pressed while it started
+    const end = await followBuild(job);
+    setBuilding(null);
+    logBuild(job, end);
+    if (end.state === 'done') {
+      const open = script === rebuildingScript;           // (closing the map, opening another, wait for the build)
+      if (open) { await loadScene(script, false); camera.position.copy(camPos); cam.yaw = yaw; cam.pitch = pitch; }
+      status(`${job.map}: rebuilt`, 'ok');
+      if (open) await navCheckAfterBuild(baked);
+    } else if (end.state === 'cancelled') status(`${job.map}: Rebuild cancelled, the map is as it was before it.`, 'warn');
     else status('rebuild failed: see Messages', 'bad');
-  } catch (e) { log(e.message, 'bad'); } finally { busy(''); }
+  } catch (e) { log(e.message, 'bad'); status('rebuild failed: see Messages', 'bad'); }
+  finally {
+    if (buildJob === job) setBuilding(null);
+    if (job.cancelling && !job.token) status(`${job.map}: Rebuild cancelled before the build started, nothing was built.`, 'warn');
+  }
 }
 $('#build').onclick = () => rebuildMap();
 $('#play').onclick = async () => {
-  if (gameView?.active) return;
+  if (gameView?.active || waitsForRebuild('the game screenshot waits')) return;
   if (dirty) log('Some changes are not rebuilt yet: the game shows the last rebuilt map.', 'warn');
   busy('Taking a screenshot in the game (the first time the game starts up: about 30 seconds)...');
   try {
@@ -12565,6 +13127,7 @@ $('#stopgame').onclick = async () => {
   try { const result = await api('/api/live_stop', {}); status(result.answer); } catch (e) { log(e.message, 'bad'); }
 };
 $('#install').onclick = async () => {
+  if (waitsForRebuild('Install waits')) return;
   const msg = mapKind === 'script' ? 'Install the last rebuilt map into the game?'
     : mapKind === 'dx-mod' ? 'Install the rebuilt map? It replaces the copy in maps\\ (the previous one goes to maps\\backup) and the changes become part of the map.'
     : 'Install the rebuilt map? The original game map stays untouched: the edited copy goes to maps\\ and the game loads it instead.';
@@ -12602,6 +13165,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && !(e.target.type === 'range' && e.ctrlKey && e.key.toLowerCase() === 'z')) return;
+  if (buildKeyGate(e)) return;          // a Rebuild running: only the keys that look, and the browser's own, go on
   const k = e.key.toLowerCase();
   if (e.ctrlKey && k === 's') { e.preventDefault(); save(); return; }
   // camera bookmarks, as Unreal Editor's: Ctrl+1..9 (or Shift, in a browser that keeps Ctrl+digit) keeps the view, 1..9 goes back
@@ -12611,10 +13175,12 @@ window.addEventListener('keydown', (e) => {
   if (digit && mapName) { e.preventDefault(); if (e.ctrlKey) keepSelection(digit[1]); else recallSelection(digit[1]); return; }
   if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) {
     e.preventDefault();
-    if (redoStep()) status('Redone.');
+    redoStep();
     return;
   }
   if (e.ctrlKey && k === 'z') { e.preventDefault(); undoStep(); return; }
+  // Window > History, as Unity's Undo History (Ctrl+U): brought to the front, or hidden when it is there already
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && k === 'u' && !e.target.isContentEditable) { e.preventDefault(); window.__workspace?.toggleFront('history'); return; }
   if (e.ctrlKey && k === 'g') { e.preventDefault(); if (e.shiftKey) unnestSelection(); else nestSelection(); return; }
   if (e.ctrlKey && k === 'd') { e.preventDefault(); duplicateSelected(); return; }
   if (e.ctrlKey && k === 'c') { expectClipboardEvent('copy', copySelected); return; }
@@ -12635,6 +13201,8 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && k === '\\') { e.preventDefault(); pushToGrid(); return; }
   // the selection to the view: where it looks from (Ctrl+Shift+F, Align with view), onto what it looks at (Ctrl+Alt+F)
   if (e.ctrlKey && k === 'f' && e.shiftKey !== e.altKey) { e.preventDefault(); if (e.shiftKey) alignWithView(); else moveToView(); return; }
+  // Window > Maximize panel (Shift+Space), as Unity's: the panel under the pointer or the 3D view fills the editor
+  if (k === ' ' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.target.isContentEditable) { e.preventDefault(); maximizePanel(); return; }
   if (k === 'w') setMode('translate');
   else if (k === 'e') setMode('rotate');
   else if (k === 'r') setMode('scale');
@@ -12652,6 +13220,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape' && classReplace) cancelClassReplace();
   else if (k === 'escape' && modelReplace) { cancelModelReplacement(); }
   else if (k === 'escape' && pilot) endPilot();
+  else if (k === 'escape' && window.__workspace?.maximized) maximizePanel();
   else if (k === 'escape') { if (measure?.active) measure.exit(); else if (vertexEdit?.active) vertexEdit.exit(); else { cancelPlacing(); select(null); } }
   else if (k === 'p' && e.shiftKey) togglePilot();
   else if (k === 'p') togglePaths();
@@ -12667,6 +13236,15 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'l') setLightMode({ shaded: 'lit', lit: 'unlit', unlit: 'shaded' }[lightMode] || 'shaded');
 });
 $('#lightmode').onchange = () => setLightMode($('#lightmode').value);
+// Shift+Space (Window > Maximize panel), as Unity's Maximize View: the dock under the pointer (or the 3D view) fills the
+// editor; again, or Esc, the layout is back (workspace.js)
+function maximizePanel() {
+  const ws = window.__workspace;
+  if (!ws) return;
+  const now = ws.toggleMaximize(), key = menuKey('maximize') || 'Shift+Space';
+  if (now === false) status(`Nothing to maximize there: point at a panel or the 3D view, then ${key}.`, 'warn');
+  else status(now ? `${now === 'view' ? 'The 3D view' : 'The panel'} fills the editor: ${key} again or Esc puts the layout back.` : 'The layout is back.');
+}
 // the texture picker: a picture next to every texture field, a grid of the map's and the game's textures
 // this map's textures with their pictures: the picker's first list, the command palette's first textures
 function mapTextures() {
@@ -12766,7 +13344,7 @@ measure = createMeasure({ scene, camera, canvas, wake, status, UE, SNAP, firstHi
 vertexEdit = createVertexEditor({
   scene, camera, canvas, mainTc: tc, wake, SNAP, UE, select, status, requireUnlocked, pushUndo, setDirty,
   snapOn: () => snap,
-  dropUndo: () => { undo.pop(); },
+  dropUndo,
   refreshBlock(b) {                       // the block drawn again from its edits, and selected
     rebuildProxies();
     const np = proxies.children.find((q) => q.userData.box === b) || null;
@@ -12848,9 +13426,14 @@ function shortcutState() {
     cutscene: !!window.__cutscene?.isOpen(), selected: !!selected, tool: tc.mode };
 }
 
+// File > Close map (and the tutorial's end): not while the map loads, nor while a Rebuild runs (it loads the map again
+// when it ends)
+function closeMap() { return !mapLoading && !waitsForRebuild('closing the map waits') && startScreen.closeMap(); }
 // for debugging from the browser console
 window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, renderer, SNAP, applySnap, placeSelected, mapPose,
   get snapOn() { return snap; },                // Edit > Grid snap's tick (menubar.js)
+  undoLabel: (way) => menuLabel(undoHistory, way),     // Edit > Undo / Redo with the step's name (menubar.js)
+  status,                                              // the status bar (menubar.js: Window > layouts, the menus' note)
   setGizmo, get gizmo() { return { ...gizmo }; }, armAim,      // the toolbar's Center / Pivot and Global / Local (Settings); Edit > Aim at a point
   get orthoViews() { return orthoViews; },
   get gameFov() { return { ...gameFov }; }, viewFov, applyViewCamera,     // Settings > Camera; cutscene.js (its first key, Look through)
@@ -12882,7 +13465,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
     const character = catalog.characters.find(c => c.id === id);
     if (!character?.supported) throw new Error(character?.reason || 'This character is not available as a player.');
     if (script !== chosenScript) throw new Error('The map changed. Choose the player again.');
-    pushUndo(); edits.level = applyMapPlayer(edits.level || {}, id); setDirty(); rebuildProxies(); showDetails();
+    pushUndo(`Player character ${character.name}`); edits.level = applyMapPlayer(edits.level || {}, id); setDirty(); rebuildProxies(); showDetails();
     log(`Player character: ${character.name}. Save and Rebuild to apply. Inventory and progress stay shared.`, 'ok');
   },
   startDraw: (kind) => startDraw(kind),         // Map > Draw wall / road / floor / roof
@@ -12891,14 +13474,15 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   // a script of Tools > Scripts, a weapon or ammunition of Tools > Weapons (preset: its properties, e.g. its model)
   placeClass: (cls, name, preset = null, size = null) => startPlacing(Object.assign({ cls, name, radius: 16, height: 16 }, size || {}, preset ? { preset } : {})),
   get placeMode() { return placeMode; }, get standalone() { return STANDALONE; }, get structures() { return structures; }, get edits() { return edits; },
-  rebuild: rebuildMap, openExperimentalBsp, play: (mode = 'embedded') => gameView?.start(mode), playSettings: openPlay,
+  rebuild: rebuildMap, openExperimentalBsp, play: (mode = 'embedded') => startPlay(mode), playSettings: openPlay,
   stopGame: () => gameView?.stop(), get playing() { return !!gameView?.active; },
+  get building() { return !!buildJob; },       // a Rebuild runs: the AI assistant's edits wait (agent.js)
   configureAutosave: () => autosave?.check(),
   revealInspector, showAllObjects, unlockAllObjects, setObjectView, setGameEnabled,
   toggleIsolation, toggleRevealHidden, sceneView,                   // View > Isolate selection, Show hidden objects for now
   get kinds() { return kindFilter().toJSON(); }, setKindView, soloKind, resetKinds, setIconSize,     // the 3D view's Show menu
-  surfaceTools, loadMaps, openMap, openNewMap, openMapPicker: () => startScreen.openPicker(),
-  closeMap: () => !mapLoading && startScreen.closeMap(), confirmLeave: () => startScreen.confirmLeave(),
+  surfaceTools, loadMaps, openMap, openNewMap, saveAsTemplate, openMapPicker: () => startScreen.openPicker(),
+  closeMap, confirmLeave: () => startScreen.confirmLeave(),
   endTutorialSession, resetTutorialView, get temporaryTutorial() { return temporaryTutorial(); },
   get project() { return projectContext; }, confirmProjectLeave,
   get pickingInteraction() { return !!lkPicking; },
@@ -12920,7 +13504,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   useStudioAnim(name, anim) {                // the Studio gives one of its animations to a character of this map
     const a = allActors().find((x) => x.name === name), q = proxyOf(name);
     if (!a || (q && !requireUnlocked(q))) return;
-    pushUndo();
+    pushUndo(`Animation of ${hierLabel(a)}`);
     edits.anims = edits.anims || {};
     edits.anims[name] = Object.assign({}, edits.anims[name], { idle: anim, rate: 1, own: true, loc: q ? UE(q.position) : a.loc });
     setDirty();
@@ -12963,9 +13547,9 @@ window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorPro
   save: () => saveWorkspace(), openMap, mapList: () => mapList, palette: () => palette, chainOf: (cls) => chainNow[cls] || null,
   get lightMode() { return lightMode; }, setLightMode, api,
   structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,
-  get undoDepth() { return undo.length; }, get redoDepth() { return redoStack.length; }, get placing() { return placing; } };
+  get undoDepth() { return undoHistory.undo.length; }, get redoDepth() { return undoHistory.redo.length; }, get placing() { return placing; } };
 // the cutscene cameras (cutscene.js) use these
-window.__editor.cutKit = { T, UE, canvas, proxyOf, select, focusSelected, pushUndo, undoPop: () => undo.pop(), setDirty, allActors,
+window.__editor.cutKit = { T, UE, canvas, proxyOf, select, focusSelected, pushUndo, undoPop: dropUndo, setDirty, allActors,
   hierLabel, isCharacter, status, log, lkList, lkStartPick, lkNewAct, lkSentence, lkActText, showDetails: () => showDetails(),
   pickSound, playSound, makeProxy, nextName, intoDefaultFolder, warnHiddenKinds };
 window.__closeAnim = () => closeAnim();
@@ -12995,8 +13579,10 @@ function requirePlayerStart() {
 }
 gameView = createGameView({ api, getScript: () => script, getSession: () => window.__projectContext?.session,
   getStart: () => ({ ...playStart(), route: !STANDALONE }), save: saveWorkspace,
-  validate: () => { if (!requirePlayerStart()) throw new Error(PLAYER_START_REQUIRED); },
-  resetInput, log, status, viewport: canvas });
+  validate: () => { if (buildJob) throw new Error(rebuildWaits('Play waits')); if (!requirePlayerStart()) throw new Error(PLAYER_START_REQUIRED); },
+  resetInput, log, status, viewport: canvas,
+  // the header's Pause, Slow motion, Ghost, God: the game's console commands through the Console's channel
+  controls: PLAY_CONTROLS, sendCommand: (command) => window.__console?.send(command) || false });
 if (projectContext?.id) void gameView.resume();
 startScreen = createStartScreen({ open: openMap, create: openNewMap, refresh: loadMaps, save: saveWorkspace,
   clear: clearMap, hasChanges: () => !temporaryTutorial() && (dirty || !!window.__story?.dirty), project: projectContext,

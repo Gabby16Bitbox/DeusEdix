@@ -26,6 +26,14 @@ function need() {
   if (E().playing) throw new Error('The game is running in the editor: stop it first.');
   return K();
 }
+// a call that changes the map (or saves, builds, opens another): not while a Rebuild runs, as the user's own edits wait
+// (the view is look-only then: the build has the map as it was saved, a change made meanwhile would be taken back)
+const REBUILDING = 'A Rebuild is running: wait for it to end or cancel it.';
+function needEditable() {
+  const k = need();
+  if (E().building) throw new Error(REBUILDING);
+  return k;
+}
 const nameOf = (p) => p.userData.actor?.name || p.userData.box?.name || p.userData.drawn?.name || p.userData.name || '';
 function proxyNamed(name) {
   return E().proxies.children.find((p) => nameOf(p) === name) || E().structures?.[name]?.obj || null;
@@ -76,7 +84,7 @@ const OPS = {
     const ed = E(), k = K(), sel = ed?.selected;
     if (!ed) return { starting: true };
     return { project: ed.project?.name || null, map: ed.mapName, script: ed.script, dirty: ed.dirty,
-      storyDirty: !!window.__story?.dirty, playing: ed.playing, viewMode: ed.viewMode,
+      storyDirty: !!window.__story?.dirty, playing: ed.playing, building: !!ed.building, viewMode: ed.viewMode,
       selected: !sel ? [] : sel.userData.members?.length ? sel.userData.members.map(nameOf) : [nameOf(sel)],
       camera: k ? k.UE(ed.camera.position) : null, yaw: k ? k.radToYaw(-ed.cam.yaw) : null, pitch: Math.round(ed.cam.pitch * 1000) / 1000,
       undo: k?.undoDepth ?? 0, redo: k?.redoDepth ?? 0, placing: !!k?.placing,
@@ -89,6 +97,7 @@ const OPS = {
   async open_map({ script, save = false, discard = false }) {
     const ed = E(), k = K();
     if (!k) throw new Error('The editor is still starting.');
+    if (ed.building) throw new Error(REBUILDING);
     const want = String(script).toLowerCase(), found = k.mapList().find((m) => m.script === script)
       || k.mapList().find((m) => [m.script, m.name, m.map].some((x) => String(x ?? '').toLowerCase() === want));
     if (!found) throw new Error(`No map "${script}" in this project (list_maps gives them).`);
@@ -143,7 +152,7 @@ const OPS = {
     return { selected: OPS.state().selected };
   },
   place({ cls, at, toward = [0, 0, -1], exact = false, yaw, props, size, tex }) {
-    const k = need(), ed = E(), block = cls === 'block';
+    const k = needEditable(), ed = E(), block = cls === 'block';
     const item = block ? { box: true, size: size || [128, 128, 128], tex: tex || 'ClenGreyCncrt_A' }
       : paletteItem(cls) || { cls, name: cls, radius: 16, height: 16 };
     k.startPlacing(item);
@@ -163,9 +172,9 @@ const OPS = {
     return OPS.object({ name });
   },
   move({ name, loc, yaw, scale, size }) {
-    const k = need(), p = proxyOrFail(name);
+    const k = needEditable(), p = proxyOrFail(name);
     if (p.userData.kind === 'structure') throw new Error(`${name} is a structure: move it with the gizmo, or run_js.`);
-    k.pushUndo();
+    k.pushUndo(`Assistant: move ${name}`);
     if (loc) p.position.copy(k.T(loc));
     if (yaw !== undefined) p.rotation.y = k.yawToRad(yaw);
     if (size && p.userData.box) p.scale.set(size[0], size[2], size[1]);
@@ -174,7 +183,7 @@ const OPS = {
     return OPS.object({ name });
   },
   set({ name, props }) {
-    const k = need(), a = k.allActors().find((x) => x.name === name);
+    const k = needEditable(), a = k.allActors().find((x) => x.name === name);
     if (!a) return setPiece(k, name, props);
     for (const [key, v] of Object.entries(props)) { if (v === null) k.unsetProp(a, key); else k.setProp(a, key, String(v)); }
     k.rebuildProxies();
@@ -204,7 +213,7 @@ const OPS = {
   },
   // a wall, road, floor, ceiling (points along it / round it), stairs or a roof (A and B), as Map > Draw makes them
   draw({ kind, points, closed = false, settings = {} }) {
-    const k = need(), ed = E(), defaults = DRAW_DEFAULTS[kind];
+    const k = needEditable(), ed = E(), defaults = DRAW_DEFAULTS[kind];
     if (!defaults) throw new Error(`kind: one of ${Object.keys(DRAW_DEFAULTS).join(', ')}.`);
     const two = kind === 'stairs' || kind === 'roof', least = kind === 'floor' || kind === 'ceiling' ? 3 : 2;
     if (!Array.isArray(points) || points.some((q) => !Array.isArray(q) || q.length !== 3 || q.some((v) => !Number.isFinite(+v))))
@@ -219,7 +228,7 @@ const OPS = {
     const piece = { name: 'UCDrawn' + i, kind, pts: points.map((q) => [r1p(q[0]), r1p(q[1])]), z: r1p(points[0][2]), ...settings };
     if (closed && (kind === 'wall' || kind === 'road')) piece.closed = true;
     if (two && points[1][2] !== points[0][2]) piece.rise = r1p(points[1][2] - points[0][2]);
-    k.pushUndo();
+    k.pushUndo(`Assistant: draw a ${kind}`);
     (ed.edits.drawn = ed.edits.drawn || []).push(piece);
     k.setDirty(); k.rebuildProxies();
     const p = proxyNamed(piece.name);
@@ -244,7 +253,7 @@ const OPS = {
     return { done: calls.length, results };
   },
   delete({ names }) {
-    const k = need(), deleted = [], kept = [];
+    const k = needEditable(), deleted = [], kept = [];
     for (const n of names) {
       const p = proxyNamed(n);
       if (!p) { kept.push(n); continue; }
@@ -253,14 +262,14 @@ const OPS = {
     }
     return { deleted, notDeleted: kept };
   },
-  undo({ steps = 1 }) { const k = need(); let n = 0; while (n < steps && k.undoStep()) n++; return { undone: n, left: k.undoDepth }; },
-  redo({ steps = 1 }) { const k = need(); let n = 0; while (n < steps && k.redoStep()) n++; return { redone: n, left: k.redoDepth }; },
+  undo({ steps = 1 }) { const k = needEditable(); let n = 0; while (n < steps && k.undoStep()) n++; return { undone: n, left: k.undoDepth }; },
+  redo({ steps = 1 }) { const k = needEditable(); let n = 0; while (n < steps && k.redoStep()) n++; return { redone: n, left: k.redoDepth }; },
   async save() {
-    const k = need(), saved = await k.save();
+    const k = needEditable(), saved = await k.save();
     return { saved, dirty: E().dirty, storyDirty: !!window.__story?.dirty, messages: messages(4) };
   },
   async rebuild({ mode = 'auto' }) {
-    need();
+    needEditable();
     const before = document.getElementById('log')?.children.length || 0;
     await E().rebuild(mode);
     const after = document.getElementById('log')?.children.length || 0;
@@ -351,7 +360,7 @@ function setPiece(k, name, props) {
   const allowed = b ? ['tex', 'solid'] : [...Object.keys(DRAW_DEFAULTS[d.kind] || {}), 'closed'];
   const unknown = Object.keys(props).filter((key) => !allowed.includes(key));
   if (unknown.length) throw new Error(`Not fields of ${name}: ${unknown.join(', ')} (it has: ${allowed.join(', ')}${b ? '; its size and place: move_object' : ''}).`);
-  k.pushUndo();
+  k.pushUndo(`Assistant: change ${name}`);
   for (const [key, v] of Object.entries(props)) { if (v === null) delete (b || d)[key]; else (b || d)[key] = v; }
   k.setDirty(); k.rebuildProxies();
   const p = proxyNamed(name);

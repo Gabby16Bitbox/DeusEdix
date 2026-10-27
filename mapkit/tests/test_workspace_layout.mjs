@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { defaultLayout, fitLayout, validateLayout } from '../editor/static/workspace.js';
+import { defaultLayout, fitLayout, validateLayout, inFront, frontNow } from '../editor/static/workspace.js';
 
 test('invalid persisted data falls back to a complete usable layout', () => {
   for (const value of [null, [], {}, { version: 2 }, 'broken']) assert.deepEqual(validateLayout(value), defaultLayout());
@@ -20,7 +20,7 @@ test('each dock gets a visible active tab even after hiding or moving the rememb
   layout.active.left = 'browser';
   const result = validateLayout(layout);
   assert.equal(result.active.left, 'inspector');
-  assert.equal(result.active.right, null);
+  assert.equal(result.active.right, 'history');                    // the Inspector gone, its neighbour History shows
   assert.equal(result.active.bottom, 'browser');
   assert.deepEqual(layout.active, { left: 'browser', right: 'inspector', bottom: 'browser' });
 });
@@ -50,6 +50,7 @@ test('hidden or floating panels do not reserve any scene area', () => {
   layout.panels.inspector.dock = 'float';
   layout.panels.browser.hidden = true;
   layout.panels.console.hidden = true;
+  layout.panels.history.hidden = true;
   assert.deepEqual(fitLayout(layout, 1280, 720).sizes, { left: 0, right: 0, bottom: 0 });
 });
 
@@ -102,7 +103,46 @@ test('a customized Console prevents migration of otherwise legacy-looking panels
     }])) };
   old.panels.console={dock:'float',hidden:true,rect:{x:80,y:90,w:500,h:250}};
   const original=JSON.stringify(old),result=validateLayout(old);
-  assert.deepEqual(result.sizes,old.sizes);assert.deepEqual(result.panels,old.panels);
+  assert.deepEqual(result.sizes,old.sizes);
+  for(const [id,panel] of Object.entries(old.panels))assert.deepEqual(result.panels[id],panel);
+  assert.deepEqual(result.panels.history,defaultLayout().panels.history,'the History panel is added as it is at first');
   assert.equal(JSON.stringify(old),original);
+});
+
+test('History is a tab of the right dock behind the Inspector; a key brings it to the front first', () => {
+  const layout = defaultLayout();
+  assert.deepEqual([layout.panels.history.dock, layout.panels.history.hidden, layout.active.right], ['right', false, 'inspector']);
+  assert.deepEqual(Object.fromEntries(Object.entries(layout.panels).map(([id, p]) => [id, p.dock])),
+    { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'bottom', history: 'right' });
+  assert.equal(inFront(layout, 'history'), false);                 // behind the Inspector's tab: Ctrl+U shows it
+  assert.equal(inFront(layout, 'inspector'), true);
+  layout.active.right = 'history';
+  assert.equal(inFront(layout, 'history'), true);                  // in front: Ctrl+U hides it
+  layout.panels.history.hidden = true;
+  assert.equal(inFront(layout, 'history'), false);
+  layout.panels.history = { ...layout.panels.history, dock: 'float', hidden: false };
+  assert.equal(inFront(layout, 'history'), true);                  // floating: always in front
+  assert.equal(inFront(layout, 'nothing'), false);
+  // a layout kept before History existed: it comes in its first place, nothing else moves
+  const kept = defaultLayout();
+  delete kept.panels.history;
+  kept.panels.inspector.dock = 'float';
+  const result = validateLayout(JSON.parse(JSON.stringify(kept)));
+  assert.equal(result.panels.inspector.dock, 'float');
+  assert.equal(result.panels.history.dock, 'right');
+  assert.equal(result.active.right, 'history');
+});
+
+test('Ctrl+U while a panel or the 3D view is maximized: History in front but covered is shown, not hidden', () => {
+  const layout = defaultLayout();
+  layout.active.right = 'history';                                 // History in front of the right dock
+  assert.equal(frontNow(layout, null, 'history'), true);           // Ctrl+U hides it
+  assert.equal(frontNow(layout, 'right', 'history'), true);        // its own dock maximized: seen, hidden
+  for (const covering of ['view', 'left', 'bottom'])
+    assert.equal(frontNow(layout, covering, 'history'), false, covering + ' maximized covers it: Ctrl+U shows it (the layout comes back)');
+  layout.panels.history.dock = 'float';
+  for (const covering of [null, 'view', 'left']) assert.equal(frontNow(layout, covering, 'history'), true, 'floating: always seen');
+  layout.panels.history = { ...layout.panels.history, dock: 'right', hidden: true };
+  assert.equal(frontNow(layout, 'right', 'history'), false);
 });
 

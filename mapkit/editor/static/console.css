@@ -1,19 +1,25 @@
 /* The Console panel (console.js): DESIGN.md sizes and colours */
 #console { display:flex; flex-direction:column; min-height:0; height:100%; background:var(--panel); }
-#console .cn-bar { display:flex; align-items:center; gap:6px; height:28px; padding:0 6px; border-bottom:1px solid var(--line); flex:none; min-width:0; overflow:hidden; }
-#console .cn-bar > button, #console .cn-filters { flex:none; }
-#console .cn-filters { display:flex; gap:2px; }
-#console .cn-filters button { height:22px; padding:0 8px; font-size:11px; }
-#console .cn-filters button.on { background:var(--accent-soft); border-color:var(--accent-border); color:var(--heading); }
+#console .cn-bar { display:flex; flex-wrap:wrap; align-items:center; gap:3px 6px; min-height:28px; padding:2px 6px; border-bottom:1px solid var(--line); flex:none; min-width:0; overflow:hidden; }
+#console .cn-bar > button, #console .cn-filters, #console .cn-toggles { flex:none; }
+#console .cn-filters, #console .cn-toggles { display:flex; gap:2px; }
+#console .cn-filters button, #console .cn-toggles button { height:22px; padding:0 8px; font-size:11px; }
+#console .cn-filters button.on, #console .cn-toggles button.on { background:var(--accent-soft); border-color:var(--accent-border); color:var(--heading); }
 #console .cn-count { display:inline-block; min-width:14px; margin-left:3px; padding:0 4px; border-radius:7px; background:var(--bad); color:var(--accent-ink); font-size:10px; line-height:14px; text-align:center; }
 #console .cn-find { width:140px; min-width:60px; flex:0 1 auto; height:22px; }
 #console .cn-gap { flex:1; }
 #console .cn-state { min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:11px; color:var(--dim); white-space:nowrap; }
 #console .cn-state.on { color:var(--ok); }
-#console .cn-clear { height:22px; padding:0 8px; font-size:11px; }
+#console .cn-clear, #console .cn-copy { height:22px; padding:0 8px; font-size:11px; }
 #console .cn-out { flex:1; min-height:0; overflow:auto; padding:3px 0; font:12px/17px Consolas, "Cascadia Mono", monospace; outline:none; user-select:text; }
 #console .cn-row { padding:0 8px; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--dim); }
 #console .cn-row:hover { background:var(--hover); }
+#console .cn-row.cn-picked { background:var(--accent-soft); color:var(--heading); }
+/* Time: the seconds since Play started before each line; Collapse: how many came, at the right */
+#console.cn-timed .cn-row { padding-left:calc(8px + 8ch); text-indent:-8ch; }
+#console.cn-timed .cn-row::before { content:attr(data-time); display:inline-block; width:7ch; margin-right:1ch; text-indent:0; text-align:right; color:var(--dim); }
+#console .cn-row[data-n] { position:relative; padding-right:52px; }
+#console .cn-row[data-n]::after { content:'×' attr(data-n); position:absolute; right:6px; top:1px; min-width:14px; padding:0 5px; border-radius:7px; background:var(--accent-soft); color:var(--heading); font-size:10px; line-height:15px; text-align:center; }
 #console .cn-script { color:var(--text); }
 #console .cn-logic { color:var(--text); }
 #console .cn-logic[data-logic="skip"], #console .cn-logic[data-logic="act"] { color:var(--dim); }

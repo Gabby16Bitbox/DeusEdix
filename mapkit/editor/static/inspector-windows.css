@@ -1,0 +1,20 @@
+/* Properties… windows (inspector-windows-view.js): a floating Inspector of one object. Its content is the Inspector's
+   own #details, styled by theme.css and editor-density.css as the panel's; only the window's frame is here. */
+/* their layer: over the panels and the 3D view's boxes (9, later in the page), under the menu bar and its menus (#top, 10) */
+.inspector-windows { position:fixed; inset:0; z-index:9; pointer-events:none; }
+.inspector-window { position:fixed; z-index:1; pointer-events:auto; display:flex; flex-direction:column; box-sizing:border-box;
+  width:300px; height:min(520px, calc(100vh - var(--top-h, 28px) - 48px)); min-width:240px; min-height:160px;
+  resize:both; overflow:hidden; background:var(--panel); border:1px solid var(--accent-border);
+  border-radius:var(--radius-window, 3px); box-shadow:0 10px 30px #0007; }
+.inspector-window.tool-maximized { inset:var(--top-h, 28px) 0 0 0 !important; width:auto !important; height:auto !important; resize:none; border-radius:0; }
+.inspector-window .iw-head { display:flex; align-items:center; gap:2px; height:26px; min-height:26px; padding:0 3px 0 8px;
+  border-bottom:1px solid var(--line); cursor:move; touch-action:none; user-select:none; }
+.inspector-window.tool-maximized .iw-head { cursor:default; }
+.inspector-window .iw-head b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:12px; font-weight:600; color:var(--heading); }
+.inspector-window .iw-head button { flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:22px; min-width:22px; height:22px; min-height:22px; padding:0; border:0; background:transparent; color:var(--dim); font-size:16px; }
+.inspector-window .iw-head button:hover { background:var(--hover); color:var(--text); }
+.inspector-window .iw-head .tool-window-size svg { width:13px; height:13px; }
+/* as the Inspector panel (#right): its narrow-width rules (@container) apply in the window too */
+.inspector-window .iw-body { flex:1; min-height:0; overflow:auto; overflow-x:hidden; container-type:inline-size; }

@@ -29,6 +29,16 @@ test('every command a mode names is one of the menus, in a context that works th
   }
 });
 
+test('every command on the strip has its short name, never the menus\' whole sentence', () => {
+  const held = ['', ...new Set(ACTIONS.map((a) => splitCombo(a.def).mods).filter(Boolean))];
+  for (const mode of MODES) for (const mods of held) for (const item of stripFor(mode.id, mods, keymap).items) {
+    if (!item.action) continue;
+    const full = ACTIONS.find((a) => a.id === item.action).label;
+    assert.ok(item.label !== full || full.length <= 20, `${mode.id} ${mods || '(none)'}: ${item.show} "${item.label}"`);
+  }
+  assert.equal(stripFor('select', 'Shift', keymap).items.find((i) => i.action === 'maximize')?.label, 'Maximize');
+});
+
 test('each mode has 4 to 8 keys, and the keys held are written with exactly those modifiers', () => {
   for (const mode of MODES) {
     assert.ok(mode.keys.length >= 4 && mode.keys.length <= MAX_KEYS, `${mode.id}: ${mode.keys.length} keys`);

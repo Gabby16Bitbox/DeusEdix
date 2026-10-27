@@ -398,8 +398,9 @@ BSP_OPTIMAL = 'BSP REBUILD OPTIMAL BALANCE=15'      # UnrealEd's rebuild options
 MAX_NODES = 65536                                   # UModel's limit (Engine UnModel.h), asserted by Revision's renderer
 
 
-def build(map_name, log=print, options=None):
-    """Apply the edits to a private copy of the source. Returns (ok, lines)."""
+def build(map_name, log=print, options=None, watch=None):
+    """Apply the edits to a private copy of the source. Returns (ok, lines). watch: the background Rebuild following the
+    host run (build_job.Job, kit.execute's watch)."""
     options = rebuild.normalize(options)
     src = source(map_name)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -707,7 +708,7 @@ def build(map_name, log=print, options=None):
     cmds += [r'MAP SAVE FILE="..\Output\%s.dx"' % map_name, r'MAP EXPORT FILE="..\Output\%s.t3d"' % map_name]
     t0 = time.time()
     try:
-        text, _ = kit.execute(folder, cmds, 'build.log', timeout=3600)
+        text, _ = kit.execute(folder, cmds, 'build.log', timeout=3600, watch=watch)
         player_profiles.verify_build(folder)
     except RuntimeError as e:
         log_text = (folder / 'build.log').read_text(encoding='utf-8', errors='replace') if (folder / 'build.log').exists() else ''

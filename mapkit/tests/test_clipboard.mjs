@@ -9,6 +9,7 @@ const support=process.env.DEUSEDIX_TEST_SUPPORT || kit;
 const {createRotations}=await import(pathToFileURL(path.join(support,'editor/static/rotation.js')));
 const {createTextureScale,stretchOnResize}=await import(pathToFileURL(path.join(support,'editor/static/texture-scale.js')));
 const {defaultFolder,putInFolder}=await import(pathToFileURL(path.join(support,'editor/static/hierarchy-folders.js')));
+const {createHistory,recordStep,travelStep,namedStep}=await import(pathToFileURL(path.join(support,'editor/static/history-names.js')));
 const rotations=createRotations(THREE),T=a=>new THREE.Vector3(a[0],a[2],a[1]),UE=v=>[v.x,v.z,v.y];
 const source=fs.readFileSync(path.join(kit,'editor/static/app.js'),'utf8');
 const fn=name=>{const i=source.indexOf(`function ${name}(`);assert.ok(i>=0,name);const first=source.slice(i,source.indexOf('\n',i));return first.trimEnd().endsWith('}')?first:source.slice(i,source.indexOf('\n}',i)+2);};
@@ -16,6 +17,7 @@ const clone=v=>JSON.parse(JSON.stringify(v));
 function setup(){
  const stored=new Map(),history=[],messages=[],requests=[],scene=new THREE.Scene(),world=new THREE.Group(),proxies=new THREE.Group();scene.add(world,proxies);
  const c=vm.createContext({THREE,rotations,textureScale:createTextureScale(THREE),stretchOnResize,T,UE,ONE:[1,1,1],NO_POSE:{offset:[0,0,0],yaw:0},
+  buildJob:null,waitsForRebuild:()=>false,       // no Rebuild running (rebuildMap)
   scaleOf:p=>p?.scale||[1,1,1],r1:v=>Math.round(v*10)/10,add3:(a,b)=>a.map((x,i)=>x+b[i]),
   radToYaw:r=>((Math.round(-r*65536/(2*Math.PI))%65536)+65536)%65536,
   scene,world,proxies,camera:new THREE.PerspectiveCamera(),structures:{},edits:{groups:{},copies:[],prefabs:[],added:[],boxes:[],drawn:[],props:{},anims:{},moved:{}},
@@ -25,7 +27,7 @@ function setup(){
   isStruct:p=>p?.userData.kind==='structure',objectHidden:()=>false,members:()=>c.selection,
   intoDefaultFolder:keys=>putInFolder(defaultFolder(c.edits),keys),objOf:k=>k,warnHiddenKinds:(list,done)=>{c.warned=[...list,done];},
   status:(...a)=>messages.push(a),log:(...a)=>messages.push(a),busy(){},setDirty(){},rebuildProxies(){},selectKeys:keys=>{c.keys=keys;},
-  pushUndo:()=>history.push(clone(c.edits)),addedKind:cls=>cls==='PlayerStart'?'logic':cls==='ScientistFemale'?'pawn':'prop',
+  pushUndo:(label)=>history.push(clone(c.edits)),namedStep,stepOf:(verb,list)=>namedStep(verb,list.map(p=>p.userData.actor?.name??p.userData.name)),addedKind:cls=>cls==='PlayerStart'?'logic':cls==='ScientistFemale'?'pawn':'prop',
   lightProps:()=>({LightBrightness:100}),moverFields:e=>e.mover?clone({mover:e.mover,moverSettings:e.moverSettings||{}}):{},
   api:async(url,body)=>{requests.push(body);return body.actor?{props:{DrawScale:2,Skin:'Original'}}:{kind:'prefab',id:'export',pivot:[0,0,0],label:'Pipe',source:'roof'};},
  });
@@ -178,17 +180,19 @@ test('actual saved rooftop pipes retain the rotated geometry through copy/paste 
  assert.ok(vertices>100);console.log(`Verified ${pipes.length} saved rooftop pipes, ${vertices} vertices; no user files written.`);
 });
 test('real keyboard handler: Ctrl+C / Ctrl+V and one Ctrl+Z restore the selection atomically',async()=>{
- const {c,actor,history}=setup();actor();const before=clone(c.edits);let onKey;
+ const {c,actor,history,messages}=setup();actor();const before=clone(c.edits);let onKey;
  Object.assign(c,{window:{addEventListener:(type,fn)=>{if(type==='keydown')onKey=fn;}},document:{querySelector:()=>null},
-   projectHub:null,textureTransfer:null,propertySlider:null,inspectorDrag:null,cam:{look:false},undo:[],redoStack:[],afterHistory(){}});
- c.pushUndo=()=>{c.undo.push(JSON.stringify(c.edits));history.push(clone(c.edits));};
+   projectHub:null,textureTransfer:null,propertySlider:null,inspectorDrag:null,cam:{look:false},undoHistory:createHistory(),travelStep,afterHistory(){},historyChanged(){}});
+ c.pushUndo=(label)=>{recordStep(c.undoHistory,JSON.stringify(c.edits),label);history.push(clone(c.edits));};
  // the keys' own steps: undo/redo as functions, Ctrl+C/V waiting for the browser's clipboard event (none in node: the fallback at once)
- for(const name of ['undoStep','redoStep'])vm.runInContext(fn(name),c);
+ for(const name of ['travel','historyStep','undoStep','redoStep','buildKeyGate'])vm.runInContext(fn(name),c);   // (buildKeyGate: the keys during a Rebuild)
  c.expectClipboardEvent=(kind,fallback)=>fallback();
  const start=source.indexOf('window.addEventListener(\'keydown\'',source.indexOf('// ---------------------------------------------------------------- keyboard'));
  const end=source.indexOf("$('#lightmode').onchange",start);vm.runInContext(source.slice(start,end),c);
  const key=(key,tagName='BODY')=>onKey({key,ctrlKey:true,target:{tagName},preventDefault(){}});
- key('c');await vm.runInContext('copyInFlight',c);key('v');await Promise.resolve();assert.equal(c.edits.added.length,2);assert.equal(c.undo.length,1);
- key('z');assert.deepEqual(clone(c.edits),before);assert.equal(c.redoStack.length,1);
+ key('c');await vm.runInContext('copyInFlight',c);key('v');await Promise.resolve();assert.equal(c.edits.added.length,2);assert.equal(c.undoHistory.undo.length,1);
+ assert.equal(c.undoHistory.undo[0].label,'Paste Barrel1');
+ key('z');assert.deepEqual(clone(c.edits),before);assert.equal(c.undoHistory.redo.length,1);
+ assert.deepEqual(messages.at(-1),['Undone: Paste Barrel1']);                  // the status says what was undone
  key('v','INPUT');assert.deepEqual(clone(c.edits),before);
 });

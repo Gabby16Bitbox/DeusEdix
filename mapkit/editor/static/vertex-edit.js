@@ -116,7 +116,7 @@ export function createVertexEditor(api) {
   // a move of the picked corners: begun, by a world offset, ended (the arrows and the orthographic views both)
   function moveStart() {
     if (!on || !on.chosen.size || on.start) return false;
-    api.pushUndo();
+    api.pushUndo('Move block corners');
     on.start = on.world.map((w) => w.clone());
     return true;
   }
@@ -178,7 +178,7 @@ export function createVertexEditor(api) {
     if (!on || !on.chosen.size) return false;
     const keep = on.world.filter((_, i) => !on.chosen.has(i));
     if (keep.length < 4) { api.status('A block keeps four corners at least.', 'warn'); return true; }
-    api.pushUndo();
+    api.pushUndo('Delete block corners');
     on.chosen.clear();
     commit(keep);
     return true;
@@ -189,7 +189,7 @@ export function createVertexEditor(api) {
     if (!b || !b.verts) return;
     if (!api.requireUnlocked(p)) return;
     const was = !!on;
-    api.pushUndo();
+    api.pushUndo("Reset the block's corners");
     delete b.verts;
     api.setDirty();
     on = null;

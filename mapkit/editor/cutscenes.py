@@ -97,8 +97,13 @@ def props(edits, name):
     return out
 
 
+def is_camera(actor):
+    """An object of the edits (edits['added']) that is a cutscene camera."""
+    return str(actor.get('cls', '')).endswith('UCCutscene')
+
+
 def report(edits):
-    added = {a['name'] for a in edits.get('added') or [] if str(a.get('cls', '')).endswith('UCCutscene')}
+    added = {a['name'] for a in edits.get('added') or [] if is_camera(a)}
     lines = []
     for n, c in sorted((edits.get('cutscenes') or {}).items()):
         if n not in added or not isinstance(c, dict):

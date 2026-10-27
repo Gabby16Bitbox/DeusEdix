@@ -9,6 +9,7 @@ import { THREE, noThree } from './three.mjs';
 import { TURN, viewRotation, viewPitch, EYE_SHARE, eyeHeight, alignedRotation, sameRotation, turnsPart, planStays, SAME_PLACE, carryParts,
   alignPlan, lookThrough } from '../editor/static/view-align.js';
 import { PITCH_LIMIT } from '../editor/static/view-camera.js';
+import { namedStep } from '../editor/static/history-names.js';
 
 const Q = TURN / 4;                     // a quarter turn
 const near = (a, b, msg) => a.forEach((v, k) => assert.ok(Math.abs(v - b[k]) < 1e-6, `${msg}: ${a} vs ${b}`));
@@ -111,8 +112,8 @@ function pilotPage() {
     selected: lamp, mapGeneration: 1, pilot: null, flight: null, drag: null, vpBar: null, undos: 0, ended: [],
     script: 'fixture', gameView: null, projectHub: null, document: { querySelector: () => null }, textureTransfer: null, propertySlider: null, inspectorDrag: null,
     window: { addEventListener: (type, fn) => { if (type === 'keydown') c.keydown = fn; } },
-    status: (t) => c.ended.push(t), viewLabel: () => 'Lamp', wake() {}, pushUndo: () => c.undos++, applyObjectVisibility() {}, placeParts() {}, writeParts() {}, viewPlan: () => [], putBack() {} });
-  vm.runInContext([lineOf('const viewMoved ='), body('stepPilot'), body('endPilot'), body('resetInput'), keys].join('\n'), c);
+    status: (t) => c.ended.push(t), viewLabel: () => 'Lamp', objectLabel: () => ['Lamp'], namedStep, wake() {}, pushUndo: () => c.undos++, applyObjectVisibility() {}, placeParts() {}, writeParts() {}, viewPlan: () => [], putBack() {} });
+  vm.runInContext([lineOf('const viewMoved ='), body('stepPilot'), body('endPilot'), body('resetInput'), body('stepOf'), keys].join('\n'), c);
   // as togglePilot leaves it: the lead looked through, the gizmo off
   c.fly = () => { tc.attach(lamp); c.pilot = { parts: [{ p: lamp }], lead: 0, selected: lamp, generation: 1, back: view(), start: view(), keep: null }; tc.enabled = tc.visible = false; };
   return c;
@@ -169,11 +170,11 @@ test('Align with view and Move to view, the selection already there: a status li
   const lamp = { position: new THREE.Vector3(100, 300, 200), userData: {} }, done = [];
   const v = { parts: [{ p: lamp, at: [100, 200, 300], rot: [0, Q, 0] }], lead: 0, keep: null };
   const c = vm.createContext({ THREE, planStays, SAME_PLACE, VIEW_REACH: 4000, VIEW_AHEAD: 400, lamp, selected: lamp, groupPivot: {}, camera: { position: new THREE.Vector3() },
-    viewParts: async () => v, viewPlan: () => c.plan, viewLabel: () => 'Lamp', objectLabel: () => ['Lamp'], requireUnlocked: () => true,
+    viewParts: async () => v, viewPlan: () => c.plan, viewLabel: () => 'Lamp', objectLabel: () => ['Lamp'], namedStep, requireUnlocked: () => true,
     selectionParts: () => ({ list: [lamp], ignored: new Set() }), forward: () => new THREE.Vector3(0, 0, -1), surfaceHit: () => null, restOffset: () => c.shift,
     partNow: (p) => ({ p, from: p.position.clone(), rot: [0, Q, 0] }), UE: (q) => [q.x, q.z, q.y], selKeys: () => [], gridSnap: () => false,
     pushUndo: () => done.push('undo'), placeParts: () => done.push('place'), writeParts: () => done.push('write'), status: (t) => done.push(t) });
-  vm.runInContext(['async ' + body('alignWithView'), body('moveToView')].join('\n'), c);
+  vm.runInContext(['async ' + body('alignWithView'), body('moveToView'), body('stepOf')].join('\n'), c);
   c.plan = [{ at: [100, 200, 300], rot: [0, Q, 0] }];
   await c.alignWithView();
   c.shift = new THREE.Vector3(0.004, 0, 0);

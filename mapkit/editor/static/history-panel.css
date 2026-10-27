@@ -1,0 +1,15 @@
+/* The History panel (history-panel.js): DESIGN.md sizes and colours, as the Console's */
+#history { display:flex; flex-direction:column; min-height:0; height:100%; background:var(--panel); }
+#history .hs-bar { display:flex; align-items:center; height:28px; padding:0 8px; border-bottom:1px solid var(--line); flex:none; min-width:0; overflow:hidden; }
+#history .hs-count { margin:0; font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#history .hs-list { flex:1; min-height:0; overflow:auto; margin:0; padding:3px 0; list-style:none; }
+#history .hs-step { display:block; width:100%; min-height:22px; padding:2px 10px 2px 22px; border:0; border-radius:0; background:transparent;
+  color:var(--text); font-size:12px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
+#history .hs-step:hover { background:var(--hover); }
+#history .hs-step:focus-visible { outline:1px solid var(--acc); outline-offset:-1px; }
+#history .hs-step[aria-current] { background:var(--accent-soft); color:var(--heading); cursor:default; }
+#history .hs-step[aria-current]::before { content:''; position:absolute; left:9px; top:50%; width:6px; height:6px; margin-top:-3px; border-radius:50%; background:var(--acc); }
+#history .hs-redo { color:var(--dim); opacity:.6; font-style:italic; }
+#history .hs-bottom { color:var(--dim); }
+#history .hs-bottom[aria-current] { color:var(--heading); }
+#history .hs-note { flex:none; margin:0; padding:5px 8px; border-top:1px solid var(--line); font-size:11px; }

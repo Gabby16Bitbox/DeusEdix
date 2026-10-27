@@ -186,8 +186,8 @@ function setLook(on) {
 }
 
 // ---------------------------------------------------------------- editing
-function change(fn) {
-  kit().pushUndo();
+function change(fn, label = 'Edit the cutscene') {
+  kit().pushUndo(label);
   fn();
   const c = cutOf(cur.name);
   if (c && c.keys) sortKeys(c);
@@ -209,7 +209,7 @@ function recordKey() {
     if (k) Object.assign(k, v);
     else c.keys.push(Object.assign({ t, e: 1, s }, v));
     cur.sel = { kind: 'key', ref: k || c.keys[c.keys.length - 1] };
-  });
+  }, 'Cutscene key');
   kit().status(`Key at ${t.toFixed(2)} s.`, 'ok');
 }
 function newShot() {
@@ -225,7 +225,7 @@ function newShot() {
     const there = c.keys.find((k) => shotOf(k) === s + 1 && Math.abs(k.t - t) < 0.011);
     if (there) Object.assign(there, first); else c.keys.push(first);
     cur.sel = { kind: 'key', ref: there || first };
-  });
+  }, 'New cutscene shot');
   kit().status('A new shot starts at the playhead: fly the camera to its first view and press K.', 'ok');
 }
 function joinShot(k) {                     // the shot of this key joins the one before it (no cut)
@@ -236,7 +236,7 @@ function joinShot(k) {                     // the shot of this key joins the one
     const first = c.keys.filter((x) => shotOf(x) === s)[0];
     if (prev && first && Math.abs(prev.t - first.t) < 0.011) c.keys.splice(c.keys.indexOf(prev), 1);
     for (const x of c.keys) if (shotOf(x) >= s) x.s = shotOf(x) - 1;
-  });
+  }, 'Join cutscene shots');
 }
 function evenSpeed() {                     // in every shot: the keys spaced by the distance between them
   const c = cutOf(cur.name);
@@ -458,7 +458,7 @@ function wire(c, max) {
     on('#cskgo', 'onclick', () => { cur.t = k.t; if (!cur.look) setLook(true); else { goTo(cur.t); render(); } });
     on('#cskset', 'onclick', () => change(() => { const [p, r] = viewNow(); r[1] = k.r[1] + ((((r[1] - k.r[1]) % YAW) + YAW * 1.5) % YAW - YAW / 2); k.p = p; k.r = r.map(Math.round); k.fov = cur.fov; }));
     on('#cskjoin', 'onclick', () => joinShot(k));
-    on('#cskdel', 'onclick', () => change(() => { c.keys.splice(c.keys.indexOf(k), 1); cur.sel = null; }));
+    on('#cskdel', 'onclick', () => change(() => { c.keys.splice(c.keys.indexOf(k), 1); cur.sel = null; }, 'Delete a cutscene key'));
   }
   const ln = cur.sel && cur.sel.kind === 'line' ? cur.sel.ref : null;
   if (ln) {
@@ -468,7 +468,7 @@ function wire(c, max) {
     on('#cslsnd', 'onclick', () => K.pickSound(ln.snd || '', (name) => { if (name) change(() => { ln.snd = name; }); }));
     on('#cslplay', 'onclick', (e) => K.playSound(ln.snd, e.target));
     on('#cslnosnd', 'onclick', () => change(() => { ln.snd = ''; }));
-    on('#csldel', 'onclick', () => change(() => { c.lines.splice(c.lines.indexOf(ln), 1); cur.sel = null; }));
+    on('#csldel', 'onclick', () => change(() => { c.lines.splice(c.lines.indexOf(ln), 1); cur.sel = null; }, 'Delete a subtitle'));
   }
   const x = cur.sel && cur.sel.kind === 'ev' ? cur.sel.ref : null;
   if (x) {
@@ -479,7 +479,7 @@ function wire(c, max) {
       if (!l.do.length) K.lkList().splice(K.lkList().indexOf(l), 1); else l.label = K.lkSentence(l);
       cur.sel = null;
       refreshProps();
-    }));
+    }, 'Delete a cutscene event'));
   }
   on('#csaddline', 'onclick', () => change(() => {
     c.lines = c.lines || [];
@@ -487,7 +487,7 @@ function wire(c, max) {
     c.lines.push(nl);
     c.lines.sort((a, b) => a.t - b.t);
     cur.sel = { kind: 'line', ref: nl };
-  }));
+  }, 'Add a subtitle'));
   on('#csaddev', 'onclick', () => {
     const t = r2(cur.t), name = cur.name;
     K.lkStartPick({
@@ -501,7 +501,7 @@ function wire(c, max) {
           l.do.push(act);
           l.label = K.lkSentence(l);
           cur.sel = { kind: 'ev', ref: act };
-        });
+        }, 'Add a cutscene event');
         refreshProps();
       } });
   });
@@ -523,7 +523,7 @@ function wire(c, max) {
     cur.t = getT();
     if (cur.look) goTo(cur.t);
     let moved = false;
-    kit().pushUndo();
+    kit().pushUndo('Move on the cutscene timeline');
     const [lo, hi] = bounds();
     const move = (ev) => {
       const t = Math.max(lo, Math.min(hi, Math.round(timeAt(ev) * 20) / 20));
@@ -601,7 +601,7 @@ function close() {
 // + Cutscene: a camera in front of the view, its first key = the view now, and the panel looking through it
 function addCutscene() {
   const K = kit(), ed = E();
-  K.pushUndo();
+  K.pushUndo('Add a cutscene camera');
   const name = K.nextName('UCCutscene');
   const loc = ed.cameraPoint(120);
   const e = { name, cls: 'UCCutscene', loc, rot: [0, 0, 0], props: {}, radius: 16, height: 16 };
@@ -658,13 +658,13 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-// keys while the panel is open: K a key, Space play / pause, Esc stop / stop looking through
+// keys while the panel is open: K a key, Space play / pause (not Shift+Space: Maximize panel), Esc stop / stop looking through
 window.addEventListener('keydown', (e) => {
   if (!cur || e.ctrlKey || e.altKey) return;
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (k === 'k') { e.preventDefault(); e.stopImmediatePropagation(); recordKey(); }
-  else if (k === ' ' && !E().cam.look) { e.preventDefault(); e.stopImmediatePropagation(); if (cur.playing) stopPlay(); else startPlay(); }
+  else if (k === ' ' && !e.shiftKey && !E().cam.look) { e.preventDefault(); e.stopImmediatePropagation(); if (cur.playing) stopPlay(); else startPlay(); }
   else if (k === 'escape' && (cur.playing || cur.look)) { e.preventDefault(); e.stopImmediatePropagation(); if (cur.playing) stopPlay(); else setLook(false); }
 }, true);
 

@@ -17,7 +17,7 @@ export function createStartScreen({ open, create, refresh, save, clear, hasChang
     <div class="start-projectbar"><div><b id="start-project-name"></b><span id="start-project-kind"></span></div><button id="start-projects">Projects…</button></div>
     <div class="start-actions"><button class="start-action" id="start-new">
       <svg class="start-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M19 3H7v26h18V9l-6-6Z M19 3v7h6 M11 19h10 M16 14v10"/></svg>
-      <span class="start-action-copy"><b>NEW MAP</b><span>Start with an empty room or a copy of a level.</span></span></button>
+      <span class="start-action-copy"><b>NEW MAP</b><span>Start with an empty room, a copy of a level or a map template.</span></span></button>
       <button class="start-action" id="start-open">
         <svg class="start-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 25V7h10l3 4h12v5 M3 25l5-10h22l-5 10H3Z"/></svg>
         <span class="start-action-copy"><b>OPEN MAP</b><span id="start-open-description">Maps in this project and imported .dx files.</span></span></button></div>

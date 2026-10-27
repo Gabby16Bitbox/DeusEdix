@@ -49,7 +49,7 @@ export function characterSections(E, a, p, redraw) {
       + field('bhdevery', 'Every (s)', num(d.every ?? 2.5), 'The least time between two dodges', 'min="0.5" max="60" step="0.5"') : ''}`, !!(g || j || d));
 
   const wire = () => {
-    const $ = (id) => document.getElementById(id);
+    const $ = (id) => E.find('#' + id);      // the Inspector's own lookup: a Properties window's field in one
     if (!$('mvspeed')) return;
     const setNum = (id, key, conv = (v) => v) => {
       $(id).onchange = () => {
@@ -66,7 +66,7 @@ export function characterSections(E, a, p, redraw) {
     // behaviours: edits.behave[name] = {loc, grenades, jump, dodge}
     const change = (fn, again = false) => {
       if (!E.requireUnlocked(p)) { redraw(); return; }
-      E.pushUndo();
+      E.pushUndo(`Tactics of ${a.name}`);
       E.edits.behave = E.edits.behave || {};
       const e = Object.assign({}, E.edits.behave[a.name], { loc: E.UE(p.position) });
       fn(e);
@@ -106,10 +106,10 @@ export function playerSection(E, a, p, redraw) {
       + field('pmjumpif', '→ Jump ×', num(m.jump_if), 'JC jumps this many times as high while it holds (1: the same)', 'min="0.2" max="5" step="0.1"') : ''),
     !!(m.air !== undefined || when));
   const wire = () => {
-    const $ = (id) => document.getElementById(id);
+    const $ = (id) => E.find('#' + id);
     if (!$('pmair')) return;
     const change = (fn, again = false) => {
-      E.pushUndo();
+      E.pushUndo('Player movement');
       const e = Object.assign({}, E.edits.player_move, { loc: E.UE(p.position) });
       fn(e);
       for (const k of Object.keys(e)) if (e[k] === '' || e[k] === undefined) delete e[k];

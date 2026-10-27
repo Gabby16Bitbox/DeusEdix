@@ -138,8 +138,9 @@ function paintBottom(time) {
 }
 const pixels = (cv) => cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);
 
+// refuseWhileBuilding(what): throws while a Rebuild runs (app.js: the map waits for it), saying so with `what`
 export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName,
-  warnHiddenKinds, proxyOf }) {
+  warnHiddenKinds, proxyOf, refuseWhileBuilding }) {
   let dialog = null, frame = 0, look = null, field = null, began = 0;
   const state = {
     time: 'day', sky: 'made', clouds: 40, seed: 7, picture: null, sun: true, sunYaw: 135, sunHigh: 60, sunPower: 100, ambient: true,
@@ -321,36 +322,45 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
     dialog.querySelector('form').onsubmit = (e) => { e.preventDefault(); apply().catch((err) => { dialog.querySelector('.sky-msg').textContent = err.message; }); };
     if (!frame) frame = requestAnimationFrame(loop);
   }
-  async function importCanvas(cv, base) {
-    const edits = getEdits();
-    const info = await api('/api/texture_import?script=' + encodeURIComponent(getScript()), { png: cv.toDataURL('image/png'), base, world: null, existing: Object.keys(edits.textures || {}) });
-    edits.textures = edits.textures || {};
-    edits.textures[info.name] = { pcx: info.pcx, png: info.png, w: info.w, h: info.h, masked: false, scale: 1, from: 'sky' };
+  // a picture made a texture of the map, named apart from `taken` (the map's other textures) and from those made before
+  // it: its name, and its entry in `made` (put in the edits with the rest of the sky, apply)
+  async function importCanvas(cv, base, taken, made) {
+    const info = await api('/api/texture_import?script=' + encodeURIComponent(getScript()), { png: cv.toDataURL('image/png'), base, world: null, existing: [...taken, ...Object.keys(made)] });
+    refuseWhileBuilding('the sky waits');              // a Rebuild started meanwhile: nothing is changed
+    made[info.name] = { pcx: info.pcx, png: info.png, w: info.w, h: info.h, masked: false, scale: 1, from: 'sky' };
     return info.name;
   }
+  // The sky: its pictures imported first, then the edits changed in one go (one Ctrl+Z), so a Rebuild that starts while
+  // they are imported finds the map as it was. Not while a Rebuild runs: the dialog says so
   async function apply() {
     const edits = getEdits(), msg = dialog.querySelector('.sky-msg'), on = layered();
     if (state.sky === 'picture' && !state.picture) throw new Error('Choose your picture first.');
+    refuseWhileBuilding('the sky waits');
     msg.textContent = 'Making the sky…';
-    pushUndo();
-    edits.level = edits.level || {};
-    for (const [k, t] of Object.entries(edits.textures || {})) if (t.from === 'sky') delete edits.textures[k];     // the old painted sky
-    delete edits.level.skyLook;
+    const own = edits.textures || {}, made = {};
+    const taken = Object.keys(own).filter((k) => own[k].from !== 'sky');      // the old painted sky's names are free again
+    let skyLook = null, cloudTex = state.cloudTex;                          // the game's clouds: nothing to import
     if (state.sky === 'made' || state.sky === 'picture') {
       let walls;
       // the clouds overhead are the layer's; the painted walls keep only the far ones, under its edge
       if (state.sky === 'made') walls = paintWalls(1024, 1024, state.time, on ? state.clouds : 0, state.seed, edgeRow(state));
       else { walls = document.createElement('canvas'); walls.width = walls.height = 1024; walls.getContext('2d').drawImage(state.picture, 0, 0, 1024, 1024); }
-      edits.level.skyLook = { walls: await importCanvas(walls, 'SkyWalls'), top: await importCanvas(paintTop(512, state.time, 0, state.seed), 'SkyTop'),
-        bottom: await importCanvas(paintBottom(state.time), 'SkyBottom') };
-      edits.level.sky = 'mine';
-    } else edits.level.sky = state.sky;
+      skyLook = { walls: await importCanvas(walls, 'SkyWalls', taken, made), top: await importCanvas(paintTop(512, state.time, 0, state.seed), 'SkyTop', taken, made),
+        bottom: await importCanvas(paintBottom(state.time), 'SkyBottom', taken, made) };
+    }
+    if (state.cloudLook !== 'game' && on) cloudTex = await importCanvas(paintClouds(512, state), 'SkyClouds', taken, made);
+    if (getEdits() !== edits) throw new Error('The map was opened again while its sky was made: press Apply again.');
+    pushUndo('Sky & time of day');
+    edits.level = edits.level || {};
+    for (const [k, t] of Object.entries(edits.textures || {})) if (t.from === 'sky') delete edits.textures[k];     // the old painted sky
+    edits.textures = Object.assign(edits.textures || {}, made);
+    delete edits.level.skyLook;
+    if (skyLook) { edits.level.skyLook = skyLook; edits.level.sky = 'mine'; } else edits.level.sky = state.sky;
     edits.level.skyKind = state.sky;
     edits.level.time = state.time;
     edits.level.clouds = { look: state.cloudLook, amount: state.clouds, size: state.cloudSize, height: state.cloudHigh, bright: state.cloudBright,
       speed: state.cloudSpeed, wind: state.wind, seed: state.seed };
-    if (state.cloudLook === 'game') edits.level.clouds.tex = state.cloudTex;          // the game's: nothing to import
-    else if (on) edits.level.clouds.tex = await importCanvas(paintClouds(512, state), 'SkyClouds');
+    if (on) edits.level.clouds.tex = cloudTex;
     if (state.ambient) {
       const [b, hue, sat] = TIMES[state.time].ambient;
       edits.level.ambient = { AmbientBrightness: b, AmbientHue: hue, AmbientSaturation: sat };

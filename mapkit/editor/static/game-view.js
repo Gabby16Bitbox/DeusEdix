@@ -212,12 +212,18 @@ export function createPlaySessionController({ api, getScript, getSession = () =>
   };
 }
 
+// controls: the header's buttons while the game runs ([{id, label, title, on, off}]: the console commands sent when one is
+// pressed and when it is let go, play-scenarios.js PLAY_CONTROLS); sendCommand(command): sends one to the game (the
+// Console's channel, console.js), true when it went
 export function createGameView({ api, getScript, getSession, getStart, save, validate = async () => {}, resetInput = () => {},
-  log = () => {}, status = () => {}, viewport } = {}) {
+  log = () => {}, status = () => {}, viewport, controls = [], sendCommand = async () => false } = {}) {
   const view = typeof viewport === 'string' ? document.querySelector(viewport) : viewport || document.querySelector('#view');
   const panel = document.createElement('section');
   panel.id = 'game-view'; panel.hidden = true; panel.setAttribute('aria-label', 'Game preview');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   panel.innerHTML = `<header class="game-view-header"><strong>Game</strong><span class="game-view-hint">Shift+F1 releases the mouse</span>
+    <span class="game-view-controls" role="group" aria-label="Game controls">${controls.map((c) =>
+      `<button type="button" data-control="${esc(c.id)}" aria-pressed="false" title="${esc(c.title)}">${esc(c.label)}</button>`).join('')}</span>
     <button type="button" data-game="release">Release mouse</button><button type="button" data-game="stop">Stop</button></header>
     <div class="game-view-stage"><div class="game-view-message" role="status" aria-live="polite"><strong></strong><p></p>
     <div class="game-view-actions" hidden><button type="button" data-game="retry">Retry embedding</button><button type="button" data-game="external">Continue in game window</button><button type="button" data-game="stop">Stop</button></div></div></div>`;
@@ -228,6 +234,9 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
   let attached = false, captured = false, attachError = '', attachSince = 0, capabilities = null;
   let nativeTail = Promise.resolve(), syncing = false, syncAgain = false, nativeTimer = null, disposed = false;
   let lastNativePlacement = '', lastState = null, lastError = '', layoutFrame = null, nativeBusySince = 0;
+  // the header's buttons pressed in this game (by id), those pressed when it starts (start's third argument), a
+  // command on its way (the buttons wait for it: the game takes one at a time)
+  let pressed = {}, pressedAtStart = {}, commanding = false;
   const bridge = () => window.pywebview?.api;
   function native(method, argument) {
     const call = nativeTail.catch(() => {}).then(async () => {
@@ -270,6 +279,10 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     panel.dataset.phase = state.phase;
     actions.hidden = !attachError || state.phase === 'stopping';
     releaseButton.disabled = !attached || state.phase === 'stopping';
+    panel.querySelectorAll('[data-control]').forEach(button => {
+      button.disabled = state.phase !== 'running' || commanding;
+      button.setAttribute('aria-pressed', String(!!pressed[button.dataset.control]));
+    });
     panel.querySelectorAll('[data-game="stop"]').forEach(button => { button.disabled = state.phase === 'stopping'; });
     panel.querySelector('.game-view-hint').textContent = captured ? 'Shift+F1 releases the mouse' : 'Click the game to play · Shift+F1 releases the mouse';
     message.hidden = attached && !attachError && state.phase === 'running';
@@ -348,7 +361,7 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
   function onState(state) {
     const previous = lastState, wasActive = previous?.active;
     lastState = state;
-    if (state.active && !wasActive) { resetInput(); attachError = ''; attachSince = 0; }
+    if (state.active && !wasActive) { resetInput(); attachError = ''; attachSince = 0; pressed = { ...pressedAtStart }; pressedAtStart = {}; }
     if (!state.active || state.mode === 'external') {
       if (nativeTimer !== null) clearTimeout(nativeTimer);
       nativeTimer = null;
@@ -416,7 +429,24 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     catch (error) { nativeFailure(error); return false; }
   }
   function retryEmbed() { attachError = ''; attachSince = 0; display(); void syncNative(); }
+  // a header button: its command (pressed: the one that lets it go) to the game, then the button as the game has it
+  async function control(id) {
+    const c = controls.find(x => x.id === id);
+    if (!c || commanding || controller.state.phase !== 'running') return;
+    commanding = true; display();
+    try {
+      if (await sendCommand(pressed[id] ? c.off : c.on)) pressed = { ...pressed, [id]: !pressed[id] };
+      else status('The game did not take the command: wait until it has loaded the map, then try again.', 'warn');
+    } finally { commanding = false; display(); }
+  }
+  // Play, with the header's buttons pressed at the start that the scenario turns on (God)
+  function start(mode, overrides, pressedFirst = {}) {
+    pressedAtStart = { ...pressedFirst };
+    return controller.start(mode, overrides);
+  }
   panel.addEventListener('click', event => {
+    const id = event.target.closest('[data-control]')?.dataset.control;
+    if (id) void control(id);
     const action = event.target.closest('[data-game]')?.dataset.game;
     if (action === 'stop') void stop();
     if (action === 'release') void release();
@@ -442,9 +472,9 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     if (rows.some(row => !panel.contains(row.target))) refresh();
   });
   mutations.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['style', 'class', 'open'] });
-  return { start: controller.start, resume: controller.resume, stop, release, retryEmbed, continueExternal, capabilities: readCapabilities,
+  return { start, resume: controller.resume, stop, release, retryEmbed, continueExternal, capabilities: readCapabilities,
     get active() { return controller.active; }, get preparing() { return controller.preparing; },
-    get state() { return { ...controller.state, attached, captured, attachmentError: attachError }; },
+    get state() { return { ...controller.state, attached, captured, attachmentError: attachError, pressed: { ...pressed } }; },
     dispose() {
       disposed = true; controller.dispose(); observer.disconnect(); mutations.disconnect();
       if (nativeTimer !== null) clearTimeout(nativeTimer);

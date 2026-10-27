@@ -15,6 +15,11 @@ body.no-map #workspace { visibility:hidden; }
 #workspace .ws-tab:hover, #workspace .ws-options:hover, #workspace .ws-hide:hover { background:var(--hover); }
 #workspace .ws-options, #workspace .ws-hide { border:0; background:transparent; padding:0; width:24px; min-width:24px; height:24px; font-size:18px; line-height:1; color:var(--dim); }
 .ws-zone-body { position:relative; flex:1; min-height:0; min-width:0; }
+/* Shift+Space (workspace.js): a dock maximized covers the editor, over the 3D view and its boxes (9), under the menu
+   bar and its menus (#top, 10) */
+#workspace.ws-has-maximized { z-index:9; }
+.ws-zone.ws-maximized { left:0; right:0; top:0; bottom:0; width:auto; height:auto; z-index:1; }
+.ws-zone.ws-maximized > .ws-grip { display:none; }
 .ws-panel { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:visible; background:var(--panel); pointer-events:auto; }
 .ws-panel > .ws-float-head { display:none; }
 #workspace #left, #workspace #right, #workspace #bottom { position:relative; inset:auto; width:100%; height:auto; min-width:0; min-height:0; flex:1; z-index:auto; border:0; }

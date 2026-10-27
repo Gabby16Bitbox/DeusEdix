@@ -239,6 +239,10 @@
   #playbox { position:fixed; top:60px; left:50%; transform:translateX(-50%); width:min(520px, calc(100% - 24px)); background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:14px 16px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
   #playbox .row label:first-child { width:110px; flex:none; }
   #playbox select, #playbox input[type=text] { flex:1; min-width:0; }
+  #playbox { max-height:calc(100vh - 76px); overflow:auto; box-sizing:border-box; }
+  #playbox input[type=number] { flex:1; min-width:0; } #playbox details summary { cursor:pointer; margin:10px 0 4px; }
+  #playbox .pl-row { margin:2px 0; } #playbox .pl-row > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #playbox .pl-row input[type=number] { flex:none; width:64px; } #playbox .pl-row select { flex:none; width:auto; }
   #facbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); right:calc(var(--rw) + 12px); max-height:calc(100% - 70px); overflow:auto; background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
   #facbox .ftab { border-collapse:collapse; width:100%; margin:4px 0; }
   #facbox .ftab th, #facbox .ftab td { border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
@@ -271,6 +275,24 @@
   #newbox .row > label:first-child { width:110px; flex:none; color:var(--dim); }
   #newbox select, #newbox input[type=text] { flex:1; min-width:0; }
   #newbox input[type=number] { width:80px; }
+  /* New map's Start from: a tile each for An empty room, A copy of a map and the project's map templates (map-templates.js) */
+  #newbox .nm-tiles { flex:1; min-width:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(112px, 1fr)); gap:6px; }
+  #newbox .nm-tile { position:relative; display:flex; flex-direction:column; gap:4px; width:auto; min-width:0; padding:5px; border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  #newbox .nm-tile:has(input:checked) { border-color:var(--acc); background:#89b9e81f; }
+  #newbox .nm-tile:focus-within { outline:1px solid var(--acc); outline-offset:1px; }
+  #newbox .nm-tile input { position:absolute; opacity:0; pointer-events:none; }
+  #newbox .nm-pic { display:grid; place-items:center; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:3px; background:#0003; color:var(--dim); }
+  #newbox .nm-pic svg { width:28px; height:28px; }
+  #newbox .nm-tile span:not(.nm-pic) { font-size:11px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #newbox .nm-del { position:absolute; top:3px; right:3px; min-height:0; padding:0 6px; line-height:18px; opacity:0; }
+  #newbox .nm-tile:hover .nm-del, #newbox .nm-del:focus-visible { opacity:1; }
+  /* File > Save map as template... */
+  .map-template { width:min(520px, calc(100vw - 32px)); }
+  .map-template main label { display:block; margin:8px 0 3px; }
+  .map-template main :is(input[type=text], textarea) { width:100%; } .map-template textarea { min-height:54px; resize:vertical; }
+  .map-template .mt-picture { display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .map-template .mt-picture img { width:160px; height:90px; object-fit:cover; border:1px solid var(--line); border-radius:3px; }
+  .map-template .mt-picture label { margin:0; }
   #linkbox { position:fixed; top:56px; left:calc(var(--lw) + 12px); right:calc(var(--rw) + 12px); max-height:calc(100% - var(--bh) - 70px); overflow:auto; background:#1d2027f7; border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:none; z-index:8; box-shadow:0 8px 30px #0008; }
   #linkbox table { border-collapse:collapse; width:100%; margin:4px 0 10px; }
   #linkbox th, #linkbox td { border-bottom:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
@@ -340,7 +362,7 @@
     <span><span class="editor-wordmark">Deus<span>Edix</span></span><small>MAP EDITOR</small></span>
   </div>
   <div class="map-picker"><label for="map">Map</label><select id="map" aria-label="Current map"></select></div>
-  <button id="newmap" title="A new map: an empty room to build in, or a copy of any map; it belongs to a mission of the campaign">New map</button>
+  <button id="newmap" title="A new map: an empty room to build in, a copy of any map or one of your map templates; it belongs to a mission of the campaign">New map</button>
   <span id="status" role="status">loading...</span>
   <label class="theme-picker" for="uitheme"><span class="theme-swatch" aria-hidden="true"></span><span>Theme</span>
     <select id="uitheme" aria-label="Interface theme"><option value="classic">Deus Ex · Classic</option><option value="classic-rounded">Deus Ex · Classic Rounded</option><option value="mankind">Mankind Divided</option><option value="mankind-rounded">Mankind Divided · Rounded</option></select>
@@ -363,7 +385,7 @@
   <button id="storybtn" title="Mission dialogues and events in this map">Story</button>
   <details class="tool-menu"><summary>Tools</summary><div class="menu-items">
     <button id="paste" title="Paste what you copied with Ctrl+C, even from another map (Ctrl+V)">Paste<span>Ctrl+V</span></button>
-    <button id="checkbtn" title="Check map: what is wrong or missing (links to nothing, patrols without a route, exits to no map, objects inside walls...)">Check map</button>
+    <button id="checkbtn" title="Check map: what is wrong or missing (links to nothing, patrols without a route, exits to no map, objects inside walls, two copies at one spot, things left in the air...)">Check map</button>
     <button id="mapsetbtn" title="Map settings: the music, the name of the place and the opening lines, the ambient light">Map settings</button>
     <button id="linksbtn" title="Links: the ways in and out of this map, and the maps that lead here (how to put a map in the campaign)">Map links</button>
     <button id="factionsbtn" title="The factions of this map: who is friend or enemy of JC and of each other">Factions</button>
@@ -391,6 +413,7 @@
 </div>
 <canvas id="view"></canvas>
 <div id="console" aria-label="Console"></div>
+<div id="history" aria-label="History"></div>
 <div id="bottom">
   <!-- the media browser: its sections on the left (the game's, then what you imported), the toolbar of the
        section shown on top; drag anything onto the 3D view (sounds also onto an object or the Inspector) -->
@@ -509,7 +532,7 @@
     <tr><td>Green labels on the edge of the view</td><td>the other end of a rule is out of the view or far away: the label points to it, with its distance; click it to go there. <b>both</b> (in the rule) shows the two objects together</td></tr>
     <tr><td>Logic</td><td>every interaction of the map as sentences, editable; + When the map starts</td></tr>
     <tr><td>Packages... (bottom bar)</td><td>packages (.u) of other mods: their objects in the palette, with Properties and Interactions</td></tr>
-    <tr><td>Map / Check</td><td>Map: the music, the place's name and opening lines, the ambient light. Check: what is wrong or missing in the map, with "go to"</td></tr>
+    <tr><td>Map / Check</td><td>Map: the music, the place's name and opening lines, the ambient light. Check: what is wrong or missing in the map, with "go to", and a fix where one is plain (a double paste, a thing left in the air: one Ctrl+Z each)</td></tr>
     <tr><td>Objects &gt; Sounds</td><td>an ambient sound (over and over), a sound effect when JC walks in, a sound effect when triggered (put its Tag in the Event of a door, a button, a keypad, a Trigger); choose and listen to the sound. Doors have their sounds in their Properties</td></tr>
     <tr><td>Animations</td><td>the Animation Studio: play the game's animations, copy and change them, make new ones by posing the skeleton, import BVH / FBX (Mixamo) / glTF; Save puts them in the game. A character uses one from its Properties (Animation)</td></tr>
     <tr><td>Story</td><td>character dialogues and mission events; "Apply in game" compiles them and puts them in the game</td></tr>
@@ -520,10 +543,12 @@
     <tr><td>Change state &gt; Character state</td><td>Changes the recorded outcome only. It does not kill, knock out or revive the character. Use a character action to change what they physically do.</td></tr>
     <tr><td>Story &gt; dialogue &gt; Priority ▲▼</td><td>a character with more than one dialogue: the first from the top whose conditions hold plays</td></tr>
     <tr><td>Factions</td><td>who is friend or enemy of JC and of each other; change a whole faction at once (a character's own relations are in its Properties)</td></tr>
-    <tr><td>New map</td><td>an empty room to build in, or a copy of any map under a new name; it belongs to a mission of the campaign</td></tr>
+    <tr><td>New map</td><td>an empty room to build in, a copy of any map, or one of your map templates, under a new name; it belongs to a mission of the campaign</td></tr>
+    <tr><td>File &gt; Save map as template...</td><td>keeps this map's place (blocks, structures, objects, lights, the start, zones, sky, Map settings; not its characters, Interactions or Story) with a picture of the view: New map shows it as a tile</td></tr>
     <tr><td>Links</td><td>the ways in and out of this map (map exits, arrival points) and the maps that lead here; how to put a new map in the campaign</td></tr>
     <tr><td>Characters</td><td>make your own characters from the faces, bodies and clothes of the game; then place them with Place in map, or from the Browser (Objects &gt; Custom characters)</td></tr>
-    <tr><td>Play from here</td><td>opens the game on this map with JC where you are looking, after a mission state and flags; then you play</td></tr>
+    <tr><td>Play from here</td><td>opens the game on this map with JC where you are looking, after a mission state and flags; then you play. The list next to <b>Play</b> chooses a saved <b>play scenario</b> (where JC starts, his items, augmentations, skills, credits, health, god): <b>Play settings...</b> makes them. While the game plays in the editor, its header has <b>Pause</b>, <b>Slow motion</b>, <b>Ghost</b> and <b>God</b></td></tr>
+    <tr><td>Console (a tab next to the Browser)</td><td>the game's log while it runs, and what the rules do: <b>Collapse</b> shows identical lines as one with how many came (×N), <b>Time</b> the seconds since Play started, <b>Copy</b> the lines picked (click a line; <kbd>Ctrl</kbd>+click, <kbd>Shift</kbd>+click: more) or every line shown; the name of an object of the map in any line selects it. In the log: <kbd>Ctrl+C</kbd> copies (a text selected: that text), <kbd>Ctrl+A</kbd> picks every line shown, <kbd>Up</kbd> / <kbd>Down</kbd> the line before or after (<kbd>Shift</kbd>: one more), <kbd>Esc</kbd> lets them go; the map's objects are not copied</td></tr>
     <tr><td><kbd>End</kbd></td><td>drop the object onto whatever is below it</td></tr>
     <tr><td><kbd>G</kbd></td><td>grid snap on/off; its steps are in the 3D view's toolbar (and Settings &gt; Editing)</td></tr>
     <tr><td><kbd>V</kbd> held while moving with the gizmo</td><td>vertex snapping: the corner of the selection nearest the pointer goes onto the corner of the map or of another object under the pointer (a dot marks it, orange once it is on a corner); a tap of <kbd>V</kbd> outside a move stays Edit vertices</td></tr>
@@ -533,9 +558,14 @@
     <tr><td><kbd>P</kbd> (AI paths in the top bar)</td><td>the network the characters walk on, as the last rebuild made it (green both ways, yellow one way). Add path nodes from Objects &gt; AI where they must be able to walk</td></tr>
     <tr><td>Walkable area (View, or the Navigation menu of the 3D view)</td><td>where a man can walk, made with Recast from the map: green near the AI paths, amber walkable but far from any path node (add one there), red where no path node reaches. With Test route it also draws the straight way on the walkable area next to the AI's node-to-node one</td></tr>
     <tr><td>Map &gt; Fill AI paths</td><td>path nodes wherever JC can walk and no node is near, and along the way to the network for groups of points apart; Ctrl+Z takes them away, Rebuild links them. Run it again after the rebuild</td></tr>
+    <tr><td>Rebuild (top bar, Map menu)</td><td>runs in the background: the chip beside the status says the stage, the time and the last build's, with Cancel (the last build comes back). Meanwhile the view is look-only: fly, select and read the Inspector, editing waits. A Build report goes to Messages: time per stage, BSP, lights, AI paths, warnings with Check map. <a href="/guide#rebuild-in-the-background" target="_blank">Rebuild guide</a></td></tr>
     <tr><td>Patrol route (a character's Properties)</td><td>"Draw route", then click the floor point after point (Enter or Esc when done): they walk it in a loop, waiting the seconds you give each point</td></tr>
     <tr><td><kbd>F</kbd></td><td>focus the selected object</td></tr>
     <tr><td><kbd>Delete</kbd> / <kbd>Ctrl+D</kbd> / <kbd>Ctrl+Z</kbd></td><td>delete / duplicate / undo</td></tr>
+    <tr><td><kbd>Ctrl+U</kbd> (Window &gt; History)</td><td>the History panel (a tab next to the Inspector): every change of this map by name, newest first, the map as it was opened at the bottom; a click goes back (or forward) to that step, the steps Redo would bring back are dimmed. Edit &gt; Undo / Redo say the step they take (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>), the status bar what was undone. Not kept after a Rebuild or a reload: your changes are, by Save and autosave</td></tr>
+     <tr><td><kbd>Shift</kbd>+<kbd>Space</kbd> (Window &gt; Maximize panel)</td><td>the docked panel under the pointer, or the 3D view, fills the editor; again, or <kbd>Esc</kbd>, puts the layout back</td></tr>
+     <tr><td>Window &gt; Save layout as… / Layout: <i>name</i></td><td>keep the panels as they are under a name (in this browser, for every project); its item in the Window menu puts them back. Delete layout…, Export layouts… and Import layouts… (a JSON file)</td></tr>
+     <tr><td>Right click &gt; Properties…</td><td>a floating Inspector of that one object, live (the gizmo, Ctrl+Z, the panel change it too), while the Inspector panel follows the selection: a keypad and its door side by side. At most 3; it closes with its object or its map</td></tr>
     <tr><td><kbd>Ctrl+G</kbd> / <kbd>Ctrl+Shift+G</kbd></td><td>nest the selection (one thing, moved as one) / un-nest it, or take a structure apart; drag things in and out of nests in the Hierarchy, right click for more</td></tr>
     <tr><td><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></td><td>copy an object or a structure and paste it where you are looking, even into another map (open that map, copy, go back to yours, paste)</td></tr>
     <tr><td><kbd>Ctrl+S</kbd></td><td>save</td></tr>

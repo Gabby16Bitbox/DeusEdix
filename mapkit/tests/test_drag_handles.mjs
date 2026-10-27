@@ -64,20 +64,23 @@ test('the 3D view looking along X leaves out the X sides; the Top view still dra
 
 // ---- a drag in the page (static/app.js: its handle functions and its undo, run as they are)
 const app = await readFile(new URL('../editor/static/app.js', import.meta.url), 'utf8');
+const { recordStep, namedStep } = await import('../editor/static/history-names.js');
 const body = (name) => { const i = app.indexOf(`function ${name}(`); assert.ok(i >= 0, name); return app.slice(i, app.indexOf('\n}', i) + 2); };
 function handlePage() {
   const T = (a) => new THREE.Vector3(a[0], a[2], a[1]);
   const lamp = { name: 'Light1', cls: 'Light', props: { LightRadius: '8' } }, calls = [];
   const box = { name: 'UCEditBox0', lo: [0, 0, 0], hi: [128, 128, 128] };
-  const c = vm.createContext({ THREE, T, edits: { props: { Light1: { Tag: 'Lamp' } }, boxes: [box] }, undo: ['earlier'], redoStack: ['undone'],
+  const c = vm.createContext({ THREE, T, edits: { props: { Light1: { Tag: 'Lamp' } }, boxes: [box] }, buildJob: null,
+    undoHistory: { undo: [{ state: 'earlier', label: 'Earlier' }], redo: [{ state: 'undone', label: 'Undone' }], trimmed: false },
+    recordStep, namedStep, historyChanged() {}, objectLabel: (p) => [p.userData.actor?.name ?? p.userData.box.name, ''],
     requireUnlocked: () => true, putProp: (a, k, text) => { (c.edits.props[a.name] ||= {})[k] = text; }, refreshLight() {}, showSoundRange() {}, wake() {},
     commit: () => calls.push('commit'), setDirty: () => calls.push('dirty'), showDetails() {}, status() {}, dressBlock() {} });
-  vm.runInContext(['pushUndo', 'beginHandleDrag', 'previewHandleDrag', 'endHandleDrag', 'cancelHandleDrag', 'ownPropsBack'].map(body).join('\n'), c);
+  vm.runInContext(['pushUndo', 'stepOf', 'beginHandleDrag', 'previewHandleDrag', 'endHandleDrag', 'cancelHandleDrag', 'ownPropsBack'].map(body).join('\n'), c);
   const light = { userData: { actor: lamp }, position: new THREE.Vector3(), scale: new THREE.Vector3(1, 1, 1) };
   const block = { userData: { box }, position: T([64, 64, 64]), scale: new THREE.Vector3(128, 128, 128) };
   return { c, light, block, calls, radius: (text) => ({ range: {}, props: { LightRadius: text }, centre: null, note: `Radius ${text}` }) };
 }
-const history = (c) => JSON.parse(JSON.stringify([c.undo, c.redoStack]));
+const history = (c) => [c.undoHistory.undo.map((s) => s.state), c.undoHistory.redo.map((s) => s.state)];
 
 test('Esc, or a drag let go where it began, leaves Ctrl+Z and Ctrl+Y as they were', () => {
   const { c, light, block, radius } = handlePage(), before = JSON.stringify(c.edits);
@@ -110,11 +113,12 @@ test('a drag that changed something is one Ctrl+Z: the edits as it found them; C
   saved = c.beginHandleDrag(block);
   c.endHandleDrag(block, { range: { centre: [80, 64, 64], size: [160, 128, 128] }, props: null, centre: [80, 64, 64], note: 'Width 160' }, saved);
   assert.deepEqual(history(c), [['earlier', before, lit], []]);
+  assert.deepEqual(c.undoHistory.undo.map((s) => s.label), ['Earlier', 'Resize Light1', 'Resize UCEditBox0']);
   assert.deepEqual(JSON.parse(JSON.stringify([c.edits.boxes[0].lo, c.edits.boxes[0].hi])), [[0, 0, 0], [160, 128, 128]]);
-  c.undo.length = 100;
+  c.undoHistory.undo.length = 100;
   saved = c.beginHandleDrag(light);
   c.cancelHandleDrag(light, saved);
-  assert.equal(c.undo.length, 100);                                 // the oldest step is not lost to a cancelled drag
+  assert.equal(c.undoHistory.undo.length, 100);                     // the oldest step is not lost to a cancelled drag
 });
 
 test('in a pane the sides seen edge on are not dimmed; the one facing away from the 3D camera is', () => {

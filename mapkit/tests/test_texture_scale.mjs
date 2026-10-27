@@ -90,7 +90,7 @@ function transformFixture(piece=true) {
     YAW:65536,ONE:[1,1,1],scaleOf:p=>p?.scale||[1,1,1],add3:(a,b)=>a.map((x,i)=>x+b[i]),
     structures:{sign:st},edits:{groups:{},prefabs:[],copies:[],moved:{},deleted:{}},proxies:new THREE.Group(),actorStruct:{},moveStart:null,selected:obj,
     objectHidden:()=>false,movedPose:p=>p.offset.some(Boolean)||p.yaw||p.pitch||p.roll||p.scale.some(v=>v!==1),
-    setDirty(){},showDetails(){render();},log(){},$:(id)=>fields[id],pushUndo:()=>history.push(JSON.stringify(c.edits)),p:obj,st,pose:{scale:[1,1,1]},
+    setDirty(){},showDetails(){render();},log(){},$:(id)=>fields[id],pushUndo:()=>history.push(JSON.stringify(c.edits)),stepOf:(verb)=>verb,p:obj,st,pose:{scale:[1,1,1]},
   });
   for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','beginStructMove','followStructure','keptPlaces','commitStructure']) vm.runInContext(body(name),c);
   function render(){for(const [id,value] of Object.entries({px:0,py:0,pz:0,spitch:0,pyaw:0,sroll:0,ssx:100,ssy:100,ssz:100})) fields['#'+id]={value};fields['#sstretch']={checked:!!c.poseOf(st).stretch};}

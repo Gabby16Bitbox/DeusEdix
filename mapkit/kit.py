@@ -27,6 +27,25 @@ HOST = PROJECT / 'tools' / 'mapkit' / 'bin' / 'UCMapKitHost.exe'
 EDIT_PACKAGES = ('Core', 'Engine', 'Editor', 'Extension', 'DeusExUI', 'ConSys', 'DeusEx') + settings.GAME_EDIT_PACKAGES
 # packages of other mods the editor loads too (the map editor's Packages panel: editor/packages.py)
 PACKAGES_FILE = PROJECT / 'tools' / 'mapkit' / 'packages.json'
+# a map script built by the map editor's Rebuild, in a process of its own (editor/server.py build): its host runs name
+# their log in the file this says, so the editor can show the build's stages (editor/build_job.py)
+HOST_LOG_ENV = 'DEUSEDIX_HOST_LOG'
+
+
+class Stopped(Exception):
+    """A run stopped on purpose (the map editor's Cancel of a Rebuild): not a failure, never retried."""
+
+
+class LogNote:
+    """The watch of a map script's build (HOST_LOG_ENV): each host run's log named in the file, for the editor that
+    started the script (it stops that process itself, so this one never stops a run)."""
+    stopped = False
+
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def started(self, process, log):
+        atomicfile.write_text(self.path, str(log))
 
 
 def extra_packages():
@@ -217,15 +236,21 @@ def new_run(inputs=(), label='run'):
     return folder
 
 
-def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tries=4):
+def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tries=4, watch=None):
     """Run commands in the host. Paths in commands are relative to the run's System folder.
 
     LIGHT APPLY opens a hidden OpenGL viewport; now and then the NVIDIA driver crashes while
     creating it (nvoglv32.dll, null read; seen on 11 Oct 2026 for a quarter of an hour, then
-    gone, with identical inputs). A run that dies in that step is simply run again."""
+    gone, with identical inputs). A run that dies in that step is simply run again.
+
+    watch: a build that follows the run (the map editor's Rebuild, editor/build_job.py): watch.started(process, log)
+    as each run starts (it raises Stopped to refuse it); watch.stopped once it was cancelled (the run it stopped raises
+    Stopped: no retry). In a map script the editor runs, the run's log is named in its HOST_LOG_ENV file (LogNote)."""
+    if watch is None and os.environ.get(HOST_LOG_ENV):
+        watch = LogNote(os.environ[HOST_LOG_ENV])
     for attempt in range(tries):
         try:
-            return _execute(folder, commands, log_name, timeout, echo and attempt == tries - 1)
+            return _execute(folder, commands, log_name, timeout, echo and attempt == tries - 1, watch)
         except RuntimeError as e:
             text = (Path(folder) / log_name).read_text(encoding='utf-8', errors='replace')
             last = re.findall(r'UCMapKit\|command\|(.*)', text)
@@ -237,16 +262,26 @@ def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tri
             time.sleep(3)
 
 
-def _execute(folder, commands, log_name, timeout, echo):
+def _execute(folder, commands, log_name, timeout, echo, watch=None):
     folder = Path(folder)
     command_file = folder / ('commands-' + uuid.uuid4().hex[:8] + '.txt')
     command_file.write_text('\n'.join(commands) + '\n', encoding='utf-8')     # UC_PROP texts may have accents
     log = folder / log_name
     start = time.time()
     with log.open('wb') as stream:
-        process = subprocess.run([str(folder / 'System' / HOST.name), str(command_file)], cwd=folder / 'System',
-                                 stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
-                                 timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW)
+        process = subprocess.Popen([str(folder / 'System' / HOST.name), str(command_file)], cwd=folder / 'System',
+                                   stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            if watch is not None:
+                watch.started(process, log)
+            process.wait(timeout=timeout)
+        except BaseException:                       # stopped or too long (as subprocess.run's timeout): never left running
+            process.kill()
+            process.wait()
+            raise
+    if watch is not None and watch.stopped:
+        raise Stopped('The run was cancelled.')          # on purpose: not a failure to print or to run again
     text = log.read_text(encoding='utf-8', errors='replace')
     expected = sum(1 for c in commands if c.strip() and not c.startswith('#'))
     ok = (process.returncode == 0 and 'UCMapKit|done' in text and text.count('UCMapKit|complete') == expected)

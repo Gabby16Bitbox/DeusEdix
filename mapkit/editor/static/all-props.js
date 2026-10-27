@@ -24,7 +24,8 @@ export function classProps(E, cls) {
   return cache.get(name);
 }
 
-// E: edits, actorProp, pushUndo, setDirty, status, requireUnlocked, section(key, title, body, open), api(path),
+// E: edits, actorProp, pushUndo, setDirty, status, requireUnlocked, section(key, title, body, open), api(path), find(selector)
+// (the Inspector's own lookup: in a Properties window, that window's field),
 // multiField(field, {names, values, apply}), rawField(field, {key, type, def, category, options (an enum's), apply})
 // (its right click: Copy value, Paste value, Reset); actors: the object, or several of one class; p: what is selected
 export function allPropsSection(E, actors, p) {
@@ -33,7 +34,7 @@ export function allPropsSection(E, actors, p) {
     <div class="row"><input id="apfilter" placeholder="Filter properties" spellcheck="false" style="flex:1;min-width:0"></div>
     <div id="aplist" class="ap-list"><div class="hint">Every property of ${esc(cls)}, as UnrealEd shows them${many ? `, for the ${actors.length} at once` : ''}.</div></div>`, false);
   const wire = () => {
-    const list = document.getElementById('aplist');
+    const list = E.find('#aplist');
     if (!list) return;
     const box = list.closest('details');
     const load = async () => {
@@ -86,7 +87,7 @@ export function allPropsSection(E, actors, p) {
     const write = (key, texts, f) => {
       if (!E.requireUnlocked(p)) return false;
       const vs = texts.map((t) => String(t ?? '').trim());
-      E.pushUndo();
+      E.pushUndo(`${key} (All properties)`);
       const all = E.edits.rawprops || (E.edits.rawprops = {});
       actors.forEach((x, i) => {
         const mine = all[x.name] || (all[x.name] = {});
@@ -101,7 +102,7 @@ export function allPropsSection(E, actors, p) {
       return true;
     };
     const filter = () => {
-      const t = (document.getElementById('apfilter')?.value || '').trim().toLowerCase();
+      const t = (E.find('#apfilter')?.value || '').trim().toLowerCase();
       for (const r of list.querySelectorAll('.ap-row')) r.hidden = !!t && !r.dataset.name.includes(t);
       for (const g of list.querySelectorAll('.ap-group')) {
         let n = g.nextElementSibling, any = false;
@@ -109,7 +110,7 @@ export function allPropsSection(E, actors, p) {
         g.hidden = !any;
       }
     };
-    document.getElementById('apfilter').oninput = () => { load(); filter(); };
+    E.find('#apfilter').oninput = () => { load(); filter(); };
     if (box) { box.addEventListener('toggle', () => { if (box.open) load(); }); if (box.open) load(); }
   };
   return { html, wire };

@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import * as replace from '../editor/static/replace-class.js';
 import { baseOf } from '../editor/static/prop-sets.js';
 import { unquote } from '../editor/static/prop-kinds.js';
+import { namedStep } from '../editor/static/history-names.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const section = source.slice(source.indexOf('// ---------------------------------------------------------------- Replace with...'),
@@ -50,8 +51,9 @@ function fixture() {
     pushUndo: () => history.push(copy(c.edits)), setDirty: () => calls.push('dirty'), rebuildProxies: () => calls.push('rebuild'),
     showDetails: () => {}, closeAnim: () => {}, lightProps: () => ({}), poseOf: () => ({}), poseToPose: () => (v) => v,
     proxyOf: (name) => ({ name }), warnHiddenKinds: (list, done) => { c.warned = [list, done]; },
+    namedStep, objectLabel: (p) => [p.userData.actor.name, ''],
   });
-  vm.runInContext(section + '\n' + ['actorProp', 'ownProps', 'itemProps', 'removeOne', 'dropActorTextures'].map(body).join('\n'), c);
+  vm.runInContext(section + '\n' + ['actorProp', 'ownProps', 'itemProps', 'removeOne', 'dropActorTextures', 'stepOf'].map(body).join('\n'), c);
   const troopP = proxy(troop, 'map', 'pawn', { x: 100, y: 200, z: 48 });
   const crateP = proxy(Object.assign({ kind: 'prop' }, c.edits.added[0]), 'added', 'prop', { x: 0, y: 0, z: 16 });
   const doorP = proxy(door, 'map', 'mover', { x: 0, y: 0, z: 0 });

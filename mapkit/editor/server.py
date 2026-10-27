@@ -48,6 +48,7 @@ import gamelib  # noqa: E402
 import pieces_library  # noqa: E402
 import maplinks  # noqa: E402
 import newmap  # noqa: E402
+import maptemplates  # noqa: E402
 import settings  # noqa: E402
 import surfaces  # noqa: E402
 import mapfiles  # noqa: E402
@@ -62,6 +63,7 @@ import project_server  # noqa: E402
 import tutorial  # noqa: E402
 import rebuild as rebuild_options  # noqa: E402
 import play_preview  # noqa: E402
+import build_job  # noqa: E402
 import player_start  # noqa: E402
 import mods  # noqa: E402
 import agent_bridge  # noqa: E402
@@ -280,7 +282,25 @@ def tutorial_runtime(script):
             raise RuntimeError('The tutorial runtime could not be installed: ' + '\n'.join(lines[-12:]))
 
 
-def build(script, options=None):
+def map_source(script):
+    """What a map is made from: its .dx as the project has it (dxmaps.source), or its map script."""
+    return dxmaps.source(map_of(script)) if is_dx(script) else KIT / 'maps' / (script + '.py')
+
+
+def check_edits(edits):
+    """What a map's edits must be before they are kept (ValueError, TypeError, AttributeError): /api/edits, a map
+    template's (maptemplates.save)."""
+    activation.names(edits)
+    object_tags.validate(edits)
+    surfaces.commands(edits)
+    documents.validate(edits)
+    maplinks.validate_travel(edits=edits)
+    player_profiles.validate_edits(edits)
+
+
+def build(script, options=None, watch=None):
+    """Build a map with its edits: (ok, the lines worth showing). watch: the background Rebuild that follows it
+    (build_job.Job): told of the processes the build starts, it can stop them."""
     options = rebuild_options.normalize(options)
     map_of(script)
     prefab_edits = load_edits(script)
@@ -294,30 +314,41 @@ def build(script, options=None):
             ready, runtime_lines = run_ps('build.ps1', '-Isolated')
             if not ready:
                 return False, runtime_lines
-    prefab_source = dxmaps.source(map_of(script)) if is_dx(script) else KIT / 'maps' / (script + '.py')
+    prefab_source = map_source(script)
     prefab_source_state = prefab_snapshot.source_state(prefab_source)
     if is_dx(script):
-        ok, lines = dxmaps.build(map_of(script), options=options)
+        ok, lines = dxmaps.build(map_of(script), options=options, watch=watch)
         if ok:
             _record_prefab_build(script, prefab_edits, lines, prefab_source_state)
         return ok, lines
     path = KIT / 'maps' / (script + '.py')
-    r = subprocess.run(settings.python() + [str(path)], cwd=str(PROJECT), capture_output=True, text=True,
-                       encoding='utf-8', errors='replace', timeout=3600, creationflags=subprocess.CREATE_NO_WINDOW,
-                       env=rebuild_options.script_environment(options))
-    text = (r.stdout or '') + (r.stderr or '')
+    env = rebuild_options.script_environment(options)
+    if watch is not None:
+        env[kit.HOST_LOG_ENV] = str(watch.note)       # the script's host runs name their log there (the stages)
+    process = subprocess.Popen(settings.python() + [str(path)], cwd=str(PROJECT), stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                               creationflags=subprocess.CREATE_NO_WINDOW, env=env)
+    try:
+        if watch is not None:
+            watch.started(process, None)
+        out, err = process.communicate(timeout=3600)
+    except BaseException:                             # stopped or too long: never left running
+        process.kill()
+        process.communicate()
+        raise
+    text = (out or '') + (err or '')
     lines = [l for l in text.splitlines()
              if re.search(r'built |IN SOLID|TEXTURE|STRETCHED|DROP:|SNAP:|EDIT |ZONE |retry|Error|Traceback', l)]
-    if r.returncode != 0:
+    if process.returncode != 0:
         lines += text.splitlines()[-20:]
     else:
         _record_prefab_build(script, prefab_edits, lines, prefab_source_state)
-    return r.returncode == 0, rebuild_options.report(options, generated=True) + lines
+    return process.returncode == 0, rebuild_options.report(options, generated=True) + lines
 
 
 def _record_prefab_build(script, edits, lines, expected_source=None):
     map_name = map_of(script)
-    source = dxmaps.source(map_name) if is_dx(script) else KIT / 'maps' / (script + '.py')
+    source = map_source(script)
     try:
         prefab_snapshot.record_build(data.OUT / (map_name + '.dx'), edits, source, expected_source)
     except (OSError, ValueError) as exc:
@@ -332,7 +363,7 @@ def save_prefab_selection(script, body):
     map_name = map_of(script)
     saved = load_edits(script)
     shown = dxmaps.shown(map_name) if is_dx(script) else data.OUT / (map_name + '.dx')
-    source = dxmaps.source(map_name) if is_dx(script) else KIT / 'maps' / (script + '.py')
+    source = map_source(script)
     folder = data.CACHE / map_name
     prefab_snapshot.require_current(shown, saved, body['edits'], folder, data.MESH_VERSION, source,
                                     original=is_dx(script) and shown == source)
@@ -343,6 +374,12 @@ def require_player_start(script):
     classes = props.defaults(log=lambda *a: None).get('classes', {})
     chains = {name:entry.get('parents',[]) for name,entry in classes.items()}
     player_start.require(data.actors(map_of(script)), load_edits(script), chains)
+
+
+def loadout_catalog():
+    """What a play scenario's loadout can name (play.loadout_catalog): the items of the game and the mod, the
+    augmentations, the skills."""
+    return play.loadout_catalog(data.items(), props.defaults(log=lambda *a: None).get('classes', {}))
 
 
 def prepare_play(script):
@@ -595,7 +632,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, [])
                 return self._send(409, dict(error='Choose a project first.'))
             with project_server.operation():
-                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/pieces'):
+                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/pieces', '/api/build_status'):
                     project_server.ensure_runtime()
                 return self._project_GET()
         except (ValueError, RuntimeError, OSError) as exc:
@@ -628,6 +665,8 @@ class Handler(BaseHTTPRequestHandler):
                 if len(rel.parts) == 2 and rel.name == 'display.json':
                     return self._send(200, prefabs.display(rel.parts[0]))
                 return self._file(prefabs.ROOT / rel, keep=True)
+            if u.path.startswith('/map_templates/'):      # a map template's picture (New map's tiles)
+                return self._file(maptemplates.picture_file(u.path[len('/map_templates/'):]), keep=True)
             if u.path.startswith('/music/'):              # Revision's music (the Map panel plays it)
                 rel = Path(u.path[len('/music/'):])
                 if '..' in rel.parts or rel.suffix.lower() != '.ogg':
@@ -660,13 +699,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(code, page, 'text/html; charset=utf-8')
             if u.path == '/api/play_info':
                 # "Play from here": the mission states that end in this map, whether the game would
-                # miss the last rebuild, whether it is open
+                # miss the last rebuild, whether it is open, what a scenario's loadout can name
                 map_name = map_of(q['script'])
                 return self._send(200, dict(map=map_name, setups=play.setups(map_name), running=game_running(),
                                             pending=play.pending_install(map_name, is_dx(q['script']), data.OUT,
-                                                                         dxmaps.built_current)))
+                                                                         dxmaps.built_current),
+                                            loadout=loadout_catalog()))
             if u.path == '/api/play_session':
                 return self._send(200, play_session_status())
+            if u.path == '/api/build_status':
+                # the background Rebuild (build_job.py): its stage and time, its result once over; never waits for the SDK
+                return self._send(200, build_job.status())
             if u.path == '/api/mod_export':            # File > Export mod...: the project's maps and details
                 return self._send(200, mods.export_info())
             if u.path == '/api/scripts':
@@ -695,7 +738,9 @@ class Handler(BaseHTTPRequestHandler):
                 import live
                 offset, lines = live.read_log(int(q.get('offset', '-1')))
                 session = live.session_status()
-                return self._send(200, dict(offset=offset, lines=lines, running=bool(session.get('running') and session.get('owned'))))
+                # started: when that game started (ms since 1970), for the Console's Time
+                return self._send(200, dict(offset=offset, lines=lines, running=bool(session.get('running') and session.get('owned')),
+                                            started=live.started_ms(session)))
             if u.path == '/api/people':
                 # the characters of a map, for the Story's "is he dead?" asked in another map
                 return self._send(200, dict(people=people_of(q['map'])))
@@ -729,6 +774,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/newmap_info':
                 return self._send(200, dict(missions=newmap.MISSIONS, maps=maplinks.all_maps(), textures=newmap.TEXTURES,
                                            project=project_server.current()))
+            if u.path == '/api/map_templates':
+                # New map's tiles: the project's map templates (maptemplates.py)
+                return self._send(200, dict(templates=maptemplates.listing()))
             if u.path == '/api/project_sources':
                 return self._send(200, dict(maps=sorted(p.stem for p in dxmaps.GAME_MAPS.glob('*.dx') if re.match(r'^\d\d_', p.stem)),
                                            missions=newmap.MISSIONS))
@@ -1009,6 +1057,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, dict(error='Invalid mission graph request.'))
                 with project_server.operation():
                     return self._send(200, mission_graph.start(body.get('readSources', False), LOCK, project_server.operation))
+            if path in ('/api/build_start', '/api/build_cancel'):
+                # the Rebuild in the background: starting or cancelling one never waits for the SDK, which the build holds
+                with project_server.operation():
+                    return self._build_POST(path)
+            if path in ('/api/build', '/api/play_prepare', '/api/edits') and build_job.running():
+                # one build at a time, and no edits saved under the one running (it would not have them)
+                return self._send(409, dict(error='A Rebuild is running: wait for it to end, or cancel it.'))
             if path in ('/api/pieces_scan', '/api/pieces_stop'):
                 # Starting/pausing a library scan must not wait for a busy SDK.
                 with project_server.operation():
@@ -1072,6 +1127,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, dict(error=str(exc)))
         except TimeoutError as exc:
             return self._send(504, dict(error=str(exc)))
+
+    def _build_POST(self, path):
+        """/api/build_start?script= {mode}: a Rebuild in the background (build_job.py), its status with the token that
+        /api/build_cancel {token} names. The job takes the SDK in a thread of its own (UserTurn), and checks there
+        what a request of the person checks first (do_POST: the tutorial's session, the project's runtime)."""
+        n = int(self.headers.get('Content-Length', 0) or 0)
+        if not 0 <= n <= 1024:
+            return self._send(400, dict(error='Invalid Rebuild request.'))
+        body = json.loads(self.rfile.read(n) or b'{}')
+        if not isinstance(body, dict):
+            return self._send(400, dict(error='Invalid Rebuild request.'))
+        if path == '/api/build_cancel':
+            return self._send(200, build_job.cancel(str(body.get('token', ''))))
+        query = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+        script, headers = query.get('script', ''), self.headers
+
+        def guard():
+            tutorial_write_guard(path, query, headers)
+            project_server.ensure_runtime()
+        return self._send(200, build_job.start(script, map_of(script), rebuild_options.normalize(body), build=build,
+                                               out=data.OUT, turn=UserTurn, operation=project_server.operation, guard=guard))
 
     def _mods_POST(self, path):
         """Projects > Mods: install a .dxmod (its bytes, ?replace=1 to update), play, uninstall, show a file."""
@@ -1181,6 +1257,11 @@ class Handler(BaseHTTPRequestHandler):
                     with LOCK:
                         script, name = newmap.create_copy(body['name'], body['mission'], body['source'], body.get('location', ''))
                     return self._send(200, dict(script=script, map=name, ok=True, lines=['copy of %s' % body['source']]))
+                if body.get('from') == 'template':          # a map template's place (maptemplates.py), a room built now
+                    with LOCK:
+                        script, name, ok, lines = maptemplates.create(body.get('template'), body['name'], body['mission'],
+                                                                      body.get('location', ''), build=build)
+                    return self._send(200, dict(script=script, map=name, ok=ok, lines=lines))
                 script, name = newmap.create_empty(body['name'], body['mission'], body.get('size') or (2048, 2048, 384),
                                                    body.get('location', ''), body.get('textures'), mood=str(body.get('mood') or 'normal'))
                 with LOCK:
@@ -1188,6 +1269,19 @@ class Handler(BaseHTTPRequestHandler):
                     if not ok:                     # nothing left behind: the same name can be tried again
                         newmap.discard(script)
                 return self._send(200, dict(script=script, map=name, ok=ok, lines=lines))
+            if u.path == '/api/map_template':
+                # File > Save map as template...: the open map's place kept in the project to start new maps from
+                try:
+                    with LOCK:
+                        made = maptemplates.save(map_of(body.get('script', '')), map_source(body.get('script', '')), body.get('name'),
+                                                 body.get('description'), body.get('picture'), body.get('edits'), check=check_edits)
+                except (ValueError, TypeError, AttributeError) as e:
+                    return self._send(400, dict(error=str(e)))
+                return self._send(200, dict(template=made, templates=maptemplates.listing()))
+            if u.path == '/api/map_template_delete':
+                with LOCK:
+                    maptemplates.delete(body.get('id'))
+                return self._send(200, dict(templates=maptemplates.listing()))
             if u.path == '/api/piece_prefab':
                 # an object of the Pieces as a prefab, to place it (pasted like a copied structure)
                 with LOCK:
@@ -1414,12 +1508,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(400, dict(error=str(e)))
             if u.path == '/api/edits':
                 try:
-                    activation.names(body)
-                    object_tags.validate(body)
-                    surfaces.commands(body)
-                    documents.validate(body)
-                    maplinks.validate_travel(edits=body)
-                    player_profiles.validate_edits(body)
+                    check_edits(body)
                 except (ValueError, TypeError, AttributeError) as e:
                     return self._send(400, dict(error=str(e)))
                 import atomicfile
@@ -1551,12 +1640,17 @@ class Handler(BaseHTTPRequestHandler):
                     if not ok:
                         return self._send(200, {'ok': False, 'lines': lines})
                 if tutorial.available() and tutorial.is_script(q['script']):
-                    body = dict(body, **tutorial.play_start(), setup='', flags='', route=False)
+                    body = dict(body, **tutorial.play_start(), setup='', flags='', route=False, loadout=None)
                 flags = play.flags_text(body.get('route', True), body.get('flags', ''))
+                # a play scenario's loadout (static/play-scenarios.js): what the runner does before JC gets the controls,
+                # the classes the editor does not know left out and said
+                run = play.loadout_run(body.get('loadout'), body.get('at'), body.get('yaw', 0),
+                                       loadout_catalog() if body.get('loadout') else {})
                 with LOCK:
                     try:
                         answer = play.start(map_name, body.get('at'), body.get('yaw', 0), body.get('pitch', 0),
-                                            body.get('setup') or '', flags, display_mode=display_mode)
+                                            body.get('setup') or '', flags, display_mode=display_mode,
+                                            steps=run['steps'], commands=run['commands'])
                     except Exception:
                         session = live.session_status()
                         if not session.get('running') and not session.get('launching') and not session.get('error') and not game_running():
@@ -1564,7 +1658,8 @@ class Handler(BaseHTTPRequestHandler):
                         raise
                     PLAY.update(active=True, seen=False, t=time.time())
                     PREVIEW.update(token=None, script=None)
-                return self._send(200, {'ok': True, 'session': live.session_status(), 'lines': lines + [answer + (' (flags: %s)' % flags if flags else '')]})
+                return self._send(200, {'ok': True, 'session': live.session_status(),
+                                        'lines': lines + [answer + (' (flags: %s)' % flags if flags else '')] + run['lines']})
             return self._send(404, {'error': 'unknown'})
         except (ValueError, RuntimeError, OSError) as e:
             return self._send(409, project_server.error_payload(e))

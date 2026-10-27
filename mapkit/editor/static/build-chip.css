@@ -1,0 +1,13 @@
+/* The Rebuild chip in the status bar (build-chip.js), beside the status: DESIGN.md sizes and colours (note text, a 22px
+   button, the accent for the turning mark only). In a narrow window the stage's name gives way first, Cancel never */
+#buildchip { display:inline-flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0; height:22px; margin:0 8px 0 0;
+  overflow:hidden; font-size:11px; color:var(--text); white-space:nowrap; }
+#buildchip[hidden] { display:none; }
+#buildchip .bc-turn { flex:none; width:8px; height:8px; border:2px solid var(--acc); border-right-color:transparent; border-radius:50%;
+  animation:bc-turn .9s linear infinite; }
+#buildchip .bc-stage { min-width:24px; overflow:hidden; text-overflow:ellipsis; }
+#buildchip .bc-time { flex:none; color:var(--dim); font-variant-numeric:tabular-nums; }
+#buildchip .bc-cancel { flex:none; height:22px; padding:0 8px; font-size:11px; }
+@keyframes bc-turn { to { transform:rotate(360deg); } }
+/* while a Rebuild runs the view is look-only (app.js setBuilding): the asset browser, which adds things, waits as in Play */
+.map-building #bottom { pointer-events:none; opacity:.65; }

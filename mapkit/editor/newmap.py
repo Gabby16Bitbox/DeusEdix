@@ -1,7 +1,8 @@
 """New maps from the map editor ("New map"), part of a mission of the campaign:
   empty   a room to build in: a map script made from a template (tools/mapkit/maps/<script>.py), built
           like the others; the editor's changes live next to it (<script>.edits.json)
-  copy    any map (the game's, the mod's, a script's build) under a new name, as a mod map (maps\\)
+  copy    any map (the game's, the project's, a script's build) under a new name, as a project map (maps\\)
+  (a map template, maptemplates.py: one of these two with the edits of the map it was saved from)
 Both get the mission's number and script in their DeusExLevelInfo (the mission's flags and events),
 an arrival point "Start" and a PlayerStart, so other maps can lead to them (Links, map exits).
 """
@@ -73,6 +74,32 @@ if __name__ == '__main__':
 '''
 
 
+# what TEMPLATE says of the room, read back by room_of (a map template made from such a map: maptemplates.py)
+ROOM_LINES = (re.compile(r"^W, D, H = (\d+), (\d+), (\d+)", re.M),
+              re.compile(r"^FLOOR, WALLS, CEILING = Mat\('(\w+)'\), Mat\('(\w+)'\), Mat\('(\w+)'\)", re.M),
+              re.compile(r"LightBrightness=(\d+), LightRadius=32, LightHue=(\d+), LightSaturation=(\d+),\s*"
+                         r"LightType='LT_Flicker' if (True|False)"))
+
+
+def room_of(text):
+    """The room of a map script create_empty wrote, as create_empty takes it: dict(size, textures, mood); None for
+    another script, or one whose room was changed by hand."""
+    found = [line.search(text) for line in ROOM_LINES]
+    if not all(found):
+        return None
+    size, mats, light = (m.groups() for m in found)
+    lights = dict(bright=int(light[0]), hue=int(light[1]), sat=int(light[2]), flicker=light[3] == 'True')
+    mood = next((key for key, m in MOODS.items() if all(m[k] == v for k, v in lights.items())), None)
+    if mood is None:
+        return None
+    return dict(size=[int(v) for v in size], textures=dict(zip(('floor', 'walls', 'ceiling'), mats)), mood=mood)
+
+
+def maps_folder():
+    """tools/mapkit/maps of the project: the map scripts, the edits of every map, the map templates."""
+    return kit.PROJECT / 'tools' / 'mapkit' / 'maps'
+
+
 def map_name(mission, name):
     word = re.sub(r'[^A-Za-z0-9]+', '_', str(name)).strip('_')
     if not word:
@@ -85,12 +112,18 @@ def _check_free(name):
         raise ValueError('a map called %s already exists' % name)
 
 
-def create_empty(name, mission, size=(2048, 2048, 384), location='', textures=None, log=print, mood='normal'):
-    """A map script with a room; built at once. Returns (script, map)."""
+def free_name(mission, name):
+    """The name of a new map (map_name), refused when a map has it."""
     new = map_name(mission, name)
     _check_free(new)
+    return new
+
+
+def create_empty(name, mission, size=(2048, 2048, 384), location='', textures=None, log=print, mood='normal'):
+    """A map script with a room; built at once. Returns (script, map)."""
+    new = free_name(mission, name)
     script = 'new_' + new.lower()
-    path = kit.PROJECT / 'tools' / 'mapkit' / 'maps' / (script + '.py')
+    path = maps_folder() / (script + '.py')
     if path.exists():
         raise ValueError('the script %s already exists' % path.name)
     w, d, h = (max(256, min(16384, int(v))) for v in size)
@@ -111,7 +144,7 @@ def create_empty(name, mission, size=(2048, 2048, 384), location='', textures=No
 def discard(script):
     """A new empty map whose first build failed: its script goes (and its edits, if any), so the
     same name can be used again once the cause is fixed."""
-    maps = kit.PROJECT / 'tools' / 'mapkit' / 'maps'
+    maps = maps_folder()
     if not re.fullmatch(r'new_\w+', script):
         return
     for path in (maps / (script + '.py'), maps / (script + '.edits.json')):
@@ -203,8 +236,7 @@ def copy_bytes(src, new, mission=None, location='', log=print):
 
 def create_copy(name, mission, source_map, location='', log=print):
     """Explicitly copy a project or original map; never edit the source in place."""
-    new = map_name(mission, name)
-    _check_free(new)
+    new = free_name(mission, name)
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}', str(source_map)):
         raise ValueError('Invalid source map name.')
     src = maplinks.map_file(source_map)
@@ -214,7 +246,12 @@ def create_copy(name, mission, source_map, location='', log=print):
         src = original if original.is_file() else None
     if src is None or not src.is_file():
         raise FileNotFoundError(source_map)
-    raw = copy_bytes(src, new, mission=mission, location=location, log=log)
+    return publish(copy_bytes(src, new, mission=mission, location=location, log=log), new)
+
+
+def publish(raw, new):
+    """A prepared copy (copy_bytes) as the project's map <new>.dx, never over a map there (a concurrent import).
+    Returns (script, map)."""
     dxmaps.MOD_MAPS.mkdir(parents=True, exist_ok=True)
     target = dxmaps.MOD_MAPS / (new + '.dx')
     with target.open('xb') as out:

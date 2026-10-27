@@ -24,6 +24,7 @@ class PlaySavesTests(unittest.TestCase):
         self.stack = contextlib.ExitStack()
         self.stack.enter_context(patch.multiple(live, INI=self.ini, CMD=self.root / 'UCLive.txt', REV=self.root,
                                                 CONSOLE_CMD=self.root / 'UCConsole.txt', PLAY_INI=None,
+                                                LOADOUT=self.root / 'UCLoadout.txt', GAME_INI=self.root / 'Revision.ini',
                                                 SYS=self.root, _SESSION=session,
                                                 STATE={'seq': 0, 'folder': None, 'maps': set(), 'command_written': False}))
         self.stack.enter_context(patch.dict(sys.modules, {'workspace': types.SimpleNamespace(activate=Mock())}))

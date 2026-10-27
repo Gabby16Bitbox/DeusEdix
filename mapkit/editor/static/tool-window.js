@@ -2,15 +2,12 @@ import { editorIcon } from './editor-icons.js';
 
 // Keep the tools modal as before, but allow a bounded window with an explicit
 // maximize action. Only window chrome changes; document/canvas state stays put.
-export function attachToolWindow(root, header, closeButton) {
+// modal false: a window beside the editor (a Properties window), which stays usable: no backdrop, nothing made inert.
+export function attachToolWindow(root, header, closeButton, { modal = true } = {}) {
   root.classList.add('tool-window');
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-modal', 'true');
+  root.setAttribute('aria-modal', String(modal));
   root.setAttribute('aria-label', header.querySelector('b').textContent);
-  const backdrop = document.createElement('div');
-  backdrop.className = 'tool-window-backdrop';
-  backdrop.setAttribute('aria-hidden', 'true');
-  root.before(backdrop);
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'tool-window-size';
@@ -29,6 +26,11 @@ export function attachToolWindow(root, header, closeButton) {
   };
   closeButton.before(button);
   refreshButton();
+  if (!modal) return;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'tool-window-backdrop';
+  backdrop.setAttribute('aria-hidden', 'true');
+  root.before(backdrop);
   // Existing open/close paths own display. Inert the surrounding editor while
   // either tool is open so its old full-screen input boundary is preserved.
   const synchronize = () => {

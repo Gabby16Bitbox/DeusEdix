@@ -12,6 +12,8 @@ import { CAMERA_SETTINGS, cameraSetting } from './view-camera.js';
 import { TABLES } from './object-table.js';
 import { findKey, modsOf } from './shortcut-help.js';
 import { createShortcutBar, escapeHtml } from './shortcut-bar.js';
+import { MAX_LAYOUTS } from './window-layouts.js';
+import { askName, askPresets } from './prop-sets-dialog.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const PREFS = 'deusedix.prefs';
@@ -41,6 +43,8 @@ const ACTIONS = [
   ['measure', 'Measure distances on / off', 'M', 'edit'], ['isolate', 'Isolate the selection on / off', 'Shift+H', 'edit'],
   ['nest', 'Nest the selection', 'Ctrl+G', 'edit'], ['unnest', 'Un-nest', 'Ctrl+Shift+G', 'edit'],
   ['palette', 'Search everything: commands, objects, assets', 'Ctrl+K', 'edit'],
+  ['history', 'History panel: the changes of the map by name', 'Ctrl+U', 'edit'],
+  ['maximize', 'Maximize the panel under the pointer (again: the layout back)', 'Shift+Space', 'edit'],
   ['help', 'Quick help', 'H', 'edit'],
   ['fwd', 'Fly forward', 'W', 'fly'], ['back', 'Fly back', 'S', 'fly'], ['left', 'Fly left', 'A', 'fly'],
   ['right', 'Fly right', 'D', 'fly'], ['down', 'Fly down', 'Q', 'fly'], ['up', 'Fly up', 'E', 'fly'],
@@ -123,6 +127,8 @@ function remap(e) {
   if (ctx !== 'fly' && typing(e.target)) return;
   const combo = comboOf(e, ctx === 'fly');
   if (!combo) return;
+  // a panel's own keys while it has the focus, as its data-keys lists them (the Console's log: Ctrl+C copies its lines)
+  if (e.target?.closest?.('[data-keys]')?.dataset.keys.split(' ').includes(combo)) return;
   for (const c of ctx === 'cut' ? ['cut', 'edit'] : [ctx]) {
     const a = byUser[c][combo];
     if (a) { e.preventDefault(); e.stopImmediatePropagation(); e.target.dispatchEvent(eventFor(a.def, e)); return; }
@@ -145,8 +151,10 @@ const experimentalGeometryItem = () => ({
   enabled: () => !ed()?.temporaryTutorial && !ed()?.playing,
   run: () => ed()?.openExperimentalBsp(),
 });
-// the editor's panels (workspace.js): the Window menu shows and hides them, the command palette shows them
-const PANELS = [['hierarchy', 'Hierarchy'], ['inspector', 'Inspector'], ['browser', 'Asset browser'], ['console', 'Console']];
+// the editor's panels (workspace.js): the Window menu shows and hides them, the command palette shows them; a third
+// item is the panel's key (History's Ctrl+U: it brings the panel to the front first)
+const PANELS = [['hierarchy', 'Hierarchy'], ['inspector', 'Inspector'], ['browser', 'Asset browser'], ['console', 'Console'],
+  ['history', 'History', 'history']];
 function themes() {
   return [['classic', 'Deus Ex · Classic'], ['classic-rounded', 'Deus Ex · Classic Rounded'], ['mankind', 'Mankind Divided'],
     ['mankind-rounded', 'Mankind Divided · Rounded']].map(([v, label]) => ({
@@ -165,6 +173,8 @@ const MENUS = [
     { label: 'Close project', run: () => window.__projects?.close(), enabled: () => !!window.__projects?.current },
     sep,
     { label: 'New map...', project: true, enabled: () => !['training', 'tutorial'].includes(window.__projects?.current?.kind), run: click('newmap') },
+    // the open map's place kept in the project, as Unity's Save As Scene Template: New map shows it as a tile
+    { label: 'Save map as template...', map: true, enabled: () => !['training', 'tutorial'].includes(window.__projects?.current?.kind), run: () => ed()?.saveAsTemplate() },
     { label: 'Open map...', project: true, enabled: () => !['training', 'tutorial'].includes(window.__projects?.current?.kind), run: () => ed()?.openMapPicker() },
     { label: 'Close map', run: () => ed()?.closeMap(), enabled: () => !!ed()?.script },
     { label: 'Save', key: 'save', enabled: () => !ed()?.temporaryTutorial, run: click('save') },
@@ -178,8 +188,9 @@ const MENUS = [
     { label: 'Exit', run: () => window.pywebview.api.exit(), visible: desktop },
   ]],
   ['Edit', [
-    { label: 'Undo', key: 'undo', run: () => press('undo') },
-    { label: 'Redo', key: 'redo', run: () => press('redo') },
+    // with the name of the step they take, as Unity's: "Undo Move 3 objects" (app.js, history-names.js)
+    { get label() { return ed()?.undoLabel?.('undo') || 'Undo'; }, key: 'undo', run: () => press('undo') },
+    { get label() { return ed()?.undoLabel?.('redo') || 'Redo'; }, key: 'redo', run: () => press('redo') },
     sep,
     { label: 'Cut', key: 'cut', run: () => press('cut') },
     { label: 'Copy', key: 'copy', run: () => press('copy') },
@@ -317,8 +328,9 @@ const MENUS = [
     { label: 'Add a cutscene camera', run: click('addcut') },
   ]],
   ['Window', [
-    ...PANELS.map(([id, label]) => ({
-      label, checked: () => !!window.__workspace?.isVisible(id), run: () => window.__workspace?.toggle(id),
+    ...PANELS.map(([id, label, key]) => ({
+      label, key, checked: () => !!window.__workspace?.isVisible(id),
+      run: () => (key ? window.__workspace?.toggleFront(id) : window.__workspace?.toggle(id)),
     })),
     sep,
     // every light, door or character of the map in a table, as Unity's Light Explorer (object-table.js)
@@ -327,6 +339,17 @@ const MENUS = [
     { label: 'Default layout', run: () => window.__workspace?.preset('default') },
     { label: 'Scene layout', run: () => window.__workspace?.preset('scene') },
     { label: 'Inspect layout', run: () => window.__workspace?.preset('inspect') },
+    // the layouts saved under a name, as Unity's Layout menu: a click puts one back (workspace.js, window-layouts.js)
+    ...Array.from({ length: MAX_LAYOUTS }, (_, i) => ({
+      get label() { return `Layout: ${window.__workspace?.layouts?.()[i] ?? ''}`; }, visible: () => !!window.__workspace?.layouts?.()[i],
+      run: () => window.__workspace?.loadLayout(window.__workspace.layouts()[i]) })),
+    { label: 'Save layout as…', run: () => saveLayoutAs() },
+    { label: 'Delete layout…', enabled: () => !!window.__workspace?.layouts?.().length, run: () => deleteLayout() },
+    { label: 'Export layouts…', enabled: () => !!window.__workspace?.layouts?.().length, run: () => exportLayouts() },
+    { label: 'Import layouts…', run: () => importLayouts() },
+    sep,
+    // as Unity's Maximize View: the panel under the pointer (or the 3D view) fills the editor; again, or Esc: back (app.js)
+    { label: 'Maximize panel', key: 'maximize', map: true, checked: () => !!window.__workspace?.maximized, run: () => press('maximize') },
     sep,
     { label: 'Reset layout', run: () => window.__workspace?.reset() },
   ]],
@@ -435,6 +458,42 @@ async function syncNativeMenus() {
 function openUrl(url) {
   if (desktop()) window.pywebview.api.open_url(url);
   else window.open(url, '_blank');
+}
+
+// ---------------------------------------------------------------- Window > layouts
+// Save layout as…, Delete layout…, Export layouts…, Import layouts…: the layouts workspace.js keeps in this browser for
+// every project, in the editor's own name and list windows (prop-sets-dialog.js), out to a JSON file and back
+async function saveLayoutAs() {
+  const ws = window.__workspace;
+  const name = ws && await askName({ title: 'Save layout', label: 'Layout name', action: 'Save layout', check: (text) => ws.saveLayout(text),
+    hint: 'The panels as they are now: where each one is docked, how wide, which tab is in front. Kept in this browser for every project; a name already used is replaced.' });
+  if (name) ed()?.status?.(`Layout "${name}" saved: Window > Layout: ${name} puts it back.`, 'ok');
+}
+function deleteLayout() {
+  const ws = window.__workspace;
+  return ws && askPresets({ title: 'Delete a layout', presets: ws.layouts().map((name) => ({ name })), describe: () => '',
+    remove: (l) => { ws.deleteLayout(l.name); ed()?.status?.(`Layout "${l.name}" deleted.`, 'ok'); return true; },
+    words: { apply: null, deleteTitle: 'Delete this layout from this browser', empty: 'No layouts left.' } });
+}
+function exportLayouts() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([window.__workspace.exportLayouts()], { type: 'application/json' }));
+  a.download = 'deusedix-layouts.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  ed()?.status?.('Layouts exported to deusedix-layouts.json: Window > Import layouts… on another computer takes them.', 'ok');
+}
+function importLayouts() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' });
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const names = window.__workspace.importLayouts(await file.text(), file.name);
+      ed()?.status?.(`Layouts imported: ${names.join(', ')}. The Window menu lists them.`, 'ok');
+    } catch (e) { ed()?.status?.(`Import layouts: ${e.message}`, 'bad'); }
+  };
+  input.click();
 }
 
 // the shortcut helper (shortcut-bar.js): the keys of what the 3D view is doing, not under a window that holds the keys;
@@ -808,7 +867,7 @@ async function openAbout() {
 // ---------------------------------------------------------------- start
 buildBar();
 (function waitEditor() { if (!applyPrefs()) setTimeout(waitEditor, 200); })();
-window.__menubar = { openSettings, prefs, keyOf, ACTIONS, setPref, describeMenu, runCommand, closeMenus,
+window.__menubar = { openSettings, prefs, keyOf, comboOf, ACTIONS, setPref, describeMenu, runCommand, closeMenus,
   panels: PANELS, settingsPages: SETTINGS_PAGES, modalOpen: nativeModalOpen,        // the command palette (command-palette.js)
   get settingsOpen() { return !!dialog?.classList.contains('open'); } };
 window.addEventListener('pywebviewready', installNativeMenus);

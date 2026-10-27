@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { DRAW_LABELS } from '../editor/static/draw-tools.js';
+import { namedStep } from '../editor/static/history-names.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const body = (name) => { const start = source.indexOf(`function ${name}(`); assert.ok(start >= 0, name); return source.slice(start, source.indexOf('\n}', start) + 2); };
@@ -25,9 +26,10 @@ function page(extra = {}) {
   const c = vm.createContext({
     THREE, YAW: 65536, proxies, structures: {}, edits: { added: [], boxes: [], drawn: [], prefabs: [], nests: [] },
     selected: null, said: [], logged: [], warned: [], mapName: 'Lab', script: 'lab', snap: false, lastBlockTex: 'Tex', hierOpen: new Set(),
+    buildJob: null, waitsForRebuild: () => false,       // no Rebuild running (rebuildMap)
     T: (a) => new THREE.Vector3(a[0], a[2], a[1]), UE: (v) => [v.x, v.z, v.y], r1: (v) => Math.round(v * 10) / 10,
     nextName: (prefix) => prefix + (used[prefix] = (used[prefix] ?? -1) + 1),
-    pushUndo() {}, setDirty() {}, intoDefaultFolder() {}, folderForNew: () => null, cancelPlacing() {}, focusSelected() {},
+    pushUndo() {}, dropUndo() {}, namedStep, objectLabel: (p) => [nameOf(p), ''], itemLabel: (it) => it.cls, setDirty() {}, intoDefaultFolder() {}, folderForNew: () => null, cancelPlacing() {}, focusSelected() {},
     select: (p) => { c.selected = p; }, status: (text, kind) => c.said.push([text, kind]), log: (text, kind) => c.logged.push([text, kind]),
     menuKey: (id) => ({ move: 'W', rotate: 'E', scale: 'Y' }[id]),             // the Scale tool bound to Y in Settings
     warnHiddenKinds: (list, done) => c.warned.push([[...list].map(nameOf), done]),
@@ -41,6 +43,7 @@ function page(extra = {}) {
     objOf: (key) => proxies.children.find((p) => keyOf(p) === key) || null,
     ...extra,
   });
+  vm.runInContext(['placingName', 'stepOf'].map(body).join('\n'), c);     // the names of the undo steps (history-names.js)
   return c;
 }
 const load = (c, ...names) => vm.runInContext(names.map(body).join('\n'), c);
@@ -117,7 +120,7 @@ test('R while placing turns it: the status names the Scale tool\'s key as Settin
   const c = page({ placing: { cls: 'Barrel1' }, lastPlacingMove: null, movePlacing() {}, gameView: null, projectHub: null, textureTransfer: null,
     propertySlider: null, inspectorDrag: null, cam: { look: false, keys: {} }, document: { querySelector: () => null },
     window: { addEventListener: (type, fn) => { if (type === 'keydown') c.keydown = fn; } } });
-  vm.runInContext(body('turnPlacing') + '\n' + keysSource, c);
+  vm.runInContext(body('turnPlacing') + '\n' + body('buildKeyGate') + '\n' + keysSource, c);     // (buildKeyGate: the keys during a Rebuild)
   c.keydown({ key: 'r', code: 'KeyR', ctrlKey: false, shiftKey: false, altKey: false, target: { tagName: 'CANVAS' }, preventDefault() {} });
   assert.equal(c.placing.turn, 16384);
   assert.equal(c.said.at(-1)[0], 'Turned 90° (Y turns it again). Click where it goes.');

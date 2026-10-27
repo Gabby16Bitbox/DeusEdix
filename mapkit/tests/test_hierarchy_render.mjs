@@ -37,6 +37,7 @@ function fixture() {
   const proxies = { children: objects }, group = { userData: { kind: 'group' }, members: [] };
   const c = vm.createContext({
     script: 'test-map', projectContext: { id: 'legacy', kind: 'legacy' }, projectStorageKey, temporaryTutorial: () => false,
+    buildJob: null, waitsForRebuild: () => false,       // no Rebuild running (rebuildMap)
     edits: { props: {}, nests: [{ id: 'n1', label: 'Office', items: ['a:Crate3', 'a:Lamp3', 's:Booth'] }], boxes: [], added: [] },
     selected: null, groupPivot: group, members: () => group.members, proxies, actorStruct: { Crate2: 'Room', Lamp2: 'Room', Desk4: 'Booth' },
     structures: { Room: { name: 'Room', label: 'Storeroom', obj: room, category: 'Building', pieces: [{ id: 'p1', label: 'Crate stack' }, { id: 'p2', label: 'Wall' }] },
