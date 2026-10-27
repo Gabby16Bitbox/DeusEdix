@@ -1,8 +1,7 @@
-import test from 'node:test';
+import test, {THREE} from './three.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import * as THREE from '../../research/rea-blender/three.module.mjs';
 import {createTextureScale, stretchOnResize} from '../editor/static/texture-scale.js';
 import {createRotations} from '../editor/static/rotation.js';
 const rotations = createRotations(THREE), textures = createTextureScale(THREE);

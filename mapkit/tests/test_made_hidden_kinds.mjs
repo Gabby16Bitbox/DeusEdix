@@ -3,11 +3,10 @@
 // the Hierarchy's + (a cube...), the 2D Shape Editor, a drawing, a hole's light, Fill AI paths, Clip / Intersect, a
 // point of a patrol route (pasting, Duplicate and Replace with: test_clipboard, test_scene_transforms,
 // test_replace_with). The statuses of placing name the keys as Settings binds them.
-import test from 'node:test';
+import test, { THREE } from './three.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import * as THREE from '../../research/rea-blender/three.module.mjs';
 import { DRAW_LABELS } from '../editor/static/draw-tools.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');

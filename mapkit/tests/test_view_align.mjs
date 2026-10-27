@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import * as THREE from '../../research/rea-blender/three.module.mjs';
+import { THREE, noThree } from './three.mjs';
 import { TURN, viewRotation, viewPitch, EYE_SHARE, eyeHeight, alignedRotation, sameRotation, turnsPart, planStays, SAME_PLACE, carryParts,
   alignPlan, lookThrough } from '../editor/static/view-align.js';
 import { PITCH_LIMIT } from '../editor/static/view-camera.js';
@@ -119,7 +119,7 @@ function pilotPage() {
 }
 const key = (key, code, shiftKey = false) => ({ key, code, shiftKey, ctrlKey: false, altKey: false, target: { tagName: 'CANVAS' }, preventDefault() {} });
 
-test('a pilot ended on an empty selection leaves no gizmo drawn; on the same object it comes back', () => {
+test('a pilot ended on an empty selection leaves no gizmo drawn; on the same object it comes back', { skip: noThree }, () => {
   const c = pilotPage();
   c.fly();
   c.selected = null; c.tc.detach();                     // a click on empty space during the pilot
@@ -135,7 +135,7 @@ test('a pilot ended on an empty selection leaves no gizmo drawn; on the same obj
   assert.equal(c.undos, 1);
 });
 
-test('picking the piloted object again keeps the gizmo off while the pilot goes on', () => {
+test('picking the piloted object again keeps the gizmo off while the pilot goes on', { skip: noThree }, () => {
   const c = pilotPage();
   c.fly();
   c.tc.attach(c.lamp);                                   // select() of the same object, from the Hierarchy
@@ -145,7 +145,7 @@ test('picking the piloted object again keeps the gizmo off while the pilot goes 
   assert.equal(c.lamp.visible, false);                   // the view is inside it
 });
 
-test('Esc or Shift+P ends a pilot while flying (the right button held); the flying keys still fly', () => {
+test('Esc or Shift+P ends a pilot while flying (the right button held); the flying keys still fly', { skip: noThree }, () => {
   for (const press of [key('Escape', 'Escape'), key('P', 'KeyP', true)]) {
     const c = pilotPage();
     c.fly();
@@ -165,7 +165,7 @@ test('Esc or Shift+P ends a pilot while flying (the right button held); the flyi
   assert.equal(c.ended.length, 0);
 });
 
-test('Align with view and Move to view, the selection already there: a status line, no Ctrl+Z step', async () => {
+test('Align with view and Move to view, the selection already there: a status line, no Ctrl+Z step', { skip: noThree }, async () => {
   const lamp = { position: new THREE.Vector3(100, 300, 200), userData: {} }, done = [];
   const v = { parts: [{ p: lamp, at: [100, 200, 300], rot: [0, Q, 0] }], lead: 0, keep: null };
   const c = vm.createContext({ THREE, planStays, SAME_PLACE, VIEW_REACH: 4000, VIEW_AHEAD: 400, lamp, selected: lamp, groupPivot: {}, camera: { position: new THREE.Vector3() },

@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, {THREE} from './three.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,7 +6,6 @@ import vm from 'node:vm';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 const kit=process.env.DEUSEDIX_TEST_KIT || fileURLToPath(new URL('../',import.meta.url));
 const support=process.env.DEUSEDIX_TEST_SUPPORT || kit;
-const THREE=await import(pathToFileURL(path.resolve(support,'../research/rea-blender/three.module.mjs')));
 const {createRotations}=await import(pathToFileURL(path.join(support,'editor/static/rotation.js')));
 const {createTextureScale,stretchOnResize}=await import(pathToFileURL(path.join(support,'editor/static/texture-scale.js')));
 const {defaultFolder,putInFolder}=await import(pathToFileURL(path.join(support,'editor/static/hierarchy-folders.js')));

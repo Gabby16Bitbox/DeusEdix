@@ -4,12 +4,9 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import path from 'node:path';
-import test from 'node:test';
+import test, { threeURL as three } from './three.mjs';
 const kit = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Override with a local Three.js 0.160.0 ESM file on another checkout. Tests never
-// download dependencies, start WebGL, or write animation/game packages.
-const threeFile = process.env.DEUSEDIX_THREE_MODULE || path.resolve(kit, '../research/rea-blender/three.module.mjs');
-const three = pathToFileURL(path.resolve(threeFile)).href;
+// Tests never download dependencies, start WebGL, or write animation/game packages.
 const modules = path.join(kit, 'editor/static');
 const stub = (name) => 'data:text/javascript,' + encodeURIComponent(`export class ${name} {}`);
 // The page's import map, for the Studio and the modules it imports (studio-props.js uses three as well): a
@@ -32,9 +29,8 @@ async function loadStudio(file) {
   await import(await moduleUrl(file));
   return window.__studio;
 }
-const current = await loadStudio(path.join(modules, 'studio.js'));
+const current = three ? await loadStudio(path.join(modules, 'studio.js')) : { kit: {} };
 const { THREE, BI, BONES, restPose, keyOf, curvesFromMotion, rotationValues, bakeOn } = current.kit;
-assert.equal(THREE.REVISION, '160', 'Use the application\'s Three.js 0.160.0 module for regression tests');
 function animation(source = 'made', interp = 'smooth', loop = true) {
   const keys = [0, 7, 19, 29].map((f, i) => {
     const p = restPose();

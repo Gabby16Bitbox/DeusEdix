@@ -1,24 +1,22 @@
 // Drag handles (static/drag-handles.js, run with the editor's three.js, no WebGL): every view has its own dots, a dot
 // whose line runs toward one view's eye is left out in that view only, so the Top, Front and Side views pick and draw
 // the dots square to them whatever the 3D view looks at.
-import test from 'node:test';
+import test, { THREE, threeURL } from './three.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const threeURL = new URL('../../research/rea-blender/three.module.mjs', import.meta.url);
-const THREE = await import(threeURL);
 const own = (name) => new URL(`../editor/static/${name}`, import.meta.url).href;
 const source = (await readFile(new URL('../editor/static/drag-handles.js', import.meta.url), 'utf8'))
-  .replace("from 'three'", `from '${threeURL.href}'`)
+  .replace("from 'three'", `from '${threeURL}'`)
   .replace("from './range-handles.js'", `from '${own('range-handles.js')}'`)
   .replace("from './block-handles.js'", `from '${own('block-handles.js')}'`);
 globalThis.window = { addEventListener() {} };
-const { createDragHandles } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { createDragHandles } = THREE ? await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`) : {};
 
 const G = (v) => [v.x, v.z, v.y];                        // three -> the game's axes
 const BLOCK = { of: 'block', shape: 'box', centre: [0, 0, 64], size: [128, 128, 128], axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] };
-const FRONT = new THREE.Vector3(0, 0, -1), TOP = new THREE.Vector3(0, -1, 0);       // the panes' looks (ortho-views.js KINDS)
+const FRONT = THREE && new THREE.Vector3(0, 0, -1), TOP = THREE && new THREE.Vector3(0, -1, 0);       // the panes' looks (ortho-views.js KINDS)
 // the controller over one selected block, its 3D camera at `eye` (the game's axes) looking at the block
 function page(eye) {
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, 1, 100000);

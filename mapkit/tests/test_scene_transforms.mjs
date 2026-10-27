@@ -1,8 +1,7 @@
-import test from 'node:test';
+import test, {THREE} from './three.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import * as THREE from '../../research/rea-blender/three.module.mjs';
 import {createRotations} from '../editor/static/rotation.js';
 import {createSurfacePlacement} from '../editor/static/surface-placement.js';
 import {createDrawTools} from '../editor/static/draw-tools.js';
