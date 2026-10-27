@@ -118,7 +118,8 @@ class LaunchTests(unittest.TestCase):
                                                 CONSOLE_CMD=self.root / 'UCConsole.txt', LOADOUT=self.root / 'UCLoadout.txt',
                                                 GAME_INI=self.game_ini, PLAY_INI=None, SYS=self.root, _SESSION=session,
                                                 STATE={'seq': 0, 'folder': None, 'maps': set(), 'command_written': False},
-                                                settings=types.SimpleNamespace(MAPS_DIR=self.root, MANAGED_PROJECT=False)))
+                                                settings=types.SimpleNamespace(MAPS_DIR=self.root, MANAGED_PROJECT=False,
+                                                                               SAVE_DIR=self.root / 'DeusEdixProjects/legacy/Save')))
         self.stack.enter_context(patch.dict(sys.modules, {'workspace': types.SimpleNamespace(activate=Mock()),
                                                           'project_game': types.SimpleNamespace(deactivate_if_current=Mock())}))
 

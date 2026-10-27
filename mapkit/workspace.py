@@ -385,10 +385,11 @@ def paths_lines():
     return ['Paths=..\\%s\\*.%s' % (folder, x) for x in ('dx', 'u', 'utx', 'uax', 'umx')]
 
 
-def activate():
-    """Select this campaign without copying or removing another project's files."""
+def activate(play=False):
+    """Select this campaign without copying or removing another project's files (for a Play: with its save folder,
+    settings.SAVE_DIR)."""
     import project_game
-    return project_game.activate(paths_lines())
+    return project_game.activate(paths_lines(), play=play)
 
 
 def install(log=None, *, maps=True, activate_project=True):

@@ -94,12 +94,10 @@ OWN_GAME_FOLDERS = ('DeusEdixProjects', 'DeusEdixMaps', 'DeusEdixMods')
 
 def _own_saved_state(map_name):
     """The saved state of `map_name` that Play removes so that the map opens as built (Save\\Current\\<map>.dxs),
-    or None. Only a managed project's game saves into a folder of DeusEdix's (MAPS_DIR\\Save, its SavePath while
-    it is active: project_game.activate); any other workspace's game saves into the player's own Save folder,
-    whose Current is their game in progress: never touched (24 Oct 2026)."""
-    if not getattr(settings, 'MANAGED_PROJECT', False):
-        return None
-    path = (settings.MAPS_DIR / 'Save' / 'Current' / (map_name + '.dxs')).resolve()
+    or None. The game plays in a save folder of DeusEdix's (settings.SAVE_DIR, its SavePath while it plays:
+    project_game.activate, _session_inis); the player's own Save folder, whose Current is their game in progress, is
+    never touched (24 Oct 2026)."""
+    path = (settings.SAVE_DIR / 'Current' / (map_name + '.dxs')).resolve()
     if not any(path.is_relative_to((REV / name).resolve()) for name in OWN_GAME_FOLDERS):
         return None
     return path
@@ -122,7 +120,7 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
         if not running():
             (SYS / 'Running.ini').unlink(missing_ok=True)
         if PLAY_INI is None:
-            workspace.activate()
+            workspace.activate(play=True)
         _set_section(runner_lines)
         _set_console(True)
         _set_loadout(commands)
@@ -210,6 +208,10 @@ def _session_inis(display_mode='external'):
         (settings.MAPS_DIR / 'Save').mkdir(parents=True, exist_ok=True)
     text = project_game.activate_text(text, workspace.paths_lines(), project_game.original_save_paths(text), save,
                                       project_game.original_actors(text))
+    if not managed:
+        # any other workspace plays in a save folder of DeusEdix's too (settings.SAVE_DIR), never in the player's own
+        settings.SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        text = project_game.play_save_text(text, project_game.play_save_path())
     text = re.sub(r'(?im)^StartupFullscreen=.*$', 'StartupFullscreen=False', text)
     display_text = _preview_display_ini(text, display_mode)
     if display_text != text and not (SYS / 'D3D9Drv.dll').is_file():

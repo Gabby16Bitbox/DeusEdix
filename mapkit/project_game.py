@@ -90,6 +90,27 @@ def activate_text(text, paths, saved, save_path=None, actors=None):
     return '\r\n'.join(out) + '\r\n'
 
 
+def play_save_path():
+    """The SavePath of a Play (settings.SAVE_DIR) as the game's ini names it: from the game's System folder."""
+    return '..\\' + settings.SAVE_DIR_NAME.replace('/', '\\')
+
+
+def play_save_text(text, save_path, saved=None):
+    """`text` with every SavePath naming `save_path`; with `saved` (the player's own, per section, as
+    original_save_paths reads them), the ones naming `save_path` back to those instead."""
+    section, out = '', []
+    for line in text.splitlines():
+        if line.strip().startswith('['):
+            section = line.strip().lower()
+        if line.lower().startswith('savepath='):
+            if saved is None:
+                line = 'SavePath=' + save_path
+            elif line.split('=', 1)[1].strip().lower() == save_path.lower():
+                line = 'SavePath=' + saved.get(section, '..\\Save')
+        out.append(line)
+    return '\r\n'.join(out) + '\r\n'
+
+
 def _state(ini, text):
     stamp = ini.with_name('deusedix-project-activation.json')
     existed = stamp.exists()
@@ -127,7 +148,7 @@ def _state(ini, text):
     return state
 
 
-def activate(paths):
+def activate(paths, play=False):
     ini = settings.GAME_INI
     text = ini.read_text(encoding='latin1')
     state = _state(ini, text)
@@ -136,6 +157,11 @@ def activate(paths):
     if managed:
         (settings.MAPS_DIR / 'Save').mkdir(parents=True, exist_ok=True)
     updated = activate_text(text, paths, state['save_paths'], save, state['server_actors'])
+    if play and not managed:
+        # a workspace that is not a project plays in a save folder of DeusEdix's too (settings.SAVE_DIR), never in the
+        # player's own: deactivate_if_current names theirs again once the game has closed (27 Oct 2026)
+        settings.SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        updated = play_save_text(updated, play_save_path())
     if updated.replace('\r\n', '\n') == text:
         return False
     backup = ini.with_name(ini.name + '.bak_projects')
@@ -192,10 +218,28 @@ def deactivate_all():
     return done, errors
 
 
-def deactivate_if_current():
-    """Restore game settings on project close only while this managed project owns them."""
-    if not getattr(settings, 'MANAGED_PROJECT', False):
+def _play_save_back(ini):
+    """After the Play of a workspace that is not a project (activate(play=True)): the SavePath lines still naming its
+    save folder back to the player's own, as recorded before the first activation. -> changed"""
+    if not ini.is_file():
         return False
+    text = ini.read_text(encoding='latin1')
+    own = play_save_path().lower()
+    if not any(line.lower().startswith('savepath=') and line.split('=', 1)[1].strip().lower() == own
+               for line in text.splitlines()):
+        return False
+    updated = play_save_text(text, play_save_path(), _state(ini, text)['save_paths'])
+    if ini.read_text(encoding='latin1') != text:
+        raise RuntimeError('%s changed while restoring its save folder. Try again.' % ini.name)
+    _write(ini, updated)
+    return True
+
+
+def deactivate_if_current():
+    """Restore game settings on project close only while this managed project owns them; for any other workspace,
+    only the player's own save folder after its Play."""
+    if not getattr(settings, 'MANAGED_PROJECT', False):
+        return _play_save_back(settings.GAME_INI)
     ini = settings.GAME_INI
     if not ini.is_file():
         return False

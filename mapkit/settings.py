@@ -269,6 +269,11 @@ STEAM_APP = PROFILE['app']
 ORIGINAL_MAPS = GAME_ROOT / 'Maps'                  # the game's own maps (Revision's are rebuilt copies)
 REVISION_MAPS = ORIGINAL_MAPS
 MAPS_DIR = GAME_ROOT / MAPS_DIR_NAME
+# where the game saves while this project or workspace plays (Play): a folder of DeusEdix's, never the player's own
+# Save folder (project_game: the game's SavePath then; live: a map's stale state is cleared there). A managed project's
+# is its MAPS_DIR\Save; any other workspace's is DeusEdixProjects\legacy (or its workspace id), never a project's id
+SAVE_DIR_NAME = 'DeusEdixProjects/' + PROJECT_ID + '/Save'
+SAVE_DIR = GAME_ROOT / SAVE_DIR_NAME
 # where the game finds its packages and textures, in the order it looks (Revision first, then what it
 # reads from the original game); the original game never reads Revision's
 SYSTEM_DIRS = ([GAME / 'System', GAME_ROOT / 'System', GAME_ROOT / 'HDTP' / 'System'] if IS_REVISION
