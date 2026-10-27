@@ -46,6 +46,22 @@ class Switch(unittest.TestCase):
         self.assertFalse(agent_bridge.allowed())
 
 
+class ShownCommand(unittest.TestCase):
+    ENV = {'LOCALAPPDATA': 'C:\\Users\\someone\\AppData\\Local', 'APPDATA': 'C:\\Users\\someone\\AppData\\Roaming',
+           'USERPROFILE': 'C:\\Users\\someone\\'}
+
+    def test_the_users_folders_are_written_as_their_variables(self):
+        parts = ['C:\\Users\\someone\\AppData\\Local\\Programs\\DeusEdix\\deusedix-cli.exe', '--run',
+                 'c:\\users\\SOMEONE\\Documents\\DeusEdix\\x.py', 'D:\\Games\\y.py']
+        self.assertEqual(agent_bridge.shown(parts, self.ENV), [
+            '%LOCALAPPDATA%\\Programs\\DeusEdix\\deusedix-cli.exe', '--run',
+            '%USERPROFILE%\\Documents\\DeusEdix\\x.py', 'D:\\Games\\y.py'])
+
+    def test_a_folder_that_only_starts_the_same_is_left_alone(self):
+        self.assertEqual(agent_bridge.shown(['C:\\Users\\someone2\\a.py'], self.ENV), ['C:\\Users\\someone2\\a.py'])
+        self.assertEqual(agent_bridge.shown(['C:\\x.py'], {}), ['C:\\x.py'])
+
+
 class Clock:
     def __init__(self):
         self.now = 1000.0

@@ -78,6 +78,24 @@ def set_allowed(on, url, session, root, advanced=False):
     return dict(allowed=value['allowed'])
 
 
+# the user's own folders, most particular first: written as their variables where a command is shown
+SHOWN_ROOTS = ('LOCALAPPDATA', 'APPDATA', 'USERPROFILE')
+
+
+def shown(parts, env=os.environ):
+    """A command as Tools > AI assistant... shows it: paths in the user's own folders as %LOCALAPPDATA%\\..., so a
+    screenshot of it does not carry the Windows user name (the dialog's Copy still gives the real command)."""
+    roots = [(env[k].rstrip('\\'), '%' + k + '%') for k in SHOWN_ROOTS if env.get(k)]
+    out = []
+    for part in parts:
+        for root, name in roots:
+            if part.lower().startswith(root.lower() + '\\'):
+                part = name + part[len(root):]
+                break
+        out.append(part)
+    return out
+
+
 def register(url, session, root):
     """A hub starting: findable again if the user allowed assistants before."""
     if allowed():

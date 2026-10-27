@@ -423,7 +423,9 @@ async function render() {
   const $ = (s) => dialog.querySelector(s);
   let info;
   try { info = await call('/api/agent/status'); } catch (e) { $('main').innerHTML = `<p class="as-bad">${esc(e.message)}</p>`; return; }
+  // shown with the user's folders as %LOCALAPPDATA%... (no user name in a screenshot); copied as it really is
   const command = 'claude mcp add deusedix -- ' + info.command.map(quote).join(' ');
+  const shown = 'claude mcp add deusedix -- ' + (info.shown || info.command).map(quote).join(' ');
   const seen = info.lastCall === null ? 'No assistant has called yet.' : info.lastCall < 90 ? `Connected: last call ${info.lastCall} s ago.` : `Last call ${Math.round(info.lastCall / 60)} min ago.`;
   $('main').innerHTML = `<label class="as-switch"><input type="checkbox" id="as-allow" ${info.allowed ? 'checked' : ''}> Let an AI assistant use this editor</label>
     <p class="as-note">An assistant connected through MCP (Claude Code, or any other MCP client) can then look at the open map and change it
@@ -433,8 +435,8 @@ async function render() {
       Text in maps, dialogues and mods made by other people could steer an assistant, so allow them only while you need them.</p>
     <p class="as-state">${esc(seen)}</p>` : ''}
     <label for="as-cmd">To connect Claude Code, run this once in a terminal:</label>
-    <div class="as-row"><input type="text" id="as-cmd" readonly value="${esc(command)}"><button type="button" id="as-copy">Copy</button></div>
-    <p class="as-note">Other assistants: start <code>${esc(info.command.map(quote).join(' '))}</code> as an MCP server (stdio).</p>`;
+    <div class="as-row"><input type="text" id="as-cmd" readonly value="${esc(shown)}"><button type="button" id="as-copy">Copy</button></div>
+    <p class="as-note">Other assistants: start <code id="as-server">${esc((info.shown || info.command).map(quote).join(' '))}</code> as an MCP server (stdio).</p>`;
   const update = async (e, body) => {
     try { await call('/api/projects/assistant', body); } catch (err) { e.target.checked = !e.target.checked; alert(err.message); }
     render();
@@ -442,6 +444,9 @@ async function render() {
   $('#as-allow').onchange = (e) => update(e, { allow: e.target.checked });
   if ($('#as-advanced')) $('#as-advanced').onchange = (e) => update(e, { allow: true, advanced: e.target.checked });
   $('#as-copy').onclick = () => { navigator.clipboard?.writeText(command); $('#as-copy').textContent = 'Copied'; };
+  // text copied from the dialog is the real command too (%LOCALAPPDATA% means nothing to PowerShell)
+  for (const [el, real] of [[$('#as-cmd'), command], [$('#as-server'), info.command.map(quote).join(' ')]])
+    el.addEventListener('copy', (e) => { e.preventDefault(); e.clipboardData.setData('text/plain', real); });
 }
 function open() {
   if (!dialog) {

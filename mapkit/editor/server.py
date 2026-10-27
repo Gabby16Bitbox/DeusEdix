@@ -1042,9 +1042,10 @@ class Handler(BaseHTTPRequestHandler):
         Tools > AI assistant... (allowed, when an assistant last called, the command that starts the MCP server)."""
         if path == '/api/agent/status':
             last = agent_bridge.CALLS.last_call
+            command = settings.python() + [str(settings.APP_ROOT / 'tools' / 'mapkit' / 'deusedix_mcp.py')]
             return dict(allowed=agent_bridge.allowed(), advanced=agent_bridge.advanced(),
                         lastCall=None if last is None else round(time.time() - last),
-                        command=settings.python() + [str(settings.APP_ROOT / 'tools' / 'mapkit' / 'deusedix_mcp.py')])
+                        command=command, shown=agent_bridge.shown(command))
         if not agent_bridge.allowed():
             return dict(off=True)
         return agent_bridge.CALLS.next() or {}
