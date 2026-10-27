@@ -1,8 +1,9 @@
 """Activate one project's map search paths and save folder in its game (Revision.ini, or the original
 game's DeusEx.ini: settings.GAME_INI).
 
-The original settings are recorded before the first activation. Content stays in
-separate project directories; changing projects never deletes another build.
+The original settings are recorded before the first activation, the player's SavePaths again at each one (a folder
+they chose since: _player_save_paths). Content stays in separate project directories; changing projects never
+deletes another build.
 """
 import json
 import ntpath
@@ -96,13 +97,14 @@ def play_save_path():
 
 
 def play_save_text(text, save_path, saved=None):
-    """`text` with every SavePath naming `save_path`; with `saved` (the player's own, per section, as
-    original_save_paths reads them), the ones naming `save_path` back to those instead."""
+    """`text` with the SavePath of each section of the game's folders (SECTIONS) naming `save_path`; with `saved` (the
+    player's own, per section, as original_save_paths reads them), the ones naming `save_path` back to those instead.
+    A SavePath of another section (a mod's own setting) stays as it is."""
     section, out = '', []
     for line in text.splitlines():
         if line.strip().startswith('['):
             section = line.strip().lower()
-        if line.lower().startswith('savepath='):
+        if section[1:-1] in SECTIONS and line.lower().startswith('savepath='):
             if saved is None:
                 line = 'SavePath=' + save_path
             elif line.split('=', 1)[1].strip().lower() == save_path.lower():
@@ -148,10 +150,28 @@ def _state(ini, text):
     return state
 
 
+def _player_save_paths(ini, text, state):
+    """The snapshot's SavePaths brought up to the player's current ones in `text` (a folder they chose after DeusEdix's
+    first activation too) and written, whole and then in place at once, before the ini stops naming them: a Play's
+    close, the undo of a Play cut short, a project's close and the uninstall put back the folder the player had just
+    before. A line naming a folder of DeusEdix's (a Play cut short, a project active) is never recorded
+    (original_save_paths): the player's folder recorded before it stays (27 Oct 2026: the snapshot of the first
+    activation came back instead)."""
+    current = original_save_paths(text)
+    if all(state['save_paths'].get(section) == value for section, value in current.items()):
+        return
+    state['save_paths'].update(current)
+    stamp = ini.with_name('deusedix-project-activation.json')
+    tmp = stamp.with_name(stamp.name + '.deusedix-tmp')
+    tmp.write_text(json.dumps(state, indent=2), encoding='utf-8')
+    os.replace(tmp, stamp)
+
+
 def activate(paths, play=False):
     ini = settings.GAME_INI
     text = ini.read_text(encoding='latin1')
     state = _state(ini, text)
+    _player_save_paths(ini, text, state)
     managed = getattr(settings, 'MANAGED_PROJECT', False)
     save = '..\\' + settings.MAPS_DIR_NAME.replace('/', '\\') + '\\Save' if managed else None
     if managed:
@@ -218,15 +238,25 @@ def deactivate_all():
     return done, errors
 
 
+def _names_play_folder(text):
+    """Whether a SavePath of the game's folders (SECTIONS, as play_save_text changes them) still names this
+    workspace's Play folder: its Play not put back yet. A mod's own SavePath is never DeusEdix's to restore."""
+    own, section = play_save_path().lower(), ''
+    for line in text.splitlines():
+        if line.strip().startswith('['):
+            section = line.strip().lower()
+        if section[1:-1] in SECTIONS and line.lower().startswith('savepath=') and line.split('=', 1)[1].strip().lower() == own:
+            return True
+    return False
+
+
 def _play_save_back(ini):
     """After the Play of a workspace that is not a project (activate(play=True)): the SavePath lines still naming its
-    save folder back to the player's own, as recorded before the first activation. -> changed"""
+    save folder back to the player's own, as recorded when the Play started (_player_save_paths). -> changed"""
     if not ini.is_file():
         return False
     text = ini.read_text(encoding='latin1')
-    own = play_save_path().lower()
-    if not any(line.lower().startswith('savepath=') and line.split('=', 1)[1].strip().lower() == own
-               for line in text.splitlines()):
+    if not _names_play_folder(text):
         return False
     updated = play_save_text(text, play_save_path(), _state(ini, text)['save_paths'])
     if ini.read_text(encoding='latin1') != text:

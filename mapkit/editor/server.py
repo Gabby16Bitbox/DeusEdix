@@ -1685,6 +1685,24 @@ def watch_game():
             traceback.print_exc()
 
 
+def restore_cut_short_play():
+    """At start-up, with no game running: a Play of this workspace cut short (the editor killed while its game ran, so
+    the session's cleanup never ran) left the game's SavePath on DeusEdix's folder, and the player's own games would
+    save there; the player's own folder again (project_game.deactivate_if_current: for a workspace that is not a
+    project, only that). A project's settings are left to its close (retire_project). An ini or snapshot that cannot
+    be read or restored never stops the project opening: it is only logged. A game another process of this workspace
+    is still starting through Steam is not running yet: that Play would then save in the player's folder, a narrow
+    window (27 Oct 2026). -> restored"""
+    if getattr(settings, 'MANAGED_PROJECT', False):
+        return False
+    try:
+        import project_game
+        return project_game.deactivate_if_current()
+    except Exception as exc:
+        print('The save folder of a Play cut short could not be restored: %s' % exc, flush=True)
+        return False
+
+
 def main():
     import live
     # the folders the editor writes in (a fresh install has none of them yet)
@@ -1693,6 +1711,7 @@ def main():
     if project_server.WORKER and not game_running():
         live.stop()          # a live session left over by a crash or a game closed while the editor was off
         play_preview.restore()
+        restore_cut_short_play()
     if project_server.WORKER:
         threading.Thread(target=watch_game, daemon=True).start()
     port = int(sys.argv[sys.argv.index('--port') + 1]) if '--port' in sys.argv else PORT
