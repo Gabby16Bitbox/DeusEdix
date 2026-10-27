@@ -1,5 +1,5 @@
 //=============================================================================
-// UCEdInfoLink - an InfoLink written in the map editor (Story panel). One-way, as the mod's
+// UCEdInfoLink - an InfoLink written in the map editor (Story panel). One-way, as the editor's
 // rule wants: only the caller speaks, JC never answers by radio. Made by UCEditorStory.InfoLink
 // (the generated story fills the lines right after spawning it). It waits for conversations
 // and for another InfoLink of the editor to finish. As in the game, the whole text goes to the

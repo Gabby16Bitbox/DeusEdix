@@ -161,7 +161,7 @@ function float Say(string bindName, string text)
 
 	class'UCInfoLinkFX'.static.Speaking(Self);     // the "incoming transmission" is over
 	win.SetSpeaker(bindName, DisplayName(bindName));
-	face = class'UCPortraits'.static.Find(bindName);    // a character of the mod (tools\make_portrait.py)
+	face = class'UCPortraits'.static.Find(bindName);    // a character with a portrait of its own
 	if (face != None)
 		win.speakerPortrait = face;
 	win.ShowPortrait();

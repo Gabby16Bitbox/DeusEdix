@@ -17,6 +17,10 @@ var float attachTime;
 var string lastWhy;         // last reason logged for a dialogue that did not start
 var name hideList[16];      // characters that vanish as soon as JC cannot see them
 var name showList[16];      // characters that appear as soon as JC cannot see their place
+var name goWho[32];         // characters sent somewhere (NpcGo, NpcWalk): saved with the game, unlike their mark
+var vector goSpot[32];
+var byte goRun[32];
+var string mapTitle;        // the map's name, for the logic log (MapName)
 
 function PostBeginPlay()
 {
@@ -42,7 +46,7 @@ function SetF(name f, bool v)
 	local DeusExPlayer P;
 
 	P = Plr();
-	if (P != None && P.FlagBase != None)
+	if (P != None && P.FlagBase != None && f != '')
 		P.FlagBase.SetBool(f, v,, 99);
 }
 
@@ -335,6 +339,7 @@ function NpcGo(name n, vector spot, bool bRun)
 	foreach AllActors(class'UCMark', mark, markTag)
 		mark.Destroy();
 	Spawn(class'UCMark',, markTag, spot);
+	RememberGo(n, spot, bRun);
 	Log("UCEd:" @ n @ "goes to" @ spot @ "running" @ bRun);
 	if (bRun)
 		sp.SetOrders('RunningTo', markTag, True);
@@ -354,8 +359,138 @@ function NpcWalk(name n, vector spot, bool bRun)
 		return;
 	if (Trace(hitLoc, hitNormal, spot - vect(0,0,2000), spot, False) != None)
 		spot = hitLoc + vect(0,0,1) * sp.CollisionHeight;
-	if (!class'UCNavRoute'.static.Send(sp, spot, bRun, StringToName("UCEdGo_" $ n)))
+	if (class'UCNavRoute'.static.Send(sp, spot, bRun, StringToName("UCEdGo_" $ n)))
+		RememberGo(n, spot, bRun);
+	else
 		NpcGo(n, spot, bRun);
+}
+
+// ---------------------------------------------------------------- walks that survive a save
+// The mark a character walks to (UCMark) and his route (UCNavRoute) are transient: after a load (or back in a
+// map already visited) they are gone, and he would stand with orders to nothing. The walk is kept here, in the
+// saved story or rule that sent him, and sent again (TickGoes); UCLink.Arrived reads it meanwhile.
+function RememberGo(name n, vector spot, bool bRun)
+{
+	local UCEditorStory S;
+	local int i, live;
+
+	foreach AllActors(class'UCEditorStory', S)       // a newer walk replaces any older one, whoever sent it
+		S.ForgetGo(n);
+	i = FreeGo(live);
+	if (live != 0)
+		Log("UCEd: too many walks at once:" @ goWho[i] @ "is not sent again after a load");
+	goWho[i] = n;
+	goSpot[i] = spot;
+	goRun[i] = byte(bRun);
+}
+
+// A slot for a walk: a free one (no character looked up), else one whose character is gone or has other orders,
+// else one whose character got there, else the first: live 1, a walk in progress is given up (an int: UnrealScript
+// takes no bool as an out parameter).
+function int FreeGo(out int live)
+{
+	local ScriptedPawn sp;
+	local int i, there;
+
+	live = 0;
+	for (i = 0; i < ArrayCount(goWho); i++)
+		if (goWho[i] == '')
+			return i;
+	there = -1;
+	for (i = 0; i < ArrayCount(goWho); i++)
+	{
+		sp = Pawned(goWho[i]);
+		if (sp == None || sp.Health <= 0 || !sp.bInWorld || sp.OrderTag != StringToName("UCEdGo_" $ goWho[i])
+			|| (sp.Orders != 'GoingTo' && sp.Orders != 'RunningTo'))
+			return i;
+		if (there < 0 && !sp.IsInState('GoingTo') && !sp.IsInState('RunningTo') && AtSpot(sp, goSpot[i]))
+			there = i;
+	}
+	if (there >= 0)
+		return there;
+	live = 1;
+	return 0;
+}
+
+function ForgetGo(name n)
+{
+	local int i;
+
+	for (i = 0; i < ArrayCount(goWho); i++)
+		if (goWho[i] == n)
+			goWho[i] = '';
+}
+
+// where n was sent last (by this story or rule)
+function bool SentTo(name n, out vector spot)
+{
+	local int i;
+
+	for (i = 0; i < ArrayCount(goWho); i++)
+		if (goWho[i] == n && n != '')
+		{
+			spot = goSpot[i];
+			return True;
+		}
+	return False;
+}
+
+// where n was sent last, by any story or rule
+function bool SentToAny(name n, out vector spot)
+{
+	local UCEditorStory S;
+
+	foreach AllActors(class'UCEditorStory', S)
+		if (S.SentTo(n, spot))
+			return True;
+	return False;
+}
+
+// sp stands at the place (UCLink.Arrived)
+function bool AtSpot(ScriptedPawn sp, vector spot)
+{
+	return VSize((sp.Location - spot) * vect(1,1,0)) <= sp.CollisionRadius + 48 && Abs(sp.Location.Z - spot.Z) < 80;
+}
+
+function TickGoes()
+{
+	local ScriptedPawn sp;
+	local UCMark mark;
+	local name markTag;
+	local int i;
+	local bool bMark;
+
+	for (i = 0; i < ArrayCount(goWho); i++)
+		if (goWho[i] != '')
+		{
+			sp = Pawned(goWho[i]);
+			markTag = StringToName("UCEdGo_" $ goWho[i]);
+			if (sp == None || sp.Health <= 0 || !sp.bInWorld || sp.OrderTag != markTag
+				|| (sp.Orders != 'GoingTo' && sp.Orders != 'RunningTo'))
+			{
+				goWho[i] = '';            // there, gone, or other orders since
+				continue;
+			}
+			bMark = False;
+			foreach AllActors(class'UCMark', mark, markTag)
+				bMark = True;
+			if (bMark)
+				continue;
+			// busy (fighting, fleeing, hit...): not now; he goes back to his orders later, and is sent then
+			if (!sp.IsInState('GoingTo') && !sp.IsInState('RunningTo') && !sp.IsInState('Standing'))
+				continue;
+			if (AtSpot(sp, goSpot[i]))    // there, or nearly: his mark again, and his orders find it (FindOrderActor)
+			{
+				Spawn(class'UCMark',, markTag, goSpot[i]);
+				if (!sp.IsInState('Standing'))
+					sp.SetOrders(sp.Orders, markTag, True);
+			}
+			else
+			{
+				Log("UCEd:" @ goWho[i] @ "is sent again to" @ goSpot[i] @ "(after a load)");
+				NpcWalk(goWho[i], goSpot[i], goRun[i] != 0);
+			}
+		}
 }
 
 // Standing, Wandering, Following (JC), Attacking (JC).
@@ -488,9 +623,27 @@ function bool FactionHostile(name faction)
 }
 
 // Characters never vanish or pop up in view: they wait until JC cannot see them.
-function Hide(name n)
+// A newer order for n, given by another rule or by the Story, replaces the one waiting here (Hide, Show).
+function ForgetHideShow(name n)
 {
 	local int i;
+
+	for (i = 0; i < ArrayCount(hideList); i++)
+		if (hideList[i] == n)
+			hideList[i] = '';
+	for (i = 0; i < ArrayCount(showList); i++)
+		if (showList[i] == n)
+			showList[i] = '';
+}
+
+function Hide(name n)
+{
+	local UCEditorStory S;
+	local int i;
+
+	foreach AllActors(class'UCEditorStory', S)
+		if (S != Self)
+			S.ForgetHideShow(n);
 
 	for (i = 0; i < ArrayCount(showList); i++)
 		if (showList[i] == n)
@@ -508,7 +661,12 @@ function Hide(name n)
 
 function Show(name n)
 {
+	local UCEditorStory S;
 	local int i;
+
+	foreach AllActors(class'UCEditorStory', S)
+		if (S != Self)
+			S.ForgetHideShow(n);
 
 	for (i = 0; i < ArrayCount(hideList); i++)
 		if (hideList[i] == n)
@@ -678,6 +836,123 @@ function UCEdInfoLink InfoLink(name heardFlag, bool bOnce, string caller, string
 	return s;
 }
 
+// ---------------------------------------------------------------- the conditions of the rules and the Story
+// One condition as the editor writes it (conditions.py): "flag|Name|1", "item|DeusEx.Multitool|1", "alive|Guard1|1",
+// "skill|SkillLockpicking|2", "count|Name|>=|3", "credits|>=|100". Does it hold now?
+function bool Holds(string c)
+{
+	local string kind;
+	local DeusExPlayer P;
+
+	kind = Field(c, 0);
+	P = Plr();
+	if (kind == "flag")
+		return GetF(StringToName(Field(c, 1))) == (Field(c, 2) != "0");
+	if (kind == "item")
+		return HasItem(Field(c, 1)) == (Field(c, 2) != "0");
+	if (kind == "alive")                                    // alive: not killed, not knocked out (Dead)
+		return !Dead(StringToName(Field(c, 1))) == (Field(c, 2) != "0");
+	if (kind == "skill")
+		return SkillLevel(Field(c, 1)) >= int(Field(c, 2));
+	if (kind == "count")
+		return Compare(GetI(StringToName(Field(c, 1))), Field(c, 2), int(Field(c, 3)));
+	if (kind == "credits")
+		return P != None && Compare(P.Credits, Field(c, 1), int(Field(c, 2)));
+	LogicLine("bad|" $ MapName() $ "||" $ c);               // a condition this version of the classes does not know
+	return False;
+}
+
+// a < b, a >= b...: op as the editor writes it (conditions.OPS)
+function bool Compare(int a, string op, int b)
+{
+	switch (op)
+	{
+	case "<":
+		return a < b;
+	case "<=":
+		return a <= b;
+	case "==":
+		return a == b;
+	case "!=":
+		return a != b;
+	case ">=":
+		return a >= b;
+	case ">":
+		return a > b;
+	}
+	return False;
+}
+
+// JC's level in a skill of the game (DeusEx.<skillName>): 0 untrained to 3 master, -1 when it is not one
+function int SkillLevel(string skillName)
+{
+	local DeusExPlayer P;
+	local class<Skill> cls;
+
+	P = Plr();
+	cls = class<Skill>(DynamicLoadObject("DeusEx." $ skillName, class'Class', True));
+	if (P == None || P.SkillSystem == None || cls == None)
+		return -1;
+	return P.SkillSystem.GetSkillLevel(cls);
+}
+
+// a counter: the game's integer flags (the rules' action "count")
+function int GetI(name f)
+{
+	local DeusExPlayer P;
+
+	P = Plr();
+	if (P == None || P.FlagBase == None || f == '')
+		return 0;
+	return P.FlagBase.GetInt(f);
+}
+
+function SetI(name f, int v)
+{
+	local DeusExPlayer P;
+
+	P = Plr();
+	if (P != None && P.FlagBase != None && f != '')
+		P.FlagBase.SetInt(f, v,, 99);
+}
+
+// field n (0 first) of a text whose fields are separated by |: the rules' actions and conditions
+function string Field(string s, int n)
+{
+	local int i;
+
+	while (n > 0)
+	{
+		i = InStr(s, "|");
+		if (i < 0)
+			return "";
+		s = Mid(s, i + 1);
+		n--;
+	}
+	i = InStr(s, "|");
+	if (i >= 0)
+		return Left(s, i);
+	return s;
+}
+
+// ---------------------------------------------------------------- the logic log (the editor's Console, editor/LOGIC.md)
+// one line of what the logic does, "kind|map|...", under the log tag the Console looks for
+static function LogicLine(string line)
+{
+	Log(line, 'DeusEdixLogic');
+}
+
+// the map's name as the game knows it (its DeusExLevelInfo)
+function string MapName()
+{
+	local DeusExLevelInfo info;
+
+	if (mapTitle == "")
+		foreach AllActors(class'DeusExLevelInfo', info)
+			mapTitle = info.mapName;
+	return mapTitle;
+}
+
 // ---------------------------------------------------------------- conditions of events
 // Dead or knocked out (the body replaces the character).
 function bool Dead(name n)
@@ -742,6 +1017,7 @@ function Timer()
 		StartStory();
 	}
 	TickHideShow();
+	TickGoes();
 	TickStory();
 }
 

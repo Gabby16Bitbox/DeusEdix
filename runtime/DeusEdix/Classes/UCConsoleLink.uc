@@ -17,6 +17,8 @@ var config int Done;
 var config string Cmd;
 var config string Result;
 var float pollT;
+var string Cheats;              // the commands the game runs only with its cheats on (the player classes' exec
+                                // functions that test bCheatsEnabled, both games), as |name| (lower case)
 
 // the link in the player's HUD, once (the root window outlives map changes, the check is cheap)
 static function Ensure(Actor A)
@@ -66,6 +68,12 @@ event Tick(float deltaTime)
 		return;
 	Done = Seq;
 	Log("DeusEdix console >" @ Cmd);
+	if (!P.bCheatsEnabled && IsCheat(Cmd))
+	{
+		P.bCheatsEnabled = True;    // asked for by typing one: on for this game, and said
+		P.ClientMessage("Cheats are on for this game (the Console)");
+		Log("DeusEdix console < cheats on for this game");
+	}
 	answer = P.ConsoleCommand(Cmd);
 	Result = Left(answer, 1000);
 	if (answer != "")
@@ -73,6 +81,21 @@ event Tick(float deltaTime)
 	SaveConfig();
 }
 
+// the first word of the command is one of Cheats
+function bool IsCheat(string command)
+{
+	local int i;
+
+	command = Caps(command);
+	while (Left(command, 1) == " ")
+		command = Mid(command, 1);
+	i = InStr(command, " ");
+	if (i >= 0)
+		command = Left(command, i);
+	return command != "" && InStr(Caps(Cheats), "|" $ command $ "|") >= 0;
+}
+
 defaultproperties
 {
+	Cheats="|abomb|allammo|allaugs|allcredits|allenergy|allhealth|allimages|allitems|allskillpoints|allskills|allweapons|amphibious|augadd|behindview|causeevent|cheatview|damageall|damagepart|debugcommand|editflags|fly|getai|getdebug|ghost|givenanokey|givenpc|gocatgo|god|iamwarren|invisible|invokeconwindow|ispeelmydreenk|killall|killpawns|legend|loadmap|moveactor|myvisionisaugmented|opensesame|playersonly|playmusicwindow|removenanokey|ripandtear|setdebug|setjumpz|setspeed|setstate|showacceleration|showarea|showbase|showbindname|showclass|showcylinder|showdata|showdist|showenemy|showenemyresponse|showeyes|showhealth|showinstigator|showlight|showlos|showmass|showmesh|showphysics|showpos|showquoteswindow|showrgbdialog|showstate|showvelocity|showvisibility|showzone|slomo|spawnmass|summon|tantabusall|tantalus|tantalusall|togglewinframes|togglewinstats|trig|type|untrig|viewmodeladd|viewmodelblendplay|viewmodelblendstop|viewmodeldestroy|viewmodelgiveweapon|viewmodelloop|viewmodelplay|walk|whatarottenwaytodie|whatashame|whereactor|whereisyevgeni|winframes|"
 }

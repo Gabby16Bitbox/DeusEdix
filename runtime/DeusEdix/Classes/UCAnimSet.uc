@@ -148,7 +148,7 @@ function OwnModel()
 {
     local Mesh M;
 
-    if (!bOwnModel || Who == None || Who.Mesh == None || Who.Mesh == Tried || Who.Mesh.Outer.Name == 'UCAnims')
+    if (!bOwnModel || Who == None || Who.Mesh == None || Who.Mesh == Tried || Who.Mesh.Outer.Name == 'DeusEdixAnims')
         return;
     Tried = Who.Mesh;
     M = Mesh(DynamicLoadObject("DeusEdixAnims." $ Who.Mesh.Name, class'Mesh', true));
