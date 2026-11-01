@@ -87,10 +87,13 @@ function SpawnEditorStory()
 
 // the voices of the conversations (given to the lines in the editor's Story: recorded, imported):
 // played from the mouth of who speaks, so the lips follow. Not saved: made again at every start.
+// The InfoLinks' own voice channel (UCInfoVoice) from the start too: it measures how fast the game's clock
+// runs (the original Deus Ex's runs fast), so the map's first voiced line is already waited for long enough.
 function EnsureVoiceDriver()
 {
 	local UCVoiceDriver d;
 
+	class'UCInfoVoice'.static.Get(Self);
 	foreach AllActors(class'UCVoiceDriver', d)
 		return;
 	Spawn(class'UCVoiceDriver');

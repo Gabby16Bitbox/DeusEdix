@@ -19,6 +19,7 @@ var Color  colWho, colLine, colHint;
 event InitWindow()
 {
 	Super.InitWindow();
+	SetWindowAlignments(HALIGN_Full, VALIGN_Full);
 	SetSensitivity(False);
 	SetSelectability(False);
 	bTickEnabled = True;
@@ -47,6 +48,13 @@ function Close(float secs)
 
 event Tick(float deltaTime)
 {
+	local RootWindow root;
+
+	// Stay full-screen during arrival, resolution changes AND the closing fade.
+	// Sizing only when created can retain the previous viewport's bottom edge.
+	root = GetRootWindow();
+	if (root != None && (x != 0 || y != 0 || width != root.width || height != root.height))
+		SetConfiguration(0, 0, root.width, root.height);
 	if (hint > 0)
 		hint -= deltaTime;
 	if (closeTime > 0)
@@ -68,8 +76,19 @@ function float BarHeight()
 // UCFade: a strip of greys from 128 (no change) to 0 (black); the column is how dark
 function Black(GC gc, float x, float y, float w, float h, float a)
 {
+	local float right, bottom;
+
 	if (w <= 0 || h <= 0 || a <= 0)
 		return;
+	// GC truncates the origin and extent separately. At 1280x721, for example,
+	// int(632.84) + int(88.16) stops at 720 and exposes the last screen row.
+	// Round OUTWARD from the endpoints, not each length independently.
+	right = x + w;
+	bottom = y + h;
+	x = int(x);
+	y = int(y);
+	w = int(right + 0.9999) - x;
+	h = int(bottom + 0.9999) - y;
 	gc.SetStyle(DSTY_Modulated);
 	gc.DrawStretchedTexture(x, y, w, h, FClamp(a * 127, 0, 127), 0, 1, 8, Texture'UCFade');
 }
@@ -80,9 +99,11 @@ event DrawWindow(GC gc)
 	local string s;
 
 	bar = BarHeight();
+	// One full-screen fade, then the opaque bars: no uncovered seam between
+	// three independently rounded rectangles at fractional UI scales.
+	Black(gc, 0, 0, width, height, fade);
 	Black(gc, 0, 0, width, bar, 1);
 	Black(gc, 0, height - bar, width, bar, 1);
-	Black(gc, 0, bar, width, height - 2 * bar, fade);
 
 	gc.EnableTranslucentText(False);
 	gc.EnableWordWrap(True);

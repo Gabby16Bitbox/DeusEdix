@@ -164,6 +164,8 @@ function float Say(string bindName, string text)
 	face = class'UCPortraits'.static.Find(bindName);    // a character with a portrait of its own
 	if (face != None)
 		win.speakerPortrait = face;
+	else if (win.speakerPortrait == None && bindName == "JCDenton")    // the original game has no InfoLink portrait of JC: his twin's
+		win.speakerPortrait = Texture(DynamicLoadObject("InfoPortraits.PaulDenton_" $ Chr(49 + P.PlayerSkin), class'Texture', True));
 	win.ShowPortrait();
 	win.ClearScreen();
 	win.DisplayText(text);
@@ -176,11 +178,12 @@ function float Say(string bindName, string text)
 	{
 		if (!(bindName ~= "EliasHale") || Level.Game.ParseOption(Level.GetLocalURL(), "DeusEdixHaleMuted") != "1")
 		{
-			infoVoiceId = P.PlaySound(snd, SLOT_Talk, 1.0);
+			// on a channel of its own (UCInfoVoice): on JC's SLOT_Talk another line played through him cut it
+			infoVoiceId = class'UCInfoVoice'.static.Get(Self).Speak(P, snd);
 			bInfoVoiceActive = True;
 		}
-		Log("UCVoice: InfoLink playback" @ snd @ "speaker=" $ bindName);
-		return GetSoundDuration(snd) + 0.5;
+		Log("UCVoice: InfoLink playback" @ snd @ "speaker=" $ bindName @ "duration=" $ GetSoundDuration(snd) @ "at=" $ Level.TimeSeconds @ "id=" $ infoVoiceId);
+		return class'UCInfoVoice'.static.GameSeconds(Self, GetSoundDuration(snd) + 0.5);   // the voice is real time
 	}
 	return 2.0 + Len(text) * 0.045;
 }
@@ -193,7 +196,7 @@ function StopInfoVoice()
 
 	P = Plr();
 	if (bInfoVoiceActive && P != None)
-		P.StopSound(infoVoiceId);
+		class'UCInfoVoice'.static.Get(Self).StopVoice();
 	bInfoVoiceActive = False;
 }
 

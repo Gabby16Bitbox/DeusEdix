@@ -3,6 +3,11 @@
 // position, rotation and scale, like Premiere's Motion or Unity's Animation window). Played at the
 // start of the map, or by an interaction (play, play backwards, stop); when it ends it triggers its
 // Event (an interaction "when its animation has finished").
+// Its timed events (the Animation panel's Events row, as Unity's Animation Events): at EvT[i] it plays EvSound[i] at
+// the object (EvVolume, EvRadius) or triggers EvTag[i], when its clock passes that time: in every pass of a loop, both
+// ways of Back and forth, played backwards; once per pass (at a turn, the pass that reaches it), an event right at the
+// start of a run only when the clock was put there (Passed). A mover's clock counts its keys (MoverClock), whoever
+// moves it. The editor's preview plays them the same way (tools\mapkit\editor\static\motion-events.js).
 //
 // - An object (a model, a decoration, a light...): moved, turned and scaled every frame. Its keys are
 //   offsets from where it was put: Pos = units, Rot = rotation units (65536 = a whole turn, so a key
@@ -48,6 +53,14 @@ var float  T, Dir;
 var bool   bPlaying, bFound, bWasMoving;
 var bool   bSavedWorld, bOldCollideWorld, bStuck;
 var name   MState;
+var() float  EvT[16];          // its timed events: when (seconds; a mover's in keys, as MoverClock counts)
+var() sound  EvSound[16];      // a sound played at the object then
+var() float  EvVolume[16];     // (1 = as recorded)
+var() float  EvRadius[16];     // how far it is heard (units)
+var() name   EvTag[16];        // the Tag it triggers then
+var() int    NumEv;
+var float    LastT;            // a mover's clock when its events were last looked at
+var bool     bMovedThere;      // the clock came where it is by moving (the events there have happened)
 
 function Actor Find()
 {
@@ -78,6 +91,7 @@ function Setup()
 	BaseHeight = A.CollisionHeight;
 	if (M != None)
 	{
+		LastT = MoverClock();
 		MState = M.InitialState;
 		if (M.KeyNum == 0 && Seg[0] > 0)
 			M.MoveTime = Seg[0];
@@ -117,9 +131,15 @@ function Play(bool bBack)
 	}
 	A.bCollideWorld = False;              // moved through the world: not pushed out of the walls it passes near
 	if (bBack && T <= 0)
+	{
 		T = Length;
+		bMovedThere = False;              // put at its end: an event right there happens as it leaves
+	}
 	if (!bBack && T >= Length)
+	{
 		T = 0;
+		bMovedThere = False;
+	}
 }
 
 function StopIt()
@@ -152,6 +172,56 @@ function TriggerEvent(name E, Actor Other, Pawn Who)
 
 	foreach AllActors(class'Actor', X, E)
 		X.Trigger(Other, Who);
+}
+
+// ---------------------------------------------------------------- timed events
+// The ones the clock passed going from a to b (either way), in the order it met them: one at b is passed, one at a only
+// when the clock was put there (else the run that brought it there played it as it arrived: once at a turn)
+function Passed(float a, float b)
+{
+	local int i, n;
+
+	if (a == b)
+		return;
+	n = Min(NumEv, ArrayCount(EvT));
+	if (b > a)
+	{
+		for (i = 0; i < n; i++)
+			if ((EvT[i] > a || (EvT[i] == a && !bMovedThere)) && EvT[i] <= b)
+				DoEvent(i);
+	}
+	else
+	{
+		for (i = n - 1; i >= 0; i--)
+			if ((EvT[i] < a || (EvT[i] == a && !bMovedThere)) && EvT[i] >= b)
+				DoEvent(i);
+	}
+	bMovedThere = True;
+}
+
+// timed event i: its sound at the object, its Tag triggered (Revision.log: "UCMotion <name> - event <i> at <t> plays
+// <sound>" or "... triggers <Tag>")
+function DoEvent(int i)
+{
+	if (EvSound[i] != None)
+	{
+		A.PlaySound(EvSound[i], SLOT_None, EvVolume[i],, EvRadius[i], 1.0);
+		Log("UCMotion" @ Name @ "- event" @ i @ "at" @ EvT[i] @ "plays" @ EvSound[i]);
+	}
+	if (EvTag[i] != '')
+	{
+		Log("UCMotion" @ Name @ "- event" @ i @ "at" @ EvT[i] @ "triggers" @ EvTag[i]);
+		TriggerEvent(EvTag[i], Self, None);
+	}
+}
+
+// a mover's clock: how far along its keys it is (2.5: half way from its key 2 to its key 3), so an event at a key is
+// at that key exactly
+function float MoverClock()
+{
+	if (!M.bInterpolating)
+		return float(M.KeyNum);
+	return float(M.PrevKeyNum) + (float(M.KeyNum) - float(M.PrevKeyNum)) * FClamp(M.PhysAlpha, 0, 1);
 }
 
 // a mover: through its own keys (its state's Open: / Close: code when it has one, so it plays its sounds)
@@ -380,11 +450,15 @@ function Apply(float t)
 function Tick(float dt)
 {
 	local int nextKey;
+	local float From, PassEnd, Now;
 
 	if (A == None || A.bDeleteMe)
 		return;
 	if (M != None)
 	{
+		Now = MoverClock();             // its timed events as it moves, whoever moves it (a door opened by hand too)
+		Passed(LastT, Now);
+		LastT = Now;
 		// the time of the next step of the mover, before it chains to it (also when a door opens by itself)
 		if (M.bInterpolating)
 		{
@@ -419,11 +493,21 @@ function Tick(float dt)
 	}
 	if (!bPlaying)
 		return;
+	From = T;
 	T += dt * Dir;
 	if (T >= Length || T <= 0)
 	{
 		if (Mode == 1)
+		{
+			if (Dir > 0)
+				PassEnd = Length;
+			else
+				PassEnd = 0;
+			Passed(From, PassEnd);              // its events to the end of this pass...
+			From = Length - PassEnd;            // ...and from the start of the next one, where the clock is put
+			bMovedThere = False;
 			T = T - Length * Dir;           // loop: on from the start
+		}
 		else if (Mode == 2)
 		{
 			T = FClamp(T, 0, Length);
@@ -433,11 +517,13 @@ function Tick(float dt)
 		{
 			T = FClamp(T, 0, Length);
 			Apply(T);
+			Passed(From, T);
 			Finished();
 			return;
 		}
 	}
 	Apply(T);
+	Passed(From, T);
 }
 
 defaultproperties

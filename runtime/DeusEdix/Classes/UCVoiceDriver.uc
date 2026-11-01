@@ -11,6 +11,27 @@ var int attempts;
 var float retryAt;
 var float originalScan;
 var name lastRadioEvent, lastRadioPlay;
+// The end of the voice playing now, for the line it belongs to: the player's timer must not end the line before it.
+// The line's own state code sets its text-length timer as it starts; whether that runs before or after this driver's
+// Tick depends on the order the engine ticks them (Revision: before; the original game: after, and the next line cut
+// the voice in the middle, 19 Oct 2026). So the timer is kept long enough on every Tick while the voice plays.
+var name voiceEvent, radioVoiceEvent;
+var float clock;            // game seconds, as the timers count them (the voices' ends are in it)
+// a line is voiced the Tick after it was first seen: its state code (which stops the speech playing and sets its
+// text timer) has run by then, whichever of the two the engine ticks first
+var name seenEvent, seenRadioEvent;
+var float voiceEnd, radioVoiceEnd;
+
+// The player's timer (ConPlay or DataLinkPlay) ends no sooner than the voice
+function KeepTimer(Actor playing, float endTime)
+{
+	local float left;
+	left = endTime - clock;
+	if (playing == None || left <= 0.05)
+		return;
+	if (playing.TimerRate <= 0 || playing.TimerRate - playing.TimerCounter < left - 0.05)
+		playing.SetTimer(left, False);
+}
 
 // Only indexed user dubs are considered. Untouched native audio retains its soundID.
 // Packages are read-only on disk; the index is rebuilt before Apply, with the game closed.
@@ -59,14 +80,19 @@ function RadioVoice(DeusExPlayer P)
 	if (lastRadioPlay!=radio.Name) { lastRadioPlay=radio.Name; lastRadioEvent=''; }
 	line=ConEventSpeech(radio.currentEvent);
 	if (line==None) { lastRadioEvent=''; return; }
+	if (line.Name==radioVoiceEvent && radio.IsInState('WaitForSpeech'))
+		KeepTimer(radio, radioVoiceEnd);
 	if (line.Name==lastRadioEvent || !radio.IsInState('WaitForSpeech') || radio.bSilent
 		|| line.conSpeech==None || line.conSpeech.soundID!=-1) return;
+	if (seenRadioEvent!=line.Name) { seenRadioEvent=line.Name; return; }
 	snd=class'UCVoiceBank'.static.Resolve(Self,line.speakerName,line.conSpeech.speech);
 	if (snd==None) return;
 	lastRadioEvent=line.Name;
 	radio.StopSpeech();
 	radio.playingSoundID=P.PlaySound(snd,SLOT_Talk,1.0,,65536.0);
-	radio.SetTimer(GetSoundDuration(snd)+0.15,False);
+	radio.SetTimer(class'UCInfoVoice'.static.GameSeconds(Self, GetSoundDuration(snd)+0.15),False);
+	radioVoiceEvent=line.Name;
+	radioVoiceEnd=clock+class'UCInfoVoice'.static.GameSeconds(Self, GetSoundDuration(snd)+0.15);
 	Log("UCVoice: radio playback" @ snd @ "handle=" $ radio.playingSoundID);
 }
 
@@ -103,6 +129,7 @@ event Tick(float deltaTime)
 		return;
 	}
 
+	clock += deltaTime;
 	P = DeusExPlayer(GetPlayerPawn());
 	originalScan-=deltaTime;
 	if (P!=None)
@@ -130,6 +157,8 @@ event Tick(float deltaTime)
 		lastEvent = '';
 		return;
 	}
+	if (ev.Name == voiceEvent && (P.conPlay.IsInState('WaitForText') || P.conPlay.IsInState('WaitForSpeech')))
+		KeepTimer(P.conPlay, voiceEnd);
 	if (ev.Name == lastEvent)
 		return;
 	// Wait until ConPlay has set up the actors, the text and the camera.
@@ -140,6 +169,11 @@ event Tick(float deltaTime)
 
 	if (ev.conSpeech == None || ev.conSpeech.soundID != -1)
 		return;
+	if (seenEvent != ev.Name)
+	{
+		seenEvent = ev.Name;
+		return;
+	}
 	// Native BindEvents has already cached both actors by this ready state.
 	// A temporary bark name must not break subsequent vanilla conversations.
 	// a voice given to this line in the map editor first, then the generated one
@@ -197,7 +231,9 @@ event Tick(float deltaTime)
 	// The passive lines of soldiers/MIBs last as long as their audio, so that
 	// the text-only timer does not start the next voice too early.
 	if (P.conPlay.IsInState('WaitForText') || P.conPlay.IsInState('WaitForSpeech'))
-		P.conPlay.SetTimer(GetSoundDuration(snd) + 0.15, False);
+		P.conPlay.SetTimer(class'UCInfoVoice'.static.GameSeconds(Self, GetSoundDuration(snd) + 0.15), False);
+	voiceEvent = ev.Name;
+	voiceEnd = clock + class'UCInfoVoice'.static.GameSeconds(Self, GetSoundDuration(snd) + 0.15);
 }
 
 defaultproperties

@@ -195,6 +195,8 @@ function float Prepare(int k)
 				numFields > 7 && fields[7] == "1");
 		case "free":
 			bFlying = False;
+			if (InformationDevices(readTarget) != None)
+				InformationDevices(readTarget).aReader = P;     // its Tick closes the window once JC looks elsewhere
 			readTarget = None;
 			FreeView();
 			return 0.1;
@@ -883,6 +885,10 @@ Next:
 		Goto('Next');
 	}
 	Log("UCShot done");
+	// a screen left open (the inventory) crashes the game on the way out: its windows run script
+	// after the packages are unloaded (PersonaInventoryObjectBelt.DestroyWindow, 15 Oct)
+	if (Plr() != None && DeusExRootWindow(Plr().rootWindow) != None)
+		DeusExRootWindow(Plr().rootWindow).ClearWindowStack();
 	Sleep(0.5);
 	Plr().ConsoleCommand("exit");
 	Stop;
