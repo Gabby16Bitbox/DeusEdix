@@ -373,8 +373,10 @@ class ProjectManager:
             if not source.is_file():
                 raise FileNotFoundError('Required application file is missing: ' + str(source))
             add(source, target)
-        if (self.code / 'bin/UCEngineBridge.ini').is_file():        # the bridge's settings (without them, its defaults)
-            add(self.code / 'bin/UCEngineBridge.ini', 'tools/mapkit/bin/UCEngineBridge.ini')
+        # Optional native helpers must follow the editor into each project too.
+        for name in ('UCEngineBridge.ini', 'DeusEdixGeometry.dll'):
+            if (self.code / 'bin' / name).is_file():
+                add(self.code / 'bin' / name, 'tools/mapkit/bin/' + name)
         for name in ('guide.md', 'guide.html'):
             if (self.app / 'docs/guide' / name).is_file():
                 add(self.app / 'docs/guide' / name, 'docs/guide/' + name)

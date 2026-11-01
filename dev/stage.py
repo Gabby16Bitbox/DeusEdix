@@ -153,7 +153,7 @@ def main():
     shutil.copy2(a.host, kit / 'bin' / 'UCMapKitHost.exe')
     shutil.copy2(Path(a.host).with_name('UCEngineBridge.dll'), kit / 'bin' / 'UCEngineBridge.dll')   # its engine bridge
     shutil.copy2(Path(a.host).with_name('UCEngineBridge.ini'), kit / 'bin' / 'UCEngineBridge.ini')   # and its settings
-    for name in ('DeusEdixNav.u', 'DeusEdixNav.dll'):            # the walkable area's routes in C++ (native/README.md)
+    for name in ('DeusEdixNav.u', 'DeusEdixNav.dll', 'DeusEdixGeometry.dll'):            # the walkable area's routes in C++ (native/README.md)
         shutil.copy2(Path(a.host).with_name(name), kit / 'bin' / name)
     shutil.copy2(HERE / 'ue1pkg.py', out / 'tools' / 'ue1pkg.py')
     copy_runtime(out)
