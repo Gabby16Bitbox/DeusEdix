@@ -131,6 +131,7 @@ The controls are those of Unreal Engine 5 (they are also listed under **Help**).
 | Left click | select an object, or a structure by clicking its walls |
 | Left click again on the same spot | the next thing under the mouse, behind the first (round again after the last) |
 | `Ctrl` + right click | the list of everything under the mouse (*Select under cursor*) |
+| `Ctrl` + `Alt` + click a surface | the lamps that light that point, brightest first (*Lights here*, see *Lighting of the view*) |
 | `F` | frame the selection: the camera flies to it; press `F` again to come closer |
 | `Shift+F` (View > Align view to selected) | look from the selected object along its front (a character: from its eyes) |
 | `Shift+P` (View > Pilot selection) | pilot the selection: the view looks through it and flying takes it along, until `Shift+P` again or `Esc` |
@@ -184,6 +185,66 @@ legend: the rooms that zone portals and ZoneInfo actors make). They show the las
 read by an older version of the editor shows its zones after one **Rebuild**. Choosing a lighting
 brings the textured world back.
 
+**Lightmap detail** (in the same list, as Unity's lightmap resolution view): every wall, floor and ceiling in the
+colour of how far apart the samples of its lightmap are, the points the engine lights it on (its shadows are as
+sharp as that), with a check for each sample. The legend gives the colours (up to 12 units a sample: very sharp
+and the most memory; 24 to 48: the usual, about 32; over 96: very soft) and the map's lightmaps: how many, how many
+samples, and about how much memory they take as the game's 32-bit lightmaps (an estimate: the map file keeps a bit a
+sample for each lamp instead). Grey is a surface without a lightmap (unlit, sky, invisible). It shows the last
+**Rebuild**: change a face's **Shadow detail** (see *Shadow detail*), Rebuild, and look again. A face only a few
+samples big gets an estimate of its size.
+
+**Lights here**: `Ctrl`+`Alt`+click a wall, a floor or a ceiling (in any lighting; `Alt`+click alone still picks
+the face). A small menu lists the lamps that light that point, brightest first, with their share of the light
+there, then the lamps whose reach gets there but that a wall hides; click one to select it. It is an estimate made
+in the editor from the lamps as they are now (their radius, brightness, colour, the angle they meet the surface at
+and a spotlight's cone, and a ray from the point to each lamp through the walls of the 3D view), not from the
+lightmaps: the game's shadows come from the last Rebuild, and objects do not hide a lamp. A lamp the project's game
+never lights (a flickering lamp in Revision, or there a palette lamp whose Skin is Effects.Corona.Corona_G) is not
+listed, and **Light preview** (in the same list as Lit: the lamps as they are now, without shadows) leaves it dark
+too.
+
+**Effects** (the sun button next to the list, or **View > Effects**), as Unity's Scene view Effects: in the **Lit**
+view the map moves as the game does. It is kept for the next time (in the browser). While it is on:
+
+- Lamps whose **Type** is pulse, subtle pulse, blink, flicker or strobe change as the game's renderer makes them, in
+  the game the project is for (Revision and the original game differ): a pulse goes from 21 to 99% of the lamp (60%
+  on average) and a subtle pulse from 81 to 99%, a round every Period / 35 seconds (32: about 0.9 s), Phase / 256 of
+  a round later. A **blink** keeps no time: it is on or off at random, in about half the frames, whatever its
+  Period, and its Phase does nothing. It stays on for good after a while: in Revision only when Period + 1 is a power
+  of two (Period 0: after 256 s, 1: after 512 s, 3, 7, 15...: later; the default 32 never does), in the original
+  game whatever the Period, after about 7.3 x (Period + 1) seconds (32: about 4 minutes); the game counts from the
+  start of the map, the editor from when Effects starts showing. A **flicker** is dark in Revision: its renderer
+  never lights one (the original maps' flickering lamps are dark too: use a blink); in the original game it is off
+  in about half the frames, else at 50 to 100% of the lamp, a new value every frame. Every **strobe** of the map
+  switches together, on one frame and off the next, whatever its Period and Phase. Palette types (texture palette
+  once / loop) and the light effects (torch, searchlight...) stay steady, but in Revision a palette lamp whose Skin is
+  Effects.Corona.Corona_G is dark (measured: that Skin gives it no light).
+- On objects and characters each lamp's own share of their light goes up and down: as the Lit view lights them. On
+  walls, floors and ceilings the lightmaps hold the light of every lamp together, so the editor takes a lamp's share
+  as its light at that point without shadows, never more than the lightmap holds there: behind a wall within its
+  reach the light dims a little too. The 16 moving lamps nearest the camera move on the walls; the others stay steady
+  there. The lamps are those of the last **Rebuild**, as their **Type**, **Period** and **Phase** are now (a value set
+  in **All properties** first: it wins at Rebuild).
+- Lamps with **Corona** on and a **Skin** (the texture the game draws as the corona: set it in **All properties**;
+  the original maps use Effects.Corona.Corona_E, F or G) show a glow of their colour where they are, the same size
+  on the screen at any distance, as the game draws it: in a square a fifth of the view's width at DrawScale 1, its
+  bright middle about a tenth of that square across, fading out within the middle half of it (as Revision's Corona_G
+  does; the original game's textures were not measured). It shows at full strength whatever the lamp does (a dark
+  flickering lamp's corona still shines, and so does a lamp of brightness 0: the original maps' glows); at most 32,
+  the nearest; none for a lamp whose **Enabled in game** is unticked (it is out of the map). A wall coming between it
+  and the camera fades it out in a third of a second, and back in. Without a Skin the game draws no corona, and
+  neither does the editor.
+- Surfaces with **Auto U Pan** or **Auto V Pan** move their texture at their zone's speed (TexUPanSpeed, TexVPanSpeed:
+  35 texels a second at 1), water, waterfalls and clouds.
+- With the camera in a zone that has a view fog (**ViewFog**, **ViewFlash**: water, toxic liquid), the whole view
+  takes it as JC's view does with his head in that zone; a zone with a **FogDistance** and a **FogColor** fades to
+  that colour with distance. The game's volumetric fog (lamps' fog brightness) is not drawn.
+
+The zones' speeds and fog are those of the last **Rebuild**; a map read by an older version of the editor pans at
+the usual speed and shows no zone fog until it is opened again. Effects costs nothing while it is off: the view is
+drawn every frame only while Effects shows.
+
 ## The screen
 
 The layout follows the familiar hierarchy, scene, inspector and asset browser arrangement:
@@ -210,7 +271,8 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   object of the game: your own characters first, then the most used, the ways in and out of a map,
   decorations, weapons, characters...), **Models** (every 3D model), **Pieces** (every object of the
   original levels made of brushes, whole: see *Adding things*), **Sounds**. **Prefabs**: the
-  structures and nests you saved, reusable in every level of the project. **Imported**: **My
+  structures and nests you saved, reusable in every level of the project, their copies linked to them (see *Adding
+  things*). **Imported**: **My
   models** and **My sounds**, what you brought in with **Import...** (or dropped on the editor).
   The **Console** tab next to it shows the running game's log (see *Scripts and the Console*).
   Click a tile, then a floor or a wall to place it, or drag it onto the 3D view; sounds are dragged
@@ -256,7 +318,9 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   **Isolate** (`Shift+H`) and the **crossed eye** with the number of objects hidden with the eye
   (see *Visibility, selection and game activation*), and the **camera** that pilots the selection (`Shift+P`, see
   *The selection and the view* under *Objects*); while one is on, a flag says so
-  (*Isolated: 3 objects*, *Hidden shown: 5*, *Piloting Light*) with a button that ends it.
+  (*Isolated: 3 objects*, *Hidden shown: 5*, *Piloting Light*) with a button that ends it. Last, the view's
+  lighting with **Effects** (see *Lighting of the view*) and the **speaker** that plays the map's ambient sounds round
+  the camera (see *Hear the map* under *Sounds*).
 - **The axis widget** (top right of the view, like Unity's scene gizmo): click an axis end to look from
   that side, with the camera's heading under it (see *Moving around*).
 - **Panels**: drag a panel tab to the left, right or bottom edge, or into the scene to float it.
@@ -417,10 +481,13 @@ mode's name and what the key does):
 | Drawing stairs or a roof | click A then B, `[` `]` narrower or wider, `,` `.` lower or higher steps (stairs) |
 | Patrol route | click, `Enter` or `Esc` when done |
 | Edit vertices, Face selection, Measure, Aim at a point | click (`Shift+click`: one more corner or face), `V`, `Q` or `M` ends it (`Esc` too, but in Face selection), `Delete` takes picked corners away |
+| Face selection, besides | `Alt+G` Grow, `Alt+Shift+G` Grow (any angle), `Y` Slip; with `Alt` held, `Alt+1…0`: the recent textures |
+| Texture Slip (`Y`) | moving the pointer, the wheel, the arrows, `P` (one pan for all), click or `Enter`, `Esc` or right click; `Shift` held: finer, `Ctrl` held: snaps |
 | Pilot, flying (right mouse held), a cutscene panel open | right mouse and the wheel, `W` `A` `S` `D` `Q` `E`, `Shift`; `K` and `Space` in a cutscene |
 
 Hold **Shift**, **Ctrl** or **Alt** and it shows what they do now: with the mouse first (*Shift+click* adds to the
-selection, *Ctrl+drag* draws a box, *Alt+drag* on a gizmo handle copies, *Alt+click* picks a face, *Shift* while
+selection, *Ctrl+drag* draws a box, *Alt+drag* on a gizmo handle copies, *Alt+click* picks a face, *Ctrl+Alt+click*
+lists the lamps lighting a point (*Lights here*), *Shift* while
 drawing keeps to 45°, *Shift+click* while placing keeps placing), then the commands with that modifier. The commands'
 keys are yours: give one another key in Settings and the strip shows it (`R` turning what is placed follows the
 Scale tool's key, and so do the status bar's hints while placing). Click a key on the strip: **Settings > Keyboard
@@ -455,7 +522,8 @@ Click an object to select it. Then:
 | `Ctrl+X` (Edit > Cut) | copy, then delete: one `Ctrl+Z` puts it back. What cannot be copied (a door of the map) is not deleted |
 | `Ctrl+A`, `Ctrl+I`, `Shift+D` | select all, invert the selection, deselect (Edit menu); hidden and locked things are left out |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | the previous / next selection (`è` and `+` on an Italian keyboard), also the arrows of the 3D view's toolbar |
-| `Ctrl+Alt+1`…`9`, `Alt+1`…`9` | keep the selection in a slot, select it again |
+| `Ctrl+Alt+1`…`9`, `Alt+1`…`9` | keep the selection in a slot, select it again (in Face selection `Alt+1`…`9` and `Alt+0` put the recent textures on the selected faces instead) |
+| `Y` over selected faces (Edit > Slip the texture) | the Texture Slip: roll their texture with the pointer and size it with the wheel, live (see *Faces and texture alignment*) |
 | `Shift+H` | isolate the selection: only it is shown until `Shift+H` again (View > Isolate selection); `H` stays Quick help |
 | `Esc` in the Hierarchy's search | clear the search: the whole map again; `Up` / `Down` and `Tab` or `Enter` put in a token offered under the box (see *Searching the map*) |
 | `Alt`+click a folder's arrow in the Hierarchy | open or close it with every folder inside it; right click in the Hierarchy > **Expand all** / **Collapse all** for every folder (see *Folders (nests)*) |
@@ -698,7 +766,8 @@ what you can click in the view (hidden and locked things are left out), **Desele
 `Ctrl+Shift+]`, or the two arrows in the 3D view's toolbar) walk back and forth through the last 50
 selections of the map, skipping what was deleted; after `Esc`, Previous brings the last selection back.
 **Selection slots**: `Ctrl+Alt+1` to `Ctrl+Alt+9` keep the selection (Edit > *Keep selection in slot 1*),
-`Alt+1` to `Alt+9` select it again; they are kept per map on this computer, with the camera bookmarks.
+`Alt+1` to `Alt+9` select it again; they are kept per map on this computer, with the camera bookmarks. In Face
+selection (`Q`) `Alt+1` to `Alt+9` and `Alt+0` are the recent textures' (see *Faces and texture alignment*).
 These keys can be changed in Settings > Keyboard shortcuts, except the slots (so can `Z`, `X` and `T` of the gizmo
 and Aim at a point, Push to grid and the grid step's `Ctrl+[` and `Ctrl+]`, and the four commands of the selection
 and the view).
@@ -773,8 +842,10 @@ What UnrealEd has for brushes and surfaces, on the editor's blocks and on the ma
   keeping what they share with it, or what is outside it.
 - **Look** in the panel of a face (Face selection, `Q`): UnrealEd's surface properties, *Unlit*,
   *Translucent*, *Masked*, *Modulated*, *Two-sided*, *Mirror*, *Invisible*, *Fake backdrop*, *Special
-  lit*, *No smooth*. **Select same texture** picks every face of the map with that texture,
-  **Replace in whole map** gives them all another one.
+  lit*, *No smooth*, *Auto U Pan*, *Auto V Pan*. The last two make the faces' texture slide by itself at their zone's
+  speed, as the original maps' clouds and some water do (**View > Effects** shows it moving after a Rebuild). A box is
+  ticked when every selected face has it, mixed when some do. **Select same texture** picks every face of the map with
+  that texture, **Replace in whole map** gives them all another one.
 - **All properties**, the last section of an object's panel: every property UnrealEd's Properties
   window shows for its class, applied at Rebuild after the editor's own.
 - **Select all of this class** (Edit menu, or right click on an object).
@@ -911,8 +982,33 @@ for example): there you can only change objects, not the map's geometry.
   On upgrade, **Refresh scan** adds the mover library using existing reference caches where possible;
   its first pass also extracts missing mover previews locally. No game assets are shipped.
 - **Prefabs** (the browser): select a structure or a nest and choose **Save as prefab…** (in the
-  Inspector, the right-click menu or the Prefabs tab). It is kept as it is now, built, and can be
-  placed in any level of the project as an independent copy.
+  Inspector, the right-click menu or the Prefabs tab). It is kept as it is now, built, with the 3D view as its
+  picture, and can be placed in any level of the project. Doors, lifts, mission objects and objects with an Event
+  are still left out of a prefab (their tags would have to be renamed for every copy).
+  **Linked copies**, as Unity's prefab instances: a copy placed from the Prefabs tab stays linked to its prefab. Its
+  row in the Hierarchy has a **v2** badge (the version it places; yellow with **↑**: a newer version is in the
+  library; dashed: the prefab was deleted from it). Its Inspector has a **Prefab** section with the prefab, the version
+  and its **overrides**: what you changed on that copy's objects (moved, deleted, given another class with *Replace
+  with...*, properties changed, off in game; a click on one selects that object). **Duplicate** and **Copy** /
+  **Paste** of a linked copy take its overrides along, moved with the new copy. Its buttons, also in the copy's
+  right-click menu, each one step of the History (a version saved by *Apply to prefab* stays in the library when you
+  undo it: the copy goes back to the version it had):
+  - **Select instances**: every copy of that prefab in the map.
+  - **Apply to prefab**: the copy, as it is built, becomes the newest version of its prefab (Rebuild first, as for
+    *Save as prefab*); its overrides are the prefab's from then on. A copy scaled away from 100% is not applied (a
+    prefab keeps its own size), nor one on an older version: update it first, or it would undo the versions since.
+  - **Update instances**: every copy of that prefab in this map goes to the newest version, each where it is, with
+    its overrides (a change to an object the new version no longer has goes; Messages says which). Rebuild shows them.
+    Copies in other maps keep their version until you update them there.
+  - **Unpack** (several copies at once from the right-click menu): the copy forgets its prefab and stays as it is.
+- **A prefab's card** in the Prefabs tab, its **⋯** (or a right click): **Select instances** and **Update
+  instances** in the open map, **Rename…** (every version of it; copies already built show the new name after the
+  next Rebuild), **Use the current view as its picture**, **Delete…**: asked first, with the maps and map templates
+  that place it. Its versions leave the library but stay on disk (copies are built from them, and Undo or the
+  clipboard can place one again); they go when the project is next opened after DeusEdix was closed or another
+  project was open, if no saved map or template places them, and a copy pasted after that is refused, saying so
+  (only when its files are really gone: when the editor cannot find out, the copy is pasted). The card says the
+  prefab's version and how many copies the open map has (and how many are older).
 - Walls, roads, floors and ceilings: draw them (see *Drawing walls, roads, floors and ceilings*
   below), or use **+ Block** (`B`) with the game's wall and floor textures, or start from a room
   (**New map**).
@@ -1002,12 +1098,96 @@ Choose a loaded **Texture** and press **Apply**, or use **Align**:
 | Around a cylinder | Wrap one tile continuously around all vertical side faces of the brush; the caps stay unchanged |
 
 Cylinder sides must form one closed outline and use the same texture. **Pan U/V** adds whole
-texels to the offset. **Scale U/V** multiplies the tile size (2 is twice as large, 0.5 is half).
-**Rotate 90°**, **Flip U** and **Flip V** change its orientation. **Select whole brush** selects all
+texels to the offset. **Scale U/V** multiplies the tile size (2 is twice as large, 0.5 is half);
+a Pan of 0, 0 or a Scale of 1, 1 changes nothing and is not queued. **Slip** starts the Texture
+Slip (below). **Rotate 90°**, **Flip U** and **Flip V** change its orientation. **Select whole brush** selects all
 its visible faces; a structure's **Surfaces** section can select the faces of all its brushes.
 
+**Recent textures**, as ProBuilder's material palette: under the Texture list the panel keeps the last 10 textures
+you applied to faces (with the list, the texture picker or a drag), newest first, each with its picture and its key,
+in the project. Click one, or in Face selection press `Alt+1` to `Alt+9` and `Alt+0`, to put it on the selected
+faces: one `Ctrl+Z` takes it back. A texture put from the strip keeps its place there, so its key stays the same
+while you texture a room (floor, walls, trim, ceiling); one applied another way comes first. In Face selection
+these keys are the strip's, not the selection slots' (those work again once Face selection is off); they can be
+changed in Settings > Keyboard shortcuts (*Face selection*). While a Rebuild runs they wait for it.
+
+**Grow** (`Alt+G`, Edit > *Grow face selection*), as ProBuilder's Grow Selection, adds the faces that share an edge
+with the selected ones and lie in their plane (within 5°): a wall or a floor split by BSP cuts, or one that goes on
+through a doorway, is selected with a press or two before **Align**. **Grow (any angle)** (`Alt+Shift+G`) adds
+every face next to them: the walls round a floor, the sides of a column. Each press adds one ring of faces; a piece
+of an edge is enough (BSP cuts meet at T-junctions), a corner is not. It takes the faces as the 3D view shows them:
+hidden objects are left out, a structure moved since the Rebuild counts where it is now. The keys work in Face
+selection (`Q`); the menu items and the panel's **Grow** buttons whenever faces are selected.
+
+**Texture Slip** (`Y`, Edit > *Slip the texture*, the Surface panel's **Slip**), as Premiere's slip tool: with faces
+selected (in Face selection or with `Alt+click`), point at one of them and press `Y` (pressed elsewhere, or from the
+menu or the panel, it starts when the pointer comes over one). Move the pointer: the texture rolls on the faces in
+any direction, the texel under the pointer staying under it, on walls, floors, ceilings and slopes alike. The wheel
+makes it larger (up) or smaller round the point under the pointer: four notches double it. `Shift` is finer (an
+eighth of the pointer's way, a sixteenth of a doubling a notch), `Ctrl` snaps the pan to an eighth of the tile and
+the size to whole powers of two, the arrows nudge it a texel the way they point on the screen (with `Ctrl`, a snap
+step). The line beside the pointer says the pan and the size.
+A click (or letting go after a drag) or `Enter` keeps it: one `Ctrl+Z` (*Slip the texture* in the History) takes it
+back, **Rebuild** puts it in the game. `Esc`, the right button, `Alt`, a click elsewhere or a menu, leaving the
+editor, Undo, Save, a Rebuild, closing or opening a map cancel it, with nothing changed.
+
+It queues what the panel's **Scale** and **Pan** do: one Scale for all the faces and each face its own Pan, so a
+texture running over several faces stays one: the faces stay within half a texel of the face under the pointer
+(exact when made smaller by whole factors, such as `Ctrl` to ×1/2), any two within a texel, however many slips of
+the same faces you keep one after another. Each slip starts where the slips before it left the faces, to a fraction
+of a texel, and the History keeps that with each step: an Undo, a Redo or a jump in the History gives it back with
+the changes, a Rebuild keeps it and a Pan of a face moves it as much. A face changed otherwise since starts from its
+queued pans, in whole texels: an alignment, One Tile, Rotate or a flip queued on it, Around a cylinder queued on its
+brush (not on the caps, which it leaves as they are) or a Scale; so does every face after **Revert all changes**,
+after the editor is opened again and in another map (and see the known limits below). What the assistant's scripts
+write into the queued changes directly counts as the panel's: an alignment, One Tile, Around a cylinder (on the faces
+it wraps), Rotate or flip added on a face or taken off it drops its fraction, and anything else is judged by the
+numbers alone (a face still where the slip left it, give or take whole texels, keeps its fraction). Faces joined by
+edges where the texture runs on round them (a ring of walls, the sides of a column, a box's top over the side its
+texture comes from) scale as one; a face whose texture runs on round none of its edges with the others, such as a
+floor or a cap aligned otherwise, scales round its own point under the pointer. Scaling a texture wrapped right round
+a closed shape, such as a cylinder, keeps every edge closed but one. A ring parts first where two textures meet
+(walls going round through a floor of another texture part at the floor's edge, not at a corner of the walls), then
+where its texture already steps (by more than a texel), else at its shortest edge, and a slip kept after another
+parts it again where that one did while its texture still steps there, even where another of its edges steps, with a
+Rebuild, an Undo, a Redo, a jump in the History, a Pan of all the same faces or a structure moved and rebuilt between
+them too; an edge lined up since, by rolling one face alone or a Pan, counts as one that does not step, so the ring
+parts where its texture still steps (with every edge closed it must still part somewhere, perhaps at an edge you
+lined up); a ring of equal edges of one texture parts at the one farthest round from the face under the pointer (from
+the side nearest the pointer when it is on a face apart, such as a cap), so point at the side that must stay
+seamless. The same goes for a face set in another, such as a sign in a wall, whose texture runs on over two of its
+sides: a side where the texture already steps parts before one where it does not, and of two alike, the one nearest
+the pointer stays closed. A pan wraps round the texture only past the engine's ±32767 texels. Faces only a Rebuild
+shows (a change queued on them the view cannot work out, BSP pieces mapped otherwise) are left out, and the line says
+how many. One slip adds at most 512 of the map's 4096 queued surface changes, and a slip of the same faces folds into
+the pans and scales before it; for a large selection (*Select same texture* on a big map) slip fewer faces, or press
+`P`: every face then gets the pan of the one under the pointer (two changes in all), and seams may show between the
+others. With fewer than 1024 changes left, the line and the status bar say how many. It refuses faces of a locked
+structure, blocks not built yet, a structure resized since the Rebuild, and a selection over structures moved since
+the Rebuild otherwise than the face under the pointer (Rebuild first).
+
+The Texture Slip's known limits:
+
+- A Scale brought back to where it was (×2, then ×1/2) counts as none: the next slip still starts from the fraction
+  of a texel the slip before left, as if both Scales were undone.
+- Rolling a part of a ring alone moves its texture against the rest of the ring at both ends of that part.
+- A Pan of only some of a ring's faces between two slips: the next slip may part the ring at another edge.
+- After a structure is moved and rebuilt between two slips, its faces start from their queued pans, in whole texels,
+  so an edge may end up about a texel off.
+- A structure resized (**Scale**) or turned and rebuilt between two slips you kept can open a second seam in a ring.
+  To avoid it, finish the slips, or Undo them, before you resize or turn the structure.
+- A Rotate or a Flip U queued on a ring's faces between two slips you kept can open a second seam at the next slip.
+  One Tile, Wall or Floor queued between them may make it part the ring at another edge.
+
 These operations affect the full source face, including pieces split by BSP cuts. They are stored
-in order: **Save** keeps them, **Rebuild** shows the result. Undo (`Ctrl+Z`) removes the last edit.
+in order and the 3D view shows them at once, as the game will, but for these, which show only after a Rebuild (the
+panel says how many of the selected faces): Around a cylinder; a texture none of the map's surfaces or objects use
+yet, its size known only after a Rebuild; a face whose BSP pieces are mapped otherwise; Floor or Wall on a structure
+moved or turned since the Rebuild; any change on a structure resized since the Rebuild; an alignment or a texture
+taken back after a Rebuild; and, on a map last rebuilt by an older editor, the changes it had when opened. **Save**
+keeps them, **Rebuild** puts them in the map and its lighting. A change Save cannot keep
+is said when the map opens; one the Rebuild would fail on (a pan past the engine's 16 bits, One Tile on a face with no
+size) is said at once and again after Save, and Rebuild asks before it starts. Undo (`Ctrl+Z`) removes the last edit.
 Changing UVs also rebuilds lighting because the game's lightmaps use those coordinates. Changes
 are written to both the rendered surfaces and their source brushes, so later geometry rebuilds
 keep them. If the source brush or its face layout is replaced outside the editor, select the new
@@ -1021,7 +1201,8 @@ structure also has **Shadows for the whole structure**, which includes every fac
 
 **Rebuild** recalculates lighting. On an existing map, shadow or UV edits alone do not rebuild
 geometry or AI paths. **Messages** reports the lightmap sample count and shadow storage before
-and after the build. The size difference depends on the faces and lights in the map.
+and after the build. The size difference depends on the faces and lights in the map. **View > Lightmap
+detail** shows the result across the map: every surface in the colour of how far apart its samples are.
 
 ### Texture Editor
 
@@ -1160,10 +1341,11 @@ the panel's object, and the faces of a structure are edited from the panel.
 | patrol points | wait here (seconds), next point, animation while waiting |
 | wander points | what a wandering character looks at when it stops here, and for how long |
 | triggers | triggered by, only once, radius, height, message to JC |
+| zones | place name, ambient light and colour, sound of the zone, hurts, instant death, gravity, ground friction, water, **Reverb** (see *Zones*) |
 | sound effects | sound, plays when JC walks in or when triggered, heard in JC's head or within a distance, volume, pitch, again after |
 | doors (sounds) | starts opening, open, starts closing, shut, while moving, heard within, volume |
 | map exits and arrival points | where the exit leads (a map and its arrival point) and whether it is active |
-| lights | colour (a colour picker and the hue slider, as in UnrealEd), saturation, brightness, radius, type (steady, pulsing, flickering...), effect (spotlight, torch...), cone, period, fog brightness and radius, special lit |
+| lights | colour (a colour picker and the hue slider, as in UnrealEd), saturation, brightness, radius, type (steady, pulsing, flickering...), effect (spotlight, torch...), cone, period, phase (where in its round a pulse starts: lamps of one period out of step), fog brightness and radius, special lit, corona (a glow round the lamp, its Skin the texture: without one the game draws none). **View > Effects** shows the types, period, phase and corona moving in the Lit view |
 
 A field shows the value you set, otherwise the map's, otherwise the game's default for that kind
 of object. Changes are applied by **Rebuild**, without touching the lighting.
@@ -1172,7 +1354,10 @@ of object. Changes are applied by **Rebuild**, without touching the lighting.
 its colour and its properties, the same ones UnrealEd has. The sphere of the light takes the new
 colour at once, and while it is selected a wire sphere shows how far it reaches. The lighting of
 the walls and of the objects (the **Lit** view, the game) changes with **Rebuild**, which
-recalculates the lighting when a light changed.
+recalculates the lighting when a light changed. Under a lamp's **Type**, **Period**, **Phase** and **Corona**, a note
+in the warning colour says what that setting does not do in the game the project is for: a flickering lamp that
+Revision never lights, a blink's Phase and when it stops blinking, a Period or a Phase that does nothing for that
+type, a corona without a Skin (see *Lighting of the view*).
 
 **Books, newspapers and datacubes**: select one (or place one from Objects). The Inspector
 shows the document read from your installed game. **Edit a copy** starts with its original
@@ -1507,6 +1692,18 @@ Animation panel opens at the bottom, like Premiere's Motion or Unity's Animation
 - In the **Interactions**: *Then... → Play its animation*, *Play it backwards*, *Stop its animation*, and
   *When → its animation has finished* to chain things. Each rule has a **Timeline**: its actions as bars at
   their time (an animation as long as it lasts); drag a bar to when it should happen.
+- **Events** (the last row, like Unity's Animation Events): things that happen at a time of the animation,
+  in step with it however it is retimed: a clank when a crane arm stops, a hiss as a panel slides open, an
+  alarm when a lift reaches a floor. **+** puts one at the playhead: *Play a sound* (the sound list opens;
+  heard from the object, within its radius, at its volume) or *Trigger an Event* (type a **Tag**: every
+  object with that Tag is triggered, a door, a light, an alarm, a sound effect). Or drop a sound from the
+  browser on the row: a sound event at that time. Click a marker to change it or delete it, drag it to retime
+  it (up to 16). In the game they happen whenever the animation passes them: every round of a *Loop*, both
+  ways of *Back and forth*, played backwards; once each time (where it turns back, an event there plays once),
+  and a door's or an elevator's whoever moves it (JC opening a door too). An event after the last key happens
+  at the end. **▶** plays the sound events as the playhead passes them, and dragging the playhead forwards
+  plays them too (backwards it does not); an Event only says in the status bar what it will trigger. To run
+  an **Interaction** at a time, trigger the Tag of something whose own rule reacts (a sound effect, a door).
 
 ## Collision boxes
 
@@ -1551,6 +1748,19 @@ the Minecraft film mods: the player watches, then gets JC back where he was.
 9. Options: *Fade in* / *out* (seconds from and to black), *black bars*, *can be skipped* (a click or
    Space skips it: what was still to happen at once), *only once*, *at the start of the map*, *JC visible
    where he stands* (a stand-in of JC stays there while the camera flies), *Length*.
+10. **👁 Preview** (on at first): as the playhead moves or plays, the events show on the objects as the game
+    does them by then. A door or an elevator opens through its keys in its *MoveTime*, after its *DelayTime* (a door
+    that closes by itself does after its *StayOpenTime*; *Go to a floor* goes straight to that key); an object plays
+    its animation, backwards, or stops; a character walks or runs to its place at its own speed, with its walk
+    animation (along the AI paths of the last Rebuild; sent on the walkable area, or with no AI paths, straight
+    there); a light goes dark (its icon, and its light in the *Lit* view with **View > Effects** on); something
+    vanishes or appears again. Move the playhead back before an event and the object is where it is again. Nothing
+    is changed in the map: no undo step, nothing to save. A click or a key outside the panel puts everything back
+    first, so that what you do starts from where things really are; move the playhead to see them again. Events
+    the editor cannot show (a message, a sound, a lock, an attack...) are dashed on the timeline: Rebuild and Play
+    for those. A subtitle with a sound shows its voice's waveform in its clip, as long as the voice lasts, and **▶**
+    plays the voices in time from where the playhead is, as the game does (a line's voice starts when the line
+    shows, and plays to its end). **👁 Preview** off: the objects stay where they are and the voices are silent.
 
 **What plays it**: an interaction **Play the cutscene** (select a collision box, **🔗 Connect to...**, click
 the camera: *When JC walks into it: play the cutscene*), a button, a door, a character killed...; a Story
@@ -1631,9 +1841,24 @@ water. The editor makes them the way the game does.
   the top by itself). Put one in every opening of a room: the room becomes a zone of its own.
 - **Objects > Zones**: put one inside the closed area. **Zone**: its *place name*, *ambient light* and
   *colour*, *sound of the zone* (heard everywhere in it), *hurts* (damage per second, kind of damage:
-  radiation, burned, shocked, poison gas...; a message), *kills at once*, *own gravity*, *ground friction*
+  radiation, burned, shocked, poison gas...; a message), *instant death*, *own gravity*, *ground friction*
   (0.2 = ice). **Rain zone** and **Snow zone** (Revision's): rain or snow falls round JC in the whole zone.
   **Water zone**, **Sky zone** for those who build them by hand.
+- **Reverb** (a zone's Properties, as Unity's Audio Reverb Zone presets): how the zone echoes the sounds made in it.
+  **None**, **Small room**, **Office**, **Hall**, **Tunnel / Sewer**, **Hangar** or **Cave** set it in one step (one
+  `Ctrl+Z`): the zone's reverb as Unreal Engine 1 has it, the echo on, how loud the echoes are together, a cutoff
+  (the echoes lose the sounds above it: bare walls give them back, carpet and rock swallow them) and six echoes,
+  each when it comes back (milliseconds) and how loud (0-255). *Hall* is the game's own (NSF headquarters, the MJ12
+  lab). **Custom** turns the echo on with the values as they are; **Values** (under the row, open by itself for
+  Custom) shows them, a preset's too: change any of them. The original game's Galaxy audio plays these echoes.
+  In **Revision** Galaxy plays them too and its OpenAL audio imitates them; a **RevZoneInfo** (and Revision's sound
+  zone, water zone, rain and snow zones) also has an **OpenAL reverb**, one of OpenAL's EFX reverbs (cave, hangar,
+  sewer pipe and over a hundred more) that its OpenAL audio uses instead: the presets set it with the echoes' delays,
+  loudness and cutoff. A **water zone** keeps its own (underwater): the presets leave it, **None** puts it back. The
+  echoes' gains stay the class's there (150 and 70, then none): such a zone's own *Gain* is OpenAL's and hides them,
+  so its **Values** have no echo gains (one such a zone still has, from an older editor, is left out at **Rebuild**,
+  and Messages says so). **Rebuild** puts the reverb in the map; the editor does not play it (only the game tells
+  how it sounds).
 - **The sky**: a **hole** in a ceiling (+ Hole, click the ceiling) with **open to the sky** ticked shows
   the sky through it. A map with no sky of its own gets a sky box (Hong Kong at night, New York at night,
   stars, sunset, clouds, bright clouds, orange haze: choose it in the hole's panel).
@@ -1654,7 +1879,9 @@ water. The editor makes them the way the game does.
   keeps its own clouds.
 
 After **Rebuild**, Messages say if a zone is not closed (it leaks into the zone round it, often the whole
-map: its water, damage or fog would not be where you meant) or if the start of the map is inside a zone.
+map: its water, damage or fog would not be where you meant) or if the start of the map is inside a zone that does
+something to JC at once (water, hurts, instant death, own gravity); one that only echoes, sounds or lights says
+nothing.
 
 ## Packages of other mods
 
@@ -1808,10 +2035,41 @@ Properties.
   (a radio, a voice: as loud wherever he is) or heard from its place within *Heard within* (the
   circles in the 3D view), *Volume*, *Pitch*. A sound effect that walks-in also triggers its own Event,
   like any trigger.
+- **More sounds** (a playlist, like Unity's Audio Random Container): so a dog, a drip or a distant siren
+  does not sound the same every time. Drop sounds from the browser on its last row (or **+ Add...**), up to 8
+  with its *Sound*; each has **▶**, **↑ ↓** (its place in the list) and **✕**, and a sound dropped on one
+  replaces it. Each time it plays it picks one: **Order** *Random* (never the same one twice in a row) or *In
+  sequence*. **Pitch ±** and **Volume ±** vary each play by up to that much. **Repeats every** *a* to *b*
+  seconds: once it has played, it plays again by itself after a random wait between them, a zone while JC
+  stays in it, a triggered one until an interaction does *Stop its repeats* on it (or something untriggers
+  it); walking in or a trigger again meanwhile does not play it sooner; *Only once* never repeats. **▶ Preview** plays four picks the way the game would (again: stop). A
+  sound effect with one sound and none of these plays as it always did.
 
 **Doors** have their sounds in their Properties (**Door sounds**): when it starts opening, when it is
 open, when it starts closing, when it is shut, and over and over while it moves; *Heard within* and
 *Volume*. The doors of the game have theirs already; a door copied from another map keeps them.
+
+### Hear the map
+
+**Hear the map** (the speaker at the end of the 3D view's toolbar, or **View > Hear the map**), as Unity's Scene view
+audio: the map's ambient sounds play in the editor where they are, heard from the camera as you fly through the map,
+to balance their reach and loudness by ear before a Rebuild. It is off at first and kept for the next time (in the
+browser). While it is on:
+
+- Every object with a **Sound** of its own loops it: ambient sounds, lamps (the buzz of a neon), decorations (a TV, a
+  generator), and the objects whose kind has one in the game (a security camera's hum, a vending machine's). Each one
+  is heard as the game does: all of it at its place, fading in a straight line to nothing at its *Heard within*
+  (25 x (radius + 1) units: the sphere in the view), at its *Volume* (the game plays ambient sounds at 0.7 of it) and
+  *Pitch* (64: as recorded). A change in its Properties, or a move, is heard at once.
+- A zone's **Sound of the zone** is heard while the camera is in that zone, from the zone's object up to 6400 units,
+  as the game does while JC's head is in it; out of its zone it is silent. Which zone the camera is in comes from the
+  last **Rebuild**: before one (or in a map read by an older version of the editor) a zone's sound is heard within
+  its own *Heard within*.
+- The 16 nearest sounds play at once, each from its side.
+- It is silent while **Play** runs, while the editor's tab is hidden and with no map open. The browser lets a page
+  play sound only after a click or a key: opened with Hear the map on, the editor starts it at your first click.
+- The sounds come from the game as ▶ gets them for a preview: the first time a sound takes a moment (one at a time,
+  the nearest first; none while a Rebuild runs). A sound the browser cannot play is said once in Messages.
 
 ### Sounds in the browser, and your own
 
@@ -2114,9 +2372,11 @@ The game's `Cigarettes` object is a packet, not a single cigarette.
   The map belongs to that part of the campaign: the mission's goals, flags and InfoLinks work in it.
   **Place name** is what the game shows as the location (optional).
 - **An empty room** to build in: its size (width, depth, height; a door is 64 x 128) and the
-  textures of floor, walls and ceiling (smooth concrete by default). It has lights, the start of the
-  map and an arrival point called *Start*. It is a map script (`tools\mapkit\maps\new_<map>.py`)
-  built at once: add Pieces, Objects, characters and blocks, then **Rebuild**.
+  textures of floor, walls and ceiling (smooth concrete by default). It has lights, as bright and of the colour of
+  the **Mood** you choose (Normal, Dark, Warm or Cold; in a Dark room some flicker: they blink at random in Revision,
+  whose renderer never lights a flickering lamp), the start of the map and an arrival point called *Start*. It is a
+  map script (`tools\mapkit\maps\new_<map>.py`) built at once: add Pieces, Objects, characters and blocks, then
+  **Rebuild**.
 - **A copy of a map**: any map of the game or of yours under the new name, as a map of your own
   (`maps\`): change it as you like, the original stays as it is.
 - **A map template** of the project: its tile shows its picture and name, its description is under the tiles
@@ -2422,9 +2682,9 @@ with *reappears* (a story event) or the interaction **Come back** (after a butto
 default for the ones you make now): the character finds the way on the walkable area (*View >
 Walkable area*), the way a man would walk, and needs no path nodes on the way. Each **Rebuild** of a
 map that uses it puts the walkable area into the map (*Walkable area for the game: N polygons* in
-Messages). In the game the mod plans the route (the corners where it turns) and the character walks it
+Messages). In the game DeusEdix's package plans the route (the corners where it turns) and the character walks it
 with the game's own orders, so it opens the doors it can open and animates as always. If it gets held
-up, the mod plans the route again from where it stands. Without a walkable area in the map, or with no
+up, it plans the route again from where it stands. Without a walkable area in the map, or with no
 way on it, the character takes the AI paths as before. What it knows that the view does not:
 
 - crates, barricades and the other blocking objects (JC climbs over them and squeezes past them;
@@ -2517,7 +2777,9 @@ the stage the build is at, the time so far and how long the last build of this m
 0:41*), with **Cancel**. The stages are the ones the build really has: *Saving* and *Walkable area* (the
 page, before the engine), then *Preparing*, *Loading the map*, *Applying edits*, *CSG and BSP*, *AI paths*,
 *Lighting* and *Writing the .dx*, read from the engine's own log as it works (a lighting-only build skips
-CSG and BSP, a build of objects only skips most of them).
+CSG and BSP, a build of objects only skips most of them). The build works out of sight: it opens no window on
+your screen, never takes the keyboard from the editor, and leaves alone the mouse of a game playing in its own
+window.
 
 While it runs the 3D view is **look-only**: you can fly, orbit, select (in the view or the Hierarchy), frame
 with `F`, keep and recall views and selections (`1`…`9`), measure, switch the lighting and the AI paths,
@@ -2557,14 +2819,79 @@ choose, besides a play scenario (below):
 
 - **Mission state**: *the map as it starts*.
 - **Other flags**: any flag, as `Name=1` or `Name=0`, separated by commas.
-- **Install first**: shown when the game would miss your last rebuild; the game plays the
-  installed map, so leave it ticked.
+- **Play in**: *Editor* (the game plays inside the editor: see *Play in the editor* below) or *Game window*
+  (the game's own window). The **Play** button plays in the editor; **Play in editor** and **Play in game
+  window** are also in the Map menu and under the arrow.
 
-The game takes about 30 seconds to open. Close it normally, or with **Close game**: the editor
-puts the game's settings back by itself. Apply the story in the Story panel before playing, or
-the game will not have your latest dialogues. For existing maps,
-**Install** keeps the previous copy in `maps\backup\`, refuses if your copy was changed by
+Play first saves the map and its Story, then prepares a temporary copy of the map for the game, so the map you
+edit stays as it is: your latest dialogues are compiled into the project's package, the map is built with your
+changes and the packages are installed in the game, each only when something changed (see *Play preparation*
+below). On a test PC JC can move about 6 to 9 seconds after you press Play in Revision when the map has not
+changed (13.6 seconds in earlier versions of the editor), and about 6 seconds in the original game (34 seconds in
+earlier versions, which left DirectDraw on). Most of that time is the game's own start: Steam takes a second or
+two to start it and the game a few seconds to load the map, while the editor's part, before Steam starts the
+game, is under a second. A changed map adds its build.
+
+For existing maps, **Install** keeps the previous copy in `maps\backup\`, refuses if your copy was changed by
 something else since your rebuild, and archives the changes, which are now part of the map.
+
+### Play in the editor, Stop and full screen
+
+**Play** (or **Play in editor**) runs the game inside the editor, in the **Game view** over the 3D view; it needs
+the DeusEdix app (in a browser, use **Play in game window**). Click the game to play; `Shift+F1` or **Release
+mouse** gives the mouse back to the editor.
+
+- **Your game's settings stay yours.** Every Play starts the game in a window, on its own copies of the game's
+  settings files (Revision: `Revision.ini` and `RevisionUser.ini`; the original game: `DeusEx.ini` and
+  `User.ini`), made from yours at each Play and removed after it. A Play never changes your own files: not your
+  full-screen choice, your window size, your key bindings or the map your main menu shows, and the game saves in
+  a save folder kept for the project, not in yours. Settings you change inside the game during a Play are not
+  kept. The copies also turn DirectDraw off, which a game in a window does not need (with it on, the original
+  game waited up to half a minute before its window opened).
+- **No white flash.** While the game starts, the editor's window stays in front of the other windows, so the
+  game's start-up screens and its window, white for a moment before its first picture, stay behind it: maximize
+  the editor to hide them completely. This happens only when the editor is in front as the game starts, and it
+  ends as soon as you switch to another program (Steam and your browser too) or click the desktop, when you
+  minimize the editor, when the game shows an error box (which then comes to the front), and after 60 seconds
+  at the latest. The game appears in the Game view about a second after its first picture. **Play in game
+  window** shows the game's own start as it is.
+- **Stop** (in the Game view's header) closes the game where it is: it asks the game to quit as its own menu's
+  Quit does, so it closes in about a second and nothing is left behind. Only a game that does not close within a
+  few seconds is closed by force. The game never changes your map: your edits stay as they were.
+- **Continue in game window** moves the game out of the editor into its own window, in front of the others, and
+  you play on there; **Stop** still closes it. The Game view offers it when it cannot show the game (the game
+  opened full screen, keeps changing its window, or could not be taken in), with **Retry embedding** where that
+  can help.
+- **Full screen** works only in the game's own window: press `Alt+Enter` there (with **Play in game window**, or
+  after **Continue in game window**). It lasts for that Play: the next one opens in a window again. `Alt+Enter`
+  pressed while the game plays inside the editor first moves it into its own window, then switches it to full
+  screen there. Full screen turned on in the game's video settings while it plays inside the editor stops the
+  game with an error: the Game view says so and offers **Stop**.
+- **A mod played from the Mods list** (**Projects > Mods > Play**) also starts on its own copies of the settings,
+  but as you play the game yourself: full screen if you play full screen.
+- If the editor ends unexpectedly while a game plays inside it, the game ends with it; a game in its own window
+  keeps running.
+
+### Play preparation: only what changed
+
+Play leaves out what is already done. The compile of the project's package, the build of the map and the
+install of the packages into the game are each left out when nothing they are made from has changed since they
+last succeeded, and **Messages** says so: *Package unchanged since it was last compiled: not compiled again.*,
+*Map unchanged since the last Play: not rebuilt.*, *Packages unchanged since the last Play: not installed
+again.* The preparation of an unchanged map then takes less than half a second.
+
+- **What counts as a change** is anything the map's build reads: the map itself (its script or `.dx`) and its
+  saved changes, prefabs, imported textures, characters, models, animations, sounds and voices, the Story, the
+  project's player character, the packages of other mods the project uses, the project's own packages and the
+  editor itself (after an update of the editor each map is built once more). The map's own script, `.dx` and saved
+  changes and the player character are compared by their text, so the same text saved again is no change there.
+  Saving another map's changes or installing another map does not count (its Story does), nor do the editor's
+  caches, the catalogs it fills from the game, or the file Steam rewrites at every start.
+- **A Rebuild counts as Play's build**: after a Rebuild, in any mode, the next Play of the unchanged map does not
+  build it again. A Rebuild in Full, Lighting or AI paths (the arrow beside Rebuild, or the Map menu) is
+  remembered: when the map has to be built again, Play builds it the same way and says so, until you Rebuild in
+  Automatic. A cancelled Rebuild leaves the map as it was (a player character's package compiled before the
+  cancel is kept).
 
 ### Play scenarios and JC's loadout
 
@@ -2602,8 +2929,22 @@ Play goes on without them; the server checks the classes again.
 0.25`; pressed again, `slomo 1`), **Ghost** (JC flies through walls; pressed again, `walk`) and **God**. Each sends
 the game's console command through the Console's channel (the Console shows it) and stays pressed while it is on;
 God starts pressed when the scenario gives it. The buttons wait for the game to run, and while the map is still
-loading a command waits for it. The game keeps its speed in its own settings (`slomo` saves it there): when the game
-closes, the editor puts the speed back as it was, so the next game does not start slow.
+loading a command waits for it. The game keeps its speed in its settings (`slomo` saves it there), which during a
+Play are the Play's own copies: the next game does not start slow.
+
+### Known limits of Play
+
+- After `Ctrl+Z` of a texture change made over another of your imported textures and already put in by a Rebuild,
+  the next build (Play's or a Rebuild's) can show those objects with their original texture, and the Plays after
+  it keep it: press **Rebuild** once more.
+- In Revision, a new texture on an object that Revision draws with its own high-definition (HDTP) model (boxes,
+  trash cans, baskets, some lamps and the like) does not show in the game, though the editor shows it.
+- A texture put on **All uses in this map** (Texture Editor) reaches an object given another model, or one with a
+  model of its own written into a map script since the last build, only from the second build, and the first
+  build may put it on the part the old model wore it on, which then keeps it. Give the object its new model and
+  Rebuild before you put the texture on every object; if a part took it by mistake, take the texture away,
+  Rebuild, then put it on again. On an existing (`.dx`) map, an object of a pasted prefab with a model of its own
+  is never reached.
 
 ## Where things are kept
 
@@ -2717,12 +3058,19 @@ The feature uses the engine from your installed game. No game maps, packages, te
   themselves) and keep the bodies of the game: new 3D models cannot be imported.
 - The editor does not make voices by itself: record or import them for each line (see *Voices*).
 - The **Lit** view is close to the game but not identical: lamps that flicker or pulse are shown
-  steady, coronas and fog are not drawn, and some objects can have a different skin in the game.
+  steady (a flickering lamp lit, even in a Revision project, whose renderer leaves it dark) and coronas and zone fog
+  are not drawn unless **View > Effects** is on, and then the walls take an estimate of each lamp's share (their
+  lightmaps hold every lamp together), palette lamps and light effects (torch, searchlight) stay steady, a corona is
+  a glow of its lamp's colour rather than its Skin texture and only walls hide it (in the game objects do too), and
+  volumetric fog is not drawn; some objects can have a different skin in the game.
 - Animations move objects, not characters (their AI walks them: give them orders and patrols). The keys of
   a door or an elevator are the engine's: at most 8, and the same curve for all of them.
 - Imported models do not move by themselves (no skeletal animations: characters are made with the Character Creator), and their
   collision is a cylinder round them (untick *Solid* for a long table JC should reach over). A map that uses
   them needs `DeusEdixModels.u` (Install puts it in the game).
+- **Hear the map** plays each sound as it is: no zone reverb, no walls in between, no Doppler. Robots and fires,
+  whose Properties have no Sound, are heard only if the map gives them one. A zone's **Reverb** is heard only in the
+  game, with an audio that plays reverb (Galaxy, or Revision's OpenAL audio with its reverb on).
 - A zone works only when its area is closed: walls and zone portals all round. Water and portals change the
   geometry: they need a map that can be rebuilt.
 - Interactions, stories, cutscenes and the editor's characters run through DeusEdix's package
