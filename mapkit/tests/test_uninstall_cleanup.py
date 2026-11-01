@@ -15,6 +15,7 @@ from unittest.mock import patch
 HERE = Path(__file__).resolve().parent
 KIT = HERE.parent
 sys.path.insert(0, str(KIT))
+import settings as real_settings  # noqa: E402  (the launch copies' names: launch_names)
 
 TARGETS = {
     'revision': dict(name='Deus Ex: Revision', short='Revision', root='Revision', exe='Revision.exe',
@@ -23,12 +24,12 @@ TARGETS = {
                     user_ini='User.ini'),
 }
 GAME_INI = ('[Core.System]\r\nPaths=..\\System\\*.u\r\nPaths=..\\DeusEdixMaps\\*.dx\r\n'
-            'Paths=..\\DeusEdixProjects\\abc\\*.dx\r\nPaths=..\\UnatcoMaps\\*.dx\r\n'
+            'Paths=..\\DeusEdixProjects\\abc\\*.dx\r\nPaths=..\\OtherModMaps\\*.dx\r\n'
             '[Engine.GameEngine]\r\nServerActors=IpDrv.UdpBeacon\r\nServerActors=DeusEdix.UCLegacyActor\r\n'
-            'ServerActors=DXP_abc.UCLegacyActor\r\nServerActors=UnatcoContinues.UCLegacyActor\r\n'
+            'ServerActors=DXP_abc.UCLegacyActor\r\nServerActors=OtherMod.UCLegacyActor\r\n'
             '[Engine.Engine]\r\nSavePath=..\\Save\r\n')
-KEPT_INI = ('[Core.System]\r\nPaths=..\\System\\*.u\r\nPaths=..\\UnatcoMaps\\*.dx\r\n'
-            '[Engine.GameEngine]\r\nServerActors=IpDrv.UdpBeacon\r\nServerActors=UnatcoContinues.UCLegacyActor\r\n'
+KEPT_INI = ('[Core.System]\r\nPaths=..\\System\\*.u\r\nPaths=..\\OtherModMaps\\*.dx\r\n'
+            '[Engine.GameEngine]\r\nServerActors=IpDrv.UdpBeacon\r\nServerActors=OtherMod.UCLegacyActor\r\n'
             '[Engine.Engine]\r\nSavePath=..\\Save\r\n')
 
 
@@ -53,7 +54,12 @@ class Cleanup(unittest.TestCase):
                                        MODELS_PACKAGE='M', SOUNDS_PACKAGE='S', SCRIPTS_PACKAGE='Scripts', GAME=self.game,
                                        GAME_ROOT=self.game / 'Revision', REVISION=self.game / 'Revision',
                                        GAME_SYSTEM=self.game / 'Revision/System', TARGETS=TARGETS,
-                                       MANAGED_PROJECT=False, STANDALONE=True)
+                                       MANAGED_PROJECT=False, STANDALONE=True,
+                                       LAUNCH_PLAY=real_settings.LAUNCH_PLAY, LAUNCH_MOD=real_settings.LAUNCH_MOD,
+                                       launch_names=real_settings.launch_names,
+                                       game_running=lambda target=None: False,
+                                       system_folder=lambda target=None, folder=None:
+                                           real_settings.system_folder(target, folder or self.game))
         self.w = load(self.s)
         native = self.root / 'bin'
         native.mkdir()
@@ -99,7 +105,7 @@ class Cleanup(unittest.TestCase):
         revision = self.system('revision')
         (revision / 'DeusEdixMod.ini').write_text('mod launch copy')
         (revision / 'RevisionUser.ini').write_bytes(b'[Engine.Input]\r\nF=Fire\r\n[DeusEdix.UCConsoleLink]\r\nSeq=3\r\n'
-                                                     b'[UnatcoContinues.UCShotRunner]\r\nbActive=False\r\n')
+                                                     b'[OtherMod.UCShotRunner]\r\nbActive=False\r\n')
         (revision / 'RevisionUser.ini.bak_shots').write_bytes(b'backup')
         (self.system('vanilla') / 'User.ini').write_bytes(b'[Engine.Input]\r\nF=Fire\r\n[DXP_abc.UCShotRunner]\r\nx=1\r\n')
         (self.system('vanilla') / 'User.ini.bak_shots').write_bytes(b'backup')
@@ -119,15 +125,46 @@ class Cleanup(unittest.TestCase):
             self.assertEqual((system / TARGETS[target]['ini']).read_bytes().decode('latin1'), KEPT_INI)
         self.assertFalse((revision / 'DeusEdixMod.ini').exists())
         self.assertEqual((revision / 'RevisionUser.ini').read_bytes(),
-                         b'[Engine.Input]\r\nF=Fire\r\n[UnatcoContinues.UCShotRunner]\r\nbActive=False\r\n')
+                         b'[Engine.Input]\r\nF=Fire\r\n[OtherMod.UCShotRunner]\r\nbActive=False\r\n')
         self.assertTrue((revision / 'RevisionUser.ini.bak_shots').exists())       # another mod's runner still uses it
         self.assertEqual((self.system('vanilla') / 'User.ini').read_bytes(), b'[Engine.Input]\r\nF=Fire\r\n')
         self.assertFalse((self.system('vanilla') / 'User.ini.bak_shots').exists())
 
+    def test_the_launch_copies_go_and_another_tools_stay(self):
+        """A2 (29 Oct 2026): Revision's launch copies of its ini files go with the rest, a mod's game's and each
+        project's Play's (left in System by a Play cut short); another tool's copies there (UCLandingTest_*) stay."""
+        revision = self.system('revision')
+        mine = sum((real_settings.launch_names(name) for name in (real_settings.LAUNCH_PLAY + 'p',
+                    real_settings.LAUNCH_PLAY + 'legacy', real_settings.LAUNCH_MOD)), ())
+        theirs = ('UCLandingTest_855484cd.ini', 'UCLandingTest_855484cdUser.ini')
+        for name in mine + theirs:
+            (revision / name).write_bytes(b'[Core.System]\r\n')
+        with patch.object(self.w.subprocess, 'run', not_running):
+            ok, lines = self.w.remove_game_files()
+        self.assertTrue(ok, lines)
+        self.assertEqual(sorted(p.name for p in revision.iterdir() if p.name in mine + theirs), sorted(theirs))
+
+    def test_cleaning_an_ini_waits_out_a_sharing_violation(self):
+        """Review #9: taking DeusEdix's lines out of an ini goes through project_game.replace like every write of a
+        game's file: a refusal for a moment (an antivirus scanning it) is waited out, not reported as a failure."""
+        import project_game
+        real, refused = os.replace, []
+
+        def busy_once(src, dst):
+            if Path(dst).name == 'Revision.ini' and not refused:
+                refused.append(dst)
+                raise PermissionError(13, 'The process cannot access the file')
+            return real(src, dst)
+        with patch.object(self.w.subprocess, 'run', not_running), patch.object(project_game.os, 'replace', busy_once):
+            ok, lines = self.w.remove_game_files()
+        self.assertTrue(ok, lines)
+        self.assertEqual(len(refused), 1)
+        self.assertEqual((self.system('revision') / 'Revision.ini').read_bytes().decode('latin1'), KEPT_INI)
+
     def test_a_running_game_is_left_alone(self):
         (self.system('revision') / 'DeusEdixNav.dll').write_bytes(b'in use')
-        running = lambda args, **kw: types.SimpleNamespace(stdout='Revision.exe 1234' if 'Revision.exe' in args[-1] else '')
-        with patch.object(self.w.subprocess, 'run', running):
+        self.s.game_running = lambda target=None: target == 'revision'          # settings.game_running, never tasklist
+        with patch.object(self.w.subprocess, 'run', side_effect=AssertionError('tasklist started')):
             ok, lines = self.w.remove_game_files()
         self.assertFalse(ok)
         self.assertTrue((self.system('revision') / 'DeusEdixNav.dll').exists())

@@ -161,8 +161,8 @@ def _game_running():
     # either game of this game folder (projects are made for Revision or for the original game): their own
     # programs only, not another install or a mod's DeusEx.exe elsewhere
     from game_process import WindowsProcesses
-    for profile in settings.TARGETS.values():
-        exe = (settings.GAME / profile['root'] if profile['root'] else settings.GAME) / 'System' / profile['exe']
+    for target, profile in settings.TARGETS.items():
+        exe = settings.system_folder(target) / profile['exe']
         if exe.is_file() and WindowsProcesses(exe).list():
             return True
     return False

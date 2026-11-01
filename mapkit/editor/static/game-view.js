@@ -6,9 +6,12 @@ const checked = result => {
   return result;
 };
 const ownsProcess = session => !!(session?.owned || session?.running || session?.launching || session?.stopping);
+// a game that an embedded Stop only asked to close (live_stop with force false), still open and not being closed
+const stillOpen = session => !!(session?.running && !session?.stopping);
 
 export function createPlaySessionController({ api, getScript, getSession = () => '', getStart = () => ({}),
-  save = async () => true, canStart = async () => {}, beforeStop = async () => {}, resolveResumeMode = async mode => mode,
+  save = async () => true, canStart = async () => {}, beforeStop = async () => {}, beforeForce = async () => {},
+  askFirst = () => true, resolveResumeMode = async mode => mode,
   onState = () => {}, onLog = () => {},
   setTimeout: later = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   let state = { active: false, phase: 'idle', mode: 'embedded', session: null, error: '' };
@@ -176,9 +179,22 @@ export function createPlaySessionController({ api, getScript, getSession = () =>
         if (changedSession(current)) { refuseReplacement(current); return false; }
         if (ownsProcess(current) && !expectedToken && !launchRequested) { refuseReplacement(current); return false; }
         await beforeStop();
-        const stopped = checked(await api('/api/live_stop', expectedPreparationToken ? { previewToken: expectedPreparationToken }
-          : expectedToken ? { token: expectedToken } : {}));
+        const target = expectedPreparationToken ? { previewToken: expectedPreparationToken } : expectedToken ? { token: expectedToken } : {};
+        // An embedded game is first only asked to close (force false), still in the editor's panel: it ends there as a
+        // child window, with no flash and nothing restored around a closing game. Only a game still open after that is
+        // handed back (beforeForce) and closed from outside, as every Stop did before (29 Oct 2026). askFirst() false:
+        // the game can no longer answer (it stopped with an error), so the Stop that may close it is sent at once,
+        // unasked (ask false: the server does not wait for a console that no longer runs).
+        const inPlace = state.mode === 'embedded' && !!target.token && askFirst();
+        const unasked = !!target.token && !askFirst();
+        let stopped = checked(await api('/api/live_stop', inPlace ? { ...target, force: false }
+          : unasked ? { ...target, ask: false } : target));
         lines(stopped);
+        if (inPlace && stillOpen(stopped.session)) {
+          await beforeForce();
+          stopped = checked(await api('/api/live_stop', target));
+          lines(stopped);
+        }
         const session = checked(await api('/api/play_session'));
         if (changedSession(session)) { refuseReplacement(session); return false; }
         receive(session);
@@ -212,6 +228,49 @@ export function createPlaySessionController({ api, getScript, getSession = () =>
   };
 }
 
+// What the Game view says about a game window that the launcher leaves alone (its answers' windowMode): taken into the
+// panel or given back from it, a full-screen or minimized game window crashed the game (28 Oct 2026). `outside`: it
+// is not in the panel (never was, or vanished from it); `inside`: it changed there. actions: the message's buttons
+// offered (data-game). Nothing is detached: Stop closes the game where it is. ask false: Stop does not first ask the
+// game to close. outsideNoRetry: `outside` for a game that Retry embedding cannot show once it has opened full screen
+// (the answer's retryFromFullScreen false: the original game, D6 of the game test, 29 Oct 2026).
+const LEFT_ALONE = {
+  fullscreen: {
+    outside: { title: 'The game opened in full screen', actions: ['retry', 'external', 'stop'],
+      detail: 'A full-screen game cannot be shown inside the editor. To play it here, switch the game to a window (Alt+Enter in the game), then choose Retry embedding. To play it full screen, choose Continue in game window.' },
+    outsideNoRetry: { title: 'The game opened in full screen', actions: ['external', 'stop'],
+      detail: 'This game cannot be shown inside the editor once it has opened in full screen, not even after you switch it to a window. Choose Continue in game window to play it full screen (Alt+Enter in the game makes it a window), or Stop to close it.' },
+    inside: { title: 'The game switched to full screen', actions: ['stop'],
+      detail: 'Full screen does not work inside the editor, so the game was left as it is. Choose Stop to close it and return to editing. To play full screen, use Play in game window.' },
+  },
+  // its window vanished while the game ran on, then its error box showed (or no window came back): how any critical
+  // error of the game looks from outside, full screen asked for in the panel among them (the game's video settings, the
+  // console's ToggleFullscreen: both games die of it there, game test 29 Oct 2026), so the detail names no single
+  // cause. Its console no longer runs, so Stop does not ask it first.
+  crashed: {
+    outside: { title: 'The game stopped with an error', actions: ['stop'], ask: false,
+      detail: 'Its window closed while the game ran on. Full screen turned on inside the editor does this, and so does any critical error of the game: its error box or its log says which. Choose Stop to close it and return to editing.' },
+  },
+  // its game keeps putting back the frame of its window in the panel, which the launcher stops taking away after a few
+  // tries (the original game switched to a window after it opened full screen: its picture never showed, D6 of the
+  // game test, 29 Oct 2026); in a window of its own it plays
+  unsettled: {
+    inside: { title: 'The game keeps changing its window', actions: ['external', 'stop'],
+      detail: 'The game keeps changing its window inside the editor, so it cannot be shown here. Choose Continue in game window to play it in its own window, or Stop to close it.' },
+  },
+  minimized: {
+    outside: { title: 'The game window is minimized', actions: ['stop'],
+      detail: 'A minimized game cannot be shown inside the editor. Choose Stop to close it, then Play again.' },
+    inside: { title: 'The game window was minimized', actions: ['stop'],
+      detail: 'The game minimized itself and cannot be brought back into the editor safely. Choose Stop to close it, then Play again.' },
+  },
+};
+// the error of a launcher answer, but not its report of a window left alone (the view says that one: LEFT_ALONE)
+const nativeError = result => LEFT_ALONE[result?.windowMode] ? '' : result?.error || '';
+// the launcher's windowMode while it keeps the player's Alt+Enter from the game in the panel, and what the game is then
+// asked in its own window (its console command)
+const FULL_SCREEN_ASKED = 'fullscreenAsked', FULL_SCREEN = 'ToggleFullscreen';
+
 // controls: the header's buttons while the game runs ([{id, label, title, on, off}]: the console commands sent when one is
 // pressed and when it is let go, play-scenarios.js PLAY_CONTROLS); sendCommand(command): sends one to the game (the
 // Console's channel, console.js), true when it went
@@ -231,12 +290,24 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
   const stage = panel.querySelector('.game-view-stage'), message = panel.querySelector('.game-view-message');
   const title = message.querySelector('strong'), detail = message.querySelector('p'), actions = message.querySelector('.game-view-actions');
   const releaseButton = panel.querySelector('[data-game="release"]');
-  let attached = false, captured = false, attachError = '', attachSince = 0, capabilities = null;
+  // the message's buttons, by their data-game (LEFT_ALONE's actions)
+  const actionButtons = { retry: actions.querySelector('[data-game="retry"]'), external: actions.querySelector('[data-game="external"]'),
+    stop: actions.querySelector('[data-game="stop"]') };
+  // leftAlone: what the view says about a game window the launcher left alone (LEFT_ALONE), null while there is none
+  let attached = false, captured = false, attachError = '', attachSince = 0, capabilities = null, leftAlone = null;
   let nativeTail = Promise.resolve(), syncing = false, syncAgain = false, nativeTimer = null, disposed = false;
   let lastNativePlacement = '', lastState = null, lastError = '', layoutFrame = null, nativeBusySince = 0;
   // the header's buttons pressed in this game (by id), those pressed when it starts (start's third argument), a
   // command on its way (the buttons wait for it: the game takes one at a time)
   let pressed = {}, pressedAtStart = {}, commanding = false;
+  // the game is being moved into its own window to play full screen (askFullScreen)
+  let goingFullScreen = false;
+  // the launcher keeps the app's window above the others while an embedded Play starts, when the app is in front, so
+  // that the game's start-up windows stay behind it until its window is in the panel (all of them only when the app is
+  // maximized; game_cover): '' not asked in this Play yet, 'on' asked, 'off' let go (never asked again in this Play,
+  // not even by Retry embedding); the one-off sync at the time the launcher said the game window may be taken in
+  // (syncAt)
+  let cover = '', readyTimer = null;
   const bridge = () => window.pywebview?.api;
   function native(method, argument) {
     const call = nativeTail.catch(() => {}).then(async () => {
@@ -266,9 +337,11 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
       rect: { x: body.left, y: body.top, width: Math.max(1, body.width), height: Math.max(1, body.height) },
       dpr: window.devicePixelRatio || 1 };
   }
-  async function detach() {
+  // the game window handed back by the launcher; front: also made the foreground window (Continue in game window: a
+  // window never taken into the panel lay under the editor's, review su3 #5, 31 Oct 2026)
+  async function detach(front = false) {
     if (bridge()?.game_detach) {
-      const result = await native('game_detach');
+      const result = await native('game_detach', front ? true : undefined);
       if (result?.error) throw new Error(result.error);
     }
     attached = captured = false; lastNativePlacement = '';
@@ -278,6 +351,7 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     document.documentElement.classList.toggle('game-playing', state.active);
     panel.dataset.phase = state.phase;
     actions.hidden = !attachError || state.phase === 'stopping';
+    for (const [name, button] of Object.entries(actionButtons)) button.hidden = !!leftAlone && !leftAlone.actions.includes(name);
     releaseButton.disabled = !attached || state.phase === 'stopping';
     panel.querySelectorAll('[data-control]').forEach(button => {
       button.disabled = state.phase !== 'running' || commanding;
@@ -292,15 +366,74 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
       stopping: ['Stopping Play', 'Waiting for the game to close and restoring the editor…'],
       running: ['Opening Game view', 'Waiting for the game window…'], error: ['Play needs attention', ''] };
     const text = phaseText[state.phase] || ['', ''];
-    title.textContent = attachError ? 'Game view could not be attached' : text[0];
+    title.textContent = attachError ? leftAlone?.title || 'Game view could not be attached' : text[0];
     detail.textContent = attachError || state.error || text[1];
     if (!panel.hidden) layout();
+    syncCover(state);
+  }
+  // The cover asked for at the launch of an embedded Play (Play in game window is never covered), and let go as soon as
+  // it is no longer wanted: the game window in the panel, a report or an error about it, the Play stopping, failing or
+  // ended, or the Game view gone (dispose). The launcher lets it go by itself too (native_play.py COVER_LIMIT).
+  function syncCover(state) {
+    const wanted = state.active && state.mode === 'embedded' && ['launching', 'running'].includes(state.phase) && !attached && !attachError;
+    if (cover === '' && wanted && state.phase === 'launching') setCover('on');
+    else if (cover === 'on' && !wanted) setCover('off');
+  }
+  function setCover(value) {
+    cover = value;
+    if (bridge()?.game_cover) void native('game_cover', value === 'on').catch(() => {});
   }
   function nativeFailure(error) {
-    attachError = messageOf(error); captured = false;
+    attachError = messageOf(error); captured = false; leftAlone = null;
     display();
     status(attachError, 'bad');
-    void detach().catch(() => {});
+    // while stopping the window stays where it is until the game has closed (or the Stop hands it back)
+    if (controller.state.phase !== 'stopping') void detach().catch(() => {});
+  }
+  // A launcher answer about a game window it left alone (windowMode, LEFT_ALONE): said in plain words; nothing is
+  // detached (the window may still be in the panel) and Stop closes the game where it is. A new one is synced again at
+  // once, which hides the panel so that the message shows. -> whether the answer was one
+  function leaveAlone(result) {
+    const entry = LEFT_ALONE[result?.windowMode];
+    const said = entry && (result.attached ? entry.inside : result.retryFromFullScreen === false && entry.outsideNoRetry || entry.outside);
+    if (!said) return false;
+    if (leftAlone !== said) { status(said.detail, 'bad'); syncAgain = true; }
+    leftAlone = said; attachError = said.detail; attached = !!result.attached; captured = false;
+    display();
+    return true;
+  }
+  // A launcher answer while the player's Alt+Enter, which it kept from the game in the panel, waits (FULL_SCREEN_ASKED:
+  // full screen there ends the game with a D3D error, game test 29 Oct 2026): the game goes on in its own window
+  // (Continue in game window) and is asked there for full screen through its console. -> whether the answer was one
+  function askFullScreen(result) {
+    if (result?.windowMode !== FULL_SCREEN_ASKED || controller.state.phase !== 'running') return false;
+    if (!goingFullScreen) {
+      goingFullScreen = true;
+      void (async () => {
+        try {
+          if (await continueExternal() && !await sendCommand(FULL_SCREEN))
+            status('The game did not take full screen: press Alt+Enter in its window.', 'warn');
+        } finally { goingFullScreen = false; }
+      })();
+    }
+    return true;
+  }
+  // an answer that says something about the game window instead of an error: Alt+Enter, or a window left alone
+  const reported = result => askFullScreen(result) || leaveAlone(result);
+  // An answer that says the game window is no longer in the panel and reports nothing about it: the window vanished (its
+  // game ended, or stopped with an error), and an error of the launcher about that window may come with it (a tick that
+  // raced it). It is looked for again (embed), which says what became of it. -> whether the answer was one
+  function lost(result) {
+    if (result?.attached !== false || result.windowMode) return false;
+    attached = captured = false; lastNativePlacement = ''; attachSince = 0;
+    display();
+    return true;
+  }
+  // a sync at the time the launcher said the game window may be taken in (its embed answer's readyIn, seconds), not at
+  // the next of the timer's half seconds
+  function syncAt(seconds) {
+    if (readyTimer !== null) clearTimeout(readyTimer);
+    readyTimer = setTimeout(() => { readyTimer = null; void syncNative(); }, Math.max(0, seconds) * 1000);
   }
   async function syncNative() {
     if (disposed) return;
@@ -308,21 +441,27 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     syncing = true;
     try {
       const state = controller.state;
-      if (!state.active || state.mode !== 'embedded' || state.phase === 'stopping') {
+      if (!state.active || state.mode !== 'embedded') {
         if (attached) await detach();
         return;
       }
+      // Stop closes an embedded game where it is: while stopping the window stays in the panel (the controller's
+      // beforeForce hands it back only when the game did not close by itself), and no window is embedded
+      if (state.phase === 'stopping' && !attached) return;
       const placement = layout();
       if (!placement) return;
-      const visible = state.phase === 'running' && !attachError && !obstructed();
+      const visible = ['running', 'stopping'].includes(state.phase) && !attachError && !obstructed();
       if (attached) {
         const signature = JSON.stringify({ ...placement, visible });
         if (signature !== lastNativePlacement) {
           const resized = await native('game_resize', { ...placement, visible });
+          if (reported(resized)) { lastNativePlacement = signature; return; }
+          if (lost(resized)) return;
           if (resized?.error) throw new Error(resized.error);
           lastNativePlacement = signature;
         }
         const result = await native('game_status');
+        if (reported(result) || lost(result)) return;
         if (result?.error) throw new Error(result.error);
         if (result?.pid && state.session?.pid && Number(result.pid) !== Number(state.session.pid))
           throw new Error('The game process changed. Stop Play before attaching another window.');
@@ -330,12 +469,14 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
       } else if (visible) {
         attachSince ||= Date.now();
         const result = await native('game_embed', placement);
+        if (reported(result)) return;
         if (result?.error || result?.supported === false) throw new Error(result.error || 'Embedding is unavailable for this game window.');
         if (result?.pid && state.session?.pid && Number(result.pid) !== Number(state.session.pid))
           throw new Error('The game process changed. Stop Play before attaching another window.');
         attached = !!result?.attached; captured = !!result?.captured;
         if (!attached && (!result?.pending || Date.now() - attachSince > 300000))
           throw new Error('The game is running, but its window could not be attached. Retry, continue in the game window, or stop Play.');
+        if (!attached && typeof result?.readyIn === 'number') syncAt(result.readyIn);
         lastNativePlacement = '';
       }
       nativeBusySince = 0;
@@ -361,10 +502,11 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
   function onState(state) {
     const previous = lastState, wasActive = previous?.active;
     lastState = state;
-    if (state.active && !wasActive) { resetInput(); attachError = ''; attachSince = 0; pressed = { ...pressedAtStart }; pressedAtStart = {}; }
+    if (state.active && !wasActive) { resetInput(); attachError = ''; leftAlone = null; attachSince = 0; pressed = { ...pressedAtStart }; pressedAtStart = {}; cover = ''; }
     if (!state.active || state.mode === 'external') {
       if (nativeTimer !== null) clearTimeout(nativeTimer);
-      nativeTimer = null;
+      if (readyTimer !== null) clearTimeout(readyTimer);
+      nativeTimer = readyTimer = null;
       if (attached || previous?.active && previous.mode === 'embedded')
         void detach().catch(error => status(messageOf(error), 'bad'));
     }
@@ -384,11 +526,13 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     if (state.active && state.mode === 'embedded') { void syncNative(); scheduleNative(); }
   }
   const controller = createPlaySessionController({ api, getScript, getSession, getStart, save, onState, onLog: log,
+    askFirst: () => leftAlone?.ask !== false,
     async resolveResumeMode(_mode, session) {
       if (bridge()?.game_status) {
         try {
           const result = await native('game_status');
-          if (!result?.error && result?.attached && session.running && Number(result.pid) === Number(session.pid)) return 'embedded';
+          // a window left alone in the panel resumes embedded too, so that its Stop closes it there
+          if (!nativeError(result) && result?.attached && session.running && Number(result.pid) === Number(session.pid)) return 'embedded';
         } catch { /* The backend still owns this game; external mode retains Stop. */ }
       }
       return 'external';
@@ -396,12 +540,17 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     async beforeStop() {
       // Native presentation failure must never prevent the backend from
       // closing the verified owned process and restoring its configuration.
+      // Only the mouse is released: the game is asked to close while still in the panel.
       try {
         if (bridge()?.game_release) {
           const result = await native('game_release');
-          if (result?.error) throw new Error(result.error);
+          if (nativeError(result)) throw new Error(result.error);
         }
       } catch (error) { log(['Mouse release: ' + messageOf(error)], 'bad'); }
+    },
+    async beforeForce() {
+      // The game did not close by itself: handed back as a window of its own, which the
+      // backend's WM_CLOSE reaches (a child of the panel never gets it).
       try { await detach(); }
       catch (error) { log(['Game window detach: ' + messageOf(error)], 'bad'); }
     },
@@ -416,7 +565,7 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
   async function release() {
     try {
       const result = await native('game_release');
-      if (result?.error) throw new Error(result.error);
+      if (nativeError(result)) throw new Error(result.error);
       captured = false; resetInput(); display(); return true;
     } catch (error) { status(messageOf(error), 'bad'); return false; }
   }
@@ -425,10 +574,10 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     return await controller.stop();
   }
   async function continueExternal() {
-    try { await detach(); attachError = ''; controller.setMode('external'); return true; }
+    try { await detach(true); attachError = ''; leftAlone = null; controller.setMode('external'); return true; }
     catch (error) { nativeFailure(error); return false; }
   }
-  function retryEmbed() { attachError = ''; attachSince = 0; display(); void syncNative(); }
+  function retryEmbed() { attachError = ''; leftAlone = null; attachSince = 0; display(); void syncNative(); }
   // a header button: its command (pressed: the one that lets it go) to the game, then the button as the game has it
   async function control(id) {
     const c = controls.find(x => x.id === id);
@@ -478,6 +627,8 @@ export function createGameView({ api, getScript, getSession, getStart, save, val
     dispose() {
       disposed = true; controller.dispose(); observer.disconnect(); mutations.disconnect();
       if (nativeTimer !== null) clearTimeout(nativeTimer);
+      if (readyTimer !== null) clearTimeout(readyTimer);
+      if (cover === 'on') setCover('off');
       if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
       document.removeEventListener('visibilitychange', refresh); window.removeEventListener('resize', refresh);
       window.visualViewport?.removeEventListener('resize', refresh);

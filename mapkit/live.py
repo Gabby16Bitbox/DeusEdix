@@ -1,4 +1,4 @@
-"""Live link to the running game (Revision + UNATCO Continues, or the project's game: settings.TARGET): open
+"""Live link to the running game (Revision + the development mod, or the project's game: settings.TARGET): open
 it once, then look around in seconds.
 
     import live
@@ -6,12 +6,11 @@ it once, then look around in seconds.
     path = live.do('player;-29400;100;48;32768;0')            # JC there, screenshot -> PNG path (~1-2 s)
     live.do('console;summon MedKit')   # any console command
     live.show_map('06_HongKong_WanChai_Rooftop')              # after a rebuild: fresh copy, no restart
-    live.stop()                                               # quits the game, restores RevisionUser.ini
+    live.stop()                                               # quits the game, removes its launch copies
 
-Channel: the mod's UCShotRunner in live mode execs System\\UCLive.txt (console "set" lines written
-here) and acknowledges each step by saving LiveDone/LiveResult to RevisionUser.ini.
+Channel: the editor's UCShotRunner in live mode execs System\\UCLive.txt (console "set" lines written
+here) and acknowledges each step by saving LiveDone/LiveResult to the launch's copy of the user ini (INI).
 """
-import os
 import re
 import shutil
 import subprocess
@@ -24,15 +23,22 @@ import settings
 PROJECT = Path(__file__).resolve().parents[2]
 REV = settings.REVISION                     # the targeted game's folder (Revision\, or Deus Ex itself)
 SYS = REV / 'System'
-INI = settings.USER_INI                     # RevisionUser.ini
-# the original game is started with copies of its ini files made for the launch (INI=, USERINI=: it has no
-# -windowed and no second Paths list): its own DeusEx.ini (fullscreen, its folders) and User.ini stay as
-# the player has them. The copies sit in the project's folder in the game, named to the game by a path
-# relative to its System folder: no spaces, no quotes (Steam rewrites quoted values, 15 Oct 2026)
-PLAY_INI = None if settings.IS_REVISION else settings.MAPS_DIR / 'Play' / settings.GAME_INI.name
-PLAY_REL = '..\\' + settings.MAPS_DIR_NAME.replace('/', '\\') + '\\Play\\'
-if PLAY_INI is not None:
-    INI = PLAY_INI.with_name(settings.USER_INI.name)
+# a launch (Play, a live session) starts the game on copies of its ini files made for it (INI=, USERINI=), as the
+# original game's Play has since 15 Oct 2026 and Revision's since 29 Oct: the player's own (Revision.ini and
+# RevisionUser.ini, DeusEx.ini and User.ini) are never written by it, so what the game and the mod save while it plays
+# (the window's mode and size: the black embedded Play of 28 Oct 2026; a slomo's GameSpeed; the map played last; the
+# runner's and the Console's answers) goes into the copies, and with them. One pair per project (settings.launch_inis:
+# Revision's in its System folder, by the project's id as its save folder is; the original game's in the project's
+# folder in the game), named to the game by a path from its System folder: no spaces, no quotes (Steam rewrites quoted
+# values, 15 Oct 2026)
+PLAY_INI, INI = settings.launch_inis(settings.LAUNCH_PLAY + settings.PROJECT_ID, settings.MAPS_DIR)
+# every launch of the editor's is in a window, whichever game and wherever it shows (the Game view, the game's own
+# window, View in game, the mapkit MCP's live session): StartupFullscreen=False in its copy (_session_inis) and the
+# game's own switch for a window (settings.TARGETS 'windowed': Revision's -windowed; the original game has none). A
+# full-screen start left the embedded Play black (28 Oct 2026) and puts a topmost game over the editor; in its own
+# window, Alt+Enter in the game gives full screen for that launch. A mod played from the Mods panel is the player's
+# game, in their own mode (mods.launch_ini)
+WINDOWED = list(settings.PROFILE['windowed'])
 EXE = settings.GAME_EXE
 GAME = settings.PROFILE['short']
 STEAM_APP = settings.STEAM_APP
@@ -41,12 +47,30 @@ CONSOLE_CMD = SYS / 'UCConsole.txt'
 # a play scenario's loadout (editor/play.py loadout_run): console commands the runner execs once, before the player
 # has the controls; there for a launch of the editor's, gone after it
 LOADOUT = SYS / 'UCLoadout.txt'
-# the game's own ini (Revision.ini): its slomo saves GameSpeed there (GameInfo.SetGameSpeed, then SaveConfig), and the
-# next game would start slow; a launch puts it back once the game is closed. The original game plays on copies of
-# its ini files (PLAY_INI below): nothing to put back there
-GAME_INI = settings.GAME_INI
-_GAMEINFO = re.compile(r'(?ims)^\[Engine\.GameInfo\][^\r\n]*\r?\n.*?(?=^\[|\Z)')
-_SPEED = re.compile(r'(?im)^GameSpeed=([^\r\n]*)\r?\n?')
+
+
+# the game's mark, made as it starts and removed by its own exit (and by the cleanup after a close from outside)
+def _running_mark():
+    return SYS / 'Running.ini'
+
+
+# how long Stop waits for the game to close by itself once asked through its console (it was gone 0.2 s after the
+# request in the probe of 29 Oct 2026), and how long from the game's answer to the request (it is closing): a game
+# leaving exclusive full screen took 4.9-5.4 s to end in the game test of 29 Oct 2026, and Stop went on to close it
+# from outside while it was closing by itself. The answer is the game reading the line (Seq) or running it (Done), or
+# its own removal of System\Running.ini as it runs the 'exit'. UCConsoleLink tries to save Seq when it reads a line and
+# Done when it has run it, but the game can lose either save: after a ToggleFullscreen the original game saved Seq for
+# the 'exit', never Done, and closed by itself 3.2-4.4 s later (the third game test of 29 Oct 2026); in exclusive full
+# screen it ran the 'exit' with neither saved in 3 of 12 Stops, and removed Running.ini each time (the fourth). A
+# missing Seq is no proof that the line was not read. A console still inside an earlier line, which has not read the
+# request yet, is given EXIT_WAIT_TAKEN from the request: the original game spent 8-14 s in the page's
+# ToggleFullscreen, and Stop closed it from outside before it read the 'exit' (the second game test of 29 Oct 2026)
+EXIT_WAIT = 5.0
+EXIT_WAIT_TAKEN = 15.0
+# a file of a launch's (its copies, the runner's and the Console's files) that a game the editor never saw close left,
+# written less than this ago, may be another editor's of the same workspace, or a mod's game's, whose game Steam is
+# still starting (GameSession waits 90 s for it): left (tidy_cut_short)
+LAUNCH_AGE = 120.0
 SHOTS = PROJECT / 'shots'
 RUNNER = '[%s.UCShotRunner]' % settings.PACKAGE
 MUTATOR = '?Mutator=%s.UCMutator' % settings.PACKAGE
@@ -57,6 +81,9 @@ _CONSOLE_SECTION = re.compile(r'(?ms)^' + re.escape(CONSOLE) + r'[^\r\n]*\r?\n.*
 STATE = {'seq': 0, 'folder': None, 'maps': set(), 'command_written': False}
 _SESSION = None
 _SESSION_LOCK = threading.Lock()
+# one writer of the Console's command file at a time (_console_line), whoever calls it in this process (the editor's
+# routes are already serialised by its LOCK, UserTurn; a script calling live directly is not)
+_CONSOLE_LOCK = threading.Lock()
 
 
 def _session():
@@ -94,9 +121,9 @@ OWN_GAME_FOLDERS = ('DeusEdixProjects', 'DeusEdixMaps', 'DeusEdixMods')
 
 def _own_saved_state(map_name):
     """The saved state of `map_name` that Play removes so that the map opens as built (Save\\Current\\<map>.dxs),
-    or None. The game plays in a save folder of DeusEdix's (settings.SAVE_DIR, its SavePath while it plays:
-    project_game.activate, _session_inis); the player's own Save folder, whose Current is their game in progress, is
-    never touched (24 Oct 2026)."""
+    or None. The game plays in a save folder of DeusEdix's (settings.SAVE_DIR, the SavePath of its launch copy:
+    _session_inis); the player's own Save folder, whose Current is their game in progress, is never touched (24 Oct
+    2026)."""
     path = (settings.SAVE_DIR / 'Current' / (map_name + '.dxs')).resolve()
     if not any(path.is_relative_to((REV / name).resolve()) for name in OWN_GAME_FOLDERS):
         return None
@@ -107,24 +134,17 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
     snapshot = {}
 
     def prepare():
-        import workspace
-        if PLAY_INI is not None:
-            _session_inis(display_mode)
-        previous = _SECTION.search(INI.read_text(encoding='latin1'))
-        snapshot['section'] = previous.group(0) if previous else ''
         snapshot['command'] = CMD.read_bytes() if CMD.is_file() else None
-        snapshot['speed'] = _speed_kept()
-        snapshot['prepared'] = True
+        snapshot['prepared'] = True                  # from here on the cleanup removes what this launch wrote
         # a game closed from outside leaves System\Running.ini, and the next start stops on the "Recovery Mode"
         # dialog (the editor's tests got stuck there, 20 Oct 2026): with no game running, it is only a stale mark
         if not running():
-            (SYS / 'Running.ini').unlink(missing_ok=True)
-        if PLAY_INI is None:
-            workspace.activate(play=True)
+            _running_mark().unlink(missing_ok=True)
+        _session_inis(display_mode)
         _set_section(runner_lines)
-        _set_console(True)
+        _set_console()
         _set_loadout(commands)
-        STATE.update(seq=0, command_written=False, maps=set())
+        STATE.update(seq=0, command_written=False, maps=set(), exit_asked=None)
         if live_mode:
             _write_cmd([])
         stale = _own_saved_state(map_name)
@@ -132,42 +152,43 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
             stale.unlink(missing_ok=True)
 
     def dispatch(token):
+        import project_game
         url = launch + MUTATOR + '?DeusEdixSession=' + token
         if map_name == '00_DeusEdix_Tutorial':
             import project_preferences
             if project_preferences.load().get('ucmap.doctorAudioMuted') == 'true':
                 url += '?DeusEdixHaleMuted=1'
-        if PLAY_INI is not None:
-            # the original game (Steam's copy has Steam's launch check: "Failed to find Steam" when started
-            # directly; GOG's starts by itself, settings.game_command): the URL first (the engine's first
-            # word), then the launch's ini files. Steam quotes every word, and the engine would read the
-            # closing quote as part of the file name (then no ini: its First-Time Configuration); it stops a
-            # value at a comma, so a comma ends each one (15 Oct 2026)
-            argv, cwd = settings.game_command([url, 'INI=' + PLAY_REL + PLAY_INI.name + ',', 'USERINI=' + PLAY_REL + INI.name + ','])
-            subprocess.Popen(argv, cwd=cwd)
-            return
-        argv, cwd = settings.game_command([url, '-windowed'])
+        # the URL first (the engine's first word), then the launch's ini files (project_game.launch_args). Steam's
+        # copy of the original game has Steam's launch check ("Failed to find Steam" when started directly); GOG's
+        # starts by itself (settings.game_command)
+        argv, cwd = settings.game_command([url] + WINDOWED + project_game.launch_args((PLAY_INI, INI), SYS))
         subprocess.Popen(argv, cwd=cwd)
 
     def cleanup():
+        # the game has closed: what it saved went into the launch copies, which go with it. The player's own ini files
+        # were never written, an Install's selection of the project in them stays (29 Oct 2026)
+        import project_game
         if not snapshot.get('prepared'):
             return
         if running():
             raise RuntimeError('Another %s process is running; game settings have been left intact.' % GAME)
-        _set_section(snapshot['section'].splitlines() if snapshot['section'] else None)
-        _set_console(False)
         _set_loadout(())
-        _speed_back(snapshot['speed'])
+        project_game.remove(CONSOLE_CMD)
         if STATE['command_written']:
             if snapshot['command'] is None:
-                CMD.unlink(missing_ok=True)
+                project_game.remove(CMD)
             else:
-                CMD.write_bytes(snapshot['command'])
+                project_game.write_file(CMD, snapshot['command'])
         for path in tuple(STATE['maps']):
             path.unlink(missing_ok=True)
         STATE.update(seq=0, folder=None, command_written=False, maps=set())
-        import project_game
-        project_game.deactivate_if_current()
+        remove_launch_inis()
+        # this launch's game has ended: a System\Running.ini still there is the mark of one that did not end by its own
+        # exit (closed from outside: a Stop of a game stopped in its error box, the editor's process ending and its
+        # game with it), and the next start, Steam's too, would stop on the "Recovery Mode" dialog (the second game
+        # test of 29 Oct 2026). The start-up's tidy leaves one alone: it cannot tell it from the player's own crash.
+        # Last, as it is the game's: one held past the wait stays alone, and Stop's retry runs the cleanup again
+        project_game.remove(_running_mark())
         snapshot['prepared'] = False
 
     return _session().start(prepare, dispatch, cleanup)
@@ -195,12 +216,11 @@ def _preview_display_ini(text, display_mode):
 
 
 def _session_inis(display_mode='external'):
-    """The original game's DeusEx.ini and User.ini for one launch (PLAY_INI): its own, read now, with the
-    project's folders first and its save folder (as project_game.activate writes them into Revision.ini),
-    in a window."""
+    """The game's ini files for one launch (PLAY_INI, INI), made fresh each time from the player's own, read now: the
+    ini with the project's folders first and its save folder (as project_game.activate writes them for an Install), in
+    a window (WINDOWED), the user ini as the player has it (or, when it is missing, as the game would make it)."""
     import project_game
     import workspace
-    PLAY_INI.parent.mkdir(parents=True, exist_ok=True)
     text = settings.GAME_INI.read_text(encoding='latin1')
     managed = getattr(settings, 'MANAGED_PROJECT', False)
     save = '..\\' + settings.MAPS_DIR_NAME.replace('/', '\\') + '\\Save' if managed else None
@@ -212,130 +232,150 @@ def _session_inis(display_mode='external'):
         # any other workspace plays in a save folder of DeusEdix's too (settings.SAVE_DIR), never in the player's own
         settings.SAVE_DIR.mkdir(parents=True, exist_ok=True)
         text = project_game.play_save_text(text, project_game.play_save_path())
-    text = re.sub(r'(?im)^StartupFullscreen=.*$', 'StartupFullscreen=False', text)
+    # in a window (WINDOWED): Revision's -windowed alone loses to the player's StartupFullscreen=True (saved from their
+    # own game by the development mod), and a full-screen game in the editor's panel gave no picture or crashed (28 Oct
+    # 2026). The line's end stays ([^\r\n]: CRLF kept)
+    text = re.sub(r'(?im)^StartupFullscreen=[^\r\n]*', 'StartupFullscreen=False', text)
+    # DirectDraw off: a game in a window never needs it, and the original game's own DeusEx.ini has it on (its
+    # Default.ini's UseDirectDraw=True), with which its start-up waited 17-33 s inside DirectDraw before its window
+    # opened ('Startup time' 29.5 s -> 4.5 s with it off in the copy, 30 Oct 2026). Revision's ini has it off already
+    text = re.sub(r'(?im)^UseDirectDraw=[^\r\n]*', 'UseDirectDraw=False', text)
     display_text = _preview_display_ini(text, display_mode)
     if display_text != text and not (SYS / 'D3D9Drv.dll').is_file():
         raise RuntimeError('Resizable embedded Play needs a Deus Ex-compatible Direct3D 9 renderer (D3D9Drv.dll) in the game System folder. Use Play in game window to keep the original renderer.')
-    text = display_text
-    PLAY_INI.write_text(text, encoding='latin1', newline='')
-    shutil.copy2(settings.USER_INI, INI)
+    project_game.write_launch_inis((PLAY_INI, INI), display_text, settings.USER_INI)
+
+
+def remove_launch_inis():
+    """This project's launch copies (PLAY_INI, INI) gone after its game closed (the session's cleanup), never while the
+    game runs (it reads and writes them). The game writes them as it closes, when a scanner may be reading them: each
+    removal waits that out (project_game.remove), then the error, which the next Stop tries again. -> removed any"""
+    import project_game
+    if running():
+        return False
+    return any([project_game.remove(path) for path in (PLAY_INI, INI)])
+
+
+# what the start-ups say when tidy_cut_short fails (editor/server.py main, the mapkit MCP's): the project opens anyway
+TIDY_FAILED = 'What a launch cut short left in the game could not be removed: %s'
+
+
+def tidy_cut_short():
+    """The start-up's tidy (the editor's worker, the mapkit MCP), once no game of this target runs: what a launch left
+    in the game when no editor saw its game close goes. A Play or live session cut short (the editor killed while its
+    game ran) left this project's launch copies (PLAY_INI, INI), the runner's live channel it rewrote (CMD), the
+    Console's command file with Stop's 'exit' in it (CONSOLE_CMD) and the loadout (LOADOUT); a mod's game from the
+    Mods panel, whose close no editor sees, left its copies (mods.launch_copies). A file written less than LAUNCH_AGE
+    ago stays: another editor of the same workspace (the working copy's and the mapkit MCP's are both 'legacy'), or a
+    mod's game, may be starting on it. One Windows will not let go of now (an antivirus scanning it) stays for the next
+    start, at once: a start-up never waits or fails on it. -> the files removed"""
+    import mods
+    import project_game
+    if running():
+        return []
+    removed = []
+    for path in (PLAY_INI, INI, CMD, CONSOLE_CMD, LOADOUT, *mods.launch_copies(settings.TARGET)):
+        try:
+            if time.time() - path.stat().st_mtime >= LAUNCH_AGE and project_game.remove(path, wait=0):
+                removed.append(path)
+        except OSError:                          # gone already, or held now: the next start's
+            pass
+    return removed
 
 
 def _set_section(lines):
-    backup = INI.with_name(INI.name + '.bak_shots')
-    if not backup.exists():
-        shutil.copy2(INI, backup)
-    text = _SECTION.sub('', INI.read_text(encoding='latin1'))
+    """The runner's section (RUNNER) of the launch's user ini as `lines`; the rest of the copy as it is."""
+    import project_game
+    text = _SECTION.sub('', INI.read_bytes().decode('latin1'))
     if lines:
         text = text.rstrip() + '\r\n\r\n' + '\r\n'.join(lines) + '\r\n'
-    tmp = INI.with_name(INI.name + '.deusedix-tmp')      # replaced at once: never cut short by a full disk
-    tmp.write_text(text, encoding='latin1', newline='')
-    os.replace(tmp, INI)
+    project_game.write_file(INI, text.encode('latin1'))
 
 
-def _set_console(on):
-    """The Console's section of the user ini (UCConsoleLink) and its command file: there for a launch of
-    the editor's, gone after it (the game writes the section back when it quits: cleanup runs after)."""
-    text = _CONSOLE_SECTION.sub('', INI.read_text(encoding='latin1'))
-    if on:
-        text = text.rstrip() + '\r\n\r\n' + '\r\n'.join([CONSOLE, 'bActive=True', 'Seq=0', 'Done=0', 'Cmd=', 'Result=']) + '\r\n'
-    tmp = INI.with_name(INI.name + '.deusedix-tmp')
-    tmp.write_text(text, encoding='latin1', newline='')
-    os.replace(tmp, INI)
-    if on:
-        CONSOLE_CMD.write_text('\r\n', encoding='latin1')
-    else:
-        CONSOLE_CMD.unlink(missing_ok=True)
+def _set_console():
+    """The Console's section of the launch's user ini (UCConsoleLink on, nothing asked yet) and its command file, for a
+    launch of the editor's: the section goes with the copy, the command file with the game (cleanup)."""
+    import project_game
+    text = _CONSOLE_SECTION.sub('', INI.read_bytes().decode('latin1'))
+    text = text.rstrip() + '\r\n\r\n' + '\r\n'.join([CONSOLE, 'bActive=True', 'Seq=0', 'Done=0', 'Cmd=', 'Result=']) + '\r\n'
+    project_game.write_file(INI, text.encode('latin1'))
+    project_game.write_file(CONSOLE_CMD, b'\r\n')
     STATE['console'] = 0
 
 
 def _set_loadout(commands):
     """The loadout's file (LOADOUT): its commands, one a line, for a launch; gone without them."""
+    import project_game
     if commands:
-        LOADOUT.write_bytes(('\r\n'.join(commands) + '\r\n').encode('latin1'))
+        project_game.write_file(LOADOUT, ('\r\n'.join(commands) + '\r\n').encode('latin1'))
     else:
-        LOADOUT.unlink(missing_ok=True)
-
-
-def game_speed(text):
-    """The GameSpeed an ini's text has in its [Engine.GameInfo] section, as written, or None."""
-    section = _GAMEINFO.search(text)
-    found = section and _SPEED.search(section.group(0))
-    return found.group(1).strip() if found else None
-
-
-def with_game_speed(text, value):
-    """The ini's text with its GameSpeed line back to `value` (None: without the line); a section without one stays."""
-    section = _GAMEINFO.search(text)
-    if not section or not _SPEED.search(section.group(0)):
-        return text
-    newline = '\r\n' if '\r\n' in section.group(0) else '\n'
-    body = _SPEED.sub(lambda m: '' if value is None else 'GameSpeed=%s%s' % (value, newline), section.group(0), count=1)
-    return text[:section.start()] + body + text[section.end():]
-
-
-def _speed_kept():
-    """(the game's ini's GameSpeed,) before a launch; () when it plays on copies of its ini or the ini is not there."""
-    if PLAY_INI is not None:
-        return ()
-    try:
-        return (game_speed(GAME_INI.read_text(encoding='latin1')),)
-    except OSError:
-        return ()
-
-
-def _speed_back(kept):
-    """After the game closed: GameSpeed as it was before the launch (a slomo left on saved another one); the rest of
-    the ini as the game left it, its line endings too."""
-    if not kept:
-        return
-    text = GAME_INI.read_bytes().decode('latin1')
-    if game_speed(text) != kept[0]:
-        tmp = GAME_INI.with_name(GAME_INI.name + '.deusedix-tmp')
-        tmp.write_bytes(with_game_speed(text, kept[0]).encode('latin1'))
-        os.replace(tmp, GAME_INI)
+        project_game.remove(LOADOUT)
 
 
 def console(command, timeout=3.0):
     """One line for the game's own console while the editor's Play runs (UCConsoleLink): its answer
-    ('' for most commands), or None when the game has not taken it yet (a map loading)."""
+    ('' for most commands), or None when the game has not taken it yet (a map loading). Refused once Stop has asked
+    the game to quit (_console_line)."""
     status = session_status()
     if not status['owned'] or not status['running'] or status['stopping']:
         raise RuntimeError('The game is not running: start it with Play.')
     command = ' '.join(str(command).split())             # one line: the file is read line by line
     if not command:
         return ''
-    STATE['console'] = n = STATE.get('console', 0) + 1
-    tmp = CONSOLE_CMD.with_suffix('.tmp')
-    tmp.write_bytes(('set UCConsoleLink Cmd %s\r\nset UCConsoleLink Seq %d\r\n' % (command, n)).encode('latin1', 'replace'))
     end = time.time() + timeout
-    _while_busy(lambda: os.replace(tmp, CONSOLE_CMD), end)       # the game may be reading it
+    n = _console_line(command, timeout, status['token'])
     while time.time() < end:
-        try:
-            m = _CONSOLE_SECTION.search(INI.read_text(encoding='latin1', errors='replace'))
-        except OSError:                                          # the game is writing it (SaveConfig)
-            m = None
-        if m:
-            values = dict(line.split('=', 1) for line in m.group(0).splitlines()[1:] if '=' in line)
-            try:
-                if int(values.get('Done', '0') or 0) >= n:
-                    return values.get('Result', '').strip()
-            except ValueError:
-                pass
+        answer = _console_answer(n)
+        if answer is not None:
+            return answer
         time.sleep(0.1)
     return None
 
 
-def _while_busy(act, end):
-    """act() again while Windows refuses a file the game has open for a moment (it execs the console's command file
-    every 0.25 s), until `end`."""
-    while True:
-        try:
-            return act()
-        except PermissionError:
-            if time.time() >= end:
-                raise
-            time.sleep(0.05)
+def _console_done():
+    """How far the game's console has got, as UCConsoleLink saved it into the launch's user ini: (Done, the number of
+    the last Console line it ran; Result, its answer to that line; Seq, the number of the last line it read), or None
+    while it cannot be read. The link tries to save Seq when it reads the command file, before it runs the line, and
+    Done once it has run it, but the game can lose either save (the original game in exclusive full screen ran Stop's
+    'exit' with neither saved in 3 of 12 Stops, the fourth game test of 29 Oct 2026): a missing Seq is no proof that the
+    line was not read."""
+    try:
+        m = _CONSOLE_SECTION.search(INI.read_text(encoding='latin1', errors='replace'))
+    except OSError:                                          # the game is writing it (SaveConfig)
+        return None
+    if not m:
+        return None
+    values = dict(line.split('=', 1) for line in m.group(0).splitlines()[1:] if '=' in line)
+    try:
+        return (int(values.get('Done', '0') or 0), values.get('Result', '').strip(),
+                int(values.get('Seq', '0') or 0))
+    except ValueError:
+        return None
+
+
+def _console_answer(n):
+    """The game's answer to the Console's line `n` (_console_done's Result, with Done at `n` or past it), or None while
+    it has not taken that line."""
+    done = _console_done()
+    return done[1] if done is not None and done[0] >= n else None
+
+
+def _console_line(command, wait, token, last=False):
+    """One line for the game's own console into its command file (CONSOLE_CMD), which UCConsoleLink execs every 0.25 s
+    while the game runs: replaced as soon as the game lets go of it, for `wait` seconds at most. One writer at a time
+    (_CONSOLE_LOCK). The file holds one line: once the last line of the launch `token` is in it (Stop's 'exit', `last`),
+    another would take its place before the game read it, and is refused. -> its number (Seq)"""
+    import project_game
+    with _CONSOLE_LOCK:
+        if STATE.get('exit_asked') == token:
+            raise RuntimeError('The game is closing.')
+        STATE['console'] = n = STATE.get('console', 0) + 1
+        project_game.write_file(CONSOLE_CMD, ('set UCConsoleLink Cmd %s\r\nset UCConsoleLink Seq %d\r\n'
+                                              % (command, n)).encode('latin1', 'replace'), wait)
+        if last:                         # Stop's 'exit': its line, when it was asked, the game's mark (_exit_by_itself)
+            STATE.update(exit_asked=token, exit_line=n, exit_at=time.time(), exit_answered=None,
+                         exit_mark=_running_mark().exists())
+    return n
 
 
 def log_path():
@@ -378,9 +418,10 @@ def _section():
 
 
 def _write_cmd(lines):
-    tmp = CMD.with_suffix('.tmp')
-    tmp.write_text('\r\n'.join(lines) + '\r\n', encoding='latin1')
-    os.replace(tmp, CMD)
+    """The runner's live channel (CMD) as `lines`, each ended by CRLF (written as bytes: a text-mode write made it
+    CR CR LF), put in place at once."""
+    import project_game
+    project_game.write_file(CMD, ('\r\n'.join(lines) + '\r\n').encode('latin1'))
     STATE['command_written'] = True
 
 
@@ -414,6 +455,27 @@ def start(map_name='06_HongKong_WanChai_Rooftop', setup='', delay=6, start_map='
     return _wait_done(0, timeout).get('LiveResult', '')
 
 
+# A Play's runner waits only where a case needs it (startup2, 30 Oct 2026; before, StartDelay=1 and a 'wait;1' step in
+# every Play: 2 s more before JC had the controls). UCShotRunner waits 1 s at its start (its Begin, in the project
+# template), then StartDelay, then runs its steps. The map's mission script (DeusEx's MissionScript) runs its first
+# Timer 1 s after the map starts (checkTime), and on a map reached by travel (a setup's jump) that Timer runs its
+# FirstFrame. A plain Play needs nothing more: the 'play' step only places JC and gives him the controls, and a
+# loadout's commands and items need only JC, there at the runner's start. A setup's map (its FirstFrame) and the flags
+# of a Play without a setup (set by the 'play' step) need the 'play' step after that first Timer, as the old waits had
+# it: MISSION_MARGIN more, unless a loadout's steps, half a second each in the runner, give it already
+PLAY_START_DELAY = 0
+MISSION_MARGIN = 'w2;wait;0.5'
+
+
+def play_steps(map_name, step, setup='', flags='', steps=(), commands=()):
+    """The runner's steps of a Play (its Shots[]), the 'play' `step` last: a setup's 'waitmap' first (the steps are for
+    its map: the setup may travel through another), MISSION_MARGIN where it is needed, the loadout (LOADOUT's commands
+    by one step, then its `steps`)."""
+    loadout = (['ld;console;exec %s' % LOADOUT.name] if commands else []) + list(steps)
+    margin = [MISSION_MARGIN] if (setup or flags) and not loadout else []
+    return (['w;waitmap;%s;90' % map_name] if setup else []) + margin + loadout + [step]
+
+
 def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, display_mode='external', steps=(),
          commands=()):
     """'Play from here' of the map editor: the game on the installed map, JC at `at` facing yaw/pitch,
@@ -422,8 +484,7 @@ def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, 
     A play scenario's loadout (editor/play.py loadout_run) comes first: its console `commands`, run from LOADOUT by one
     step, then its runner `steps` (the items in front of where JC will stand)."""
     step = 'go;play;%.1f;%.1f;%.1f;%d;%d' % (at[0], at[1], at[2], int(yaw) % 65536, int(pitch)) if at else 'go;play'
-    shots = ((['w;waitmap;%s;90' % map_name] if setup else []) + ['w2;wait;1']
-             + (['ld;console;exec %s' % LOADOUT.name] if commands else []) + list(steps) + [step])
+    shots = play_steps(map_name, step, setup, flags, steps, commands)
     if setup:
         # a setup jumps to its map: start somewhere else (jumping to the same map reloads its saved state);
         # UNATCO Island -> Wan Chai Street crashed once, so the Street starts from the rooftop
@@ -431,9 +492,9 @@ def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, 
                                else '01_NYC_UNATCOHQ' if map_name == '01_NYC_UNATCOIsland' else '01_NYC_UNATCOIsland')
     else:
         launch = map_name
-    _launch(map_name, [RUNNER, 'bActive=True', 'bLive=False', 'Setup=%s' % setup,
-                      'SetupFlags=%s' % flags, 'StartDelay=1'] + ['Shots[%d]=%s' % (i, s) for i, s in enumerate(shots)], launch,
-            display_mode=display_mode, commands=commands)
+    _launch(map_name, [RUNNER, 'bActive=True', 'bLive=False', 'Setup=%s' % setup, 'SetupFlags=%s' % flags,
+                       'StartDelay=%s' % PLAY_START_DELAY] + ['Shots[%d]=%s' % (i, s) for i, s in enumerate(shots)],
+            launch, display_mode=display_mode, commands=commands)
     return 'starting %s%s' % (map_name, ' after %s' % setup if setup else '')
 
 
@@ -479,7 +540,7 @@ def do(step, timeout=30, label=None, width=1600):
 
 def show_map(map_name='06_HongKong_WanChai_Rooftop', source='out', timeout=120):
     """Open a freshly built map in the running game without restarting it. The map is copied to
-    UnatcoMaps under a new name each time (UCLive<n>: no locked file, no saved state); the story
+    settings.MAPS_DIR under a new name each time (UCLive<n>: no locked file, no saved state); the story
     scripts key on the real name, so this is for looking, not for playing the story."""
     status = session_status()
     if not status['owned'] or not status['running'] or status['stopping']:
@@ -497,27 +558,74 @@ def show_map(map_name='06_HongKong_WanChai_Rooftop', source='out', timeout=120):
     return answer
 
 
-def _exit_by_itself(wait=8.0):
-    """The game asked to quit through its own console (the runner's step 'console;exit'): it closes as a player's
-    Quit does and removes System\\Running.ini. Closed from outside (WM_CLOSE, then TerminateProcess after 3 s)
-    it left Running.ini, and the next start stopped on the Recovery Mode dialog (20 Oct 2026)."""
+def _exit_by_itself(patient=True):
+    """The game asked to quit through its own console ('exit' into UCConsoleLink's command file), then up to EXIT_WAIT
+    for its process to end; `patient`, up to EXIT_WAIT_TAKEN from its answer to that line (it is closing, and leaving
+    exclusive full screen takes it about 5 s): the game has read the line (_console_done's Seq), run it (Done), or
+    removed System\\Running.ini as it runs the 'exit' (the mark it makes as it starts). The removal counts only when the
+    mark was there at the request: a game that made none gives no such answer, and one stopped in its error box keeps
+    it. The game can lose its saves of Seq and Done (another program reading the copy as it saves): in e3c of the fourth
+    game test of 29 Oct 2026 the console freed after the request, neither was saved, and only Running.ini's removal
+    answered. Once its console has been seen inside an earlier line (Done below the line before the 'exit': it has not
+    read it yet), a patient Stop also waits up to EXIT_WAIT_TAKEN from the request, even if the console then frees with
+    no answer of any kind: a backstop (the max()), for a case no real run has shown. The page's embedded Stop only asks
+    first (not patient): still open after EXIT_WAIT, the game may be held up by the editor's window, its parent, and the
+    page hands it back before the Stop that may close it. Asked once a launch: a later Stop writes no second 'exit' and
+    only waits by those two rules, on the answer whichever Stop saw it first (a game left alone in full screen outside
+    the panel answered the page's first Stop and was still closing at its second). The game closes as a player's Quit
+    does, removes System\\Running.ini and saves its settings into its launch copies. The Console link runs in every
+    launch of the editor's, a Play whose runner has switched itself off too, and ticks while the game is paused (a HUD
+    window); the runner's live channel, which Stop used before, is read in live mode only: a Play's Stop waited 8 s for
+    nothing, then closed the game from outside (29 Oct 2026). Closed from outside (WM_CLOSE, then TerminateProcess after
+    3 s) the game left Running.ini, and the next start stopped on the Recovery Mode dialog (20 Oct 2026). -> the game
+    has ended"""
     status = session_status()
     if not status['owned'] or not status['running'] or status['stopping'] or status['launching']:
-        return
-    try:
-        STATE['seq'] += 1
-        _write_cmd(['set UCShotRunner LiveCmd console;exit', 'set UCShotRunner LiveSeq %d' % STATE['seq']])
-    except OSError:
-        return
-    end = time.time() + wait
-    while time.time() < end and running():
-        time.sleep(0.2)
+        return False
+    if STATE.get('exit_asked') != status['token']:
+        try:
+            _console_line('exit', 1.0, status['token'], last=True)
+        except OSError:
+            return False
+        end = STATE['exit_at'] + EXIT_WAIT
+    else:
+        end = time.time()                                # asked by an earlier Stop: no EXIT_WAIT again
+    n = STATE['exit_line']
+    while session_status()['running']:
+        done, _, seq = _console_done() or (None, None, None)
+        # answered: the 'exit' read (Seq) or run (Done), or the mark there at the request gone (exists(): an
+        # attributes-only open, which cannot refuse the game's removal; never a read); busy: Done below the line before
+        # it, whatever Seq says
+        gone = STATE.get('exit_mark') and not _running_mark().exists()
+        if STATE['exit_answered'] is None and (gone or done is not None and max(done, seq) >= n):
+            STATE['exit_answered'] = time.time()         # the first answer, whoever saw it: a later Stop waits on it
+        if patient and STATE['exit_answered'] is not None:
+            end = max(end, STATE['exit_answered'] + EXIT_WAIT_TAKEN)
+        elif patient and done is not None and done < n - 1:
+            end = max(end, STATE['exit_at'] + EXIT_WAIT_TAKEN)
+        if time.time() >= end:
+            break
+        time.sleep(0.1)
+    return not session_status()['running']
 
 
-def stop(timeout=5):
-    """Close only this launch, including a runner which already switched itself off: first by its own exit,
-    then (still open) as before."""
-    _exit_by_itself()
+# stop(force=False)'s answer while the game, asked to quit, is still open
+STILL_OPEN = 'The game was asked to close and is still open.'
+
+
+def stop(timeout=5, force=True, ask=True):
+    """Close only this launch: first by its own exit (_exit_by_itself), then, still open, from outside as before
+    (WM_CLOSE to its top-level windows, then TerminateProcess after 3 s); with force False, only asked (-> STILL_OPEN
+    while it is open). An embedded game's window is a child of the editor's, which WM_CLOSE never reaches: the page asks
+    first, and only when the game is still open detaches it and stops again. With ask False (a game that can no
+    longer answer: stopped in its error box, its console not running) nothing is asked: closed from outside at once.
+    Force False always asks, whatever ask says (both False, an API client's pair, closed an embedded game from outside).
+    What a launch cut short left is the start-up's (tidy_cut_short)."""
+    ask = ask or not force
+    if ask and not _exit_by_itself(patient=force) and not force:
+        status = session_status()
+        if status['owned'] and status['running'] and not status['stopping']:
+            return STILL_OPEN
     status = _session().stop(timeout)
     if status['error']:
         raise RuntimeError(status['error'])

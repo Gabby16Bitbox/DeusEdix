@@ -8,9 +8,12 @@ A mod file (.dxmod) is a zip:
 
 Nothing of the game is in it (export checks every map against the game). Installed, a mod is a folder of its
 game: <game root>\\DeusEdixMods\\<id>\\ (Revision\\ for Revision, the Deus Ex folder for the original game).
-Play never touches the player's ini files: it writes a copy with the mod's folder first and its own save
-folder, and starts the game on it (Revision only takes a bare file name in its System folder, INI=DeusEdixMod.ini;
-the original game takes a path, as the editor's Play does). Tried in Revision on 16 Oct 2026.
+Play never touches the player's ini files: it writes copies of both (settings.launch_inis: the ini with the mod's
+folder first and its own save folder, the user ini as the player has it or as the game would make it) and starts the game on them (Revision only
+takes bare file names in its System folder, INI=DeusEdixMod.ini and USERINI=DeusEdixModUser.ini; the original game
+takes paths, as the editor's Play does). Tried in Revision on 16 Oct 2026, USERINI= on 29 Oct 2026: before it, the mod's
+game wrote its map played last into the player's RevisionUser.ini. No editor sees a mod's game close: its copies go at
+the next start of an editor of that game (launch_copies, live.tidy_cut_short).
 """
 import io
 import json
@@ -30,7 +33,6 @@ EXPORTS = Path.home() / 'Documents' / 'DeusEdix Mods'          # where Export mo
 MAX_FILE = 256 * 1024 * 1024
 MAX_TOTAL = 1024 * 1024 * 1024
 MAX_COVER = 4 * 1024 * 1024
-REVISION_INI = 'DeusEdixMod.ini'                                 # Revision's launch copy (System\)
 _NAME = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}$')
 _ID = re.compile(r'^[a-z0-9][a-z0-9-]{0,63}$')
 _PACKAGE = re.compile(r'^DXP_[a-z0-9_]{1,64}$')
@@ -40,11 +42,11 @@ _SUFFIXES = ('', 'Anims', 'Models', 'Sounds', 'Scripts')
 # ------------------------------------------------------------------ the games
 
 def game_root(target):
-    """The folder of `target` that reads its maps and packages, or None when that game is not installed."""
+    """The folder of `target` that reads its maps and packages, the one of its System folder (settings.system_folder),
+    or None when that game is not installed."""
     if target not in settings.TARGETS or settings.check_game(settings.GAME, target):
         return None
-    root = settings.TARGETS[target]['root']
-    return settings.GAME / root if root else settings.GAME
+    return settings.system_folder(target).parent
 
 
 def mods_root(target):
@@ -345,7 +347,7 @@ def install(source, replace=False):
     # DeusEdixNav, the package every DeusEdix mod's code uses: DeusEdix's own build, into the game's System folder
     # (the only place the engine finds its DLL); a mod file never carries a DLL
     import kit
-    kit.install_native(game_root(target) / 'System')
+    kit.install_native(settings.system_folder(target))
     return dict(manifest=manifest, replaced=old is not None)
 
 
@@ -536,30 +538,24 @@ def cover(target, mod_id):
 # ------------------------------------------------------------------ play
 
 def launch_ini(target, mod_id):
-    """The game's own ini, read now, with the mod's folder first and the mod's save folder; the player's
-    files are never written. Returns the INI= value for the command line."""
+    """The game's own ini files, read now, as copies for the mod's game (settings.launch_inis): the ini with the mod's
+    folder first and the mod's save folder, in the player's own window mode (a mod is played, not tested: only the
+    editor's launches are always in a window, live.WINDOWED), the user ini as the player has it (or, when it is
+    missing, as the game would make it); the player's files are never written. Returns the words for the command line
+    (INI=, USERINI=)."""
     import project_game
     folder = _folder(target, mod_id)
     profile = settings.TARGETS[target]
-    system = game_root(target) / 'System'
+    system = settings.system_folder(target)
     text = (system / profile['ini']).read_text(encoding='latin1')
     rel = '..\\%s\\%s' % (MODS_DIR, mod_id)
     paths = ['Paths=%s\\*.%s' % (rel, ext) for ext in ('dx', 'u', 'utx', 'uax', 'umx')]
     (folder / 'Save').mkdir(exist_ok=True)
     text = project_game.activate_text(text, paths, project_game.original_save_paths(text), rel + '\\Save',
                                       project_game.original_actors(text))
-    if target == 'revision':
-        # Revision's launcher takes only a file name of its System folder ("Malformed system ini" otherwise)
-        ini = system / REVISION_INI
-        value = REVISION_INI
-    else:
-        ini = folder / 'Play' / profile['ini']
-        ini.parent.mkdir(exist_ok=True)
-        value = rel + '\\Play\\' + profile['ini']
-    tmp = ini.with_name(ini.name + '.tmp')
-    tmp.write_text(text, encoding='latin1', newline='')
-    tmp.replace(ini)
-    return value
+    inis = project_game.write_launch_inis(settings.launch_inis(settings.LAUNCH_MOD, folder, target), text,
+                                          system / profile['user_ini'], target)
+    return project_game.launch_args(inis, system)
 
 
 def play(target, mod_id):
@@ -572,8 +568,19 @@ def play(target, mod_id):
         raise ValueError('This mod needs packages of other mods that are not installed: %s.' % ', '.join(missing))
     if _running(target):
         raise ValueError('%s is already running: close it first.' % settings.TARGETS[target]['short'])
-    value = launch_ini(target, mod_id)
-    # Steam quotes every word; the engine stops a value at a comma, so a comma ends INI= (as the editor's Play)
-    argv, cwd = settings.game_command([m['start'], 'INI=' + value + ','], target=target)
+    argv, cwd = settings.game_command([m['start']] + launch_ini(target, mod_id), target=target)
     subprocess.Popen(argv, cwd=cwd)
     return dict(ok=True, name=m['name'], start=m['start'])
+
+
+def launch_copies(target):
+    """The launch copies a mod's game of `target` may have left (launch_ini, settings.launch_inis): Revision's, the same
+    two in its System folder for every mod, whether a mod is still installed or not (the last one may have been
+    uninstalled since its game, and they stay behind it); the original game's in each installed mod's own folder (an
+    uninstall takes them with the folder). The game writes them as it closes, and no editor sees that: they go at the
+    next start of an editor of that game, once no game runs (live.tidy_cut_short)."""
+    root = mods_root(target)
+    if settings.TARGETS[target]['launch_in_system']:
+        return sorted(settings.launch_inis(settings.LAUNCH_MOD, root, target))       # the folder is not in their path
+    folders = [p for p in root.iterdir() if p.is_dir()] if root and root.is_dir() else []
+    return sorted({path for folder in folders for path in settings.launch_inis(settings.LAUNCH_MOD, folder, target)})

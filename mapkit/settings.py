@@ -1,8 +1,10 @@
 """Where the game is, and the names the editor gives to its own things in it.
 
 The editor runs in two ways:
- - inside the UNATCO Continues working copy (no deusedix.json): the mod's package (UnatcoContinues),
-   the maps folder the mod adds to Revision (UnatcoMaps), the game where Steam put it;
+ - development mode, inside a mod's own working copy (no deusedix.json): the mod's package, the maps
+   folder the mod adds to Revision and the mod's other packages, named in devmode.json next to the
+   working copy (DEV below: a local file, never published; neutral names without it), the game where
+   Steam put it;
  - as DeusEdix, installed: deusedix.json at the top of the install folder (the installer writes it)
    says so, with the game folder found or picked there. The package is then DeusEdix, compiled on
    the user's PC, and the maps go to Revision\\DeusEdixMaps.
@@ -13,8 +15,8 @@ Two games can be the target, one per project (TARGET, fixed when the project is 
 ('revision', in the game folder's Revision\\ with its own System, Maps, ini files) and the original Deus Ex,
 Game of the Year Edition 1112fm ('vanilla', the game folder itself). Everything that depends on the game
 comes from TARGETS below: GAME_ROOT is the targeted game's own folder (REVISION, its older name, is the
-same folder, so for the original game it is the Deus Ex folder itself). The UNATCO Continues working copy
-is always Revision.
+same folder, so for the original game it is the Deus Ex folder itself). A development working copy is
+always Revision.
 """
 import json
 import os
@@ -30,15 +32,27 @@ PROJECT_FILE = PROJECT / 'deusedix-project.json'
 STEAM_DEFAULT = Path(r'C:\Program Files (x86)\Steam')
 APPS = {'6910': 'Deus Ex: Game of the Year Edition', '397550': 'Deus Ex: Revision'}
 # the games a project can be made for: where each one lives in the Deus Ex folder (root), its program, its
-# ini files and their sections with the folders the game reads (Paths), its Steam app
+# ini files and their sections with the folders the game reads (Paths), the default user ini beside its user ini that
+# the engine makes a missing user ini from (def_user_ini: say the player deleted theirs; Revision.exe's %sDefUser.ini, the
+# original Core.dll's DefUser.ini), its Steam app, whether it reads the copies of its ini files a launch of DeusEdix's
+# starts it on from its System folder (launch_inis), and the words of its command line that start it in a window
+# (windowed: the original game has none, its ini's StartupFullscreen=False alone does it)
 TARGETS = {
     'revision': dict(name='Deus Ex: Revision', short='Revision', root='Revision', exe='Revision.exe',
-                     ini='Revision.ini', user_ini='RevisionUser.ini', app='397550',
-                     sections=('Core.System', 'RevisionInternal.LaunchSystem')),
+                     ini='Revision.ini', user_ini='RevisionUser.ini', def_user_ini='RevisionDefUser.ini', app='397550',
+                     sections=('Core.System', 'RevisionInternal.LaunchSystem'), launch_in_system=True,
+                     windowed=('-windowed',)),
     'vanilla': dict(name='Deus Ex (original game)', short='Deus Ex', root='', exe='DeusEx.exe', ini='DeusEx.ini',
-                    user_ini='User.ini', app='6910', sections=('Core.System',)),
+                    user_ini='User.ini', def_user_ini='DefUser.ini', app='6910', sections=('Core.System',),
+                    launch_in_system=False, windowed=()),
 }
 DEFAULT_TARGET = 'revision'
+# development mode's names (devmode.json): the mod's display name, its package, the maps folder it adds to the
+# game, its voices, the Studio's animations, the imported models, sounds and scripts, the web address of its
+# repository's files (links of its guide; '' = none)
+DEV_DEFAULTS = dict(name='My mod', package='MyMod', mapsDir='MyModMaps', voicesPackage='MyModVoices',
+                    animsPackage='MyModAnims', modelsPackage='MyModModels', soundsPackage='MyModSounds',
+                    scriptsPackage='MyModScripts', repo='')
 
 
 def _config():
@@ -46,6 +60,20 @@ def _config():
         return json.loads(CONFIG.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
+
+
+def devmode(folder=None):
+    """The development names of a working copy (`folder`, this one by default): its devmode.json over
+    DEV_DEFAULTS. This one's falls back to the app's (APP_ROOT), so that the installed editor and its
+    projects know the names of a mod made with it on the same PC (its lines in the game's ini)."""
+    for root in [folder] if folder else [PROJECT, APP_ROOT]:
+        try:
+            value = json.loads((Path(root) / 'devmode.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if isinstance(value, dict):
+            return DEV_DEFAULTS | {k: v for k, v in value.items() if k in DEV_DEFAULTS and isinstance(v, str)}
+    return dict(DEV_DEFAULTS)
 
 
 def _project():
@@ -195,8 +223,41 @@ def game_command(args, target=None, folder=None):
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam') as key:
             steam = str(Path(winreg.QueryValueEx(key, 'SteamExe')[0]).resolve())
         return [steam, '-applaunch', profile['app']] + list(args), None
-    system = (folder / profile['root'] if profile['root'] else folder) / 'System'
+    system = system_folder(target, folder)
     return [str(system / profile['exe'])] + list(args), str(system)
+
+
+def system_folder(target=None, folder=None):
+    """The System folder of `target`'s game (TARGET's by default) in the Deus Ex folder `folder` (GAME by default):
+    Revision\\System for Revision, the Deus Ex folder's own for the original game."""
+    profile = TARGETS[target or TARGET]
+    folder = Path(folder or GAME)
+    return (folder / profile['root'] if profile['root'] else folder) / 'System'
+
+
+# the names of DeusEdix's launch copies in a game's System folder (launch_names): a Play's, followed by its project's
+# id (live.py), and a mod's game's from the Mods panel (mods.py); the uninstaller removes them by these names
+# (workspace.game_files)
+LAUNCH_PLAY = 'DeusEdixPlay_'
+LAUNCH_MOD = 'DeusEdixMod'
+
+
+def launch_names(name):
+    """The file names of one launch's copies in a game's System folder: (`name`.ini, `name`User.ini)."""
+    return name + '.ini', name + 'User.ini'
+
+
+def launch_inis(name, folder, target=None):
+    """The copies of the game's ini file and user ini file that one launch of DeusEdix's starts it on (INI=, USERINI=:
+    a Play, a mod's game), so that nothing the game saves while it plays reaches the player's own: (ini, user ini).
+    Revision's launcher reads them only by a file name of its System folder ("Malformed system ini" for a path): there,
+    by `name` (launch_names); the original game's go in `folder`\\Play, under the game's own names."""
+    profile = TARGETS[target or TARGET]
+    if profile['launch_in_system']:
+        system = system_folder(target)
+        return tuple(system / file for file in launch_names(name))
+    play = Path(folder) / 'Play'
+    return play / profile['ini'], play / profile['user_ini']
 
 
 def workspace_id(path):
@@ -206,6 +267,9 @@ def workspace_id(path):
 
 
 CFG = _config()
+DEV = devmode()
+if any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', DEV[k]) for k in DEV_DEFAULTS if k.endswith(('ackage', 'Dir'))):
+    raise ValueError('Invalid package or folder name in devmode.json.')
 PROJECT_META = _project()
 MANAGED_PROJECT = PROJECT_META is not None
 EXTERNAL_WORKSPACE = os.environ.get('DEUSEDIX_WORKSPACE_ID', '')
@@ -221,9 +285,9 @@ INDEPENDENT_PROJECT = MANAGED_PROJECT and PROJECT_KIND != 'original'
 ALLOW_ORIGINAL_MAPS = not MANAGED_PROJECT or PROJECT_KIND == 'original'
 STANDALONE = bool(CFG) or MANAGED_PROJECT
 # the editor's own package (stories, interactions, cutscenes... are compiled into it)
-PACKAGE = CFG.get('package', 'DeusEdix') if STANDALONE else 'UnatcoContinues'
+PACKAGE = CFG.get('package', 'DeusEdix') if STANDALONE else DEV['package']
 # the folder in Revision that the game reads first: the built maps (and, installed, the package)
-MAPS_DIR_NAME = 'DeusEdixMaps' if STANDALONE else 'UnatcoMaps'
+MAPS_DIR_NAME = 'DeusEdixMaps' if STANDALONE else DEV['mapsDir']
 if MANAGED_PROJECT:
     PACKAGE = PROJECT_META['package']
     MAPS_DIR_NAME = 'DeusEdixProjects/' + PROJECT_ID
@@ -235,7 +299,7 @@ elif CFG.get('mapsDir'):
         raise ValueError('Invalid mapsDir setting.')
     MAPS_DIR_NAME = candidate
 # the game the maps are made for: a project's own (its manifest), the installed editor's (deusedix.json),
-# Revision for the UNATCO Continues working copy
+# Revision for a development working copy
 if MANAGED_PROJECT:
     TARGET = PROJECT_META.get('target', DEFAULT_TARGET)
     if CFG.get('target', TARGET) != TARGET:
@@ -303,28 +367,28 @@ def mission_script(mission):
 
 
 def game_running(target=None):
-    """Is the game (`target`'s, this process's by default; 'any': either) running on this PC?"""
-    import subprocess
+    """Is the game (`target`'s, this process's by default; 'any': either) running on this PC? Its program by name, from
+    any folder, as tasklist's IMAGENAME filter saw it, from one list of the processes (game_process: 15-20 ms; tasklist
+    took 0.3-0.5 s at the start of every Play's preparation and every Play, 30 Oct 2026)."""
+    import game_process
     names = [TARGETS[t]['exe'] for t in TARGETS] if target == 'any' else [TARGETS[target or TARGET]['exe']]
-    for name in names:
-        r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq ' + name], capture_output=True, text=True,
-                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        if name.lower() in (r.stdout or '').lower():
-            return True
-    return False
+    return game_process.WindowsProcesses(GAME_EXE).named(names)
 # the Animation Studio's and the imported models' packages: other names for DeusEdix, so that a PC with
 # both never loads one in place of the other
-ANIMS_PACKAGE = 'DeusEdixAnims' if STANDALONE else 'UCAnims'
-MODELS_PACKAGE = 'DeusEdixModels' if STANDALONE else 'UCModels'
-SOUNDS_PACKAGE = 'DeusEdixSounds' if STANDALONE else 'UCSounds'     # the sounds imported in the editor's browser
-SCRIPTS_PACKAGE = 'DeusEdixScripts' if STANDALONE else 'UCScripts'  # the scripts written in the editor (editor/scripts.py)
+ANIMS_PACKAGE = 'DeusEdixAnims' if STANDALONE else DEV['animsPackage']
+MODELS_PACKAGE = 'DeusEdixModels' if STANDALONE else DEV['modelsPackage']
+SOUNDS_PACKAGE = 'DeusEdixSounds' if STANDALONE else DEV['soundsPackage']     # the sounds imported in the editor's browser
+SCRIPTS_PACKAGE = 'DeusEdixScripts' if STANDALONE else DEV['scriptsPackage']  # the scripts written in the editor (editor/scripts.py)
+# the development mod's recorded voices (made by its own tools, not by the editor): one of its packages, never
+# another mod's, in every mode
+VOICES_PACKAGE = DEV['voicesPackage']
 if MANAGED_PROJECT:
     ANIMS_PACKAGE, MODELS_PACKAGE, SOUNDS_PACKAGE = (PACKAGE + suffix for suffix in ('Anims', 'Models', 'Sounds'))
     SCRIPTS_PACKAGE = PACKAGE + 'Scripts'
     for key, expected in (('animsPackage', ANIMS_PACKAGE), ('modelsPackage', MODELS_PACKAGE), ('soundsPackage', SOUNDS_PACKAGE)):
         if CFG.get(key, expected) != expected:
             raise ValueError('Project resource package setting does not match its ID: ' + key)
-# where those packages go in the game: the mod's into Revision\System (install.ps1), DeusEdix's into its
+# where those packages go in the game: a development mod's into Revision\System (its install.ps1), DeusEdix's into its
 # maps folder (read by the game through Revision.ini's Paths: workspace.install)
 PACKAGES_DIR = MAPS_DIR if STANDALONE else REVISION / 'System'
 
@@ -348,7 +412,7 @@ def python():
 
 
 if __name__ == '__main__':
-    print('standalone' if STANDALONE else 'UNATCO Continues working copy', '| package', PACKAGE, '| target', TARGET)
+    print('standalone' if STANDALONE else DEV['name'] + ' working copy', '| package', PACKAGE, '| target', TARGET)
     print('game', GAME, check_game(GAME, TARGET) or 'ok', '| games here:', games_in(GAME))
     print('found by Steam:', find_game(TARGET))
     print('libraries:', [str(x) for x in steam_libraries()])

@@ -1,7 +1,7 @@
 """A play scenario's loadout: editor/play.py turns it into the game's console commands and the runner's steps,
 leaving out what the editor does not know; live.play puts them before the 'play' step (the commands in a file the
-runner execs once, gone after the game); the game's speed saved by its slomo is put back after the game; the server
-gives Play the loadout's lists and passes a scenario's loadout on."""
+runner execs once, gone after the game); the game's speed saved by its slomo goes with the launch's copy of the ini;
+the server gives Play the loadout's lists and passes a scenario's loadout on."""
 import ast
 import contextlib
 import sys
@@ -98,12 +98,13 @@ class LoadoutTests(unittest.TestCase):
 
 class LaunchTests(unittest.TestCase):
     """live.play with a loadout: the runner's steps in order, the commands' file there for the launch only, and the
-    game's speed back as it was before it."""
+    game's speed its slomo saved gone with the launch's copy of the ini."""
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.ini = self.root / 'RevisionUser.ini'
-        self.ini.write_bytes(b'[Engine.Player]\r\nName=JC\r\n')
+        self.user = self.root / 'RevisionUser.ini'
+        self.user.write_bytes(b'[Engine.Player]\r\nName=JC\r\n')
+        self.ini = self.root / 'DeusEdixPlay_legacyUser.ini'          # the launch's copy of the user ini: the runner's
         self.game_ini = self.root / 'Revision.ini'
         self.game_ini.write_bytes(b'[Engine.Engine]\r\nX=1\r\n\r\n[Engine.GameInfo]\r\nbLowGore=False\r\nGameSpeed=1.000000\r\n\r\n'
                                   b'[Other]\r\nGameSpeed=7\r\n')
@@ -116,12 +117,12 @@ class LaunchTests(unittest.TestCase):
         self.stack = contextlib.ExitStack()
         self.stack.enter_context(patch.multiple(live, INI=self.ini, CMD=self.root / 'UCLive.txt', REV=self.root,
                                                 CONSOLE_CMD=self.root / 'UCConsole.txt', LOADOUT=self.root / 'UCLoadout.txt',
-                                                GAME_INI=self.game_ini, PLAY_INI=None, SYS=self.root, _SESSION=session,
+                                                PLAY_INI=self.root / 'DeusEdixPlay_legacy.ini', SYS=self.root, _SESSION=session,
                                                 STATE={'seq': 0, 'folder': None, 'maps': set(), 'command_written': False},
                                                 settings=types.SimpleNamespace(MAPS_DIR=self.root, MANAGED_PROJECT=False,
-                                                                               SAVE_DIR=self.root / 'DeusEdixProjects/legacy/Save')))
-        self.stack.enter_context(patch.dict(sys.modules, {'workspace': types.SimpleNamespace(activate=Mock()),
-                                                          'project_game': types.SimpleNamespace(deactivate_if_current=Mock())}))
+                                                                               SAVE_DIR=self.root / 'DeusEdixProjects/legacy/Save',
+                                                                               GAME_INI=self.game_ini, USER_INI=self.user)))
+        self.stack.enter_context(patch.dict(sys.modules, {'workspace': types.SimpleNamespace(paths_lines=lambda: [])}))
 
     def tearDown(self):
         self.stack.close()
@@ -131,10 +132,15 @@ class LaunchTests(unittest.TestCase):
         text = self.ini.read_text(encoding='latin1')
         return [line.split('=', 1)[1] for line in text.splitlines() if line.startswith('Shots[')]
 
+    def runner(self, name):
+        """A line of the runner's section of the launch's user ini, as written."""
+        text = self.ini.read_text(encoding='latin1')
+        return next(line.split('=', 1)[1] for line in text.splitlines() if line.startswith(name + '='))
+
     def test_the_loadout_comes_before_the_play_step_and_its_file_goes_with_the_game(self):
         run = play.loadout_run(dict(items=[dict(cls='DeusEx.WeaponPistol', count=1)], cheat='god'), [1.0, 2.0, 3.0], 0, CATALOG)
         live.play('TestMap', at=[1.0, 2.0, 3.0], yaw=0, pitch=0, steps=run['steps'], commands=run['commands'])
-        self.assertEqual(self.shots(), ['w2;wait;1', 'ld;console;exec UCLoadout.txt', 'i0;spawn;DeusEx.WeaponPistol;41.0;2.0;3.0;0',
+        self.assertEqual(self.shots(), ['ld;console;exec UCLoadout.txt', 'i0;spawn;DeusEx.WeaponPistol;41.0;2.0;3.0;0',
                                         'go;play;1.0;2.0;3.0;0;0'])
         self.assertEqual((self.root / 'UCLoadout.txt').read_bytes(), b'set DeusExPlayer bCheatsEnabled True\r\ngod\r\n')
         self.cleanup()
@@ -143,34 +149,53 @@ class LaunchTests(unittest.TestCase):
     def test_without_a_loadout_the_steps_are_as_before_and_no_file_is_left(self):
         (self.root / 'UCLoadout.txt').write_text('left by a crash', encoding='latin1')
         live.play('TestMap', at=None, setup='UCDbgOtherMission')
-        self.assertEqual(self.shots(), ['w;waitmap;TestMap;90', 'w2;wait;1', 'go;play'])
+        self.assertEqual(self.shots(), ['w;waitmap;TestMap;90', 'w2;wait;0.5', 'go;play'])
         self.assertFalse((self.root / 'UCLoadout.txt').exists())
 
-    def test_a_slow_motion_saved_by_the_game_is_put_back_after_it(self):
-        live.play('TestMap')
-        self.game_ini.write_bytes(self.game_ini.read_bytes().replace(b'GameSpeed=1.000000', b'GameSpeed=0.250000'))
-        self.cleanup()
-        text = self.game_ini.read_bytes().decode('latin1')
-        self.assertIn('[Engine.GameInfo]\r\nbLowGore=False\r\nGameSpeed=1.000000\r\n', text)
-        self.assertIn('[Other]\r\nGameSpeed=7\r\n', text, 'only the GameInfo section')
-        self.assertEqual(live.game_speed(text), '1.000000')
+    def test_a_play_waits_only_where_its_case_needs_it(self):
+        """startup2 (30 Oct 2026): before, every Play had StartDelay=1 and a 'w2;wait;1' step, 2 s more before JC had the
+        controls (the runner's own 1 s at its start, in the template, stays). Now StartDelay=0 always; half a second
+        (MISSION_MARGIN) only where the 'play' step must come after the mission script's first Timer (1 s after the map
+        starts): a setup's map (its FirstFrame) and a Play's flags without a setup (set by the 'play' step), unless the
+        loadout's own steps (half a second each in the runner) give it."""
+        here = dict(at=[1.0, 2.0, 3.0], yaw=16384, pitch=0)
+        flare = dict(steps=['i0;spawn;DeusEx.Flare;41.0;2.0;3.0;16384'])
+        god = dict(commands=['god'])
+        cases = {
+            'plain': ({}, ['go;play;1.0;2.0;3.0;16384;0']),
+            'plain, where JC starts': (dict(at=None), ['go;play']),
+            'flags': (dict(flags='Test_Flag=1'), ['w2;wait;0.5', 'go;play;1.0;2.0;3.0;16384;0']),
+            'setup': (dict(setup='UCDbgOtherMission'),
+                      ['w;waitmap;TestMap;90', 'w2;wait;0.5', 'go;play;1.0;2.0;3.0;16384;0']),
+            'setup and flags': (dict(setup='UCDbgOtherMission', flags='A=1'),
+                                ['w;waitmap;TestMap;90', 'w2;wait;0.5', 'go;play;1.0;2.0;3.0;16384;0']),
+            'loadout': (dict(god), ['ld;console;exec UCLoadout.txt', 'go;play;1.0;2.0;3.0;16384;0']),
+            'items only': (dict(flare), ['i0;spawn;DeusEx.Flare;41.0;2.0;3.0;16384', 'go;play;1.0;2.0;3.0;16384;0']),
+            'flags and a loadout': (dict(god, flags='A=1'), ['ld;console;exec UCLoadout.txt', 'go;play;1.0;2.0;3.0;16384;0']),
+            'setup and items': (dict(flare, setup='UCDbgOtherMission'),
+                                ['w;waitmap;TestMap;90', 'i0;spawn;DeusEx.Flare;41.0;2.0;3.0;16384',
+                                 'go;play;1.0;2.0;3.0;16384;0']),
+        }
+        for case, (given, expected) in cases.items():
+            with self.subTest(case):
+                live.play('TestMap', **dict(here, **given))
+                self.assertEqual(self.shots(), expected)
+                self.assertEqual(self.runner('StartDelay'), '0')
+                self.assertEqual(self.runner('SetupFlags'), given.get('flags', ''))
+                self.assertEqual(self.runner('Setup'), given.get('setup', ''))
 
-    def test_a_game_speed_line_the_game_added_goes_and_an_untouched_ini_is_not_written(self):
-        self.game_ini.write_bytes(b'[Engine.GameInfo]\nbLowGore=False\n')
+    def test_a_slow_motion_the_game_saves_goes_with_its_copy(self):
+        """The game's slomo saves GameSpeed into the ini it was started on (GameInfo.SetGameSpeed, then SaveConfig): the
+        launch's copy since 29 Oct 2026, gone with it; the player's Revision.ini, never written, keeps its own (before,
+        the editor put it back after the game)."""
+        before = self.game_ini.read_bytes()
         live.play('TestMap')
-        self.game_ini.write_bytes(b'[Engine.GameInfo]\nbLowGore=False\nGameSpeed=0.25\n')
+        copy = live.PLAY_INI
+        copy.write_bytes(copy.read_bytes().replace(b'GameSpeed=1.000000', b'GameSpeed=0.250000'))
         self.cleanup()
-        self.assertEqual(self.game_ini.read_bytes(), b'[Engine.GameInfo]\nbLowGore=False\n')
-        live.play('TestMap')
-        before = self.game_ini.stat().st_mtime_ns
-        self.cleanup()
-        self.assertEqual(self.game_ini.stat().st_mtime_ns, before)
-
-    def test_the_original_game_plays_on_copies_of_its_ini_and_nothing_is_put_back(self):
-        with patch.object(live, 'PLAY_INI', self.root / 'Play' / 'DeusEx.ini'):
-            self.assertEqual(live._speed_kept(), ())
-            live._speed_back(())
-        self.assertIn('GameSpeed=1.000000', self.game_ini.read_text(encoding='latin1'))
+        self.assertFalse(copy.exists())
+        self.assertEqual(self.game_ini.read_bytes(), before)
+        self.assertEqual(self.user.read_bytes(), b'[Engine.Player]\r\nName=JC\r\n')
 
 
 class RouteTests(unittest.TestCase):

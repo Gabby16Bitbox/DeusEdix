@@ -226,8 +226,11 @@ class Api:
     def game_release(self):
         return self._play_panel().release()
 
-    def game_detach(self):
-        return self._play_panel().detach()
+    def game_detach(self, front=False):
+        return self._play_panel().detach(front)
+
+    def game_cover(self, on):
+        return self._play_panel().cover(on)
 
     def game_status(self):
         return self._play_panel().status()

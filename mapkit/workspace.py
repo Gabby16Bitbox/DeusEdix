@@ -1,5 +1,5 @@
-"""DeusEdix's own setup, build and install: what setup.ps1, build.ps1 and install.ps1 do for UNATCO
-Continues, in Python, for the installed editor (no PowerShell, no SDK).
+"""DeusEdix's own setup, build and install: what setup.ps1, build.ps1 and install.ps1 do for a
+development mod, in Python, for the installed editor (no PowerShell, no SDK).
 
   ensure(log)   the workspace (DevInstall): the targeted game's System (hard links, or copies on another
                 disk; settings.TARGET), for Revision with the editor engine (Editor.dll) and the retail
@@ -9,7 +9,7 @@ Continues, in Python, for the installed editor (no PowerShell, no SDK).
   install(log)  the packages in dist\\ and the maps in maps\\ into Revision\\DeusEdixMaps, which the game
                 reads first (Paths lines in Revision.ini; a backup of it the first time).
 
-Nothing here runs inside the UNATCO Continues working copy: there setup.ps1 / build.ps1 / install.ps1 do it.
+Nothing here runs inside a development working copy: there its setup.ps1 / build.ps1 / install.ps1 do it.
 """
 import hashlib
 import json
@@ -346,7 +346,10 @@ def build(log=None):
     if r.returncode != 0 or not target.is_file():
         return False, lines + ['the package was not built (exit code %s); the compiler\'s output: %s' % (r.returncode, COMPILE_LOG)]
     DIST.mkdir(exist_ok=True)
-    shutil.copy2(target, DIST / target.name)
+    # a new file under the package's name: the warm build host (resident_build) may hold the one there through the links
+    # of its run, and Windows lets it be replaced, not written into (a Play after a Story change failed with [Errno 13]
+    # for two minutes after a build: game test of 30 Oct 2026)
+    atomicfile.copy_file(target, DIST / target.name)
     stamp = DIST / 'runtime-build.json'
     pending = stamp.with_suffix('.tmp')
     pending.write_text(json.dumps(dict(sources=fingerprint,
@@ -385,30 +388,28 @@ def paths_lines():
     return ['Paths=..\\%s\\*.%s' % (folder, x) for x in ('dx', 'u', 'utx', 'uax', 'umx')]
 
 
-def activate(play=False):
-    """Select this campaign without copying or removing another project's files (for a Play: with its save folder,
-    settings.SAVE_DIR)."""
+def activate():
+    """Select this campaign without copying or removing another project's files (an Install's: a Play starts the game
+    on launch copies of its ini files instead, live._session_inis)."""
     import project_game
-    return project_game.activate(paths_lines(), play=play)
+    return project_game.activate(paths_lines())
 
 
 def install(log=None, *, maps=True, activate_project=True):
     """Install runtime packages and, by default, project maps: (ok, lines).
 
     Play uses maps=False and activate_project=False, then stages its selected map.
-    Its owned launch activates the project and restores that configuration at Stop.
+    Its owned launch starts the game on launch copies of its ini files with the project's folders (live), never
+    activating the project in the game's own ini.
     This also serves the source checkout without install.ps1 copying unrelated maps.
     """
     lines = []
     say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
-    exe = settings.PROFILE['exe']           # Revision.exe, or the original game's DeusEx.exe
-    r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq ' + exe], capture_output=True, text=True,
-                       creationflags=subprocess.CREATE_NO_WINDOW)
-    if exe in r.stdout:
+    if settings.game_running():             # Revision.exe, or the original game's DeusEx.exe
         return False, ['Close %s before installing.' % settings.PROFILE['short']]
     dest = settings.MAPS_DIR
     dest.mkdir(parents=True, exist_ok=True)
-    packages = PACKAGES + (('UnatcoVoices',) if not settings.STANDALONE and settings.PACKAGE == 'UnatcoContinues' else ())
+    packages = PACKAGES + ((settings.VOICES_PACKAGE,) if not settings.STANDALONE and settings.PACKAGE == settings.DEV['package'] else ())
     for name in packages:
         f = DIST / (name + '.u')
         if not f.is_file() and not settings.STANDALONE:
@@ -451,8 +452,8 @@ def game_systems():
     """The System folders, with their program, of the games in the Deus Ex folder: the original game's, and
     Revision's when it is there."""
     found = []
-    for profile in settings.TARGETS.values():
-        system = (settings.GAME / profile['root'] if profile['root'] else settings.GAME) / 'System'
+    for target, profile in settings.TARGETS.items():
+        system = settings.system_folder(target)
         if (system / profile['exe']).is_file():
             found.append(system)
     return found
@@ -475,9 +476,18 @@ def install_native_everywhere(log=None):
     return ok, lines
 
 
-# What DeusEdix puts into each game: folders in the game's folder, files in its System (remove_game_files)
+# What DeusEdix puts into each game: folders in the game's folder, files in its System (remove_game_files), as glob
+# patterns (game_files): DeusEdixNav, and Revision's launch copies of its ini files by the names settings gives them
+# (settings.launch_names): a mod's game's (mods.py) and each project's Play's (live.py), left in System by a Play cut
+# short
 GAME_FOLDERS = ('DeusEdixProjects', 'DeusEdixMaps', 'DeusEdixMods')
-GAME_FILES = ('DeusEdixNav.u', 'DeusEdixNav.dll', 'DeusEdixMod.ini')
+GAME_FILES = ('DeusEdixNav.u', 'DeusEdixNav.dll')
+
+
+def game_files():
+    """The glob patterns of the files DeusEdix puts into a game's System folder: GAME_FILES, then the launch copies of a
+    Play of any project and of a mod's game (settings.launch_names)."""
+    return GAME_FILES + settings.launch_names(settings.LAUNCH_PLAY + '*') + settings.launch_names(settings.LAUNCH_MOD)
 
 
 def _remove(path, say):
@@ -498,7 +508,7 @@ def _remove(path, say):
         return False
 
 
-# The lines and sections of DeusEdix's own in the games' inis (not those of another mod: UnatcoMaps, its ServerActors)
+# The lines and sections of DeusEdix's own in the games' inis (not another mod's: its maps folder, its ServerActors)
 OWN_LINE = re.compile(r'(?i)^\s*(paths=\.\.[\\/](deusedixmaps|deusedixprojects)[\\/]|serveractors=(deusedix|dxp_\w+)\.)')
 OWN_SAVE = re.compile(r'(?i)^\s*savepath=.*deusedixprojects')
 OWN_SECTION = re.compile(r'(?i)^\s*\[(deusedix|dxp_\w+)\.uc(shotrunner|consolelink)\]')
@@ -508,6 +518,7 @@ ANY_RUNNER = re.compile(r'(?i)^\s*\[\w+\.uc(shotrunner|consolelink)\]')
 def _strip_ini(ini, say):
     """An ini without DeusEdix's own lines and Play sections (as project_game writes: checked, then replaced).
     -> it holds none of them now"""
+    import project_game
     try:
         text = ini.read_bytes().decode('latin1')
     except OSError:
@@ -525,7 +536,7 @@ def _strip_ini(ini, say):
             tmp.write_bytes(stripped.encode('latin1'))
             if ini.read_bytes().decode('latin1') != text:
                 raise OSError('it changed while being cleaned')
-            os.replace(tmp, ini)
+            project_game.replace(tmp, ini)
             say("took DeusEdix's lines out of", ini)
         except OSError as e:
             tmp.unlink(missing_ok=True)
@@ -536,28 +547,27 @@ def _strip_ini(ini, say):
 
 def remove_game_files(log=None):
     """The uninstaller's "everything DeusEdix put into the games", in each game of the Deus Ex folder: the installed
-    projects' maps, packages and saves (DeusEdixProjects, DeusEdixMaps), the installed mods (DeusEdixMods, Revision's
-    DeusEdixMod.ini), DeusEdixNav, DeusEdix's own lines and Play sections in the inis, and, once those are out, its
-    snapshot and backups of the inis. Run after project_game.deactivate_all, which puts the games' own settings
-    back. A running game is left as it is. -> (ok, lines)"""
+    projects' maps, packages and saves (DeusEdixProjects, DeusEdixMaps), the installed mods (DeusEdixMods), DeusEdixNav,
+    Revision's launch copies of its ini files (a mod's, each project's Play's), DeusEdix's own lines and Play sections
+    in the inis, and, once those are out, its snapshot and backups of the inis. Run after project_game.deactivate_all,
+    which puts the games' own settings back. A running game is left as it is. -> (ok, lines)"""
     lines = []
     say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
     ok = True
-    for profile in settings.TARGETS.values():
-        root = settings.GAME / profile['root'] if profile['root'] else settings.GAME
-        system = root / 'System'
+    for target, profile in settings.TARGETS.items():
+        system = settings.system_folder(target)
+        root = system.parent
         if not (system / profile['exe']).is_file():
             continue
-        r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq ' + profile['exe']], capture_output=True, text=True,
-                           creationflags=subprocess.CREATE_NO_WINDOW)
-        if profile['exe'] in r.stdout:
+        if settings.game_running(target):
             say('%s is running: what DeusEdix put into it was left there' % profile['short'])
             ok = False
             continue
         for name in GAME_FOLDERS:
             ok = _remove(root / name, say) and ok
-        for name in GAME_FILES:
-            ok = _remove(system / name, say) and ok
+        for pattern in game_files():
+            for path in sorted(system.glob(pattern)):
+                ok = _remove(path, say) and ok
         ini, user_ini = system / profile['ini'], system / profile['user_ini']
         if _strip_ini(ini, say):
             for name in ('deusedix-project-activation.json', ini.name + '.bak_projects'):

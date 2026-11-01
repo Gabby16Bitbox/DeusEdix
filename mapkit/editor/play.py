@@ -1,5 +1,5 @@
 """'Play from here' of the map editor: the game opens on the installed map with JC where the editor's
-camera is, after a mission state (one of the mod's UCDbg* debug commands, which set the flags and jump
+camera is, after a mission state (one of the development mod's UCDbg* debug commands, which set the flags and jump
 to their map) and extra flags; then the player has the controls (UCShotRunner step 'play').
 A play scenario (static/play-scenarios.js) adds JC's loadout: the game's own console commands and the items at his
 feet, run by the runner before that step (loadout_run).

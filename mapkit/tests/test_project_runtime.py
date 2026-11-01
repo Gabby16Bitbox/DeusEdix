@@ -32,14 +32,15 @@ class RuntimeTests(unittest.TestCase):
         self.b = self.root / 'b'
         for folder in (self.app, self.a, self.b):
             folder.mkdir()
-        self.settings = types.SimpleNamespace(APP_ROOT=self.app, PROJECT=self.a, PACKAGE='DXP_a',
+        self.settings = types.SimpleNamespace(APP_ROOT=self.app, PROJECT=self.a, PACKAGE='DXP_a', DEV={'package': 'DevMod', 'mapsDir': 'DevMaps'},
             MANAGED_PROJECT=True, STANDALONE=True, MAPS_DIR_NAME='DeusEdixProjects/a',
             MAPS_DIR=self.root / 'game/Revision/DeusEdixProjects/a', GAME=self.root / 'game',
             REVISION=self.root / 'game/Revision', ANIMS_PACKAGE='DXP_aAnims', MODELS_PACKAGE='DXP_aModels',
             GAME_INI=self.root / 'game/Revision/System/Revision.ini', PROFILE={'exe': 'Revision.exe', 'short': 'Revision'},
             INI_SECTIONS=('Core.System', 'RevisionInternal.LaunchSystem'),
             GAME_SYSTEM=self.root / 'game/Revision/System', SCRIPTS_PACKAGE='DXP_aScripts',
-            SOUNDS_PACKAGE='DXP_aSounds', current=lambda: {'id': 'a'}, python=lambda: ['python'])
+            SOUNDS_PACKAGE='DXP_aSounds', current=lambda: {'id': 'a'}, python=lambda: ['python'],
+            game_running=lambda target=None: False)
         self.game = module('project_game', self.settings)
         self.preferences = module('project_preferences', self.settings)
         self.server = module('project_server', self.settings)
@@ -52,9 +53,9 @@ class RuntimeTests(unittest.TestCase):
     def original_ini():
         return ('[Core.System]\r\nSavePath=..\\Save\r\nPaths=..\\Maps\\*.dx\r\n'
                 'Paths=..\\OtherMod\\*.u\r\nPaths=..\\DeusEdixMaps\\*.u\r\n'
-                '[RevisionInternal.LaunchSystem]\r\nPaths=..\\UnatcoMaps\\*.dx\r\n'
+                '[RevisionInternal.LaunchSystem]\r\nPaths=..\\DevMaps\\*.dx\r\n'
                 'Paths=..\\Textures\\*.utx\r\n[Other.Settings]\r\nUserSetting=keep\r\n'
-                '[Engine.GameEngine]\r\nServerActors=UnatcoContinues.UCLegacyActor\r\n'
+                '[Engine.GameEngine]\r\nServerActors=DevMod.UCLegacyActor\r\n'
                 'ServerActors=ThirdParty.Observer\r\n')
 
     def test_active_project_paths_replace_previous_only_and_restore_original_saves(self):
@@ -66,19 +67,19 @@ class RuntimeTests(unittest.TestCase):
         b_paths = [line.replace('\\a\\', '\\b\\') for line in a_paths]
         b = self.game.activate_text(a, b_paths, saved, '..\\DeusEdixProjects\\b\\Save')
         self.assertNotIn('\\a\\', b)
-        self.assertNotIn('UnatcoMaps', b)
+        self.assertNotIn('DevMaps', b)
         self.assertNotIn('DeusEdixMaps', b)
         self.assertIn('Paths=..\\OtherMod\\*.u', b)
         self.assertIn('Paths=..\\Textures\\*.utx', b)
         self.assertIn('UserSetting=keep', b)
-        self.assertNotIn('ServerActors=UnatcoContinues', b)
+        self.assertNotIn('ServerActors=DevMod', b)
         self.assertIn('ServerActors=ThirdParty.Observer', b)
         self.assertEqual(b.count(b_paths[0]), 2)
         self.assertEqual(self.game.activate_text(b, b_paths, saved, '..\\DeusEdixProjects\\b\\Save'), b)
         legacy = self.game.activate_text(b, ['Paths=..\\DeusEdixMaps\\*.dx'], saved, actors=actors)
         self.assertNotIn('DeusEdixProjects', legacy)
         self.assertIn('SavePath=..\\Save\r\n', legacy)
-        self.assertEqual(legacy.count('ServerActors=UnatcoContinues.UCLegacyActor'), 1)
+        self.assertEqual(legacy.count('ServerActors=DevMod.UCLegacyActor'), 1)
 
     def test_workspace_ini_never_loads_another_project_package_or_maps(self):
         workspace = module('workspace', self.settings)
@@ -90,9 +91,9 @@ class RuntimeTests(unittest.TestCase):
             prepared = workspace._ini(text)
         self.assertNotIn('DeusEdixProjects\\b', prepared)
         self.assertNotIn('EditPackages=DXP_b', prepared)
-        self.assertNotIn('UnatcoMaps', prepared)
+        self.assertNotIn('DevMaps', prepared)
         self.assertNotIn('DeusEdixMaps', prepared)
-        self.assertNotIn('ServerActors=UnatcoContinues', prepared)
+        self.assertNotIn('ServerActors=DevMod', prepared)
         self.assertIn('ServerActors=ThirdParty.Observer', prepared)
         self.assertEqual(prepared.count('EditPackages=DXP_a'), 1)
         self.assertIn('EditPackages=DeusEx', prepared)
@@ -107,8 +108,8 @@ class RuntimeTests(unittest.TestCase):
         paths = ['Paths=..\\DeusEdixProjects\\a\\*.dx', 'Paths=..\\DeusEdixProjects\\a\\*.u']
         self.assertTrue(self.game.activate(paths))
         active = ini.read_text(encoding='latin1')
-        self.assertNotIn('UnatcoContinues.UCLegacyActor', active)
-        self.assertNotIn('Paths=..\\UnatcoMaps\\*.dx', active)
+        self.assertNotIn('DevMod.UCLegacyActor', active)
+        self.assertNotIn('Paths=..\\DevMaps\\*.dx', active)
         self.assertFalse(self.game.activate(paths))
         self.assertTrue(self.game.deactivate())
         restored = ini.read_text(encoding='latin1')
@@ -132,7 +133,7 @@ class RuntimeTests(unittest.TestCase):
         self.game.deactivate()
         restored = ini.read_text()
         self.assertEqual(self.game.original_paths(restored), self.game.original_paths(original))
-        self.assertIn('ServerActors=UnatcoContinues.UCLegacyActor', restored)
+        self.assertIn('ServerActors=DevMod.UCLegacyActor', restored)
 
     def test_project_close_deactivates_current_and_preserves_snapshot_and_backup(self):
         ini = self.settings.REVISION / 'System/Revision.ini'
@@ -204,11 +205,15 @@ class RuntimeTests(unittest.TestCase):
         ini = self.settings.REVISION / 'System/Revision.ini'
         ini.parent.mkdir(parents=True)
         ini.write_text(self.original_ini())
+        native = tuple(self.root / n for n in ('DeusEdixNav.u', 'DeusEdixNav.dll'))
+        for f in native:
+            f.write_text('synthetic ' + f.name)
         with patch.object(workspace.subprocess, 'run', return_value=types.SimpleNamespace(stdout='')), \
-                patch.object(workspace, 'activate') as activate:
+                patch.object(workspace, 'activate') as activate, patch.object(workspace, 'NATIVE', native):
             ok, _lines = workspace.install(log=lambda *args: None)
         self.assertTrue(ok)
         activate.assert_called_once_with()
+        self.assertEqual((self.settings.GAME_SYSTEM / 'DeusEdixNav.dll').read_text(), 'synthetic DeusEdixNav.dll')
 
     def test_preferences_share_layout_but_keep_project_content_separate(self):
         self.preferences.save({'deusedix.workspace.v1': 'layout A', 'deusedix.project:a:recent': 'map A'}, 'a')

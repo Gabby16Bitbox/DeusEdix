@@ -1,7 +1,8 @@
 """Own just the game launched by this editor, never an arbitrary game process (Revision or Deus Ex).
 
 Steam is asynchronous, so an exact executable path and PID alone are insufficient:
-the launched map URL contains a nonce, verified in the new process's command line.
+the launched map URL contains a nonce, verified in the new process's command line
+(read through a handle of that process: WindowsProcesses.command_line).
 Every close operation also verifies the Windows process creation time while holding
 an open process handle. No executable-name-wide termination is used.
 """
@@ -26,6 +27,16 @@ class Identity:
     pid: int
     created: int
     executable: str
+
+
+# NtQueryInformationProcess's class for a process's command line (ProcessCommandLineInformation, Windows 8.1 and later)
+# and the statuses that ask for a bigger buffer, its size given back in ReturnLength
+COMMAND_LINE_CLASS = 60
+BIGGER_BUFFER = (0xC0000004, 0xC0000023, 0x80000005)    # INFO_LENGTH_MISMATCH, BUFFER_TOO_SMALL, BUFFER_OVERFLOW
+
+
+class _UnicodeString(ctypes.Structure):
+    _fields_ = [('Length', wintypes.USHORT), ('MaximumLength', wintypes.USHORT), ('Buffer', ctypes.c_void_p)]
 
 
 class _ProcessEntry(ctypes.Structure):
@@ -62,6 +73,13 @@ class WindowsProcesses:
         self.user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
         self.user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
         self.user.PostMessageW.restype = wintypes.BOOL
+        try:
+            self.query = ctypes.WinDLL('ntdll').NtQueryInformationProcess
+            self.query.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.ULONG,
+                                   ctypes.POINTER(wintypes.ULONG)]
+            self.query.restype = ctypes.c_long                 # an NTSTATUS
+        except (OSError, AttributeError):                      # no ntdll of Windows NT's: PowerShell's read only
+            self.query = None
 
     def _open(self, pid, access=0x1000 | 0x100000):
         handle = self.kernel.OpenProcess(access, False, int(pid))
@@ -102,7 +120,8 @@ class WindowsProcesses:
                 return None
             raise
 
-    def list(self):
+    def processes(self):
+        """[(pid, program name)] of every process running now: one Toolhelp snapshot."""
         k = self.kernel
         snapshot = k.CreateToolhelp32Snapshot(2, 0)
         if snapshot == ctypes.c_void_p(-1).value:
@@ -113,19 +132,31 @@ class WindowsProcesses:
             entry.dwSize = ctypes.sizeof(entry)
             found = k.Process32FirstW(snapshot, ctypes.byref(entry))
             while found:
-                if entry.szExeFile.casefold() == Path(self.executable).name.casefold():
-                    handle = self._open(entry.th32ProcessID)
-                    if handle:
-                        try:
-                            identity = self._running_identity(handle, entry.th32ProcessID)
-                            if identity and identity.executable == self.executable:
-                                out.append(identity)
-                        finally:
-                            k.CloseHandle(handle)
+                out.append((entry.th32ProcessID, entry.szExeFile))
                 found = k.Process32NextW(snapshot, ctypes.byref(entry))
         finally:
             k.CloseHandle(snapshot)
         return out
+
+    def list(self):
+        out = []
+        for pid, name in self.processes():
+            if name.casefold() == Path(self.executable).name.casefold():
+                handle = self._open(pid)
+                if handle:
+                    try:
+                        identity = self._running_identity(handle, pid)
+                        if identity and identity.executable == self.executable:
+                            out.append(identity)
+                    finally:
+                        self.kernel.CloseHandle(handle)
+        return out
+
+    def named(self, names):
+        """Is a program of one of `names` (e.g. 'Revision.exe') running, from any folder? The whole name, case aside, as
+        tasklist's IMAGENAME filter matches it."""
+        wanted = {name.casefold() for name in names}
+        return any(name.casefold() in wanted for _, name in self.processes())
 
     def alive(self, identity):
         handle = self._open(identity.pid)
@@ -136,11 +167,39 @@ class WindowsProcesses:
         finally:
             self.kernel.CloseHandle(handle)
 
-    def matches_launch(self, identity, token):
-        # CIM is queried once per candidate, never once per frame or for the process list.
-        # It works across 32/64-bit games without reading undocumented PEB structures.
+    def command_line(self, handle):
+        """The command line of the process of `handle` (PROCESS_QUERY_LIMITED_INFORMATION is enough), or None when it
+        cannot be read this way. What this relies on: ntdll's NtQueryInformationProcess with information class 60,
+        ProcessCommandLineInformation (Windows 8.1 and later; not one of the few classes winternl.h documents), which
+        copies the process's own command line into the caller's buffer as a UNICODE_STRING whose Buffer points inside
+        that buffer: no read of the process's memory (no PEB, no PROCESS_VM_READ), the same for a 32-bit game read
+        from 64-bit Python (a 32-bit child's token read in well under a millisecond, 30 Oct 2026). A buffer too small
+        is given the size the call asks for. None: no such call or class (Windows 7 and 8: STATUS_INVALID_INFO_CLASS;
+        Wine where it lacks the class), any other failure (an ended process: STATUS_PROCESS_IS_TERMINATING), or an
+        answer that does not lie inside the buffer."""
+        if self.query is None:
+            return None
+        size = wintypes.ULONG(1024)
+        for _ in range(4):
+            buffer = ctypes.create_string_buffer(size.value)
+            status = self.query(handle, COMMAND_LINE_CLASS, buffer, len(buffer), ctypes.byref(size)) & 0xFFFFFFFF
+            if status == 0:
+                text = _UnicodeString.from_buffer(buffer)
+                start, end = ctypes.addressof(buffer), ctypes.addressof(buffer) + len(buffer)
+                if not text.Length:
+                    return ''
+                if not (start + ctypes.sizeof(text) <= (text.Buffer or 0) and text.Buffer + text.Length <= end):
+                    return None
+                return ctypes.wstring_at(text.Buffer, text.Length // 2)
+            if status not in BIGGER_BUFFER or size.value <= len(buffer):
+                return None
+        return None
+
+    def _cim_command_line(self, pid):
+        """The command line of process `pid` through PowerShell's Get-CimInstance (about 1.1 s): only when
+        command_line cannot read it. '' when there is no such process."""
         command = ('$p = Get-CimInstance Win32_Process -Filter "ProcessId = %d"; '
-                   'if ($p) { ConvertTo-Json -Compress -InputObject $p.CommandLine }') % identity.pid
+                   'if ($p) { ConvertTo-Json -Compress -InputObject $p.CommandLine }') % pid
         result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
                                 capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=12,
                                 creationflags=subprocess.CREATE_NO_WINDOW)
@@ -150,7 +209,27 @@ class WindowsProcesses:
             command_line = json.loads(result.stdout.strip()) if result.stdout.strip() else ''
         except ValueError as exc:
             raise RuntimeError('Cannot read the game launch command safely.') from exc
-        return isinstance(command_line, str) and ('?DeusEdixSession=' + token) in command_line and self.alive(identity)
+        return command_line if isinstance(command_line, str) else ''
+
+    def matches_launch(self, identity, token):
+        # Read once per candidate, never once per frame or for the process list. The command line is read through a
+        # handle of the candidate, checked to be `identity` first (its creation time: a PID reused since the list
+        # cannot swap it); a process that ends during the read is not this launch's. PowerShell's CIM, by PID as
+        # before, only when that read is not possible; alive(identity) after it, as before.
+        handle = self._open(identity.pid)
+        if not handle:
+            return False
+        try:
+            if self._running_identity(handle, identity.pid) != identity:
+                return False
+            command_line = self.command_line(handle)
+            if command_line is None and self.kernel.WaitForSingleObject(handle, 0) == 0:
+                return False
+        finally:
+            self.kernel.CloseHandle(handle)
+        if command_line is None:
+            command_line = self._cim_command_line(identity.pid)
+        return ('?DeusEdixSession=' + token) in command_line and self.alive(identity)
 
     def close(self, identity, grace=3):
         # Keep this handle until completion: PID reuse cannot redirect TerminateProcess.
@@ -186,11 +265,14 @@ class WindowsProcesses:
 
 
 class GameSession:
-    """One launch at a time, including cancellation while Steam is still starting."""
-    def __init__(self, processes, launch_timeout=90, poll=0.25, clock=time.monotonic):
+    """One launch at a time, including cancellation while Steam is still starting. While it launches, the processes
+    are listed every `launch_poll` seconds at most (a list costs 12-15 ms with 570 processes on Gabby's PC), so that a
+    started game is claimed soon after it appears: the desktop app embeds it only once it is claimed (startup2)."""
+    def __init__(self, processes, launch_timeout=90, poll=0.25, clock=time.monotonic, launch_poll=0.1):
         self.processes = processes
         self.launch_timeout = launch_timeout
         self.poll = poll
+        self.launch_poll = launch_poll
         self.clock = clock
         self.lock = threading.RLock()
         self.wake = threading.Event()
@@ -235,7 +317,7 @@ class GameSession:
                 s['cleanup']()
                 s['cleanup'] = None
             except Exception as exc:
-                s['error'] = 'Game settings could not be restored: %s' % exc
+                s['error'] = 'Play could not tidy up after the game (choose Stop again to retry): %s' % exc
                 return False
         s['cancelled'] = False
         return True
@@ -287,7 +369,7 @@ class GameSession:
                         s['launching'] = False
                         self._cleanup(s)
                         return
-            self.wake.wait(self.poll)
+            self.wake.wait(self.poll if s.get('identity') else min(self.poll, self.launch_poll))
             self.wake.clear()
 
     def _close(self, s, owner, grace=3):

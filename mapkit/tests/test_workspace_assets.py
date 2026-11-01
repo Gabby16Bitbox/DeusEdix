@@ -66,7 +66,7 @@ class FixTests(unittest.TestCase):
         self.assertEqual(len(lines),2);self.assertIn('RevDataVaultImages',lines[0]);self.assertIn('Compiler log:',lines[1])
     def test_transient_failure_still_retries(self):
         ok,lines,run,sleep,copy=self.compile(types.SimpleNamespace(returncode=7,stdout='fault',stderr=''))
-        self.assertFalse(ok);self.assertEqual(run.call_count,3);self.assertEqual(sleep.call_count,2)
+        self.assertFalse(ok);self.assertEqual(run.call_count,3);self.assertEqual(sleep.call_args_list,[call(5)]*2)   # two pauses of 5 s between the 3 attempts
         self.assertEqual(copy.call_args_list,[call(self.w.HOST,self.w.SYS/'host.exe')]*3)   # the host copied again for every attempt
     def fixture(self):
         p=load('projects');folder=self.root/'kit/editor/static/audio/doctor';folder.mkdir(parents=True)
