@@ -4,14 +4,18 @@
 // commands, keeps the session and writes the files; this DLL is the only code compiled against the engine's
 // headers, with the settings they need (README.md).
 //
-// The engine is changed in memory only, two places (README.md): UEditorEngine::Draw does nothing (LIGHT APPLY's
-// temporary viewport would repaint through the absent UnrealEd front-end), and Revision's WinDrvLite.dll accepts
-// temporary viewports.
+// The engine is changed in memory only (README.md): UEditorEngine::Draw does nothing (LIGHT APPLY's
+// temporary viewport would repaint through the absent UnrealEd front-end), Revision's WinDrvLite.dll accepts
+// temporary viewports and never activates nor focuses a window the host keeps hidden, and the window drivers never
+// free the cursor another program confines. GPU BSP scoring and geometry searches use scoped, version-pinned hooks
+// (GPU_BSP.md, BUILD_PERFORMANCE.md). Geometry builds also use bounded allocation spare capacity.
 #include <windows.h>
+#include <bcrypt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <malloc.h>
 #include <float.h>
+#include <emmintrin.h>
 // JSON for the dumps the editor reads: nlohmann/json 3.11.3 (MIT, third_party/nlohmann/LICENSE.MIT). Included
 // before the engine's headers, whose macros (check, ...) would otherwise reach into its code.
 #include <algorithm>
@@ -291,6 +295,124 @@ static int patchTemporaryViewport() {
     return 1;
 }
 
+// The host shows no window and leaves the foreground where it is. With Revision, LIGHT APPLY's temporary viewport is a
+// real window: WinDrvLite's OpenWindow creates it at the screen's default place, shows it (ShowWindow) and activates it
+// (SetActiveWindow), and its ResizeViewport focuses it (SetFocus), before it starts the OpenGL renderer on it, so for
+// the half second of each lighting build it stood above the user's programs and took the foreground (every Play of
+// DeusEdix that builds its map: game test of 30 Oct 2026). hideWindows() keeps the engine's windows hidden with a hook
+// on this thread only (WH_CBT): each top-level window gets, as it is created, hiddenWindowProc, which takes the show and
+// the activation out of every change of its place (ShowWindow and SetWindowPos both make one) and keeps WM_SETREDRAW
+// from it (WinDrvLite sends it around each size change of the viewport, and its TRUE makes DefWindowProc set
+// WS_VISIBLE). WinDrvLite's activation and focus never reach Windows for such a window (patchDriverCalls, below); the
+// hook still refuses its activation, but only as a second guard. The renderer needs only the window's device context,
+// which a hidden window has: the lighting is the same. A dialog (a message box) is left as it is: an engine that asks
+// something must be seen.
+static const wchar_t OwnWindowProc[] = L"UCMapKitOwnWindowProc";     // the property keeping a window's own procedure
+
+static LRESULT CALLBACK hiddenWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    WNDPROC own = (WNDPROC)GetPropW(window, OwnWindowProc);
+    if (message == WM_WINDOWPOSCHANGING) {
+        WINDOWPOS* change = (WINDOWPOS*)lParam;
+        change->flags = (change->flags & ~SWP_SHOWWINDOW) | SWP_NOACTIVATE;    // moved or sized, never shown
+    } else if (message == WM_SETREDRAW) {
+        return 0;                       // a hidden window has nothing to draw
+    } else if (message == WM_NCDESTROY) {
+        RemovePropW(window, OwnWindowProc);
+    }
+    return CallWindowProcW(own, window, message, wParam, lParam);
+}
+static LRESULT CALLBACK hiddenWindowHook(int code, WPARAM wParam, LPARAM lParam) {
+    HWND window = (HWND)wParam;
+    if (code == HCBT_CREATEWND && !(((CBT_CREATEWNDW*)lParam)->lpcs->style & WS_CHILD)
+        && GetClassLongW(window, GCW_ATOM) != (DWORD)(UINT_PTR)WC_DIALOG) {
+        if (SetPropW(window, OwnWindowProc, (HANDLE)GetWindowLongPtrW(window, GWLP_WNDPROC)))
+            SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)hiddenWindowProc);
+    } else if (code == HCBT_ACTIVATE && GetPropW(window, OwnWindowProc)) {
+        // refused, the second guard: Windows tells the hook only after it gave the foreground to this thread (when the
+        // host may take it, as a host just started from the program in front can), so the user's window has already
+        // lost it, to no window at all
+        return 1;
+    }
+    return CallNextHookEx(NULL, code, wParam, lParam);
+}
+static void hideWindows() {
+    if (SetWindowsHookExW(WH_CBT, hiddenWindowHook, NULL, GetCurrentThreadId())) return;
+    // before appInit: no engine allocator yet, so no say() (its line is on the heap, the engine's)
+    char line[64];
+    _snprintf(line, sizeof(line) - 1, "UCMapKit|windows|not hidden|%lu", GetLastError());
+    line[sizeof(line) - 1] = 0;
+    Host->print(line);
+}
+
+// WinDrvLite activates and focuses its viewport (SetActiveWindow in OpenWindow, SetFocus in ResizeViewport). For a
+// thread allowed to take the foreground, Windows hands the foreground to it before WH_CBT may refuse the activation:
+// the user's window then lost it to no window at all (game test of 30 Oct 2026). A hidden window is never asked.
+static HWND WINAPI activateShown(HWND window) {
+    return GetPropW(window, OwnWindowProc) ? GetActiveWindow() : SetActiveWindow(window);
+}
+static HWND WINAPI focusShown(HWND window) {
+    return GetPropW(window, OwnWindowProc) ? GetFocus() : SetFocus(window);
+}
+
+// The host never frees the cursor. The window drivers do (ClipCursor(NULL)) when LIGHT APPLY's viewport lets go of the
+// mouse (WinDrv.dll, twice) and when the engine stops (WinDrv.dll, or Revision's WinDrvLite.dll). The clip is the
+// whole desktop's, set by the program in front (a game holds its mouse in its window), so each build took it away
+// from that program, three times with Revision's lighting (measured 31 Oct 2026). The host has no mouse to let go of:
+// those calls do nothing.
+static BOOL WINAPI leaveCursorClip(const RECT*) {
+    return TRUE;
+}
+
+// The slot of `name`, imported by name from `dll`, in a loaded module's import address table, found through its import
+// directory (IMAGE_IMPORT_DESCRIPTOR: the names in OriginalFirstThunk, the addresses the loader wrote in FirstThunk,
+// slot for slot). NULL when the module does not import it that way.
+static ULONG_PTR* importSlot(HMODULE module, const char* dll, const char* name) {
+    BYTE* base = (BYTE*)module;
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    const IMAGE_DATA_DIRECTORY& imports = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!imports.VirtualAddress) return NULL;
+    for (IMAGE_IMPORT_DESCRIPTOR* from = (IMAGE_IMPORT_DESCRIPTOR*)(base + imports.VirtualAddress); from->Name; from++) {
+        // a module bound without its names (no OriginalFirstThunk) cannot be read by name
+        if (_stricmp((const char*)(base + from->Name), dll) || !from->OriginalFirstThunk) continue;
+        IMAGE_THUNK_DATA* names = (IMAGE_THUNK_DATA*)(base + from->OriginalFirstThunk);
+        IMAGE_THUNK_DATA* slots = (IMAGE_THUNK_DATA*)(base + from->FirstThunk);
+        for (; names->u1.AddressOfData; names++, slots++) {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+            if (!strcmp(((IMAGE_IMPORT_BY_NAME*)(base + names->u1.AddressOfData))->Name, name))
+                return &slots->u1.Function;
+        }
+    }
+    return NULL;
+}
+
+// Point a loaded module's calls of one imported function at another (its importSlot), in this process's memory only.
+// 0 when the module does not import it that way: nothing is changed.
+static int redirectImport(HMODULE module, const char* dll, const char* name, const void* to) {
+    ULONG_PTR* slot = importSlot(module, dll, name);
+    DWORD old;
+    if (!slot || !VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &old)) return 0;
+    *slot = (ULONG_PTR)to;
+    VirtualProtect(slot, sizeof(*slot), old, &old);
+    return 1;
+}
+
+// The window drivers' calls that reach the user go to the stand-ins above, through their import slots, in this
+// process's memory only, never in the game's files: WinDrvLite's SetActiveWindow and SetFocus (the original game's
+// WinDrv.dll opens no window), and the ClipCursor of both drivers. A driver not loaded, or a name it does not import,
+// is left as it is.
+static void patchDriverCalls() {
+    const struct { const char* module; const char* name; const void* to; } calls[] = {
+        { "WinDrvLite.dll", "SetActiveWindow", (const void*)activateShown },
+        { "WinDrvLite.dll", "SetFocus", (const void*)focusShown },
+        { "WinDrvLite.dll", "ClipCursor", (const void*)leaveCursorClip },
+        { "WinDrv.dll", "ClipCursor", (const void*)leaveCursorClip } };
+    for (int k = 0; k < ARRAY_COUNT(calls); k++) {
+        HMODULE module = GetModuleHandleA(calls[k].module);
+        if (module && redirectImport(module, "USER32.dll", calls[k].name, calls[k].to))
+            say("UCMapKit|patched|%s|%s (memory only)", calls[k].module, calls[k].name);
+    }
+}
+
 // A name as the engine keeps it: an FName, one integer to compare (the name table holds each name once,
 // case-insensitively). FNAME_Find adds nothing to the table: a name it does not hold is no object's (NAME_None).
 static FName knownName(const TCHAR* name) {
@@ -449,7 +571,7 @@ static int editMover(const char* operation, const char* name, float x, float y, 
 }
 
 // Zones, visibility and collision bounds for the whole level, after CSG.
-static int finishWorld() {
+static int finishWorldStock() {
     if (!GEditor->Level || !GEditor->Level->Model) return 0;
     UModel* model = GEditor->Level->Model;
     GEditor->bspRefresh(model, 1);
@@ -1706,7 +1828,7 @@ static int editSurface(const UCSurfaceEdit* edit) {
     int flipu = mode == "flip-u", flipv = mode == "flip-v", flags = mode == "flags";
     if (!(shadow || texture || pan || scale || fit || floor || wall || rotate || flipu || flipv || flags)) return surfaceError("Unknown surface operation");
     const DWORD allowed = PF_Invisible | PF_Masked | PF_Translucent | PF_Modulated | PF_FakeBackdrop | PF_TwoSided | PF_NoSmooth
-        | PF_SpecialLit | PF_Unlit | PF_Mirrored;
+        | PF_SpecialLit | PF_Unlit | PF_Mirrored | PF_AutoUPan | PF_AutoVPan;
     DWORD set = edit->set, clear = edit->clear;
     if (flags && (!edit->hasFlags || ((set | clear) & ~allowed) || (set & clear)))
         return surfaceError("Invalid surface flags");
@@ -2385,15 +2507,47 @@ static int compile() {
 template <class T> static T& forever() {
     return *new (malloc(sizeof(T))) T;
 }
-static FMallocAnsi& Malloc = forever<FMallocAnsi>();
+#include "build_allocator.h"
+static FMallocBuild& Malloc = forever<FMallocBuild>();
 static Utf8Log& Log = forever<Utf8Log>();
 static Utf8Error& Error = forever<Utf8Error>();
 static Utf8Feedback& Feedback = forever<Utf8Feedback>();
 static FFileManagerWindows& Files = forever<FFileManagerWindows>();
 
+// A resident full-build worker restores per-class auto-name counters to the
+// freshly initialized SDK values before MAP NEW. Unknown later-loaded classes
+// start at zero; the engine still checks names for collisions.
+static std::map<std::wstring,INT>* buildClassCounters=nullptr;
+static UTexture* buildInitialTexture=nullptr;
+static void rememberBuildState() {
+    buildClassCounters=&forever<std::map<std::wstring,INT>>();
+    for(TObjectIterator<UClass> c;c;++c) (*buildClassCounters)[std::wstring((wchar_t*)c->GetPathName())]=c->ClassUnique;
+    buildInitialTexture=GEditor->CurrentTexture;
+}
+static int resetBuildState() {
+    if(!buildClassCounters)return 0;
+    navTemp.clear();keptSpecs.clear();AnimPackage=nullptr;
+    GEditor->CurrentTexture=buildInitialTexture;
+    UObject* old=GEditor->Level?GEditor->Level->GetOuter():nullptr;
+    if(old) {
+        for(FObjectIterator o;o;++o)if(o->IsIn(old))o->ClearFlags(RF_Standalone);
+    }
+    GEditor->Exec(TEXT("MAP NEW"),Feedback);
+    GEditor->Cleanse(0,TEXT("Private rebuild reset"));
+    // Headless start leaves GIsRunning false, so Cleanse skips collection.
+    UObject::CollectGarbage(RF_Native|RF_Standalone);
+    for(TObjectIterator<UClass> c;c;++c) {
+        auto found=buildClassCounters->find(std::wstring((wchar_t*)c->GetPathName()));
+        c->ClassUnique=found==buildClassCounters->end()?0:found->second;
+    }
+    say("UCMapKit|build reset|name counters");
+    return 1;
+}
+
 // The editor engine, ready for commands: started with Revision.ini (the run's own, next to the host), no sound.
 static int start(const UCHostApi* host) {
     Host = host;
+    hideWindows();                      // before the engine makes any window (LIGHT APPLY's viewport)
     GIsEditor = 1;
     GIsServer = 1;
     GIsClient = 0;
@@ -2404,6 +2558,7 @@ static int start(const UCHostApi* host) {
     GEditor->Init();
     loadSettings();
     temporaryViewportReady = patchTemporaryViewport();
+    patchDriverCalls();                 // after GEditor->Init, which loads the window drivers
     // Headless, the editor engine's Draw would paint its viewports through UnrealEd's front-end, which is not
     // there (it crashed on the toolbar buttons of LIGHT APPLY's viewport): Draw returns at once.
     // void __thiscall UEditorEngine::Draw(UViewport*, int, unsigned char*, int*)
@@ -2418,13 +2573,30 @@ static void stop() {
 }
 
 // An UnrealEd command line. The engine's commands are plain ASCII: the line is widened byte by byte.
+#include "gpu_bsp_hook.h"
+#include "geometry_search.h"
+#include "light_build.h"
+#include "import_lookup.h"
+#ifdef DEUSEDIX_BSP_TESTS
+#include "hidden_windows_tests.h"
+#include "cursor_clip_tests.h"
+#endif
+
+
 static int exec(const char* line) {
+    if(!strcmp(line,"UC_BUILD_INIT")){if(!importLookupSite())return 0;rememberBuildState();return 1;}
+    if(!strcmp(line,"UC_BUILD_RESET"))return resetBuildState();
+#ifdef DEUSEDIX_BSP_TESTS
+    if (!strcmp(line, "UC_HIDDEN_WINDOWS_TEST")) return hiddenWindowsTests();
+    if (!strcmp(line, "UC_CURSOR_CLIP_TEST")) return cursorClipTests();
+#endif
     if (!strcmp(line, "LIGHT APPLY") && !temporaryViewportReady) {
         say("UCMapKit|failed|lighting|This WinDrvLite version does not match the supported temporary-viewport fix");
         return 0;
     }
     std::vector<TCHAR> wide(line, line + strlen(line) + 1);
-    return GEditor->Exec(&wide[0], Feedback);
+    int result=importLookupExec(line, &wide[0], Feedback);
+    return result;
 }
 
 static int actorCount() {

@@ -1,8 +1,9 @@
-# Builds, 32 bit, into mapkit\bin:
+param([switch]$BspTests, [string]$OutDir = (Join-Path $PSScriptRoot '..\bin'),
+      [string]$Lab = (Join-Path $PSScriptRoot '..\..\build_tools\sdk'))
+# Builds, 32 bit, into mapkit\bin (or -OutDir <folder>: a build to try while an editor uses bin's):
 #   UCEngineBridge.dll  the bridge to Deus Ex's engine (UCEngineBridge.cpp), the one part compiled against the engine's
 #                       headers: the SDK headers and import libraries made by dev\prepare_sdk.py (build_tools\sdk), read only
 #   UCMapKitHost.exe    the host (UCMapKitHost.cpp): standard C++, no engine header (README.md)
-param([string]$Lab = (Join-Path $PSScriptRoot '..\..\build_tools\sdk'))
 $ErrorActionPreference = 'Stop'
 $lab = Resolve-Path $Lab
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -12,7 +13,6 @@ $msvc = Get-ChildItem -LiteralPath (Join-Path $vsRoot 'VC\Tools\MSVC') -Director
 $kitRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
 $kit = Get-ChildItem -LiteralPath (Join-Path $kitRoot 'Include') -Directory | Sort-Object Name -Descending | Select-Object -First 1
 $compiler = Join-Path $msvc.FullName 'bin\Hostx64\x86\cl.exe'
-$outDir = Join-Path $PSScriptRoot '..\bin'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $outDir = Resolve-Path $outDir
 
@@ -27,10 +27,12 @@ $compile = @('/nologo', '/O2', '/MT', '/EHsc', '/std:c++17', '/sdl', '/guard:cf'
 $link = @('/link', '/DYNAMICBASE', '/NXCOMPAT', '/GUARD:CF', '/CETCOMPAT',
     ('/LIBPATH:' + (Join-Path $msvc.FullName 'lib\x86')),
     ('/LIBPATH:' + (Join-Path $kitRoot ('Lib\' + $kit.Name + '\ucrt\x86'))),
-    ('/LIBPATH:' + (Join-Path $kitRoot ('Lib\' + $kit.Name + '\um\x86'))), 'kernel32.lib')
+    ('/LIBPATH:' + (Join-Path $kitRoot ('Lib\' + $kit.Name + '\um\x86'))), 'kernel32.lib', 'bcrypt.lib')
 
 # The bridge. /Zc:wchar_t-: the game's DLLs were built by Visual C++ 6, whose wchar_t was an unsigned short; their
 # exports are named with it, and the headers fill TCHAR arrays with wide literals (guard() in every function).
+# user32.lib: hideWindows() and patchDriverCalls(), which keep the engine's windows (LIGHT APPLY's viewport) hidden
+# and away from the foreground, and the cursor's clip to the program that set it.
 $bridge = $compile + @('/LD', '/Zc:wchar_t-',
     ('/I' + (Join-Path $lab 'headers\Core\Inc')),
     ('/I' + (Join-Path $lab 'headers\Engine\Inc')),
@@ -40,12 +42,18 @@ $bridge = $compile + @('/LD', '/Zc:wchar_t-',
     ('/I' + (Join-Path $lab 'headers\ConSys\Inc')),
     ('/Fo' + (Join-Path $outDir 'UCEngineBridge.obj')),
     ('/Fe' + (Join-Path $outDir 'UCEngineBridge.dll')),
-    (Join-Path $PSScriptRoot 'UCEngineBridge.cpp')) + $link + @(
+    (Join-Path $PSScriptRoot 'UCEngineBridge.cpp'), (Join-Path $outDir 'gpu_bsp_compute.obj')) + $link + @('user32.lib', 'd3d11.lib', 'dxgi.lib', 'd3dcompiler.lib',
     (Join-Path $lab 'Core.lib'), (Join-Path $lab 'Engine.lib'), (Join-Path $lab 'Editor.lib'), (Join-Path $lab 'Window.lib'),
     # Extension.dll and ConSys.dll load at the first call of one of their methods (the text and conversation
     # dumps), when the engine has already loaded them for their packages: the bridge starts the same without them
     (Join-Path $lab 'Extension.lib'), (Join-Path $lab 'ConSys.lib'), 'delayimp.lib',
-    '/DELAYLOAD:Extension.dll', '/DELAYLOAD:ConSys.dll')
+    '/DELAYLOAD:Extension.dll', '/DELAYLOAD:ConSys.dll', '/DELAYLOAD:d3d11.dll', '/DELAYLOAD:dxgi.dll', '/DELAYLOAD:D3DCOMPILER_47.dll')
+# Standard C++ compute helper is separate from the SDK headers/macros.
+$gpuArgs = $compile + @(('/I' + (Join-Path $kit.FullName 'winrt')), '/c', '/fp:strict',
+    ('/Fo' + (Join-Path $outDir 'gpu_bsp_compute.obj')), (Join-Path $PSScriptRoot 'gpu_bsp_compute.cpp'))
+& $compiler @gpuArgs
+if ($LASTEXITCODE -ne 0) { throw 'BSP compute compilation failed' }
+if ($BspTests) { $bridge = @('/DDEUSEDIX_BSP_TESTS') + $bridge }
 & $compiler @bridge
 if ($LASTEXITCODE -ne 0) { throw 'UCEngineBridge compilation failed' }
 

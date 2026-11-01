@@ -54,6 +54,22 @@ def _native_sign_feasible(planes, signs):
     Axis-unit x-W signs are exact (Sterbenz near W, dominant operand elsewhere).
     This is a PointRegion sign proof; native traces and hulls are separate.
     """
+    # For unit axial planes the existing error bound is exactly zero in every
+    # octant. Their union is all space, so one exact interval proof replaces
+    # eight identical systems with extra octant constraints. Oblique or scaled
+    # native planes still require the original rounding enclosure below.
+    exact_rows = []
+    for index, sign in signs:
+        p = planes[index]
+        nonzero = [v for v in p[:3] if v]
+        if len(nonzero) != 1 or abs(nonzero[0]) != 1:
+            break
+        if sign <= 0:
+            exact_rows.append(p + (sign < 0,))
+        if sign >= 0:
+            exact_rows.append(tuple(-v for v in p) + (sign > 0,))
+    else:
+        return _strict_feasible(exact_rows)
     for octant in product((-1, 1), repeat=3):
         rows = []
         for axis, sign in enumerate(octant):
@@ -79,6 +95,13 @@ def _strict_feasible(rows, limit=20000):
     """Rows are (a..., bound, strict), i.e. a.x <(=) bound; no epsilon."""
     rows = [(tuple(c.q(v) for v in r[:-1]), bool(r[-1])) for r in rows]
     dimensions = len(rows[0][0])-1 if rows else 3
+    # Axial constraints are independent exact intervals. Intersecting their
+    # bounds is equivalent to eliminating each coordinate, including open
+    # endpoints and zero-dimensional intersections. Keep the general rational
+    # elimination below for ANY oblique row; do not approximate its normal.
+    axial = _axial_feasible(rows, dimensions) if len(rows) <= limit else None
+    if axial is not None:
+        return axial
     for count in range(dimensions, -1, -1):
         unique = {}
         for r, strict in rows:
@@ -106,6 +129,32 @@ def _strict_feasible(rows, limit=20000):
                 new.append((row, sa or sb))
         rows = new
     raise AssertionError('unreachable')
+
+
+def _axial_feasible(rows, dimensions):
+    """Exact product of intervals, or None when general elimination is needed."""
+    bounds = [[None, None] for _ in range(dimensions)]
+    for row, strict in rows:
+        axes = [k for k, value in enumerate(row[:-1]) if value]
+        if len(axes) > 1:
+            return None
+        if not axes:
+            if row[-1] < 0 or row[-1] == 0 and strict:
+                return False
+            continue
+        axis = axes[0]
+        value = row[-1]/row[axis]
+        side = int(row[axis] > 0)  # lower for negative coefficient, upper otherwise
+        previous = bounds[axis][side]
+        if previous is None or (value < previous[0] if side else value > previous[0]):
+            bounds[axis][side] = (value, strict)
+        elif value == previous[0]:
+            bounds[axis][side] = (value, strict or previous[1])
+        lower, upper = bounds[axis]
+        if lower is not None and upper is not None:
+            if lower[0] > upper[0] or lower[0] == upper[0] and (lower[1] or upper[1]):
+                return False
+    return True
 
 
 def _canonical(p):

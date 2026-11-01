@@ -14,6 +14,10 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include <float.h>
+#include <bcrypt.h>
+#include <algorithm>
+#include <vector>
+#include <stdarg.h>
 #define EDITOR_API __declspec(dllimport)
 // The engine is built with 4-byte packing: without it every class member after a DOUBLE (UBitmap's
 // LastUpdateTime: a texture's Scale, its Mips...) is read 4 bytes too far.
@@ -26,6 +30,12 @@
 #include "FOutputDeviceAnsiError.h"
 #include "FFeedbackContextAnsi.h"
 #pragma pack(pop)
+
+static void say(const char* format, ...) {
+    va_list args;va_start(args,format);vprintf(format,args);va_end(args);
+    fputc('\n',stdout);fflush(stdout);
+}
+#include "local_build_performance.h"
 
 static void printUtf8(const TCHAR* text, FILE* stream) {
     char buffer[16384];
@@ -1705,11 +1715,20 @@ static int newAnimMesh(const char* line) {
 }
 
 // UC_ANIMSAVE <file>: writes the package of UC_ANIMNEW (then a new one can be made); without any
-// UC_ANIMNEW, an empty UCAnims package (the Studio has no animation left)
+// UC_ANIMNEW, an empty package named after the file (the Studio has no animation left)
 static int saveAnimPackage(const char* line) {
     char path[512];
     if (sscanf(line, "UC_ANIMSAVE %511s", path) != 1) return 0;
-    if (!AnimPackage) AnimPackage = UObject::CreatePackage(NULL, TEXT("UCAnims"));
+    if (!AnimPackage) {
+        char name[128];
+        const char* base = strrchr(path, '\\');
+        strncpy(name, base ? base + 1 : path, 127);
+        name[127] = 0;
+        if (char* dot = strrchr(name, '.')) *dot = 0;
+        TCHAR wname[128];
+        MultiByteToWideChar(CP_UTF8, 0, name, -1, (LPWSTR)wname, 128);
+        AnimPackage = UObject::CreatePackage(NULL, wname);
+    }
     TCHAR wpath[512];
     MultiByteToWideChar(CP_UTF8, 0, path, -1, (LPWSTR)wpath, 512);
     UBOOL ok = UObject::SavePackage(AnimPackage, NULL, RF_Standalone, wpath, GWarn);
@@ -1929,7 +1948,7 @@ static int runCommand(const char* line, unsigned short* wide, FFeedbackContext& 
 
 static int guardedCommand(const char* line, unsigned short* wide, FFeedbackContext& feedback) {
     __try {
-        return runCommand(line, wide, feedback);
+        return localBuildCommand(line, wide, feedback);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         printf("UCMapKit|fault|0x%08lx\n", GetExceptionCode()); fflush(stdout);
         return 0;
@@ -2016,6 +2035,13 @@ int main(int argc, char** argv) {
     FILE* input = interactive ? stdin : fopen(argv[1], "rt");
     if (!input) return 3;
     FMallocAnsi malloc;
+    FMallocBuild localMalloc;
+    int localMode=localAccelerationMode();
+    // Opt-out and verification retain the original allocator, including its
+    // lifetime. No reserve or GPU driver is started by default.
+    FMalloc* selectedMalloc=(localMode==3||localMode==4)?(FMalloc*)&localMalloc:(FMalloc*)&malloc;
+    localBuildHeap=(localMode==3||localMode==4)?&localMalloc.build:NULL;
+    if(localMode)puts("UCMapKit|local acceleration capability|1");
     Utf8Log log;
     Utf8Error error;
     Utf8Feedback feedback;
@@ -2023,7 +2049,7 @@ int main(int argc, char** argv) {
     GIsEditor = 1;
     GIsServer = 1;
     GIsClient = 0;
-    appInit(TEXT("UCMapKitHost"), TEXT("-ini=Revision.ini -nosound"), &malloc,
+    appInit(TEXT("UCMapKitHost"), TEXT("-ini=Revision.ini -nosound"), selectedMalloc,
         &log, &error, &feedback, &files, FConfigCacheIni::Factory, 1);
     GIsStarted = 1;
     GEditor = ConstructObject<UEditorEngine>(UEditorEngine::StaticClass());

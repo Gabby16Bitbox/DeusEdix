@@ -301,9 +301,17 @@ def open_map(path, label):
         raise Refused('Map file does not exist.')
     if path.suffix.lower() != '.dx':
         raise Refused('Choose a .dx map.')
-    source_hash = sha(path)
-    s = PrivateSession([], label)
+    import local_performance
+    config = local_performance.options()
+    local_performance.check_native(kit.HOST, config)
+    # Off preserves the old sequence. Opt-in starts a NEW empty engine while
+    # the map is hashed/copied; batch() waits for readiness before MAP LOAD.
+    # PrivateSession can still be the instrumented NoFullSession subclass.
+    source_hash = None if config['prewarm'] else sha(path)
+    s = PrivateSession([], label, wait_ready=False) if config['prewarm'] else PrivateSession([], label)
     try:
+        if source_hash is None:
+            source_hash = sha(path)
         shutil.copy2(path, s.folder/'Input/source.dx')
         if sha(s.folder/'Input/source.dx') != source_hash:
             raise Refused('Map changed while copying; try again.')

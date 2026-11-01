@@ -268,7 +268,62 @@ static const struct { const char* name; Command run; } Commands[] = {
 };
 
 // A host command, or else UnrealEd's own (MAP LOAD, BSP REBUILD, LIGHT APPLY...)
+// UC_PREVIEW: export the just-built level while its packages are still loaded.
+// Optional derived data only. The caller creates Preview/Output/tex beforehand;
+// no map is saved or modified by this command. A completion marker is written last.
+static int previewBundle() {
+    const std::string root = "..\\Preview\\Output\\";
+    std::string file, marker = root + "complete.json";
+    DeleteFileW(wide(marker.c_str()).c_str());
+    try {
+        if (!Bridge->bspDump((root + "bsp.bin").c_str()) ||
+            !Bridge->brushes((root + "brushes.jsonl").c_str()) ||
+            !Bridge->meshes((root + "meshes.bin").c_str()) ||
+            !Bridge->lightDump((root + "lights.bin").c_str()) ||
+            !Bridge->paths((root + "paths.jsonl").c_str()) ||
+            !Bridge->exec("MAP EXPORT FILE=\"..\\Preview\\Output\\scene.t3d\"")) {
+            print("UCMapKit|preview|unavailable");
+            return 1;
+        }
+        Json textures = Json::object();
+        for (const char* name : {"bsp.bin", "meshes.bin"}) {
+            if (!readFile((root + name).c_str(), file)) throw std::runtime_error("preview dump missing");
+            Json header = Json::parse(file.substr(0, file.find('\n')));
+            for (const auto& item : header.at("textures")) {
+                const std::string tex = item.get<std::string>();
+                if (tex == "none" || textures.contains(tex)) continue;
+                // Only engine object names, never a command supplied by map text.
+                if (tex.find_first_of("\r\n\" \t") != std::string::npos)
+                    throw std::runtime_error("unsupported texture name");
+                std::string base = std::to_string(textures.size());
+                std::string bmp = root + "tex\\" + base + ".bmp";
+                std::string cmd = "OBJ EXPORT TYPE=Texture NAME=" + tex + " FILE=\"" + bmp + "\"";
+                Bridge->exec(cmd.c_str());
+                WIN32_FILE_ATTRIBUTE_DATA info = {};
+                if (!GetFileAttributesExW(wide(bmp.c_str()).c_str(), GetFileExInfoStandard, &info)
+                    || (!info.nFileSizeHigh && !info.nFileSizeLow))
+                    Bridge->texDump(tex.c_str(), (root + "tex\\" + base + ".raw").c_str(), 256);
+                textures[tex] = base;
+            }
+        }
+        // Same package set and flags as the live preview, after resolving meshes.
+        if (!Bridge->texFlags((root + "texflags.jsonl").c_str()))
+            throw std::runtime_error("texture flags missing");
+        UCFile* out = openFile(marker.c_str(), 0);
+        if (!out) throw std::runtime_error("preview marker unavailable");
+        Json value = {{"version", 1}, {"textures", textures}};
+        writeRow(out, value.dump().c_str());
+        closeFile(out);
+        print("UCMapKit|preview|ready");
+    } catch (const std::exception&) {
+        DeleteFileW(wide(marker.c_str()).c_str());
+        print("UCMapKit|preview|unavailable");
+    }
+    return 1;
+}
+
 static int runCommand(const char* line) {
+    if (!strcmp(line, "UC_PREVIEW")) return previewBundle();
     Args args(line);
     for (size_t i = 0; i < sizeof(Commands) / sizeof(Commands[0]); i++)
         if (args.is(0, Commands[i].name)) return Commands[i].run(args);
@@ -350,7 +405,9 @@ static bool readLine(FILE* input, std::string& line) {
     return true;
 }
 
-// UCMapKitHost [--bridge <dll>] <command file | - | --make [ini]>
+#include "resident_host.h"
+
+// UCMapKitHost [--bridge <dll>] <command file | - | --wait-batch | --make [ini]>
 int main(int argc, char** argv) {
     AddVectoredExceptionHandler(1, reportFault);
     isolate();
@@ -374,10 +431,22 @@ int main(int argc, char** argv) {
     // "-" = interactive: commands from stdin, one reply block per command ending in
     // "UCMapKit|ready"; a failed command is reported and the session goes on.
     int interactive = !strcmp(argv[first], "-");
-    FILE* input = interactive ? stdin : _wfopen(wide(argv[first]).c_str(), L"rt");
+    // Initialize while the parent prepares the map, then read ONE batch filename
+    // from stdin. The short handoff cannot block the parent's timeout handling
+    // while a long batch runs. File-mode errors still terminate immediately.
+    int resident = !strcmp(argv[first], "--build-worker");
+    int batchStdin = !strcmp(argv[first], "--wait-batch");
+    FILE* input = (interactive || batchStdin || resident) ? stdin : _wfopen(wide(argv[first]).c_str(), L"rt");
     if (!input) return 3;
     if (!Bridge->start(&Host)) return 2;
     puts("UCMapKit|ready"); fflush(stdout);
+    if(resident)return residentHost();
+    if (batchStdin) {
+        std::string batch;
+        if (!readLine(stdin, batch)) return 3;
+        input = _wfopen(wide(batch.c_str()).c_str(), L"rt");
+        if (!input) return 3;
+    }
     std::string line;
     while (readLine(input, line)) {
         if (line.empty() || line[0] == '#') { if (interactive) { puts("UCMapKit|ready"); fflush(stdout); } continue; }

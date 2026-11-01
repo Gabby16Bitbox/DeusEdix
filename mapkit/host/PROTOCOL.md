@@ -30,6 +30,8 @@ part of this page above it.
   - `UCMapKit|initializing SDK` comes first, and `UCMapKit|ready` once the engine is up.
   - `UCMapKit|fault|0x<code>` means the engine crashed in a command. The session goes on.
   - `UCMapKit|av|<module>+0x<offset>|read|write 0x<address>` reports an access violation, for diagnostics.
+  - `UCMapKit|windows|not hidden|<error>`: the host could not keep its engine's windows hidden (README.md,
+    "No window on the screen"); `LIGHT APPLY`'s viewport may then show.
 - **Other lines:** any line that is not a `UC_` command is UnrealEd's own: `MAP LOAD FILE=...`,
   `BRUSH ADD`, `BSP REBUILD`, `LIGHT APPLY`, `PATHS DEFINE`, `MAP SAVE FILE=...` and the rest.
 

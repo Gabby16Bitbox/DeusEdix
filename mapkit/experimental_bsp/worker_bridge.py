@@ -17,6 +17,10 @@ import sys
 import uuid
 
 ROOT = Path(__file__).resolve().parent
+if __name__ == '__main__':
+    # -I omits the script directory. Add only this owned code directory.
+    sys.path.insert(0, str(ROOT))
+import local_performance
 
 
 class Rejected(ValueError):
@@ -110,8 +114,11 @@ def prepare(source, expected_sha, changes, context_paths=(), validation='full'):
     jobs.mkdir(exist_ok=True)
     job = jobs/uuid.uuid4().hex
     job.mkdir()
-    request = dict(version=1, job=job.name, source=str(source), source_sha256=expected_sha,
-                 changes=changes, context_sha256=snapshots, implementation_sha256=fingerprint(validation), validation=validation)
+    performance = local_performance.options()
+    local_performance.check_native(ROOT/'bin/UCMapKitHost.exe', performance)
+    request = dict(version=2, job=job.name, source=str(source), source_sha256=expected_sha,
+                 changes=changes, context_sha256=snapshots, implementation_sha256=fingerprint(validation),
+                 validation=validation, performance=performance)
     atomic_json(job/'request.json', request)
     return job, sha(job/'request.json')
 
@@ -121,10 +128,11 @@ def validate_request(job, request_sha):
     if sha(job/'request.json') != request_sha:
         raise Rejected('Worker request changed.')
     request = read(job/'request.json')
-    if set(request) != {'version', 'job', 'source', 'source_sha256', 'changes', 'context_sha256', 'implementation_sha256', 'validation'}:
+    if set(request) != {'version', 'job', 'source', 'source_sha256', 'changes', 'context_sha256', 'implementation_sha256', 'validation', 'performance'}:
         raise Rejected('Unsupported worker request fields.')
-    if request['version'] != 1 or request['job'] != job.name:
+    if request['version'] != 2 or request['job'] != job.name:
         raise Rejected('Unsupported worker request.')
+    local_performance.validate(request['performance'])
     validate_changes(request['changes'])
     validate_mode(request['validation'], request['changes'])
     if request['implementation_sha256'] != fingerprint(request['validation']):
@@ -136,6 +144,8 @@ def validate_request(job, request_sha):
 
 
 def stage_result(job, request, result):
+    if result.get('performance') != request['performance']:
+        raise Rejected('Local performance configuration changed during the operation.')
     if result.get('success') is not True or result.get('source_sha256') != request['source_sha256'] or result.get('changes') != request['changes']:
         raise Rejected('Result does not match the requested source and edits.')
     expected = {n:h for n, h in request['implementation_sha256'].items() if n != 'worker_bridge.py'}
@@ -265,12 +275,14 @@ def accept(job, request_sha):
 
 def run(source, expected_sha, changes, context_paths=(), timeout=1800, validation='full'):
     job, request_sha = prepare(source, expected_sha, changes, context_paths, validation)
+    config = read(job/'request.json')['performance']
     flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
     with (job/'worker.log').open('wb') as log:
         runner = ([str(Path(sys.executable).with_name('deusedix-cli.exe')), '--run']
                 if getattr(sys, 'frozen', False) else [sys.executable, '-I'])
         process = subprocess.Popen(runner+[str(ROOT/'worker_bridge.py'), '--job', str(job), '--request-sha', request_sha],
-            cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, start_new_session=os.name != 'nt')
+            cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, start_new_session=os.name != 'nt',
+            env=local_performance.environment(config))
         try:
             code = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -292,6 +304,9 @@ def worker(job, request_sha):
     # These imports and their legacy kit overrides stay in this child only.
     import local_geometry as core
     try:
+        if local_performance.options() != request['performance']:
+            raise Rejected('Worker performance configuration does not match its request.')
+        local_performance.check_native(ROOT/'bin/UCMapKitHost.exe', request['performance'])
         if request['validation'] == 'certified_detail':
             import certified_detail_rebuild as detail
             result = detail.rebuild(request['source'], request['changes'], request['source_sha256'], progress=print)
@@ -305,6 +320,9 @@ def worker(job, request_sha):
             result['changes'] = request['changes']
         else:
             result = core.rebuild(request['source'], request['changes'], expected_sha=request['source_sha256'], validate_full=True, progress=print)
+        if local_performance.options() != request['performance']:
+            raise Rejected('Worker performance configuration changed before validation.')
+        result['performance'] = request['performance']
         validate_request(job, request_sha)
         stage_result(job, request, result)
     except Exception as error:
@@ -314,8 +332,6 @@ def worker(job, request_sha):
 
 
 if __name__ == '__main__':
-    # -I deliberately omits the script directory; add only this owned directory.
-    sys.path.insert(0, str(ROOT))
     parser = argparse.ArgumentParser()
     parser.add_argument('--job', required=True)
     parser.add_argument('--request-sha', required=True)

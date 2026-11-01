@@ -7,9 +7,9 @@ The host has two parts:
 
 | File | What it is |
 |---|---|
-| `UCMapKitHost.cpp` → `UCMapKitHost.exe` | **The host.** It reads the commands, runs the session and writes the files. Standard C++17, with no engine header. |
+| `UCMapKitHost.cpp` Ã¢â€ â€™ `UCMapKitHost.exe` | **The host.** It reads the commands, runs the session and writes the files. Standard C++17, with no engine header. |
 | `bridge.h` | **The interface** between the host and an engine bridge, in plain C. |
-| `UCEngineBridge.cpp` → `UCEngineBridge.dll` | **The bridge** for Deus Ex's own engine. It runs the editor engine of the SDK 1112f (`Editor.dll`, the engine UnrealEd uses) headless. It is the only code compiled against the engine's headers. |
+| `UCEngineBridge.cpp` Ã¢â€ â€™ `UCEngineBridge.dll` | **The bridge** for Deus Ex's own engine. It runs the editor engine of the SDK 1112f (`Editor.dll`, the engine UnrealEd uses) headless. It is the only code compiled against the engine's headers. |
 | `PROTOCOL.md` | **The contract:** every command, its answers and the keys of its files. |
 
 Another engine needs only another bridge, a DLL with the functions of `bridge.h`. It could be Surreal
@@ -31,7 +31,7 @@ folders are only read.
 ## The flow of a command
 
 `main()` puts the process in its job (see "Security" below), loads the bridge and starts it. The bridge
-starts the engine: `appInit`, then a `UEditorEngine`, then the two in-memory fixes described below. Then
+starts the engine: `appInit`, then a `UEditorEngine`, then the in-memory fixes described below. Then
 `main()` reads one line at a time:
 
 1. It prints `UCMapKit|command|<line>`.
@@ -85,7 +85,7 @@ same values and the files stay small.
 
 ## The engine's code changed in memory
 
-Two fixes, both made only in the process's own memory, never in a file:
+Three fixes, all made only in the process's own memory, never in a file:
 
 1. **`UEditorEngine::Draw` returns at once.** Headless, it would paint viewports through UnrealEd's
    front-end, which is not there. It crashed on the toolbar buttons of the viewport `LIGHT APPLY`
@@ -96,6 +96,42 @@ Two fixes, both made only in the process's own memory, never in a file:
    build. The instructions it expects are in `AssertionCode`, one per line, and can be replaced in
    `UCEngineBridge.ini` (below) for another build of the DLL. With any other code nothing is changed, and
    `LIGHT APPLY` is refused with a message.
+3. **The window drivers keep to themselves.** `WinDrvLite.dll` never activates nor focuses a window the host
+   keeps hidden: its import slots of `SetActiveWindow` and `SetFocus` point to the bridge's `activateShown` and
+   `focusShown`, which do nothing for such a window and pass any other on. Neither `WinDrv.dll` nor
+   `WinDrvLite.dll` frees the cursor: their `ClipCursor` slots point to `leaveCursorClip`, which does nothing
+   (below). `patchDriverCalls()` sets them all. The slots are found by name through each DLL's import directory
+   (the documented PE structures), never at an offset; a DLL not loaded, or a name it does not import that way,
+   is left as it is.
+
+## No window on the screen
+
+The host is headless, but with Revision `LIGHT APPLY`'s temporary viewport is a real window: WinDrvLite creates it
+at the screen's default place, shows it, activates it and focuses it, then starts the OpenGL renderer on it. The
+host keeps it from the user: no window shown, none activated, the foreground left where it was.
+
+- `hideWindows()` (UCEngineBridge.cpp), set up first when the engine starts: a hook on the host's own thread
+  (`WH_CBT`) gives each top-level window, as it is created, a window procedure that takes the show and the
+  activation out of every change of its place and keeps `WM_SETREDRAW` from it (WinDrvLite sends it around each
+  size change, and its TRUE would set `WS_VISIBLE`). A dialog (a message box) is left as it is.
+- WinDrvLite's activation and focus never reach Windows for such a window (fix 3 above). The hook refuses its
+  activation too, but only as a second guard: Windows tells the hook after it has moved the foreground to the
+  host's thread (when the host may take it, as one just started from the program in front can), so refusing it
+  then leaves the user's window without the foreground and no window with it.
+- The cursor is left to the program that confines it. The window drivers free it (`ClipCursor(NULL)`) when
+  `LIGHT APPLY`'s viewport lets go of the mouse (twice) and when the engine stops. A clip is the whole desktop's,
+  so a game in front holding its mouse in its window lost it at every build; those calls do nothing (fix 3).
+
+The renderer needs only the window's device context, which a hidden window has, so the lighting is the same. If
+the hook cannot be set, the host says `UCMapKit|windows|not hidden|<error>` (written from a buffer on the stack:
+the engine's allocator does not exist yet) and builds as before, its viewport visible.
+
+`build_host.ps1 -BspTests` also enables `UC_HIDDEN_WINDOWS_TEST`. On the host's thread it makes an ordinary
+top-level window, a dialog (the class of a message box) and a button on the dialog, then asks the windows to show,
+off the screen and without activation. It passes when the first window got the hidden procedure and stayed hidden,
+and the dialog and its button kept their own and are shown. `UC_CURSOR_CLIP_TEST` passes when the `ClipCursor`
+slot of each window driver loaded points to `leaveCursorClip` (it reads the slots only, the cursor is not touched).
+Release builds leave both commands out.
 
 ## Settings
 
@@ -143,3 +179,37 @@ host second, both into `mapkit/bin`:
 
 **Third-party code:** `third_party/nlohmann/json.hpp` is nlohmann/json 3.11.3 (MIT,
 `third_party/nlohmann/LICENSE.MIT`).
+
+## Full BSP rebuild on the GPU
+
+The optimal BSP splitter can score large candidate sets with DirectCompute.
+Automatic mode measures whether acceleration helps; unsupported SDKs/devices,
+small branches and numerically ambiguous classifications keep using the native
+compiler. CSG, geometry splitting, world finalization, collision, paths and
+lighting remain native. No engine DLL is changed on disk. The scoped in-memory
+hook, environment controls, tests and measured limits are in [GPU_BSP.md](GPU_BSP.md).
+
+
+## Full build geometry searches and memory reserve
+
+Full rebuilds also accelerate exact near-point and vector lookups and avoid
+repeated resizing of large native arrays with a bounded allocation reserve.
+Unknown SDK versions retain native searches. These changes preserve the native
+geometry and lighting results; they do not relax Local geometry certificates.
+Controls, limits and native conformance tests are in
+[BUILD_PERFORMANCE.md](BUILD_PERFORMANCE.md).
+
+
+## Faster native lighting
+
+`LIGHT APPLY` avoids redundant fullscreen display-mode enumeration for its
+hidden windowed viewport and accelerates the pinned native shadow-ray comparisons.
+The renderer and complete native light build remain; there is no quality or
+resolution reduction. Unsupported versions retain the ordinary path. Controls,
+version guards and numerical conformance tests are in [LIGHT_BUILD.md](LIGHT_BUILD.md).
+
+## Faster actor import
+
+See [IMPORT_LOOKUP.md](IMPORT_LOOKUP.md) for the scoped native name prefilter,
+request-local preparation optimizations, supported binaries and validation.
+
