@@ -358,7 +358,7 @@ def collect_project(progress, read_sources=False, sdk_lock=None):
     import props
     kit = data.KIT
     project = kit.parents[1]
-    doc = dict(project=dict(name=(getattr(settings, 'PROJECT_META', {}) or {}).get('name') or ('UNATCO Continues' if not settings.STANDALONE else 'DeusEdix'),
+    doc = dict(project=dict(name=(getattr(settings, 'PROJECT_META', {}) or {}).get('name') or (settings.DEV['name'] if not settings.STANDALONE else 'DeusEdix'),
                             target=settings.TARGET, kind=settings.PROJECT_KIND, package=settings.PACKAGE),
                maps=[], scripts=[], conversations=[], notices=[], coverage={})
     packages = ['DeusEx'] + (['RevisionMission'] if settings.TARGET == 'revision' else [])

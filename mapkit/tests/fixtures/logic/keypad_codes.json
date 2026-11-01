@@ -1,0 +1,98 @@
+{
+  "id": "keypad_codes",
+  "title": "Right and wrong code",
+  "behaviour": "A keypad's wrong code is its FailEvent (UCL_<keypad>_Fail), the right one its event or a free UnTriggerEvent slot: each runs only its own rule.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [116, 119], "has": "if (When == 'code' && K != None && K.bToggleLock)"},
+    {"file": "UCLink.uc", "lines": [121, 128], "has": "if (When == 'wrongcode')"},
+    {"file": "UCLink.uc", "lines": [252, 260], "has": "function UnTrigger(Actor Other, Pawn EventInstigator)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Keypad1",
+        "when": "code",
+        "once": false,
+        "label": "When the right code is typed on Keypad1: open Door1",
+        "do": [{"id": "a1", "verb": "open", "target": "Door1", "delay": 0}]
+      },
+      {
+        "id": "L2",
+        "src": "Keypad1",
+        "when": "wrongcode",
+        "once": false,
+        "label": "When a wrong code is typed on Keypad1: the message Wrong code",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Wrong code"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {
+        "name": "Keypad1",
+        "chain": [
+          "Keypad1",
+          "Keypad",
+          "HackableDevices",
+          "ElectronicDevices",
+          "DeusExDecoration",
+          "Decoration",
+          "Actor"
+        ],
+        "at": [0, 0, 0]
+      },
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [128, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Keypad1", "output": "wrongcode", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Keypad1", "output": "code", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L2|Keypad1|wrongcode|JCDentonMale0|When a wrong code is typed on Keypad1: the message Wrong code"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L2|message||Wrong code"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Keypad1|code|JCDentonMale0|When the right code is typed on Keypad1: open Door1"
+    },
+    {"t": 2.1, "line": "act|LogicFixtures|L1|open|Door1|"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Keypad1",
+        "When": "code",
+        "Rule": "\"L1\"",
+        "Label": "\"When the right code is typed on Keypad1: open Door1\"",
+        "Source": "\"Keypad1\"",
+        "Act(0)": "\"0|open|Door1|||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Keypad1_Fail",
+        "When": "wrongcode",
+        "Rule": "\"L2\"",
+        "Label": "\"When a wrong code is typed on Keypad1: the message Wrong code\"",
+        "Source": "\"Keypad1\"",
+        "Act(0)": "\"0|message||Wrong code||\""
+      }
+    }
+  ]
+}

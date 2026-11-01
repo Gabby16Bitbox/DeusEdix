@@ -1,0 +1,76 @@
+{
+  "id": "enter_leave_share_a_tag",
+  "title": "Walking in and out of one zone",
+  "behaviour": "Both rules wait on the same Tag; walking in (Trigger) runs only the enter rule, walking out (UnTrigger) only the leave rule.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [196, 219], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
+    {"file": "UCLink.uc", "lines": [252, 260], "has": "function UnTrigger(Actor Other, Pawn EventInstigator)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Zone1",
+        "when": "enter",
+        "once": false,
+        "label": "When JC walks into Zone1: the message In",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "In"}]
+      },
+      {
+        "id": "L2",
+        "src": "Zone1",
+        "when": "leave",
+        "once": false,
+        "label": "When JC walks out of Zone1: the message Out",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Out"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Zone1", "chain": ["Trigger", "Triggers", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Zone1", "output": "enter", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Zone1", "output": "leave", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "fire|LogicFixtures|L1|Zone1|enter|JCDentonMale0|When JC walks into Zone1: the message In"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||In"},
+    {"t": 2.0, "line": "fire|LogicFixtures|L2|Zone1|leave|JCDentonMale0|When JC walks out of Zone1: the message Out"},
+    {"t": 2.1, "line": "act|LogicFixtures|L2|message||Out"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Zone1",
+        "When": "enter",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC walks into Zone1: the message In\"",
+        "Source": "\"Zone1\"",
+        "Act(0)": "\"0|message||In||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Zone1",
+        "When": "leave",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC walks out of Zone1: the message Out\"",
+        "Source": "\"Zone1\"",
+        "Act(0)": "\"0|message||Out||\""
+      }
+    }
+  ]
+}

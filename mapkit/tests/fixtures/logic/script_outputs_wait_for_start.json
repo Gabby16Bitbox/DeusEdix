@@ -1,0 +1,90 @@
+{
+  "id": "script_outputs_wait_for_start",
+  "title": "Outputs said while the map loads wait for Started()",
+  "behaviour": "An output a script says before JC is in the map waits; when the script starts (its first tick) it runs Started() first, whose own outputs go at once, then the waiting outputs in the order they were said.",
+  "derivedFrom": [
+    {"file": "UCScript.uc", "lines": [55, 78], "has": "final function Output(string OutputName)"},
+    {"file": "UCScript.uc", "lines": [221, 232], "has": "final function StartScript()"}
+  ],
+  "assumes": ["A1", "A6", "A9"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 0.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Gen0",
+        "when": "output",
+        "once": false,
+        "label": "When Gen0 says it is ready: the message ready",
+        "port": "Ready",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "ready"}]
+      },
+      {
+        "id": "L2",
+        "src": "Gen0",
+        "when": "output",
+        "once": false,
+        "label": "When Gen0 says it has begun: the message begun",
+        "port": "Begun",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "begun"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {
+        "name": "Gen0",
+        "chain": ["Generator", "UCScript", "Actor"],
+        "at": [0, 64, 0],
+        "ports": {
+          "inputs": [],
+          "outputs": [{"id": "Ready", "label": "it is ready"}, {"id": "Begun", "label": "it has begun"}]
+        },
+        "script": {"loading": ["Ready"], "started": ["Begun"]}
+      }
+    ]
+  },
+  "start": {},
+  "inputs": [],
+  "expected": [
+    {"t": 0.0, "line": "fire|LogicFixtures|L2|Gen0|output|Gen0|When Gen0 says it has begun: the message begun"},
+    {"t": 0.0, "line": "output|LogicFixtures|Gen0|Begun|1"},
+    {"t": 0.0, "line": "fire|LogicFixtures|L1|Gen0|output|Gen0|When Gen0 says it is ready: the message ready"},
+    {"t": 0.0, "line": "output|LogicFixtures|Gen0|Ready|1"},
+    {"t": 0.0, "line": "act|LogicFixtures|L1|message||ready"},
+    {"t": 0.0, "line": "act|LogicFixtures|L2|message||begun"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L1",
+        "When": "output",
+        "Rule": "\"L1\"",
+        "Label": "\"When Gen0 says it is ready: the message ready\"",
+        "Source": "\"Gen0\"",
+        "Port": "\"Ready\"",
+        "Act(0)": "\"0|message||ready||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L2",
+        "When": "output",
+        "Rule": "\"L2\"",
+        "Label": "\"When Gen0 says it has begun: the message begun\"",
+        "Source": "\"Gen0\"",
+        "Port": "\"Begun\"",
+        "Act(0)": "\"0|message||begun||\""
+      }
+    }
+  ]
+}

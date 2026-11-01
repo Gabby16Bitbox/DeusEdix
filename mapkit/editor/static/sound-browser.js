@@ -8,6 +8,22 @@ const transportIcon = kind => `<svg viewBox="0 0 20 20" width="13" height="13" f
 }[kind]}</svg>`;
 const timeText = value => Number.isFinite(value) ? (value >= 60 ? Math.floor(value / 60) + ':' + String(Math.floor(value % 60)).padStart(2, '0') : value.toFixed(1) + ' s') : '—';
 
+// how big a sound's preview file may be to be read whole in the page (its waveform, the editor's players)
+export const MAX_SOUND_BYTES = 64 * 1024 * 1024;
+// where the browser can play a sound: /api/sound_play's answer ({url, type, bytes...})
+export const soundFile = (api, name) => api('/api/sound_play?name=' + encodeURIComponent(name));
+// a sound's preview file read whole (an ArrayBuffer), from where soundFile says it is; refused over MAX_SOUND_BYTES (an
+// error with code 'large'), before it is read when its size is known; one the server does not give: code 'unread'
+export async function soundBytes(entry, fetchFile = fetch) {
+  const failed = (code, message) => Object.assign(new Error(message), { code });
+  if (entry.bytes > MAX_SOUND_BYTES) throw failed('large', 'This sound is too large to read here (over 64 MB).');
+  const response = await fetchFile(entry.url);
+  if (!response.ok) throw failed('unread', 'The sound could not be read' + (response.statusText ? ': ' + response.statusText : '.'));
+  const data = await response.arrayBuffer();
+  if (data.byteLength > MAX_SOUND_BYTES) throw failed('large', 'This sound is too large to read here (over 64 MB).');
+  return data;
+}
+
 export function waveformEnvelope(channels, bins = 96) {
   const count = channels[0]?.length || 0;
   if (!count || !channels.length) return [];
@@ -143,7 +159,7 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
     if (existing?.promise) return existing.promise;
     if (existing?.url) return existing;
     const entry = { ...asset };
-    entry.promise = api('/api/sound_play?name=' + encodeURIComponent(asset.name)).then(result => {
+    entry.promise = soundFile(api, asset.name).then(result => {
       Object.assign(entry, result); delete entry.promise;
       if (!entry.url) throw new Error('No preview is available for this sound.');
       remember(entries, asset.name, entry, 48);
@@ -153,11 +169,10 @@ export function createSoundBrowser({ api, container, inspector, onSelect, onClea
   }
   async function decodeWave(name, entry) {
     if (waves.has(name)) return waves.get(name);
-    if (entry.bytes > 64 * 1024 * 1024) throw new Error('This sound is too large to draw a waveform. Playback is still available.');
-    const response = await fetch(entry.url);
-    if (!response.ok) throw new Error('Could not read the waveform.');
-    const data = await response.arrayBuffer();
-    if (data.byteLength > 64 * 1024 * 1024) throw new Error('This sound is too large to draw a waveform.');
+    if (entry.bytes > MAX_SOUND_BYTES) throw new Error('This sound is too large to draw a waveform. Playback is still available.');
+    const data = await soundBytes(entry).catch((error) => {
+      throw new Error(error.code === 'large' ? 'This sound is too large to draw a waveform.' : 'Could not read the waveform.');
+    });
     const Context = window.AudioContext || window.webkitAudioContext;
     const context = new Context();
     try {

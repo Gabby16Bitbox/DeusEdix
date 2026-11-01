@@ -14,14 +14,16 @@ import { createTextureScale, stretchOnResize } from './texture-scale.js';
 import * as THREE from 'three';
 import { PATH_KINDS, floorField, buildPathView, buildRouteView, stepPathView, findRoute, nearestPoint, loosePoints, pathStrips } from './ai-paths.js';
 import { createNavmeshView, bakePolys } from './navmesh.js';
+import { moverFromProps } from './cutscene-preview.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { createSurfaceTools } from './surface-ui.js';
+import { readRecent, withRecent, slotOfDigit } from './recent-textures.js';
 import { createStartScreen } from './start-screen.js';
-import { createSoundBrowser } from './sound-browser.js';
+import { createSoundBrowser, soundFile, soundBytes } from './sound-browser.js';
 import { createViewportIcon, disposeViewportIcons, objectPreviewIcon, setViewportIconSize } from './viewport-icons.js';
 import { createActorOverlayTracker } from './actor-overlays.js';
 import { isCylinder, updateCollisionVolume, collisionSize } from './collision-volume.js';
-import { createProjectHub, projectStorageKey, readProjectMapPrefs, unsavedProjectTools, isCustomProject, isTrainingProject } from './projects.js';
+import { createProjectHub, projectStorageKey, readProjectMapPrefs, unsavedProjectTools, isCustomProject, isTrainingProject, projectGame } from './projects.js';
 import { mountStateField, parseFate, stateLabel } from './state-editor.js';
 import { characterSections, playerSection, MOVEMENT } from './behaviours.js';
 import { allPropsSection, classProps } from './all-props.js';
@@ -49,8 +51,11 @@ import { createPrefabBrowser } from './prefab-browser.js';
 import { moverFields, moverPanel, wireMoverPanel } from './mover-piece.js';
 import { createPiecesBrowser } from './pieces-browser.js';
 import { collectPrefabSelection } from './prefab-selection.js';
+import { freePid, linkOf, linkFields, copiesOf, outdated, overridesOf, overridesData, putOverrides, replacedOn, updateCopy, appliedCopy, unpack, copyCounts, isLibraryVersion } from './prefab-links.js';
 import { createTextureTransfer } from './texture-transfer.js';
 import { createSurfaceTexturePreview } from './surface-texture-preview.js';
+import { createTextureSlip, sameFrame } from './texture-slip-ui.js';
+import { queueProblem, ROW_LIMIT } from './texture-slip.js';
 import { createDrawTools, DRAW_LABELS, DRAW_DEFAULTS } from './draw-tools.js';
 import { createSkyTool } from './sky-tool.js';
 import { createMapPose } from './map-pose.js';
@@ -69,7 +74,7 @@ import { ringAround, boxCorners, vertexSnap } from './vertex-snap.js';
 import { nextGridStep, dragSnap, surfaceOnGrid, pushMove } from './grid-snap.js';
 import { createViewGrid } from './view-grid.js';
 import { createShapeEditor } from './shape-editor.js';
-import { createMeasure } from './measure.js';
+import { createMeasure, floatingLabel } from './measure.js';
 import { stackKeys, createPickCycle, invertPick, createSelectionHistory } from './selection-tools.js';
 import { createSceneVisibility } from './scene-visibility.js';
 import { HIER_FOLDERS, ICON_KINDS, SHOW_KINDS, SHOW_KIND, KIND_STATES, ZONE_CLASSES, classKind, showKindOf, createKindFilter } from './scene-kinds.js';
@@ -91,6 +96,18 @@ import { split as splitPoints, intersect as intersectPoints, subtract as subtrac
 import { mirrorPoint, mirrorBlock, mirrorDrawing, mirrorMotion, faceMirrored } from './mirror.js';
 import { carryProps, seatedAt, turnOf, usesOf, misfits, NEEDS } from './replace-class.js';
 import { VIEW_MODES, createViewModes } from './view-modes.js';
+import { lightReach, lightHue, engineColour, lightsHere, LIGHT_EFFECTS } from './light-reach.js';
+import { lightLevel, lampSeed, panRate, zoneView, nearestLights, givesLight, lightNotes, NOTE_PROPS, MOVING_LIGHTS, ZONE_PAN } from './light-effects.js';
+import { createLightEffects, FX_MAX } from './light-effects-view.js';
+import { createLiveLighting } from './live-lighting.js';
+import { createLiveBlocks } from './live-blocks.js';
+import { mapSources } from './ambient-sound.js';
+import { createSceneAudio } from './scene-audio.js';
+import { createSoundCache } from './sound-cache.js';
+import { MAX_EVENTS, EVENT_KINDS, SOUND_DEFAULTS, eventTime, eventText, passed, playStep } from './motion-events.js';
+import { LIST_KEYS, ORDERS, MOST, listWith, listWithout, listMoved, listChanges, previewPicks, timesOf } from './sound-playlist.js';
+import { createShots } from './sound-shots.js';
+import { REVERB_PRESETS, REVERB_LEVELS, DELAYS, GAINS, EFX, presetProps, presetOf, reverbValue } from './zone-reverb.js';
 import { createSceneTextures } from './scene-textures.js';
 import { stackedCopies, fallsWhenLoaded, airGap } from './map-check.js';
 import { startTiles, templateNote, openSaveTemplate } from './map-templates.js';
@@ -120,7 +137,7 @@ const r1 = (x) => Math.round(x * 10) / 10;
 const YAW = 65536;
 const yawToRad = (y) => -y * 2 * Math.PI / YAW;                 // UE yaw -> three rotation.y
 const radToYaw = (r) => (Math.round(-r * YAW / (2 * Math.PI)) % YAW + YAW) % YAW;
-const PF = { masked: 2, translucent: 4, modulated: 64, fake: 128, unlit: 4194304 };
+const PF = { masked: 2, translucent: 4, modulated: 64, fake: 128, special: 0x100000, unlit: 4194304 };
 const EMPTY = () => ({ moved: {}, deleted: {}, added: [], boxes: [], groups: {}, copies: [], prefabs: [], nests: [], unnest: [] });
 
 let script = null, mapName = null, mapKind = 'script', baseActors = [], palette = [], texList = [], texFull = {};
@@ -152,13 +169,19 @@ try { showIcons = localStorage.getItem('deusedix.viewIcons') !== '0'; } catch { 
 let soundBrowser = null, soundCat = null;
 let inspectorPin = null, inspectorPinBar = null;
 let inspectorWindows = null;           // right click > Properties…: an Inspector of one object each (inspector-windows-view.js)
-let textureTransfer = null, surfaceTexturePreview = null;
+let textureTransfer = null, surfaceTexturePreview = null, textureSlip = null;
+// the surface rows the map shown was built with (/api/scene builtSurfaces; { maybe }: not known), what the last preview of
+// the queued rows could not show (surface-texture-preview.js apply: { later, refused }), the warning said of them last,
+// and the corners each face mesh was built with (geometry.json's pos and piece: the preview's UVs, the Texture Slip)
+let builtSurfaces = null, surfacePreview = { later: [], refused: [] }, refusalSaid = '';
+const faceCorners = new WeakMap();
 const texturePreviewInfo = new Map(), texturePreviewPending = new Map();
 let structures = {};          // name -> {label, category, pivot, placement, actors, copy_of, obj, ...}
 let actorStruct = {};         // actor name -> structure name
 let meshLib = {}, mapTex = {}, paletteLib = {}, paletteTex = {}, paletteHas = new Set(), paletteLoading = {};
 let moveStart = null;         // structure being moved: its pose and its members at the start
 let inspectorDrag = null;     // a coordinate label held in the Inspector (one undo per gesture)
+let cancelNumberScrub = null; // a numeric label's transient preview; never saved as an edit
 let propertySlider = null;    // temporary property preview; committed once when the slider is released
 const worldMeshes = [];
 const collisionVolumes = new Set();
@@ -400,16 +423,21 @@ let MODELS_PKG = 'DeusEdixModels';      // the imported models' package (setting
 const modelsWhere = () => (/^DXP_/i.test(MODELS_PKG) ? "this project's own models" : `the package ${MODELS_PKG}`);
 let STANDALONE = false;                 // DeusEdix installed: no UNATCO route, no mission states of the mod
 // The view is drawn every frame only while something moves: the mouse or a key (and 1.5 s after),
-// the camera flying, a gizmo drag, an animation or a cutscene playing (cutscene.js calls wake()).
+// the camera flying, a gizmo drag, an animation or a cutscene playing (cutscene.js calls wake()), View > Effects shown.
 // Left alone it is drawn 4 times a second, enough for what changes by itself (textures arriving, a
 // build): idle, the editor no longer redraws the same picture 60-144 times a second.
 let awakeUntil = 0, lastDraw = 0;
 function wake(ms = 1500) { awakeUntil = Math.max(awakeUntil, performance.now() + ms); }
 for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup', 'resize'])
   window.addEventListener(ev, () => wake(), { capture: true, passive: true });
+// what has the view drawn every frame now (else 4 times a second); Effects not while Play runs: the game lies over the view
+function drawEveryFrame(now) {
+  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || showPaths
+    || (effectsShown() && !gameView?.active);
+}
 function animate(now) {
   requestAnimationFrame(animate);
-  if (!(now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || showPaths) && now - lastDraw < 250) return;
+  if (!drawEveryFrame(now) && now - lastDraw < 250) return;
   lastDraw = now;
   const dt = Math.min(clock.getDelta(), 0.1);
   if (cam.look) {
@@ -429,6 +457,10 @@ function animate(now) {
   stepPreview(dt);
   stepEffectPreviews(proxies, dt, fxWant);
   if (showPaths) stepPathView(dt);
+  liveBlocks.sync(proxies.children);
+  stepLiveLighting();
+  stepEffects(now);                  // View > Effects: its lamps, pans, coronas and zone now (nothing while it is off)
+  stepAudio(now);                    // Hear the map: the sounds round the camera, where it is now (nothing while it is off)
   stepPilot();                       // Pilot: the selection where the view looks from
   if (outline.visible && selected) outline.setFromObject(selected);
   drawMultiBoxes();
@@ -442,6 +474,7 @@ function animate(now) {
   }
   orthoViews?.render();              // the orthographic panes first: they borrow a corner of this canvas
   renderer.render(scene, camera);
+  lightEffects.drawHaze();           // the view fog of the zone the camera is in (Effects)
   searchView.render();               // while the Hierarchy's search is on: what does not match dimmed (search-view.js)
   measure?.update();
   updateLinkEdges();
@@ -555,7 +588,7 @@ async function clearMap() {
   if (gameView?.active && !(await gameView.stop())) return false;
   mapLoading = true;
   try {
-  textureTransfer?.cancel(); surfaceTexturePreview?.restore(); texturePreviewInfo.clear(); texturePreviewPending.clear();
+  textureSlip?.cancel(); textureTransfer?.cancel(); surfaceTexturePreview?.restore(); texturePreviewInfo.clear(); texturePreviewPending.clear();
   if (temporaryTutorial() || tutorialSession.token || tutorialSession.preparing) await endTutorialSession();
   window.__tutorial?.stop(); window.__cutscene?.close(); window.__story?.reset();
   closeAnim(); stopPreview(); resetInput(); cancelPlacing(); select(null); clearLinks();
@@ -579,6 +612,7 @@ async function clearMap() {
 
 async function loadScene(s, resetCamera) {
   if (mapLoading) return false;
+  textureSlip?.cancel();                  // a Texture Slip does not go on in a map opened (or opened again)
   const previousTutorial = temporaryTutorial(), sessionRevision = tutorialSession.revision;
   mapLoading = true;
   busy('Loading map...');
@@ -603,14 +637,21 @@ async function loadScene(s, resetCamera) {
     endAimPick();                          // Aim at a point does not go on in another map
     if (script !== s) window.__tutorial?.stop();
     if (script !== s) { sceneView.reset(); endMapSearch(); }       // Isolate, Show hidden and the search end with their map
+    if (script !== s) textureSlip?.forget();                        // and the Texture Slip's kept slips (a Rebuild: the same map)
     script = j.script; mapName = j.map; baseActors = j.actors; palette = j.palette; mapKind = j.kind || 'script';
     mapGeneration++;
     inspectorPin = null;
     PACKAGE = j.package || PACKAGE; MODELS_PKG = j.models_package || MODELS_PKG; STANDALONE = !!j.standalone;
     publishedLayout = j.publishedLayout || null;
     mapNorth = j.north || 0;               // the game compass's North (the axis widget's heading)
+    zoneLooks = j.zones || [];             // what each zone does to the view (View > Effects: data.zone_looks)
     bakedObjectTags = j.bakedObjectTags || {};
     edits = Object.assign(EMPTY(), withPublishedLayout(j.edits, publishedLayout));
+    // not known (a build older than this, edits saved since; an older server): the rows the map has now may be in it or
+    // not, their faces wait for a Rebuild; those queued from now on show (texture-slip.js pendingMappings)
+    builtSurfaces = Array.isArray(j.builtSurfaces) ? j.builtSurfaces : { maybe: [...(edits.surfaces || [])] };
+    const unsaved = queueProblem(edits.surfaces);           // a queued surface row Save refuses: said at once
+    if (unsaved) log(`This map's queued surface changes cannot be saved: ${unsaved}`, 'bad');
     builtScale = {};                       // objects scaled by edits that are already in the map shown
     if (j.kind === 'script' || !j.kind || j.built)
       for (const [n, m] of Object.entries(edits.moved || {})) if (m && m.scale) builtScale[n] = m.scale;
@@ -723,6 +764,7 @@ function geometryUE(posUE, uv, shift, uv2) {
   return geo;
 }
 const rotations = createRotations(THREE);
+const liveBlocks = createLiveBlocks(THREE, rotations);
 const placementGeometry = createSurfacePlacement(THREE);
 const textureScale = createTextureScale(THREE);
 
@@ -734,6 +776,7 @@ async function loadGeometry(url, structs) {
   worldMeshes.length = 0;
   structures = {};
   actorStruct = {};
+  liveBlocks.clear();
   const g = await (await fetch(url)).json();
   texFlags = g.texflags || {};
   const faceMeshes = [];
@@ -743,7 +786,21 @@ async function loadGeometry(url, structs) {
   loadLightmap(g.lightmap ? base + g.lightmap : null, g.actorlight || {}, g.lights || [], g.objectlight || {});
   texList = Object.keys(g.textures).filter((t) => t !== 'none' && g.textures[t].w > 0).map((t) => t.split('.').pop()).sort();
   texFull = Object.fromEntries(Object.keys(g.textures).map((t) => [t.split('.').pop(), t]));     // short name -> Package.Name
+  const blockGroups = new Map();
   for (const [name, info] of Object.entries(structs)) {
+    if (info.previewDrawn) {
+      const obj = new THREE.Group(); world.add(obj); blockGroups.set(name, obj);
+      liveBlocks.addDrawing(info.previewDrawn.name, info.previewDrawn, obj);
+      builtDrawn.set(info.previewDrawn.name, drawnSig(info.previewDrawn));
+      continue;
+    }
+    if (info.previewBox) {
+      const obj = new THREE.Group(); world.add(obj);
+      blockGroups.set(name, obj);
+      liveBlocks.add(info.previewBox.name, info.previewBox, obj);
+      builtBoxes.set(info.previewBox.name, boxSig(info.previewBox));
+      continue;
+    }
     const obj = new THREE.Group();
     const cb = add3(info.pivot, info.placement.offset);           // pivot where the last build put it
     obj.position.copy(T(cb));
@@ -776,8 +833,10 @@ async function loadGeometry(url, structs) {
     mesh.userData.flags = flags;
     mesh.userData.world = true;
     mesh.userData.faces = grp.faces || [];
+    mesh.userData.zones = grp.zones || [];          // the zone of each triangle (Effects: its panning speed)
+    faceCorners.set(mesh, { pos: grp.pos, piece: grp.piece });
     faceMeshes.push(mesh);
-    (st ? st.obj : world).add(mesh);
+    (st ? st.obj : blockGroups.get(grp.structure) || world).add(mesh);
     if (!(grp.flags & (PF.translucent | PF.modulated))) worldMeshes.push(mesh);
   }
   surfaceTools.load(g.faces || [], faceMeshes);
@@ -799,6 +858,33 @@ let derivedMats = new WeakMap();
 const derivedSet = new WeakSet();
 try { lightMode = localStorage.getItem('ucmap.light') || 'shaded'; } catch (e) { /* no storage */ }
 let lightmapRevision = 0;
+// View > Effects (see stepEffects): on or off (kept in the browser), its drawing, what each zone of the last rebuild does
+// to the view (/api/scene: data.zone_looks), when it started showing, the lamps that move (chosen twice a second), the
+// camera's zone (looked for again when the camera moves)
+let effectsOn = false;
+try { effectsOn = localStorage.getItem('deusedix.viewEffects') === '1'; } catch { /* no storage */ }
+const lightEffects = createLightEffects(THREE, { renderer, scene, camera, blocked: wallBetween });
+const liveLighting = createLiveLighting(THREE);
+function stepLiveLighting() {
+  if (lightMode !== 'preview' || viewModes.mode) return;
+  const lights = [];
+  for (const p of proxies.children) {
+    const a = p.userData.actor;
+    if (!a || edits.deleted[a.name] || edits.disabled?.[a.name]) continue;
+    const kind = lampKind(a);
+    if (!kind || kind.off || !givesLight(kind.type, projectGame(projectContext), kind.skin)) continue;     // (dark in the game too)
+    const l = liveLight(a), effect = LIGHT_EFFECTS.indexOf(String(actorProp(a, 'LightEffect') || 'LE_None'));
+    const dir = new THREE.Vector3(1, 0, 0).applyQuaternion(p.quaternion);
+    const L = [...UE(p.position), ...engineColour(l.hue, l.sat, l.b), 25 * (l.radius + 1), effect, dir.x, dir.z, dir.y, +(actorProp(a, 'LightCone') ?? 64)];
+    lights.push({ id: a.name, L, selected: p === selected || selected?.userData.members?.includes(p) });
+  }
+  liveLighting.update(lights, UE(camera.position), lightGain);
+}
+let zoneLooks = [], effectsClock = 0, effectsFrame = 0;          // (and the frames drawn since it started)
+let fxLamps = { at: -Infinity, of: null, moving: [], ids: new Set(), near: [], coronas: [] };
+// the lamps a cutscene's preview has turned off (cutscene.js): Effects shows them as lamps that move, at no light
+let lampsOff = new Set();
+let fxZone = { at: -Infinity, from: null, looks: null, view: null };
 function loadLightmap(url, actors, lights, objects) {
   const revision = ++lightmapRevision;
   if (lightAtlas) lightAtlas.dispose();
@@ -833,6 +919,7 @@ function variant(base, mode, tint) {
   if (d[key]) { updateVariantGain(d[key], base, mode, tint); return d[key]; }
   const m = new THREE.MeshBasicMaterial({ map: base.map, side: base.side, alphaTest: base.alphaTest, transparent: base.transparent,
     opacity: base.opacity, depthWrite: base.depthWrite, blending: base.blending, color: base.color.clone() });
+  if (mode === 'preview') { m.onBeforeCompile = liveLighting.patch; m.customProgramCacheKey = () => liveLighting.cacheKey; }
   if (mode === 'vertex') m.vertexColors = true;
   else if (mode === 'lit' && !tint && lightAtlas) m.lightMap = lightAtlas;
   updateVariantGain(m, base, mode, tint);
@@ -854,11 +941,12 @@ function setMeshLight(mesh, tint) {
   if (!base) return;
   if (lightMode === 'shaded') mesh.material = base;
   else if (lightMode === 'unlit') mesh.material = variant(base, 'unlit');
+  else if (lightMode === 'preview') mesh.material = variant(base, mesh.userData.flags & PF.unlit ? 'unlit' : 'preview');
   else if (mesh.userData.world)        // unlit surfaces (neon signs, screens) are always full bright in the game
     mesh.material = mesh.geometry.getAttribute('uv1') && lightAtlas && !(mesh.userData.flags & PF.unlit) ? variant(base, 'lit') : variant(base, 'unlit');
   else if (mesh.userData.flags & PF.unlit) mesh.material = variant(base, 'unlit');       // flames, screens
   else mesh.material = variant(base, 'lit', tint || [1, 1, 1]);
-  if (mesh.userData.world) mesh.material = holeCutMaterial(mesh.material);
+  if (mesh.userData.world) { mesh.material = effectMaterial(holeCutMaterial(mesh.material)); panEffect(mesh); }
 }
 // Holes are cut by the engine at Rebuild (a subtract brush). Until then the 3D view hides the walls, floors and
 // ceilings inside every hole block, live while it is moved or resized (Gabby, 17 Oct 2026: "how can I see the
@@ -873,7 +961,8 @@ function holeCutMaterial(m) {
   let c = holeMats.get(m);
   if (!c) {
     c = m.clone();
-    c.onBeforeCompile = (shader) => {
+    c.onBeforeCompile = (shader, renderer) => {
+      m.onBeforeCompile(shader, renderer);
       shader.uniforms.uHoleN = HOLE.n; shader.uniforms.uHoleMin = HOLE.min; shader.uniforms.uHoleMax = HOLE.max;
       shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHoleP;')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvHoleP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -882,15 +971,49 @@ function holeCutMaterial(m) {
         .replace('void main() {', 'void main() {\n  for (int i = 0; i < ' + HOLE_MAX + '; i++) { if (i >= uHoleN) break;\n'
           + '    if (all(greaterThan(vHoleP, uHoleMin[i])) && all(lessThan(vHoleP, uHoleMax[i]))) discard; }');
     };
-    c.customProgramCacheKey = () => 'holecut' + HOLE_MAX;
+    c.customProgramCacheKey = () => m.customProgramCacheKey() + '|holecut' + HOLE_MAX;
     derivedSet.add(c);
     holeMats.set(m, c);
   }
-  // what the lighting changes on its material (the brightness slider), kept the same on the copy
+  return copyLook(c, m);
+}
+// what the lighting changes on a material (the brightness slider), kept the same on a copy of it
+function copyLook(c, m) {
   c.color.copy(m.color);
   if ('lightMapIntensity' in m) c.lightMapIntensity = m.lightMapIntensity;
   c.opacity = m.opacity;
   return c;
+}
+// View > Effects on the map's surfaces (light-effects-view.js): while it shows, a copy of their material whose shader
+// moves their lightmap with the lamps and pans their texture; the copy keeps what its material does to its shader (a
+// hole's cut)
+const effectMats = new WeakMap();
+function effectMaterial(m) {
+  if (!effectsShown() || !m || m.isShaderMaterial) return m;
+  let c = effectMats.get(m);
+  if (!c) {
+    c = m.clone();
+    c.onBeforeCompile = (shader, r) => { m.onBeforeCompile(shader, r); lightEffects.patch(shader); };
+    c.customProgramCacheKey = () => m.customProgramCacheKey() + '|' + lightEffects.cacheKey;
+    derivedSet.add(c);
+    effectMats.set(m, c);
+  }
+  return copyLook(c, m);
+}
+// ... and how fast each corner of a surface pans (fxPan: textures a second): its face's Auto U / V Pan (or its
+// texture's) at its zone's speed. Taken away when Effects no longer shows.
+function panEffect(mesh) {
+  const geo = mesh.geometry;
+  if (!effectsShown()) { if (geo.getAttribute('fxPan')) geo.deleteAttribute('fxPan'); return; }
+  if (geo.getAttribute('fxPan')) return;
+  const faces = mesh.userData.faces || [], zones = mesh.userData.zones || [], tex = mapTex?.[mesh.userData.tex] || {};
+  const own = texFlags[mesh.userData.tex] || 0, n = geo.getAttribute('position').count, rate = new Float32Array(n * 2);
+  for (let t = 0; t * 3 < n; t++) {
+    const flags = (geoFaces[faces[t]]?.flags ?? mesh.userData.flags) | own;
+    const [u, v] = panRate(flags, zoneLooks[zones[t] || 0]?.pan || ZONE_PAN, [tex.w || 128, tex.h || 128]);
+    for (let k = t * 6; k < t * 6 + 6; k += 2) { rate[k] = u; rate[k + 1] = v; }
+  }
+  geo.setAttribute('fxPan', new THREE.BufferAttribute(rate, 2));
 }
 // each drawn frame: the boxes of the hole blocks (as they are now, also while dragged), a little inside them
 let lastHoles = null;
@@ -920,10 +1043,12 @@ function updateHoleCut() {
 }
 // the light on every vertex of an object part, as the engine does it: the ambient of the object, plus
 // each light that sees the object's centre, with its falloff, its angle on the vertex's normal (smooth
-// normals) and its spotlight cone, doubled like on the surfaces. Returned as linear vertex colours.
-function vertexColours(geo, mw, info) {
+// normals) and its spotlight cone (light-reach.js), doubled like on the surfaces. Returned in the game's units (sum:
+// r g b a vertex, 0 to 2) with, apart, the share in it of each lamp of `apart` (parts: id -> r g b a vertex): View >
+// Effects takes those up and down (vertexLinear).
+function vertexLight(geo, mw, info, apart) {
   const P = geo.getAttribute('position'), n = P.count;
-  const out = new Float32Array(n * 3);
+  const sum = new Float32Array(n * 3), parts = new Map();
   const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), acc = new Map(), keys = new Array(n);
   const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), centre = new THREE.Vector3();
   for (let i = 0; i < n; i++) { v.fromBufferAttribute(P, i); centre.add(v); }
@@ -950,6 +1075,7 @@ function vertexColours(geo, mw, info) {
     nrm[i * 3] = a.x; nrm[i * 3 + 1] = a.z; nrm[i * 3 + 2] = a.y;
   }
   const amb = info.slice(0, 3), ids = info[3] || [];
+  for (const id of ids) if (apart?.has(id) && mapLights[id]) parts.set(id, new Float32Array(n * 3));
   for (let i = 0; i < n; i++) {
     let r = amb[0], gg = amb[1], bb = amb[2];
     const px = pos[i * 3], py = pos[i * 3 + 1], pz = pos[i * 3 + 2];
@@ -957,22 +1083,23 @@ function vertexColours(geo, mw, info) {
     for (const id of ids) {
       const L = mapLights[id];
       if (!L) continue;
-      const dx = L[0] - px, dy = L[1] - py, dz = L[2] - pz, dist = Math.hypot(dx, dy, dz);
-      if (dist >= L[6]) continue;
-      let f = 1 - dist / L[6];
-      if (L[7] !== 13 && dist > 0.01) {                                   // LE_NonIncidence: no angle
-        const inc = (dx * nx + dy * ny + dz * nz) / dist;
-        if (inc <= 0) continue;
-        f *= inc;
-      }
-      if ((L[7] === 12 || L[7] === 8) && dist > 0.01) {                    // spotlights: the cone
-        const cs = -(dx * L[8] + dy * L[9] + dz * L[10]) / dist, edge = Math.cos(coneAngle(L[11]));
-        if (cs <= edge) continue;
-        f *= Math.min(1, (cs - edge) / Math.max(0.05, 1 - edge) * 2);
-      }
-      r += 2 * L[3] * f; gg += 2 * L[4] * f; bb += 2 * L[5] * f;
+      const f = lightReach(L, px, py, pz, nx, ny, nz);
+      if (f <= 0) continue;
+      const lr = 2 * L[3] * f, lg = 2 * L[4] * f, lb = 2 * L[5] * f, part = parts.get(id);
+      r += lr; gg += lg; bb += lb;
+      if (part) { part[i * 3] = lr; part[i * 3 + 1] = lg; part[i * 3 + 2] = lb; }
     }
-    out[i * 3] = Math.pow(Math.min(r, 2), 2.2); out[i * 3 + 1] = Math.pow(Math.min(gg, 2), 2.2); out[i * 3 + 2] = Math.pow(Math.min(bb, 2), 2.2);
+    sum[i * 3] = r; sum[i * 3 + 1] = gg; sum[i * 3 + 2] = bb;
+  }
+  return { sum, parts };
+}
+// that light as linear vertex colours (into out, made when not given), each lamp of its parts at its level now
+// (levels: id -> 0 to 1; none: as built)
+function vertexLinear(light, levels = null, out = new Float32Array(light.sum.length)) {
+  for (let i = 0; i < out.length; i++) {
+    let v = light.sum[i];
+    if (levels) for (const [id, part] of light.parts) v += ((levels.get(id) ?? 1) - 1) * part[i];
+    out[i] = Math.pow(Math.min(Math.max(v, 0), 2), 2.2);
   }
   return out;
 }
@@ -983,11 +1110,12 @@ function setVertexLight(mesh, key, info) {
   mesh.userData.geoBase = geo0;
   mesh.updateWorldMatrix(true, false);
   const pose = mesh.matrixWorld.elements.map((e) => e.toFixed(2)).join(',');
+  const apart = effectsShown() ? fxLamps.ids : null;        // Effects: the shares of the lamps that move kept apart
   let c = litGeos.get(key);
-  if (!c || c.pose !== pose || c.src !== geo0) {
+  if (!c || c.pose !== pose || c.src !== geo0 || c.apart !== apart) {
     if (c) c.geo.dispose();
-    c = { pose, src: geo0, geo: geo0.clone() };
-    c.geo.setAttribute('color', new THREE.BufferAttribute(vertexColours(geo0, mesh.matrixWorld, info), 3));
+    c = { pose, src: geo0, geo: geo0.clone(), apart, light: vertexLight(geo0, mesh.matrixWorld, info, apart) };
+    c.geo.setAttribute('color', new THREE.BufferAttribute(vertexLinear(c.light), 3));
     litGeos.set(key, c);
   }
   mesh.geometry = c.geo;
@@ -1017,13 +1145,18 @@ function lightObject(g) {
 function applyLighting() {
   surfaceTexturePreview?.restore();
   world.traverse((o) => { if (o.userData && o.userData.world) setMeshLight(o); });
-  for (const g of proxies.children) lightObject(g);
+  for (const g of proxies.children) {
+    lightObject(g);
+    if (g.userData.dressed) setMeshLight(g);
+    if (g.userData.drawn) g.traverse(m => { if (m.userData.drawnSetting !== undefined) setMeshLight(m); });
+  }
+  stepLiveLighting();
   refreshSurfaceTexturePreview();
   const sel = $('#lightmode');
   if (sel) sel.value = lightMode;
   vpBar?.refresh();
   const gain = $('#lightgain');
-  if (gain) { gain.style.display = lightMode === 'lit' ? '' : 'none'; gain.value = lightGain; }
+  if (gain) { gain.style.display = ['lit', 'preview'].includes(lightMode) ? '' : 'none'; gain.value = lightGain; }
 }
 // UnrealEd's views of the map (view-modes.js) are in the lighting's menu, as in UnrealEd's list of view modes; the
 // lighting chosen before comes back with the textured world
@@ -1031,23 +1164,234 @@ const viewModes = createViewModes(THREE, {
   load: () => api('/api/views?script=' + encodeURIComponent(script)),
   place: (name) => {
     if (!name) return { holder: world, center: [0, 0, 0], turn: null };
+    const block = [...liveBlocks.entries.values()].find(e => name === (e.drawn ? 'drawn~' : 'block~') + e.snapshot.name);
+    if (block) return { holder: block.group, center: [0, 0, 0], turn: null };
     const st = structures[name];
     return st?.built ? { holder: st.obj, center: st.center, turn: rotations.pose(st.placement).invert() } : null;
   },
-  worldMeshes: () => { const out = []; world.traverse((o) => { if (o.isMesh && (o.userData.world || o.userData.sky)) out.push(o); }); return out; },
+  worldMeshes: mapSurfaces,
+  // Lightmap detail: the lightmaps of the last rebuild (lightmap.json beside the atlas, new with each lighting loaded)
+  lightmaps: () => fetch(`/cache/${mapName}/lightmap.json?lightBuild=${lightmapRevision}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
 });
-function setViewMode(mode) {
+// the map's surfaces in the 3D view, the faces showing the sky too
+function mapSurfaces() { const out = []; world.traverse((o) => { if (o.isMesh && (o.userData.world || o.userData.sky)) out.push(o); }); return out; }
+// relight: Effects shows only without a view of the last rebuild, so the map is lit again when it starts or stops
+// showing (its lamps' levels on the objects, the surfaces' effect copies and pans); false: the caller lights it next
+function setViewMode(mode, relight = true) {
+  const effects = effectsShown();
   viewModes.set(mode).catch((e) => status('View: ' + e.message, 'warn'));
+  if (relight && effectsShown() !== effects) applyLighting();
   vpBar?.refresh();
   if (mode) status(`${mapName}: ${VIEW_MODES.find(([k]) => k === mode)[1]} of the last rebuild`, 'ok');
 }
 function setLightMode(mode) {
   if (VIEW_MODES.some(([k]) => k === mode)) return setViewMode(mode);
-  if (viewModes.mode) setViewMode(null);
+  if (viewModes.mode) setViewMode(null, false);           // lit just below
   lightMode = mode;
   try { localStorage.setItem('ucmap.light', mode); } catch (e) { /* no storage */ }
   applyLighting();
-  status(mode === 'lit' ? `${mapName}: game lighting of the last rebuild (move or change lights, then Rebuild to see them)` : `${mapName}: ${mode}`, 'ok');
+  if (mode === 'preview') lampClasses().then(() => { stepLiveLighting(); wake(); }).catch(() => {});
+  status(mode === 'preview' ? `${mapName}: live light preview (nearest 32 lights; Rebuild for final shadows)`
+    : mode === 'lit' ? `${mapName}: game lighting of the last rebuild` : `${mapName}: ${mode}`, 'ok');
+  wake();
+}
+
+// ---------------------------------------------------------------- View > Effects (light-effects.js, light-effects-view.js)
+// As Unity's Scene view Effects: while it is on, the Lit view moves as the game does. The lamps that move are those of
+// the last rebuild (mapLights: its lightmaps hold their light), each the object found where it stood, at the LightType,
+// LightPeriod and LightPhase that object has now; on the objects each one's share of their light is kept apart and goes
+// up and down exactly (vertexLight), on the surfaces an estimate (light-effects-view.js), as the renderer of the project's
+// game does it (light-effects.js RENDERERS: Revision never lights a flickering lamp). Coronas (a lamp with a Skin, as the
+// game's), Auto U / V Pan and the view of the zone the camera is in too. Drawn every frame while it shows (the Lit view, no
+// other view of the map), nothing while it does not.
+function effectsShown() { return effectsOn && lightMode === 'lit' && !!mapName && !viewModes.mode; }
+function setEffects(on) {
+  effectsOn = on;
+  try { localStorage.setItem('deusedix.viewEffects', on ? '1' : '0'); } catch { /* no storage */ }
+  applyLighting();                   // the surfaces take (or leave) their effects' copy, the objects keep the lamps apart
+  status(!on ? 'Effects off: the Lit view is still' : lightMode === 'lit'
+    ? 'Effects: lamps pulse, blink, flicker and strobe as the project\'s game draws them (a blink at random, a flickering lamp '
+      + 'dark in Revision), coronas glow, textures pan, a zone\'s view fog shows (an estimate on the walls)'
+    : 'Effects on: they show in the Lit view (L)', 'ok');
+  wake();
+}
+// a lamp's property as Rebuild writes it: All properties' value (applied after the Properties' own, it wins), else read's
+// (keyValue: edited, the map's, else its class's)
+function builtValue(a, key, read = keyValue) { return edits.rawprops?.[a.name]?.[key] ?? read(a, key); }
+// a lamp's LightType as Rebuild writes it (a Light's class gives LT_Steady); LT_None: not a lamp
+function lampType(a) { return String(builtValue(a, 'LightType') ?? (a.kind === 'light' ? 'LT_Steady' : 'LT_None')); }
+// a lamp's Skin as Rebuild writes it ('' for none): the texture of its corona, the palette of a palette lamp
+function lampSkin(a) { const skin = String(builtValue(a, 'Skin', actorProp) ?? 'None'); return skin === 'None' ? '' : skin; }
+// a lamp's light type, period, phase, its own number for a flicker and its Skin, as Rebuild writes them, off when a
+// cutscene's preview has turned it off; null: it gives no light (LT_None, or no brightness)
+function lampKind(a) {
+  const read = (key, fallback) => builtValue(a, key) ?? fallback, type = lampType(a);
+  if (type === 'LT_None' || !liveLight(a).b) return null;
+  return { type, period: +read('LightPeriod', 32), phase: +read('LightPhase', 0), seed: lampSeed(a.name), off: lampsOff.has(a.name), skin: lampSkin(a) };
+}
+// a lamp's corona as Rebuild writes it: null without bCorona, else its Skin ('' for none: the game then draws no corona,
+// as it draws that texture) and its DrawScale (its size on the screen; the Properties have no row for it)
+function coronaOf(a) {
+  if (String(builtValue(a, 'bCorona') ?? 'False') !== 'True') return null;
+  return { skin: lampSkin(a), size: +(builtValue(a, 'DrawScale', (x) => x.meshDrawScale) ?? 1) || 1 };
+}
+// what a lamp's settings do not do in the project's game (light-effects.js lightNotes): [{ prop, text }], each said under
+// its property in the Properties; none for an object that is not a lamp. A lamp of no brightness gives no light but its
+// corona still shows in the game (the original maps' glows): only that note
+function lampNotes(a) {
+  const kind = lampKind(a), type = lampType(a);
+  if (type === 'LT_None') return [];
+  const notes = lightNotes({ type, period: kind?.period ?? 32, corona: !!coronaOf(a), skin: lampSkin(a) }, projectGame(projectContext));
+  return kind ? notes : notes.filter((n) => n.prop === 'bCorona');
+}
+// a lamp's notes about one property (lampNotes), as the Properties show them under it: in the warning colour, given by
+// the note itself as app.js's other warning hints (a class "warn" next to "hint" loses to index.html's .hint rule)
+function lampNoteHtml(notes, prop) {
+  return notes.filter((n) => n.prop === prop).map((n) => `<div class="hint" style="margin:0 0 4px;color:var(--warn)">${escapeHtml(n.text)}</div>`).join('');
+}
+// the notes under a lamp's properties written again from what it has now (a slider moved, All properties written), in
+// every Inspector that shows it: only their boxes (drawProps), so a slider being dragged stays
+function refreshLampNotes(a) {
+  const boxes = [...document.querySelectorAll('[data-lamp-note]')].filter((box) => box.dataset.lamp === a.name);
+  const notes = boxes.length ? lampNotes(a) : [];
+  for (const box of boxes) box.innerHTML = lampNoteHtml(notes, box.dataset.lampNote);
+}
+// the class defaults of the map's lamps (LightType, LightPeriod... where the map does not say), asked once a class
+function lampClasses() {
+  const lamps = proxies.children.map((p) => p.userData.actor).filter((a) => a && (a.kind === 'light' || a.props?.LightType));
+  return Promise.all([...new Set(lamps.map((a) => a.cls))].map(classFields));
+}
+// the object each lamp of the last rebuild is (mapLights is in the lighting dump's order): the one of the map that stood
+// where it was lit from, its name (null: none); made again with another lighting or map
+let lampOwners = { lights: null, actors: null, names: [] };
+function mapLampNames() {
+  if (lampOwners.lights === mapLights && lampOwners.actors === baseActors) return lampOwners.names;
+  const at = (p) => [0, 1, 2].map((k) => Math.round((p[k] || 0) * 10)).join(','), stood = new Map(), taken = new Set();
+  for (const a of baseActors) stood.set(at(a.loc || []), [...(stood.get(at(a.loc || [])) || []), a.name]);
+  const names = mapLights.map((L) => {
+    const name = (stood.get(at(L)) || []).find((n) => !taken.has(n));
+    if (name) taken.add(name);
+    return name || null;
+  });
+  lampOwners = { lights: mapLights, actors: baseActors, names };
+  return names;
+}
+// twice a second: the lamps of the last rebuild that move as their objects are now (or that the project's game leaves
+// dark: at no light), the FX_MAX nearest the camera (the surfaces' share), the lamps whose corona the game draws (bCorona
+// and a Skin, whatever their light: a lamp of no brightness too; not one off in game, out of the map at Rebuild); a
+// change in which lamps move lights the objects again
+function pickLamps(now) {
+  const names = mapLampNames(), byName = new Map(), moving = [], coronas = [], game = projectGame(projectContext);
+  for (const p of proxies.children) if (p.userData.actor) byName.set(p.userData.actor.name, p);
+  mapLights.forEach((L, id) => {
+    const a = byName.get(names[id])?.userData.actor, kind = a && lampKind(a);
+    if (kind && (kind.off || MOVING_LIGHTS.has(kind.type) || !givesLight(kind.type, game, kind.skin))) moving.push({ id, L, kind });
+  });
+  for (const p of proxies.children) {
+    const a = p.userData.actor, corona = a && p.visible && !edits.disabled?.[a.name] && lampType(a) !== 'LT_None' && coronaOf(a);
+    if (corona?.skin) coronas.push({ p, size: corona.size, colour: lightColor(liveLight(a)) });     // its hue and saturation
+  }
+  const ids = new Set(moving.map((x) => x.id)), same = ids.size === fxLamps.ids.size && [...ids].every((id) => fxLamps.ids.has(id));
+  fxLamps = { at: now, of: mapLights, moving, ids: same ? fxLamps.ids : ids, near: nearestLights(moving, UE(camera.position), FX_MAX), coronas };
+  if (!same) for (const g of proxies.children) lightObject(g);
+}
+// the zone the camera is in, looked for again when it has moved 16 units (at most 4 times a second): the zone in front of
+// the first surface under it; none when that surface is seen from behind (the camera is outside the map)
+const DOWN = new THREE.Vector3(0, -1, 0);
+function cameraZone(now) {
+  if (fxZone.from && fxZone.looks === zoneLooks && (now - fxZone.at < 250 || fxZone.from.distanceToSquared(camera.position) < 256)) return fxZone.view;
+  const hit = presentHits(new THREE.Raycaster(camera.position, DOWN, 0, 1e6).intersectObjects(mapSurfaces(), false))[0];
+  // a floor's front, seen from above: the map's polygons come with y and z swapped, their corners' order the other way
+  // round, so three's normal is the one of their back
+  const front = hit?.face && hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y < 0;
+  const zone = front ? hit.object.userData.zones?.[hit.faceIndex] : undefined;
+  fxZone = { at: now, from: camera.position.clone(), looks: zoneLooks, zone, view: zone === undefined ? null : zoneView(zoneLooks[zone] || null) };
+  return fxZone.view;
+}
+// the number of that zone in the last rebuild (Hear the map), undefined when it is not known
+function cameraZoneNumber(now) { cameraZone(now); return fxZone.zone; }
+// a frame of Effects: the moving lamps' levels now on the objects and the surfaces, the coronas, the camera's zone
+function stepEffects(now) {
+  if (!effectsShown()) return void lightEffects.stop();
+  if (!lightEffects.running) { effectsClock = now; effectsFrame = 0; fxLamps.at = -Infinity; lampClasses().catch(() => {}); }
+  if (now - fxLamps.at > 500 || fxLamps.of !== mapLights) pickLamps(now);
+  const t = (now - effectsClock) / 1000, frame = ++effectsFrame, game = projectGame(projectContext);
+  const level = (k) => (k.off ? 0 : lightLevel(k.type, k.period, k.phase, t, { seed: k.seed, frame, game, skin: k.skin }));
+  const levels = new Map(fxLamps.moving.map((x) => [x.id, level(x.kind)]));
+  for (const c of litGeos.values()) if (c.light.parts.size) {
+    const colour = c.geo.getAttribute('color');
+    vertexLinear(c.light, levels, colour.array);
+    colour.needsUpdate = true;
+  }
+  lightEffects.step(t, { gain: lightGain, zone: cameraZone(now), frame, lights: fxLamps.near.map((x) => ({ L: x.L, level: levels.get(x.id) })),
+    coronas: fxLamps.coronas.map((c) => ({ name: c.p.userData.actor.name, at: c.p.getWorldPosition(new THREE.Vector3()), colour: c.colour, size: c.size })) });
+}
+
+// the lamps a cutscene's preview has off now (their names; none: all as they are), picked again at Effects' next frame
+function setLampsOff(names) {
+  lampsOff = new Set(names);
+  fxLamps.at = -Infinity;
+  wake();
+}
+
+// ---------------------------------------------------------------- Hear the map (ambient-sound.js, scene-audio.js)
+// As Unity's Scene view audio: while the speaker of the 3D view's toolbar (or View > Hear the map) is on, the map's
+// ambient sounds loop where they are, heard from the camera as it flies: the AmbientSound of every object, lamp and zone
+// the editor shows (as edited, else its class's own: a camera's hum), and the sounds of the last rebuild's zones, a
+// zone's heard while the camera is in it as the game does. The 16 nearest play. Off at first and kept in the browser;
+// silent while Play runs and while the editor's tab is hidden, ended when the map closes. Its sounds are the files the
+// browser gets for a preview (/api/sound_play), not asked for while a Rebuild or the map's loading holds the server.
+let audioPick = { at: -Infinity, gen: -1, objects: [], zones: [], camZone: undefined };     // looked for twice a second
+// a sound's data as the browser plays it (the file of its preview, found and read as the sound browser does: refused
+// over its 64 MB), for the one cache of decoded sounds (sound-cache.js) of Hear the map, the previews and the voices
+async function soundData(name) { return soundBytes(await soundFile(api, name)); }
+const soundCache = createSoundCache({ load: soundData });
+const sceneAudio = createSceneAudio({ Context: window.AudioContext || window.webkitAudioContext,
+  on: (() => { try { return localStorage.getItem('deusedix.viewAudio') === '1'; } catch { return false; } })(),
+  cache: soundCache,
+  canLoad: () => !buildJob && !mapLoading,
+  onError: (name, e) => log(`Hear the map: ${name} cannot be played (${e.message || e}).`, 'warn'),
+});
+// the browser starts a page's audio after a click or a key; Play and a hidden tab silence it until they end; another
+// map, or none, ends what played
+for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sceneAudio.unlock(), { capture: true, passive: true });
+window.addEventListener('deusedix:play-state', (e) => (e.detail?.active ? sceneAudio.hold('play') : sceneAudio.release('play')));
+document.addEventListener('visibilitychange', () => (document.hidden ? sceneAudio.hold('hidden') : sceneAudio.release('hidden')));
+window.addEventListener('deusedix:map-state', () => { sceneAudio.stop(); audioPick.gen = -1; });
+function setAudio(on) {
+  sceneAudio.setOn(on);
+  try { localStorage.setItem('deusedix.viewAudio', on ? '1' : '0'); } catch { /* no storage */ }
+  audioPick.gen = -1;                // looked for again at once
+  status(on ? 'Hear the map: the ambient sounds round the camera play where they are (the 16 nearest; silent while Play runs)'
+    : 'Hear the map off', 'ok');
+  vpBar?.refresh();
+  wake();
+}
+// the class defaults of the map's objects (a security camera hums, a water zone has its underwater sound), asked once a class
+function audioClasses() {
+  return Promise.all([...new Set(proxies.children.map((p) => p.userData.actor?.cls).filter(Boolean))].map(classFields));
+}
+// the objects with an ambient sound now, the last rebuild's zones (their places in the 3D view's axes) and the zone the
+// camera is in; a map just opened asks for its classes' defaults
+function pickAudio(now) {
+  if (audioPick.gen !== mapGeneration) audioClasses().catch(() => {});
+  const objects = [];
+  for (const p of proxies.children) {
+    const a = p.userData.actor;
+    if (!a || edits.disabled?.[a.name]) continue;
+    const read = (key) => keyValue(a, key);
+    const sound = soundRef(read('AmbientSound'));
+    if (sound) objects.push({ id: a.name, p, props: { sound, radius: read('SoundRadius'), volume: read('SoundVolume'), pitch: read('SoundPitch') } });
+  }
+  const zones = zoneLooks.map((z) => z && { name: z.name, sound: z.sound, at: z.at && T(z.at).toArray() });
+  audioPick = { at: now, gen: mapGeneration, objects, zones, camZone: cameraZoneNumber(now) };
+}
+// a frame of Hear the map: the camera where it is, each sound where its object is now
+function stepAudio(now) {
+  if (!sceneAudio.on || !mapName) return;
+  if (audioPick.gen !== mapGeneration || now - audioPick.at > 500) pickAudio(now);
+  const objects = audioPick.objects.map((o) => ({ ...o, at: o.p.position.toArray() }));
+  sceneAudio.update({ at: camera.position.toArray(), forward: forward().toArray(), up: [0, 1, 0] }, mapSources(objects, audioPick.zones, audioPick.camZone));
 }
 
 // a real 3D object (mesh or door) from the library, coordinates relative to the actor
@@ -1404,15 +1748,16 @@ function livePose(st) {
   let k = [Math.abs(o.scale.x), Math.abs(o.scale.z), Math.abs(o.scale.y)];
   const s0 = scaleOf(st.placement);
   pose.scale = st.scalable === false ? scaleOf(prev) : k.map((v, i) => Math.max(0.05, Math.round(v * s0[i] * 100) / 100));
-  const piece = !!st.piece_of || (st.paste && /^obj_/.test(pasteEntry(st.name)?.prefab || ''));
+  // A placed prefab keeps its image mapping when resized, including saved user prefabs.
+  const piece = !!st.piece_of || !!st.paste;
   pose.stretch = stretchOnResize(piece, prev, pose.scale);
   return pose;
 }
 // structures in the view follow the edits (also copies not built yet: clones of the original)
 function syncStructures() {
   syncPieces();                          // structures taken apart (Un-nest): their pieces on their own
-  for (const [name, st] of Object.entries(structures)) {
-    if (st.pendingCopy || (st.pendingPaste && !pasteEntry(name))) { world.remove(st.obj); delete structures[name]; }
+  for (const [name, st] of Object.entries(structures)) {     // (a pasted one also when it places another version now)
+    if (st.pendingCopy || (st.pendingPaste && pasteEntry(name)?.prefab !== st.prefab)) { world.remove(st.obj); delete structures[name]; }
   }
   // pieces pasted from other maps, not built yet: their preview
   for (const e of edits.prefabs) {
@@ -1423,20 +1768,23 @@ function syncStructures() {
     world.add(obj);
     structures[name] = { name, obj, label: `${e.label} (from ${e.source})`, category: e.mover ? 'Movers' : 'Pasted', pivot: e.pivot,
       placement: { offset: [0, 0, 0], yaw: 0 }, actors: [], rotatable: e.rotatable !== false, copyable: true,
-      gameplay: false, paste: true, pendingPaste: true, built: false };
+      gameplay: false, paste: true, pendingPaste: true, built: false, prefab: e.prefab };
     loadPrefabDisplay(e.prefab).then((d) => {
       if (!d || !obj.parent) return;
       const base = `/prefabs/${e.prefab}/`;
       for (const g of d.groups) {
         const mesh = new THREE.Mesh(geometryUE(g.pos, g.uv, e.pivot), makeMaterial((d.textures[g.tex] || {}).png, tf(g.tex, g.flags), base));
         textureScale.capture(mesh.geometry, g);
-        mesh.userData.tex = g.tex; mesh.userData.flags = g.flags;
+        mesh.userData.tex = g.tex; mesh.userData.flags = tf(g.tex, g.flags);
+        mesh.userData.world = true;
         obj.add(mesh);
+        setMeshLight(mesh);
       }
       const st = structures[name];
       if (st?.obj === obj) textureScale.update(obj, st.placement, livePose(st));
       if (selected === obj) outline.setFromObject(obj);
-    });
+      wake();
+    }).catch
   }
   for (const st of Object.values(structures)) showPose(st, poseOf(st));
   for (const c of edits.copies) {
@@ -1459,8 +1807,7 @@ function beginStructMove(obj = selected) {
   const st = structures[obj.userData.name];
   const ms = { st, pose: poseOf(st), pos: st.obj.position.clone(), members: [] };
   for (const p of proxies.children) {
-    const a = p.userData.actor;
-    if (a && p.userData.source === 'map' && actorStruct[a.name] === st.name) ms.members.push({ p, pos: p.position.clone(), rot: objectRotation(p) });
+    if (carries(st, p)) ms.members.push({ p, pos: p.position.clone(), rot: objectRotation(p) });
   }
   if (obj === selected) moveStart = ms;
   return ms;
@@ -1479,6 +1826,29 @@ function followStructure(ms = moveStart) {   // objects of the structure move wi
 function keptPlaces(n) {
   return [edits.deleted[n], edits.added.find((x) => x.name === n)?.replaces].filter((k) => k?.orig);
 }
+// the objects given another class on a pasted copy (Replace with..., prefab-links.js): their entries in edits.added,
+// objects of their own that the build puts where their entry says, so they go with the copy; none for another structure
+function replacingOf(st) {
+  const e = st.paste && pasteEntry(st.name);
+  return e ? replacedOn(edits, e.pid) : [];
+}
+// does structure st carry the object of proxy p when it moves (beginStructMove, commitStructure): an object of the map
+// that is one of its own, or an added object a pasted copy gave another class (replacingOf)
+function carries(st, p) {
+  const a = p.userData.actor;
+  if (!a) return false;
+  if (p.userData.source === 'map') return actorStruct[a.name] === st.name;
+  return p.userData.source === 'added' && replacingOf(st).some((x) => x.name === a.name);
+}
+// is a thing carried by one of the structures among `all` (a selection): it moves with that structure, so a command on
+// the selection must not move it on its own as well (uncarried, selectionParts, Mirror, Duplicate, Copy)
+function carriedBy(all) {
+  const sts = all.filter(isStruct).map((p) => structures[p.userData.name]).filter(Boolean);
+  return (p) => sts.some((st) => carries(st, p));
+}
+// a frame asked for to draw the faces' queued alignment again after structures are let go (commitStructure): one for
+// all those let go together (a group's move, Push to grid, Mirror...)
+let surfaceFrame = 0;
 function commitStructure(ms = moveStart, quiet = false, textureChoice) {
   if (!ms) return;
   const st = ms.st;
@@ -1488,21 +1858,27 @@ function commitStructure(ms = moveStart, quiet = false, textureChoice) {
       (typeof textureChoice === 'boolean' || pose.scale.some((s, i) => s !== scaleOf(ms.pose)[i]))) {
     log('Texture tiling preview is unavailable for this older prefab. Rebuild to refresh its preview.', 'warn');
   }
-  // objects of the structure moved or deleted one by one keep their place on it
+  // objects of the structure moved or deleted one by one keep their place on it (a pasted copy not built yet has none in
+  // the view: the objects of its overrides, carried from the copy it was made of by Duplicate or Paste)
   const f = poseToPose(st, ms.pose, pose), dy = pose.yaw - ms.pose.yaw;
-  for (const n of st.actors || []) {
+  for (const n of st.pendingPaste ? overridesOf(edits, pasteEntry(st.name)).map((o) => o.name) : st.actors || []) {
     const mv = edits.moved[n];
     if (mv) { mv.loc = f(mv.loc).map(r1); if (mv.orig) mv.orig = f(mv.orig).map(r1); mv.rot = rotations.carry(mv.rot || [0, 0, 0], ms.pose, pose); }
     // what Delete or Replace with... keeps of it moves along too: the build moves the object with its structure
     // before it looks for it there
     for (const gone of keptPlaces(n)) gone.orig = f(gone.orig).map(r1);
   }
+  // its objects given another class go with it (dragged along: beginStructMove)
+  if (st.paste) for (const x of replacingOf(st)) { x.loc = f(x.loc).map(r1); x.rot = rotations.carry(x.rot || [0, 0, 0], ms.pose, pose); }
   if (st.paste) setPose(pasteEntry(st.name), pose);
   else if (st.copy_of) setPose(copyEntry(st.name), pose);
   else if (!movedPose(pose) && pose.stretch === undefined)
     delete edits.groups[st.name];
   else edits.groups[st.name] = setPose({}, pose);
   textureScale.update(st.obj, st.placement, pose);
+  // the faces' queued alignment drawn again where the structure is now (moved: Floor and Wall wait for a Rebuild;
+  // resized: texture-scale.js has its UVs), at the next frame: once for all the structures let go together
+  if (edits.surfaces?.length && !surfaceFrame) surfaceFrame = requestAnimationFrame(() => { surfaceFrame = 0; refreshSurfaceTexturePreview(); wake(); });
   if (ms === moveStart) moveStart = null;
   if (quiet) return;
   setDirty();
@@ -1715,7 +2091,7 @@ const iconShown = (p) => showIcons && !kindIs(p, 'noIcons');
 function structureInMap(st) { return !poseOf(st).deleted && !st.dissolved; }
 function applyObjectVisibility() {
   for (const p of proxies.children) if (keyOf(p)) {
-    p.visible = !objectHidden(p);
+    p.visible = !objectHidden(p) && !p.userData.cutHidden;      // cutHidden: vanished in a cutscene's preview (cutscene.js)
     if (isIcon(p)) p.userData.body.visible = iconShown(p);      // hidden icons cannot be clicked: pick them in the Hierarchy
   }
   for (const st of Object.values(structures)) st.obj.visible = structureInMap(st) && !objectHidden(st.obj);
@@ -2391,6 +2767,7 @@ function menuFor(spec, surface = null) {
     items.push({ label: 'Replace with…', off: locked, run: actOnSelection(replaceSelection) });
   if (spec.startsWith('n:') || spec.startsWith('s:') || several)
     items.push({ label: 'Save as prefab…', off: !!gameView?.active, run: actOnSelection(() => prefabBrowser.save()) });
+  items.push(...prefabMenu(keys, locked));       // linked copies of a prefab: Select instances, Update, Apply, Unpack
   for (const [m, label] of PLACE_MODES)        // Drop to floor / Stick to surface: the one chosen is End's
     items.push({ label, key: m === placeMode ? (menuKey('drop') || 'End') : '', off: locked, run: actOnSelection(() => placeSelected(m)) });
   if (targets.some((p) => p.userData.actor))    // then a click on the point (T aims at the pointer at once)
@@ -2415,6 +2792,22 @@ function menuFor(spec, surface = null) {
   for (const x of into.slice(0, 8)) items.push({ label: `Move into "${x.label}"`, run: () => moveTo(spec, x.id) });
   items.push({ sep: true });
   items.push({ label: several ? `Delete these ${keys.length}` : 'Delete', key: 'Del', off: locked, run: () => { if (!several) specSelect(spec); if (!selected && spec.startsWith('n:') && deleteFolder(spec.slice(2))) return; deleteSelected(); } });
+  return items;
+}
+// the right-click menu's items for the linked copies among keys (prefab-links.js): Select instances, Update instances
+// and Apply to prefab for one, Unpack for all of them
+function prefabMenu(keys, locked) {
+  const names = keys.filter((k) => k.startsWith('s:') && linkOf(pasteEntry(k.slice(2)))).map((k) => k.slice(2));
+  if (!names.length) return [];
+  const items = [];
+  if (names.length === 1) {
+    const entry = pasteEntry(names[0]), link = linkOf(entry), newest = prefabOfCopy(entry);
+    items.push({ label: 'Select instances', run: () => selectInstances(link.line) });
+    // an older copy is updated before it is applied (it would undo the versions made since)
+    if (newest && link.version < newest.version) items.push({ label: 'Update instances', run: () => updateInstances(link.line) });
+    else if (newest) items.push({ label: 'Apply to prefab', off: locked || !!gameView?.active, run: () => applyToPrefab(names[0]) });
+  }
+  items.push({ label: names.length === 1 ? 'Unpack prefab' : `Unpack ${names.length} prefab copies`, off: locked, run: () => unpackCopies(names) });
   return items;
 }
 // the Hierarchy: drag things into a nest or out of it, the right button for the menu
@@ -2629,20 +3022,154 @@ const prefabBrowser = createPrefabBrowser({
     if (!script || gameView?.active) { status('Open a map and stop Play before placing a prefab.', 'warn'); return; }
     startPlacing({ prefab: clip, radius: 4, height: 0 });
   },
-  onSave: async label => {
+  onSave: async (label, picture) => {
     if (!script || gameView?.active) throw new Error('Open a map and stop Play before saving a prefab.');
     const selection = collectPrefabSelection(selected === groupPivot ? members() : [selected], structures);
     const savingScript = script, generation = mapGeneration;
     const snapshot = JSON.parse(JSON.stringify(edits));
     try {
       busy('Saving reusable prefab…');
-      const clip = await api('/api/prefab_library?script=' + encodeURIComponent(savingScript), { label, selection, edits: snapshot });
+      const clip = await api('/api/prefab_library?script=' + encodeURIComponent(savingScript), { label, selection, edits: snapshot, picture });
       if (script !== savingScript || generation !== mapGeneration) prefabBrowser.invalidate();
       return clip;
     } finally { busy(''); }
   },
   onSaved: clip => { showTab('prefabs'); status(`Saved "${clip.label}" in Prefabs — reusable in every level of this project.`, 'ok'); },
+  // linked prefabs: the 3D view for a card's picture (without the editor's marks), the open map's copies, the menu
+  capture: () => (script && !gameView?.active ? viewShot({ clean: true }).url : null),
+  copiesHere: (item) => (script ? copyCounts(edits.prefabs, item) : null),
+  placedHere: () => (script ? edits.prefabs.map((e) => e.prefab) : []),
+  menu: (x, y, items) => openMenu(x, y, items),
+  onSelect: (item) => selectInstances(item.line || item.id),
+  onUpdate: (item) => updateInstances(item.line || item.id),
+  onChange: () => { buildHierarchy(); if (isStruct(selected) && structures[selected.userData.name]?.paste) showDetails(); },
 });
+
+// ---------------------------------------------------------------- linked prefabs (Unity's prefab instances)
+// A copy of a prefab of the library stays linked to it (prefab-links.js): a badge in the Hierarchy, a Prefab section in
+// its Inspector (its version, its overrides), Select instances, Update instances, Apply to prefab and Unpack there, in
+// the right-click menu and on the Prefabs browser's cards. Each change is one step of the History.
+
+// the library's prefab of a linked copy (its newest version, from the Prefabs browser's list): undefined while the list
+// is read (the Hierarchy and the Inspector are drawn again when it is there), null when it is no longer in the library
+function prefabOfCopy(entry) {
+  const link = linkOf(entry);
+  if (!link) return null;
+  const items = prefabBrowser.cached();
+  return items ? items.find((item) => (item.line || item.id) === link.line) || null : undefined;
+}
+// a linked copy's badge on its structure's row of the Hierarchy: the version it places, older than the library's
+// (Update instances), its prefab deleted from the library
+function prefabBadge(st) {
+  const entry = st.paste && pasteEntry(st.name), link = linkOf(entry);
+  if (!link) return '';
+  const newest = prefabOfCopy(entry), old = !!newest && link.version < newest.version;
+  const title = newest === null ? 'A copy of a prefab no longer in the library: Unpack keeps it as it is'
+    : `A copy of the prefab ${newest?.label || entry.label}, version ${link.version}${old ? `: version ${newest.version} is in the library (right click > Update instances)` : ''}`;
+  return `<span class="prefab-badge${old ? ' old' : ''}${newest === null ? ' gone' : ''}" title="${escapeHtml(title)}">v${link.version}${old ? ' ↑' : ''}</span>`;
+}
+// the Inspector's Prefab section of a linked copy (Unity's prefab header and Overrides): its prefab and version, what was
+// changed on its objects (a click selects the object), its buttons; an unpacked copy says so
+function prefabSection(st) {
+  const entry = st.paste && pasteEntry(st.name), link = linkOf(entry);
+  if (!link) return entry?.unpacked ? inspectorSection('prefab', 'Prefab', '<div class="hint">Unpacked: no longer linked to its prefab.</div>', true) : '';
+  const newest = prefabOfCopy(entry), old = !!newest && link.version < newest.version, changes = overridesOf(edits, entry);
+  const about = newest === null ? 'Its prefab was deleted from the library: Unpack keeps the copy as it is.'
+    : `<b>${escapeHtml(newest?.label || entry.label)}</b> · version ${link.version}${old ? `, version ${newest.version} in the library` : newest ? ' (the newest)' : ''}`;
+  const named = (name) => { const a = proxyOf(name)?.userData.actor; return a ? hierLabel(a) : name; };
+  const rows = changes.map((c) => `<li><a href="#" data-override="${escapeHtml(c.name)}" title="${escapeHtml(c.name)}">${escapeHtml(named(c.name))}</a> <small>${escapeHtml(c.kinds.join(', '))}</small></li>`).join('');
+  return inspectorSection('prefab', 'Prefab', `<div class="hint">${about}</div>
+    <div class="hint">${changes.length ? 'Overrides, changed on this copy (Update instances keeps them, Apply to prefab saves them into the prefab):' : 'No overrides: the copy is as its prefab.'}</div>${changes.length ? `<ul class="prefab-overrides">${rows}</ul>` : ''}
+    <div class="row actions"><button id="pfselect" title="Select every copy of this prefab in the map">Select instances</button>${old ? '<button id="pfupdate" title="Put every copy of this prefab in the map on its newest version, keeping their overrides">Update instances</button>' : ''}${newest && !old ? '<button id="pfapply" title="Save this copy, as it is built, as the newest version of its prefab (Rebuild first)">Apply to prefab</button>' : ''}<button id="pfunpack" title="Forget the prefab: the copy stays as it is and is no longer updated">Unpack</button></div>`, true);
+}
+// the Prefab section's buttons and its overrides' links (el: the Inspector)
+function wirePrefabSection(el, p, st) {
+  const link = linkOf(pasteEntry(st.name));
+  if (!link) return;
+  $('#pfselect').onclick = () => selectInstances(link.line);
+  if ($('#pfupdate')) $('#pfupdate').onclick = () => inspectorAction(p, () => updateInstances(link.line));
+  if ($('#pfapply')) $('#pfapply').onclick = () => inspectorAction(p, () => requireUnlocked(p) && applyToPrefab(st.name));
+  $('#pfunpack').onclick = () => inspectorAction(p, () => unpackCopies([st.name]));
+  for (const a of el.querySelectorAll('[data-override]')) a.onclick = (ev) => {
+    ev.preventDefault();
+    const o = proxyOf(a.dataset.override);
+    if (o?.parent && o.visible) select(o); else status(`${a.dataset.override} is not in the 3D view: it was deleted on this copy.`);
+  };
+}
+// the structures of a prefab's copies in this map
+function copyStructures(line) { return Object.values(structures).filter((st) => st.paste && linkOf(pasteEntry(st.name))?.line === line); }
+// Select instances: every copy of the prefab in this map that can be picked (as Select all of a class)
+function selectInstances(line) {
+  const list = copyStructures(line).map((st) => st.obj).filter((o) => o.parent && o.visible && !objectHidden(o) && !objectLocked(o));
+  if (!list.length) { status('No copy of this prefab can be picked in this map.', 'warn'); return; }
+  if (list.length === 1) select(list[0]); else setMulti(list);
+  status(`${list.length} ${list.length === 1 ? 'copy' : 'copies'} of the prefab selected.`, 'ok');
+}
+// Update instances: every copy of the prefab (its line) in this map put on the library's newest version, each where it
+// is, keeping what was changed on it (prefab-links.js updateCopy). The server says where the copies' objects stand in
+// that version: asked and answered never while a Rebuild runs or the map opens; a copy changed meanwhile is left alone
+async function updateInstances(line) {
+  if (!script || gameView?.active) { status('Open a map and stop Play before updating prefab copies.', 'warn'); return; }
+  const asked = script, generation = mapGeneration;
+  try {
+    refuseWhileBuilding('updating the copies waits');
+    prefabBrowser.invalidate();
+    const newest = (await prefabBrowser.list()).find((item) => (item.line || item.id) === line);
+    if (!newest) throw new Error('this prefab is no longer in the library.');
+    const old = copiesOf(edits.prefabs, line).filter((e) => outdated(e, newest));
+    if (!old.length) { status(`Every copy of ${newest.label} in this map is on version ${newest.version}.`, 'ok'); return; }
+    const sent = new Map(old.map((e) => [e.pid, JSON.stringify(e)]));
+    refuseWhileBuilding('updating the copies waits');
+    const { members } = await api('/api/prefab_members', { entries: old.map((e) => ({ ...e, prefab: newest.id })) });
+    if (script !== asked || generation !== mapGeneration) throw new Error('the map was closed before its copies were updated.');
+    refuseWhileBuilding('updating the copies waits');
+    const ready = copiesOf(edits.prefabs, line).filter((e) => sent.get(e.pid) === JSON.stringify(e) && members[e.pid]);
+    if (!ready.length) throw new Error('the copies changed meanwhile: Update instances again.');
+    pushUndo(`Update instances of ${newest.label}`);
+    const gone = ready.flatMap((e) => updateCopy(edits, e, newest, members[e.pid]));
+    setDirty(); rebuildProxies(); showDetails();
+    if (bottomTab === 'prefabs') void prefabBrowser.render();
+    log(`${ready.length} ${ready.length === 1 ? 'copy' : 'copies'} of ${newest.label} on version ${newest.version}: Rebuild to see ${ready.length === 1 ? 'it' : 'them'}.`
+      + (gone.length ? ` The changes to ${gone.join(', ')} went: version ${newest.version} no longer has ${gone.length === 1 ? 'that object' : 'those objects'}.` : '')
+      + (ready.length < old.length ? ` ${old.length - ready.length} changed meanwhile: Update instances again for them.` : ''), 'ok');
+  } catch (error) { status('Update instances: ' + (error?.message || error), 'warn'); }
+}
+// Apply to prefab: the copy, as it is built in the map, saved as its prefab's newest version (prefab_library.py
+// new_version; Rebuild first, as for Save as prefab); the copy is that version then, what was changed on it the
+// prefab's (prefab-links.js appliedCopy). The other copies follow with Update instances
+async function applyToPrefab(name) {
+  const entry = pasteEntry(name);
+  if (!linkOf(entry) || !script || gameView?.active) { status('Select a copy of a prefab in an open map, not while playing.', 'warn'); return; }
+  const asked = script, generation = mapGeneration, pid = entry.pid;
+  let saved;
+  try {
+    refuseWhileBuilding('applying to the prefab waits');
+    busy('Saving the copy as a new version of its prefab…');
+    saved = await api('/api/prefab_apply?script=' + encodeURIComponent(asked), { pid, edits: JSON.parse(JSON.stringify(edits)) });
+  } catch (error) { status('Apply to prefab: ' + (error?.message || error), 'warn'); return; }
+  finally { busy(''); }
+  prefabBrowser.invalidate();
+  const now = script === asked && generation === mapGeneration ? pasteEntry(name) : null;
+  try {
+    if (!now || now.pid !== pid || linkOf(now)?.line !== saved.line) throw new Error('the copy changed meanwhile: Update instances puts it on that version.');
+    refuseWhileBuilding('applying to the prefab waits');
+  } catch (error) { status(`Saved version ${saved.version} of ${saved.label}; ${error.message}`, 'warn'); return; }
+  pushUndo(`Apply to prefab ${saved.label}`);
+  const cleared = appliedCopy(edits, now, saved);
+  setDirty(); rebuildProxies(); showDetails();
+  if (bottomTab === 'prefabs') void prefabBrowser.render();
+  log(`This copy is version ${saved.version} of ${saved.label} now${cleared.length ? `, with what was changed on ${cleared.length} of its objects` : ''}. Its other copies: Update instances.`, 'ok');
+}
+// Unpack (Unity's Unpack Prefab): these copies (their structures' names) forget their prefab and stay as they are
+function unpackCopies(names) {
+  const entries = names.map(pasteEntry).filter((e) => linkOf(e));
+  if (!entries.length || !requireKeysUnlocked(names.map((n) => 's:' + n))) return;
+  pushUndo(namedStep('Unpack', entries.map((e) => e.label)));
+  for (const e of entries) unpack(e);
+  setDirty(); showDetails();
+  if (bottomTab === 'prefabs') void prefabBrowser.render();
+  status(entries.length === 1 ? `"${entries[0].label}" is no longer linked to its prefab.` : `${entries.length} copies are no longer linked to their prefabs.`, 'ok');
+}
 
 // ---------------------------------------------------------------- proxies (the objects)
 const KIND_COLOR = { prop: 0x5aa2ff, pawn: 0xff6b6b, light: 0xffd25a, path: 0x6bd68a, logic: 0xc58cff, mover: 0xff9a3c, box: 0xb9c2d0,
@@ -2655,9 +3182,10 @@ function lightColor(l) {             // the colour the engine gives the light (h
 }
 const lightHex = (l) => '#' + lightColor(l).toString(16).padStart(6, '0');      // the same as a colour picker has it
 
-// a light as the Properties panel has it now (edited values first, then the map's, then the class's)
-function liveLight(a) {
-  const n = (k, def) => { const v = actorProp(a, k); return v === undefined || v === '' ? def : (parseInt(v, 10) || 0); };
+// a light as Rebuild writes it now: All properties' values, else the Properties panel's (edited values first, then the
+// map's, then the class's); read: where its values come from (the Properties' own rows pass actorProp: what they edit)
+function liveLight(a, read = (x, k) => builtValue(x, k, actorProp)) {
+  const n = (k, def) => { const v = read(a, k); return v === undefined || v === '' ? def : (parseInt(v, 10) || 0); };
   const l = a.light || {};
   return { hue: n('LightHue', l.hue ?? 0), sat: n('LightSaturation', l.sat ?? 255), b: n('LightBrightness', l.b ?? 64), radius: n('LightRadius', l.radius ?? 64) };
 }
@@ -2747,6 +3275,7 @@ function makeBoxProxy(b) {
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), b.hole ? new THREE.LineDashedMaterial({ color: 0xff8080, dashSize: 0.06, gapSize: 0.04 })
     : new THREE.LineBasicMaterial({ color: 0xe8edf5 }));
   if (b.hole) edges.computeLineDistances();      // a hole: what it cuts away shows after the rebuild
+  edges.visible = !!(b.hole || b.water || b.portal); // ordinary blocks use the selection outline, not coplanar lines
   g.add(edges);
   g.scale.set(size[0], size[2], size[1]);
   g.position.copy(T([(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, (b.lo[2] + b.hi[2]) / 2]));
@@ -2784,18 +3313,26 @@ function blockLook(name) {
 async function dressBlock(g) {
   const b = g.userData.box;
   if (!b) return;
-  if (b.hole || b.water || b.portal || b.mover || b.sign || !b.tex || builtBoxes.get(b.name) === boxSig(b)) {
-    if (g.userData.dressed) { g.material.dispose(); g.material = g.userData.plain; g.userData.dressed = false; }
+  const baked = liveBlocks.canFollow(b) || builtBoxes.get(b.name) === boxSig(b);
+  g.material.colorWrite = !baked;
+  if (b.hole || b.water || b.portal || b.mover || b.sign || !b.tex || baked) {
+    if (g.userData.dressed) { g.material = g.userData.plain; delete g.userData.matBase; g.userData.dressed = false; }
+    g.material.colorWrite = !baked;
+    liveBlocks.sync(proxies.children);
     return;
   }
-  const tex = b.tex, look = await blockLook(tex);
-  if (!look || g.userData.box !== b || b.tex !== tex || g.parent !== proxies) return;
+  const turn = g.userData.dressTurn = {}, tex = b.tex, look = await blockLook(tex);
+  if (!look || g.userData.dressTurn !== turn || g.userData.box !== b || b.tex !== tex || g.parent !== proxies || liveBlocks.canFollow(b) || builtBoxes.get(b.name) === boxSig(b)) return;
   g.geometry.dispose();
   g.geometry = blockGeometry(THREE, b, look.tile);
-  if (g.userData.dressed) g.material.dispose(); else g.userData.plain = g.material;
+  if (!g.userData.dressed) g.userData.plain = g.material;
+  delete g.userData.matBase;
   g.material = new THREE.MeshBasicMaterial({ map: look.map, color: 0xd9d9d9, alphaTest: look.masked ? 0.5 : 0,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   g.userData.dressed = true;
+  setMeshLight(g);
+  liveBlocks.sync(proxies.children);
+  wake();
 }
 
 // a drawing (Tools > Draw) until a Rebuild, as a block: its faces with their textures as the build will map them
@@ -2807,7 +3344,9 @@ async function dressDrawn(g) {
   const p = g.userData.drawn, sig = drawnSig(p), turn = {};
   g.userData.dressTurn = turn;               // several changes in a row (a picked texture): only the last one dresses it
   const current = () => g.userData.dressTurn === turn && g.userData.drawn === p && drawnSig(p) === sig && g.parent === proxies;
-  if (builtDrawn.get(p.name) === sig) return;
+  const baked = liveBlocks.canFollowDrawing(p) || builtDrawn.get(p.name) === sig;
+  g.traverse(o => { if (o.isMesh) o.material.colorWrite = !baked; if (o.isLineSegments) o.visible = false; });
+  if (baked) return;
   const got = await api('/api/drawn_look', { drawn: p, holes: holeBlocks() }).catch(() => null);
   if (!got || !current()) return;
   const looks = await Promise.all(got.faces.map((f) => blockLook(shortTex(f.tex))));
@@ -2826,6 +3365,7 @@ async function dressDrawn(g) {
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }) : new THREE.MeshBasicMaterial({ color: 0x8a8f99, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { drawnSetting: f.setting, drawnTex: f.tex };
+    setMeshLight(mesh);
     dressed.add(mesh);
   });
   for (const o of g.children) o.traverse((c) => { if (c.isMesh) c.visible = false; });     // the plain volume: its edges stay
@@ -2950,7 +3490,8 @@ async function signCanvas(sign, tw, th) {
   const pic = await signPicture(st.bgTex);
   if (pic) {                                 // the picture fills the sign (cut to its shape, not stretched)
     const k = Math.max(tw / pic.width, th / pic.height);
-    g.drawImage(pic, (tw - pic.width * k) / 2, (th - pic.height * k) / 2, pic.width * k, pic.height * k);
+    if (st.bgFit === 'stretch') g.drawImage(pic, 0, 0, tw, th);
+    else g.drawImage(pic, (tw - pic.width * k) / 2, (th - pic.height * k) / 2, pic.width * k, pic.height * k);
   }
   let top = 0, bottom = th;
   if (st.stripes) {                          // hazard stripes along the top and the bottom
@@ -3091,12 +3632,26 @@ const skyTool = createSkyTool({ THREE, scene, getEdits: () => edits, getScript: 
 // Pose here: a character posed against the map where it stands (map-pose.js)
 const mapPose = createMapPose({ THREE, scene, camera, canvas, world, proxies, mouseRay, visibleHits, wake, api, edits: () => edits, pushUndo, setDirty,
   status, log, animsOf, animFrames, animatedModel, fitAnimated, meshOf, stopPreview, select, animsChanged, UE, commit, refuseWhileBuilding });
+// Face selection's recent textures (recent-textures.js), kept in the project: the Surface panel's strip, Alt+1…0
+const recentTexturesKey = () => projectStorageKey('recentTextures', projectContext);
+function recentTextures() {
+  try { return readRecent(localStorage.getItem(recentTexturesKey())); } catch { return []; }
+}
+function keepRecentTexture(ref) {
+  try { localStorage.setItem(recentTexturesKey(), JSON.stringify(withRecent(recentTextures(), ref))); } catch { /* optional preference */ }
+}
+// a face can be edited (the Surface panel, the Texture Slip): its structure is not locked
+function canEditFace(face) { return !selectionLocked(structures[face.structure]?.obj); }
 const surfaceTools = createSurfaceTools({ THREE, getEdits: () => edits, pushUndo, setDirty,
   deselect: () => select(null), status, log, escapeHtml,
   textures: () => [...Object.keys(mapTex), ...Object.keys(edits.textures || {}), ...texturePreviewInfo.keys()],
   canShowPanel: () => !inspectorIsPinned(),
-  canEditFace: face => !selectionLocked(structures[face.structure]?.obj),
-  onChange: () => { refreshSurfaceTexturePreview(); wake(); } });
+  canEditFace,
+  // the selected faces whose queued alignment the view cannot show (the panel says so)
+  onlyAfterRebuild: (ids) => { const later = new Set(surfacePreview.later); return ids.filter((id) => later.has(id)).length; },
+  onChange: () => { refreshSurfaceTexturePreview(); wake(); },
+  recent: { list: recentTextures, add: keepRecentTexture }, picture: (ref) => textureInfoFor(ref)?.url || '', keyOf: (id) => menuKey(id) || '',
+  slip: () => window.__menubar?.press('faceslip') });        // the panel's Slip: what Edit > Slip the texture runs
 function textureInfoFor(ref) {
   if (texturePreviewInfo.has(ref)) return texturePreviewInfo.get(ref);
   const ownName = edits.textures?.[ref] ? ref : shortTex(ref), own = edits.textures?.[ownName];
@@ -3107,7 +3662,11 @@ function textureInfoFor(ref) {
 function refreshSurfaceTexturePreview() {
   if (!surfaceTexturePreview) return;
   const meshes = surfaceTools.geometry; // Only built geometry, never source-ID clones awaiting Rebuild.
-  surfaceTexturePreview.apply(meshes, geoFaces, edits);
+  surfacePreview = surfaceTexturePreview.apply(meshes, geoFaces, edits, builtSurfaces);
+  // a queued row the Rebuild would fail on: said once, before Save and Rebuild (Rebuild asks again)
+  const failing = rebuildRefusal();
+  if (failing && failing !== refusalSaid) status(failing, 'warn');
+  refusalSaid = failing;
   // Saved drops whose source is not in this map's BSP still preview after reopening.
   for (const row of edits.surfaces || []) {
     const ref = row.op === 'texture' && row.args?.[0];
@@ -3127,7 +3686,52 @@ surfaceTexturePreview = createSurfaceTexturePreview({ THREE, textureInfo: textur
     temporary.userData = { world: true, flags };
     setMeshLight(temporary);
     return temporary.material.clone();
-  } });
+  },
+  cornersOf: (mesh) => faceCorners.get(mesh) || null, tileOf: textureTile, frameOf: builtFrame });
+// a texture's tile [w, h] (its size times its Scale) when the map's textures have it (by its short name too): the size a
+// queued texture gives a face in the preview. They are the textures of the map shown (geometry.json's: its surfaces'
+// and objects'), whatever their package: one none of them uses yet (one imported since too) is known only after a
+// Rebuild
+function textureTile(ref) {
+  const info = mapTex?.[ref] || (!ref.includes('.') ? mapTex?.[texFull[ref]] : null);
+  return info?.w > 0 && info?.h > 0 ? [info.w, info.h] : null;
+}
+// a face mesh's frame (texture-slip-ui.js): toBuilt takes a point of the view where the last Rebuild built the mesh (its
+// structure moved or turned since: back where it was); moved, resized: its structure since that Rebuild
+function builtFrame(mesh) {
+  const st = structures[structureOf(mesh)?.userData.name];
+  const built = st ? new THREE.Matrix4().compose(T(st.center), rotations.pose(st.placement), new THREE.Vector3(1, 1, 1)) : new THREE.Matrix4();
+  mesh.updateWorldMatrix(true, false);
+  const toBuilt = built.multiply(mesh.matrixWorld.clone().invert());
+  return { toBuilt, moved: !sameFrame(toBuilt.elements, new THREE.Matrix4().elements),
+    resized: !!st && relScale(st, poseOf(st)).some((k) => Math.abs(k - 1) > 1e-6) };
+}
+// the built face under the pointer for the Texture Slip: { id, mesh, point, normal } in the view, or why there is none
+function slipTarget(e) {
+  const r = mouseRay(e), hit = visibleHits(r.intersectObjects(world.children, true))[0];
+  const block = visibleHits(r.intersectObjects(proxies.children, true)).find((h) => h.object.userData.box || h.object.userData.drawnSetting !== undefined);
+  if (block && (!hit || block.distance < hit.distance - .1)) return { why: 'A block or a drawing not built yet is in front: Rebuild new blocks first.' };
+  if (!surfaceTools.faceAt(hit)) return { why: 'No built wall, floor or ceiling under the pointer (a copy not built yet: Rebuild first).' };
+  return { id: hit.object.userData.faces[hit.faceIndex], mesh: hit.object, point: hit.point,
+    normal: hit.face.normal.clone().transformDirection(hit.object.matrixWorld) };
+}
+// why the Texture Slip cannot start now, '' when it can: no map (or one being opened), a Rebuild running, the game
+// played, a cutscene panel open (its keys); no face selected: the Surface tools' noFaces, as the recent textures and
+// Grow say it (in Face selection a click, outside it Alt+click or Face selection's key)
+function slipWaits() {
+  if (!script || mapLoading) return 'Open a map first.';
+  if (buildJob) return rebuildWaits('the Texture Slip waits');
+  if (gameView?.active) return 'Stop the game first: the Texture Slip works in the editor.';
+  if (window.__cutscene?.isOpen()) return 'Close the cutscene panel first: the Texture Slip needs the keys.';
+  if (!surfaceTools.hasSelection) return surfaceTools.noFaces('faces');
+  return '';
+}
+// the Texture Slip (texture-slip-ui.js): Y over the selected faces rolls and sizes their texture, as Premiere's slip tool
+textureSlip = createTextureSlip({ THREE, win: window, canvas, camera, label: floatingLabel(),
+  ray: (e) => mouseRay(e).ray, pointed: slipTarget, frameOf: builtFrame,
+  faces: { selected: () => surfaceTools.selectedFaces(), canEdit: canEditFace }, preview: surfaceTexturePreview,
+  refresh: () => { refreshSurfaceTexturePreview(); wake(); }, queue: (rows, label, line) => surfaceTools.queueRows(rows, label, line),
+  queued: () => edits.surfaces || [], room: () => ROW_LIMIT - (edits.surfaces?.length || 0), can: slipWaits, status, wake });
 textureTransfer = createTextureTransfer({ canvas,
   context: () => script && !mapLoading && !gameView?.active ? `${projectContext?.id || ''}|${script}|${mapGeneration}|${tutorialSession.revision}` : null,
   status,
@@ -3195,12 +3799,13 @@ textureTransfer = createTextureTransfer({ canvas,
     wake();
   } });
 // Alt+drag on a transform handle duplicates; elsewhere it turns the camera round the selection (orbitDrag), so an
-// Alt+click lets the selection go only once it ends without that drag: then it picks a face.
+// Alt+click lets the selection go only once it ends without that drag: then it picks a face (Ctrl+Alt+click, Lights
+// here, keeps it).
 canvas.addEventListener('pointerdown', e => {
   if (e.button === 0 && !placing && !lkPicking && surfaceTools.mode && !e.altKey && selected) select(null);
 }, true);
 canvas.addEventListener('pointerup', e => {
-  if (e.button === 0 && !placing && !lkPicking && drag?.orbit === 'waiting' && selected) select(null);
+  if (e.button === 0 && !placing && !lkPicking && drag?.orbit === 'waiting' && selected && !e.ctrlKey) select(null);
 }, true);
 function mouseRay(e) {
   if (e.ray) return e.ray;                  // a click in an orthographic view (ortho-views.js) brings its own
@@ -3232,6 +3837,7 @@ function pick(e) {
   const r = mouseRay(e);
   const hitsP = visibleHits(r.intersectObjects(proxies.children, true), !lkPicking), hitsW = visibleHits(r.intersectObjects(world.children, true), !lkPicking);
   const hp = hitsP[0], hw = hitsW[0];
+  if (!lkPicking && e.altKey && e.ctrlKey && !e.shiftKey) return void lightsHereAt(e, hw, r.ray.direction.clone()).catch((err) => log(err.message, 'bad'));
   if (!lkPicking && (e.altKey || surfaceTools.mode)) return surfaceTools.pick(hw, e.shiftKey);
   if (lkPicking) {                          // an interaction waits for its object (or a place)
     let o = null;
@@ -3250,6 +3856,57 @@ function pick(e) {
   }
   pickUnder(e, hitsP, hitsW);
 }
+// Lights here (Ctrl+Alt+click a wall, a floor or a ceiling; Alt+click alone picks its face): the lamps whose reach gets
+// to that point and that no wall of the map hides from it (a ray to each), brightest first with their share of the light
+// there, in a small menu: one clicked is selected; then those in reach that a wall hides. An estimate from the lamps as
+// they are now (light-reach.js: falloff, angle, cone; the walls the view has): the Lit view shows the last rebuild.
+// look: the way the view looked at the point
+async function lightsHereAt(e, hit, look) {
+  if (!hit?.face) { status('Lights here: Ctrl+Alt+click a wall, a floor or a ceiling', 'warn'); return; }
+  const map = script;
+  await lampClasses();
+  if (map !== script) return;
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  if (n.dot(look) > 0) n.negate();                        // the side seen
+  const from = hit.point.clone().addScaledVector(n, 2), blocked = (L) => wallBetween(from, T(L));
+  const special = !!((geoFaces[(hit.object.userData.faces || [])[hit.faceIndex]]?.flags ?? hit.object.userData.flags ?? 0) & PF.special);
+  const { lit, blocked: hidden } = lightsHere(liveLamps(special), UE(hit.point), [n.x, n.z, n.y], blocked);
+  const row = (p, what) => {                              // named as Select under cursor names it
+    const [label, name] = keyLabel(keyOf(p));
+    return { label: `${label} · ${what}`, key: name, run: () => specSelect(keyOf(p)),
+      icon: `<span class="lights-here-swatch" style="background:${lightHex(liveLight(p.userData.actor))}"></span>` };
+  };
+  openMenu(e.clientX, e.clientY, [
+    { label: lit.length ? `Lights here, an estimate: ${lit.length}` : 'No lamp reaches here: only the zone\'s ambient light', off: true },
+    ...lit.map((x) => row(x.id, x.share < 0.005 ? 'under 1%' : `${Math.round(x.share * 100)}%`)),
+    ...(hidden.length ? [{ sep: true }, ...hidden.map((p) => row(p, 'behind a wall'))] : []),
+  ]);
+  status(`Lights here: ${lit.length} ${lit.length === 1 ? 'lamp lights' : 'lamps light'} this point, ${hidden.length} in reach behind a wall (the lamps as they are now)`);
+}
+// is a wall of the map shown between two points (three's), the last 2 units before `to` left out (a lamp on a wall):
+// Lights here's rays, and View > Effects' coronas' lines of sight
+function wallBetween(from, to) {
+  const d = to.clone().sub(from), far = d.length() - 2;
+  return presentHits(new THREE.Raycaster(from, d.normalize(), 0, Math.max(0, far)).intersectObjects(worldMeshes, false)).length > 0;
+}
+// the map's lamps as they are now (Lights here): each object with light, as light-reach.js keeps one; not those off in
+// game (Enabled in game unticked: out of the map before lighting), nor those the project's game never lights (Revision's
+// flickering lamps, a palette lamp whose Skin gives none), nor those of the other kind of surface (special: the point's
+// surface is Special lit, which only a lamp set to Special lit lights, and such a lamp lights nothing else)
+function liveLamps(special = false) {
+  const out = [];
+  for (const p of proxies.children) {
+    const a = p.userData.actor, kind = a && !edits.disabled?.[a.name] && lampKind(a);
+    if (!kind || !givesLight(kind.type, projectGame(projectContext), kind.skin)) continue;
+    const read = (key, fallback) => keyValue(a, key) ?? fallback;
+    if ((String(read('bSpecialLit', 'False')) === 'True') !== special) continue;
+    const l = liveLight(a), [pitch, yaw] = objectRotation(p);
+    const effect = Math.max(0, LIGHT_EFFECTS.indexOf(String(read('LightEffect', a.cls === 'Spotlight' ? 'LE_Spotlight' : 'LE_None'))));
+    out.push({ id: p, L: [...UE(p.position), ...engineColour(l.hue, l.sat, l.b), byteReach(l.radius), effect,
+      ...rotationToVector(pitch, yaw), +read('LightCone', 128)] });
+  }
+  return out;
+}
 // like a clip in Premiere: what is in a nest is picked as the whole nest; a double click picks it alone
 function pickOne(o, e) {
   if (o && objectLocked(o)) return;
@@ -3267,8 +3924,19 @@ canvas.addEventListener('dblclick', (e) => {
 const pickCycle = createPickCycle();
 function stackUnder(hitsP, hitsW) {          // the keys under the pointer, nearest first (selection-tools.js)
   const top = (o) => { while (o.parent !== proxies) o = o.parent; return o; };
-  const hits = [...hitsP.map((h) => ({ key: keyOf(top(h.object)), distance: h.distance, proxy: true })),
-    ...hitsW.map((h) => ({ key: keyOf(structureOf(h.object)), distance: h.distance, proxy: false }))];
+  const modelHit = (object, root) => {
+    if (!root.userData.actor || !root.userData.model) return false;
+    for (let part = object; part && part !== root; part = part.parent)
+      if (part === root.userData.model) return true;
+    return false;
+  };
+  const hits = [...hitsP.map((h) => {
+    const root = top(h.object);
+    return { key: keyOf(root), distance: h.distance, proxy: true, detail: modelHit(h.object, root) };
+  }), ...hitsW.map((h) => {
+    const root = structureOf(h.object);
+    return { key: keyOf(root), distance: h.distance, proxy: false, detail: !!root && !!structures[root.userData.name]?.paste };
+  })];
   return stackKeys(hits, (k) => { const n = outerNest(k); return n ? 'n:' + n.id : null; });
 }
 function pickUnder(e, hitsP, hitsW) {
@@ -3542,10 +4210,11 @@ function stepLocalMove() {
   const off = o.position.clone().sub(localMoveFrom.pos).applyQuaternion(frame.clone().invert());
   o.position.copy(localMoveFrom.pos).add(new THREE.Vector3(...snapSteps(off.toArray(), SNAP.move)).applyQuaternion(frame));
 }
-// A structure carries its own map actors, so a separately selected child is not transformed twice.
+// A structure carries its own map actors (a pasted copy its replacing objects too: carries), so a separately selected
+// child is not transformed twice.
 function uncarried(ms) {
-  const carried = new Set(ms.filter(isStruct).map(m => m.userData.name));
-  return ms.filter(m => !(m.userData.actor && m.userData.source === 'map' && carried.has(actorStruct[m.userData.actor.name])));
+  const carried = carriedBy(ms);
+  return ms.filter(m => !carried(m));
 }
 function beginGroupMove() {
   return { pos: groupPivot.position.clone(), quat: groupPivot.quaternion.clone(), scale: groupPivot.scale.clone(), mode: tc.mode,
@@ -3807,10 +4476,14 @@ function setViewGrid(on) {
 // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): each change is one state (applying a texture from the Texture Editor too:
 // Ctrl+Z takes it away, Ctrl+Y puts it back; Gabby, 17 Oct 2026), with a short name, as Unity's: Edit > Undo says the
 // step it takes, the status what was undone, Window > History lists them (history-names.js). The steps are the open
-// map's: a reload, or a Rebuild (it loads the map again), starts with none (the edits themselves are saved and autosaved)
+// map's: a reload, or a Rebuild (it loads the map again), starts with none (the edits themselves are saved and autosaved).
+// Each step also keeps the Texture Slip's exact mappings of its edits (textureSlip.held); a step back or forward gives
+// them back (hold). Other code that puts edits in place wholesale gives it theirs too (none: hold(null), as Revert all).
+// The cap is history-names.js's own (undefined), the exact mappings given after it
 function pushUndo(label = '', state = JSON.stringify(edits)) {   // label: the change's name ("Move 3 objects");
+  textureSlip?.cancel();                                        // (another change: a Texture Slip ends first, unqueued)
   if (buildJob) return;                                         // (none while a Rebuild runs: setDirty takes it back)
-  recordStep(undoHistory, state, label);                        // state: the edits as it found them (a drag keeps them)
+  recordStep(undoHistory, state, label, undefined, textureSlip?.held);   // state: the edits as it found them (a drag keeps them)
   historyChanged();
 }
 // the last step taken back unused (a drag let go where it began, a pool with no floor): its name goes with it, and Redo
@@ -3823,12 +4496,13 @@ function dropUndo() {
 function afterHistory() { rebuildProxies(); setDirty(); showDetails(); if (logicBox.style.display === 'block') renderLogic(); }
 // one step back ('undo') or forward ('redo') in the edits, nothing drawn yet: the step taken, or null
 function travel(way) {
-  const step = travelStep(undoHistory, way, JSON.stringify(edits));
-  if (step) edits = JSON.parse(step.state);
+  const step = travelStep(undoHistory, way, JSON.stringify(edits), textureSlip?.held);
+  if (step) { edits = JSON.parse(step.state); textureSlip?.hold?.(step.page); }
   return step;
 }
 // Ctrl+Z and Ctrl+Y (and Edit's Undo and Redo): one step, drawn, and the status says which
 function historyStep(way) {
+  textureSlip?.cancel();                // (from a menu of the desktop, the assistant: its keys are the slip's while it goes on)
   if (waitsForRebuild()) return false;
   const step = travel(way);
   if (!step) { status(way === 'undo' ? 'Nothing to undo.' : 'Nothing to redo.'); return false; }
@@ -3915,8 +4589,7 @@ function dropSelected(among = visibleHits) {
 // rays of a placement leave out (ignored: the selection and the objects its structures carry)
 function selectionParts() {
   const all = (selected === groupPivot ? members() : [selected]).filter(Boolean);
-  const carried = new Set(all.filter(isStruct).map(p => p.userData.name));
-  const isCarried = (p) => p.userData.actor && carried.has(actorStruct[p.userData.actor.name]);
+  const isCarried = carriedBy(all);
   const ignored = new Set(all);
   for (const p of proxies.children) if (isCarried(p)) ignored.add(p);
   return { list: all.filter(p => !isCarried(p)), ignored };
@@ -4208,7 +4881,12 @@ function partNow(p) {
 function turnAsBefore(part) {
   const { p } = part, d = p.userData;
   p.quaternion.copy(part.quat);
-  if (d.actor) { d.tilt = part.tilt; d.roll = part.roll; applyTilt(p); }
+  if (d.actor) {
+    // A quaternion at 180° can decompose as X=Z=180°, Y=0. Actors store only yaw on the parent;
+    // preserve that representation when restoring a preview, or the next field edit loses their facing.
+    if (!d.folded) p.rotation.set(0, yawToRad(part.rot[1]), 0);
+    d.tilt = part.tilt; d.roll = part.roll; applyTilt(p);
+  }
 }
 function putBack(part) {
   part.p.position.copy(part.from);
@@ -4536,6 +5214,7 @@ function dupStructure(st, dx = null) {
     const e0 = pasteEntry(st.name), e = Object.assign(JSON.parse(JSON.stringify(e0)), { pid: nextPid() });
     e.offset = [e0.offset[0] + step, e0.offset[1], e0.offset[2]];
     edits.prefabs.push(e);
+    putOverrides(edits, overridesData(edits, e0.pid), e.pid, [step, 0, 0]);    // with what was changed on its objects
     return 'paste~' + e.pid;
   }
   const group = st.copy_of || st.name, pose = poseOf(st);
@@ -4548,8 +5227,8 @@ function dupStructure(st, dx = null) {
 function duplicateSelected({offset = 48} = {}) {
   if (!selected || !requireUnlocked()) return false;
   const all = selected === groupPivot ? members() : [selected];
-  const carried = new Set(all.filter(isStruct).map(m => m.userData.name));
-  const list = all.filter(m => !(m.userData.source === 'map' && m.userData.actor && carried.has(actorStruct[m.userData.actor.name])));
+  const carried = carriedBy(all);
+  const list = all.filter(m => !carried(m));
   const blocked = list.filter(m => isStruct(m) ? !structures[m.userData.name]?.copyable : m.userData.kind === 'mover');
   if (blocked.length) {
     const names = blocked.map(m => isStruct(m) ? structures[m.userData.name].label : m.userData.actor?.name).join(', ');
@@ -4619,7 +5298,8 @@ const prefabDisplays = {};
 function loadPrefabDisplay(id) {
   return prefabDisplays[id] || (prefabDisplays[id] = fetch(`/prefabs/${id}/display.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
 }
-function nextPid() { let i = 1; while (edits.prefabs.some((e) => e.pid === 'p' + i)) i++; return 'p' + i; }
+// a new copy's pid: never one a deleted copy's records, a reference or a hidden or locked object still name (prefab-links.js)
+function nextPid() { const s = viewState(); return freePid(edits, [...s.hidden, ...s.locked]); }
 function clipboard() { try { return JSON.parse(localStorage.getItem(projectStorageKey('clipboard', projectContext)) || 'null'); } catch (e) { return null; } }
 let copyInFlight = null, clipboardSequence = 0, clipboardPastes = null;
 const clipClone = value => JSON.parse(JSON.stringify(value));
@@ -4629,7 +5309,10 @@ function clipboardItem(p) {
   const d = p.userData, loc = UE(p.position), rot = objectRotation(p);
   if (isStruct(p)) {
     const st = structures[d.name], pose = livePose(st);
-    if (st.paste) return clipClone({ kind: 'prefab-entry', loc, entry: setPose({ ...pasteEntry(st.name) }, pose) });
+    if (st.paste) {                  // with what was changed on its objects: Paste gives it to the new copy
+      const entry = pasteEntry(st.name);
+      return clipClone({ kind: 'prefab-entry', loc, entry: setPose({ ...entry }, pose), overrides: overridesData(edits, entry.pid) });
+    }
     if (!st.copyable) throw new Error(`"${st.label}" contains protected objects. Un-nest to copy its individual pieces.`);
     const built = st.placement || NO_POSE;
     const unchanged = pose.offset.every((v, i) => Math.abs(v - (built.offset?.[i] || 0)) < 0.05) &&
@@ -4673,8 +5356,8 @@ function copySelected() {
     try {
       if (!selected) throw new Error('Select an object or a structure to copy first.');
       const all = selected === groupPivot ? members() : [selected];
-      const carried = new Set(all.filter(isStruct).map(m => m.userData.name));
-      const list = all.filter(m => !(m.userData.source === 'map' && m.userData.actor && carried.has(actorStruct[m.userData.actor.name])));
+      const carried = carriedBy(all);
+      const list = all.filter(m => !carried(m));
       const items = list.map(clipboardItem); // preflight every member before exporting any
       if (!items.length) throw new Error('Select something to copy first.');
       const anchor = items.reduce((c, it) => c.map((v, i) => v + it.loc[i] / items.length), [0, 0, 0]);
@@ -4728,9 +5411,12 @@ function clipboardPasteDelta(clip, count) {
 async function pasteClipboard() {
   if (copyInFlight && !await copyInFlight) return;
   if (!script || gameView?.active) return;
-  const clip = clipboard();
+  const clip = clipboard(), pasting = script;
   if (!clip) { status('Nothing to paste: select something and press Ctrl+C.', 'warn'); return; }
-  if (clip.version !== 2) return pasteLegacyClipboard();
+  if (clip.version !== 2) {
+    if (clip.kind === 'prefab' && isLibraryVersion(clip.id) && await refuseLostPrefabs([{ prefab: clip.id, label: clip.label }])) return;
+    return pasting === script ? pasteLegacyClipboard() : undefined;
+  }
   const sameMap = clip.script === script;
   // Validate the entire selection before changing edits or adding an Undo step.
   for (const it of clip.items) {
@@ -4738,6 +5424,9 @@ async function pasteClipboard() {
       status(`Nothing pasted: "${it.label}" needs its source geometry. Rebuild and copy it again before pasting into another map.`, 'warn'); return;
     }
   }
+  // copies of prefabs of the library: their versions looked for first (nothing else waits for it)
+  const linked = clip.items.filter((it) => it.kind === 'prefab-entry' && isLibraryVersion(it.entry.prefab)).map((it) => it.entry);
+  if (linked.length && (await refuseLostPrefabs(linked) || pasting !== script || gameView?.active)) return;
   const identity = JSON.stringify(clip) + '|' + script;
   const count = clipboardPastes?.identity === identity ? clipboardPastes.count + 1 : 1;
   const delta = clipboardPasteDelta(clip, count);
@@ -4747,6 +5436,7 @@ async function pasteClipboard() {
     const it = clipClone(original), at = add3(it.loc, delta);
     if (it.kind === 'prefab-entry') {
       const e = it.entry; e.pid = nextPid(); e.offset = add3(e.offset || [0, 0, 0], delta);
+      if (it.overrides) putOverrides(edits, it.overrides, e.pid, delta);
       edits.prefabs.push(e); news.push('s:paste~' + e.pid);
     } else if (it.kind === 'structure') {
       if (sameMap && structures[it.group]?.copyable) {
@@ -4782,6 +5472,22 @@ async function pasteClipboard() {
   setDirty(); rebuildProxies(); selectKeys(news);
   status(`Pasted ${news.length} ${news.length === 1 ? 'item' : 'items'} nearby. Rotation and relative spacing kept.`, 'ok');
   warnHiddenKinds(news.map(objOf), 'Pasted');
+}
+// Copies of prefabs of the library about to be placed again (a paste) whose version is no longer on disk: a deleted
+// prefab's versions go when the project is opened again and nothing saved places them (prefab_library.py sweep), and
+// the clipboard is kept from one opening to the next. No build could place them: refused with a message (true)
+async function refuseLostPrefabs(entries) {
+  const ids = [...new Set(entries.map((e) => e.prefab).filter(isLibraryVersion))];
+  const gone = await Promise.all(ids.map(prefabGone));
+  const lost = entries.find((e) => ids.includes(e.prefab) && gone[ids.indexOf(e.prefab)]);
+  if (!lost) return false;
+  status(`Nothing pasted: the prefab "${lost.label || lost.prefab}" was deleted from the library and its files are gone. Place a prefab from Prefabs instead.`, 'warn');
+  return true;
+}
+// is a version of the library gone from disk (swept): its prefab.json is not there (404). Asked each time, not kept as
+// the previews are (loadPrefabDisplay): a server or network error proves nothing, the paste goes on
+async function prefabGone(id) {
+  try { return (await fetch(`/prefabs/${id}/prefab.json`, { cache: 'no-store' })).status === 404; } catch { return false; }
 }
 function pasteLegacyClipboard() {
   const clip = clipboard();
@@ -6802,7 +7508,7 @@ function referencesOf(value) {
   if (!a) return out;
   for (const l of linksOf(a)) out.add(l.name);
   for (const l of edits.links || []) {
-    const targets = (l.do || []).flatMap((x) => (x.area ? lkAreaTargets(x, l.src) : x.targetTag ? lkTagTargets(x, l.src) : [x.target]));
+    const targets = (l.do || []).flatMap((x) => lkTargetsOf(x, l.src));
     if (l.src === a.name) targets.forEach((t) => t && out.add(t));
     else if (targets.includes(a.name)) out.add(l.src);
   }
@@ -6949,11 +7655,11 @@ function renderHierarchy() {
     if (single) {      // a single piece on its own (one taken out of a structure): a piece, not an empty structure
       const i = hierItems.push(st.obj) - 1;
       const tip = `${st.label}: a single piece${st.pendingPiece ? ', taken out of its structure (on its own from the next Rebuild)' : ''}`;
-      return `<div class="hrow hpiece-loose ${picked.has(st.obj) ? 'on' : ''}${stateClass(st.obj)}" data-hi="${i}" data-key="s:${escapeHtml(st.name)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)} title="${escapeHtml(tip)}">${hierarchyIcon('piece')}<span class="hl">${escapeHtml(st.label)}</span><small>piece</small>${stateButtons('s:' + st.name)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete (Del)" ${selectionLocked(st.obj) ? 'disabled' : ''}>${trash}</button></div>`;
+      return `<div class="hrow hpiece-loose ${picked.has(st.obj) ? 'on' : ''}${stateClass(st.obj)}" data-hi="${i}" data-key="s:${escapeHtml(st.name)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)} title="${escapeHtml(tip)}">${hierarchyIcon('piece')}<span class="hl">${escapeHtml(st.label)}</span>${prefabBadge(st)}<small>piece</small>${stateButtons('s:' + st.name)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete (Del)" ${selectionLocked(st.obj) ? 'disabled' : ''}>${trash}</button></div>`;
     }
     const i = hierItems.push(st.obj) - 1;
     const title = st.pendingPiece ? ` title="${escapeHtml(st.label)}: taken out of its structure, a structure of its own at the next Rebuild"` : '';
-    return `<details data-hk="s:${escapeHtml(st.name)}" ${open('s:' + st.name)}><summary class="${picked.has(st.obj) ? 'on' : ''}${stateClass(st.obj)}" data-hi="${i}" data-key="s:${escapeHtml(st.name)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)}${title}>${hierarchyIcon('structure')}<span class="hl">${escapeHtml(st.label)}</span><small>${pcsShown.length + objs.length}</small>${stateButtons('s:' + st.name)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete the whole structure (Del)" ${selectionLocked(st.obj) ? 'disabled' : ''}>${trash}</button></summary>${pcsShown.map((pc) => pieceRow(st, pc, nid)).join('')}${objs.map((it) => row(it, nid)).join('')}</details>`;
+    return `<details data-hk="s:${escapeHtml(st.name)}" ${open('s:' + st.name)}><summary class="${picked.has(st.obj) ? 'on' : ''}${stateClass(st.obj)}" data-hi="${i}" data-key="s:${escapeHtml(st.name)}" draggable="${!selectionLocked(st.obj)}"${inAttr(nid)}${title}>${hierarchyIcon('structure')}<span class="hl">${escapeHtml(st.label)}</span>${prefabBadge(st)}<small>${pcsShown.length + objs.length}</small>${stateButtons('s:' + st.name)}<button class="hb" data-hf="${i}" title="Focus (F)">${focus}</button><button class="hb del" data-hd="${i}" title="Delete the whole structure (Del)" ${selectionLocked(st.obj) ? 'disabled' : ''}>${trash}</button></summary>${pcsShown.map((pc) => pieceRow(st, pc, nid)).join('')}${objs.map((it) => row(it, nid)).join('')}</details>`;
   };
   // a nest: what it holds, in the order it was put there (other nests too); within: in a folder found by its name
   const nestNode = (n, seen, within = false) => {
@@ -7378,8 +8084,8 @@ function mirrorSelection(axis) {
   const picked = (selected === groupPivot ? members() : selected ? [selected] : []).filter(Boolean);
   if (!picked.length) { status('Mirror: select what to mirror first.', 'warn'); return; }
   if (!requireUnlocked()) return;                       // the selection as one (a folder by its things' own padlocks)
-  const carried = new Set(picked.filter(isStruct).map((p) => p.userData.name));      // they carry their own objects
-  const list = picked.filter((p) => !(p.userData.actor && p.userData.source === 'map' && carried.has(actorStruct[p.userData.actor.name])));
+  const carried = carriedBy(picked);                    // structures carry their own objects
+  const list = picked.filter((p) => !carried(p));
   // a drawing stands on its floor: mirrored on Z it would hang under it
   const flat = axis === 2 ? list.filter((p) => p.userData.kind === 'drawn') : [];
   const todo = list.filter((p) => !flat.includes(p));
@@ -7674,6 +8380,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
   if (placing.prefab) {
     const clip = placing.prefab, c = UE(r.p), yaw = (prefabYaw(clip, r.n) + (placing.turn || 0)) % YAW;
     const pe = { pid: nextPid(), prefab: clip.id, label: clip.label, source: clip.source, pivot: clip.pivot, rotatable: clip.rotatable !== false, ...moverFields(clip),
+                 ...linkFields(clip),       // a prefab of the library: the copy stays linked to it (prefab-links.js)
                  offset: [Math.round(c[0] - clip.pivot[0]), Math.round(c[1] - clip.pivot[1]), Math.round(c[2] - 0.5 - clip.pivot[2])], yaw };
     edits.prefabs.push(pe);
     intoDefaultFolder(['s:paste~' + pe.pid]);        // into the folder new objects go in, if one is set
@@ -7687,23 +8394,32 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     return;
   } else if (placing.sign) {
     // a sign: on a wall it faces out of it, on a floor it stands facing the camera
-    const c = UE(r.p), n = UE(r.n);
+    const c = UE(r.p), n = UE(r.n), picture = placing.picture;
     let face;
     if (Math.abs(n[2]) < 0.6) face = Math.abs(n[0]) >= Math.abs(n[1]) ? (n[0] > 0 ? '+x' : '-x') : (n[1] > 0 ? '+y' : '-y');
     else { const f = UE(forward()); face = Math.abs(f[0]) >= Math.abs(f[1]) ? (f[0] > 0 ? '-x' : '+x') : (f[1] > 0 ? '-y' : '+y'); }
+    if (picture?.face) face = picture.face;
     const b = { name: nextName('UCEditBox'), lo: [0, 0, 0], hi: [0, 0, 0], tex: SIGN_FRAME, solid: true,
-                sign: { text: 'YOUR TEXT', style: 'unatco', face } };
-    signShape(b, c, 128, 64, 6);
-    if (Math.abs(n[2]) < 0.6) {              // flat against the wall: its back on the wall
+                sign: picture ? { text: ' ', style: 'notice', face,
+                  look: { bgTex: picture.tex, bgFit: 'stretch', border: '', wear: 0, screws: false } }
+                  : { text: 'YOUR TEXT', style: 'unatco', face } };
+    signShape(b, c, picture?.width || 128, picture?.height || 64, picture?.thickness || 6);
+    if (!picture?.exact && Math.abs(n[2]) < 0.6) { // flat against the wall: its back on the wall
       const k = 'xy'.indexOf(face[1]), d = b.hi[k] - b.lo[k];
-      const wall = c[k] - (face[0] === '+' ? 1 : -1) * 3.5;
+      const wall = c[k] - (face[0] === '+' ? 1 : -1) * (picture ? d / 2 + 0.5 : 3.5);
       b.lo[k] = face[0] === '+' ? wall : wall - d; b.hi[k] = b.lo[k] + d;
     }
     edits.boxes.push(b);
     intoDefaultFolder(['b:' + b.name]);
     setDirty();
     select(makeBoxProxy(b));
-    updateSignTexture(b).catch((e2) => log('Sign: ' + e2.message, 'bad'));
+    const ready = updateSignTexture(b);
+    if (picture) {
+      if (!shift) cancelPlacing();
+      if (selected !== before) warnHiddenKinds([selected], 'Placed');
+      return ready.then(() => b.name); // the MCP result waits for the front texture
+    }
+    ready.catch((e2) => log('Sign: ' + e2.message, 'bad'));
   } else if (placing.water || placing.portal) {
     const b = placing.water ? waterBox(r) : portalBox(r);
     if (!b) { dropUndo(); status(placing.water ? 'Click a floor for the pool.' : 'Click the floor inside a doorway (walls on both sides, a top).', 'warn'); return; }
@@ -7806,7 +8522,8 @@ const ANIM_CURVES = [[0, 'Linear', 'Straight to the next key at one speed'], [1,
   [4, 'Hold', 'It stays until the next key, then jumps']];
 const ANIM_TRACKS = [['pos', 'Position', 3], ['rot', 'Rotation', 3], ['scale', 'Scale', 1]];
 const animBox = $('#animbox');
-let anim = null;              // {name, p, mover, base: {pos, yaw, scale}, t, sel: [track, i] | null, playing, dir}
+let anim = null;              // {name, p, mover, base: {pos, yaw, scale}, t, sel: [track, i] | null, playing, dir, ev: the
+                              // timed event chosen (its index) | null, stoppedAt: where its preview's clock last moved to}
 function motionOf(name, create) {
   edits.motions = edits.motions || {};
   if (!edits.motions[name] && create) edits.motions[name] = { pos: [], rot: [], scale: [], mode: 'once', autoplay: false };
@@ -7885,34 +8602,83 @@ function moverGlide(m) {
   }
   return eased >= linear;
 }
-function moverPose(m, t) {
+// its keys as the engine gets them: one at every time of its tracks (at most 8), where its tracks are then [{t, pos, rot}]
+function moverKeys(m) {
   const times = [...new Set([0, ...['pos', 'rot'].flatMap((k) => (m[k] || []).map((x) => Math.round(x.t * 1000) / 1000))])].sort((a, b) => a - b).slice(0, 8);
-  const at = (s) => ({ pos: animLinear(m.pos, s, 3), rot: animLinear(m.rot, s, 3), scale: 1 });
+  return times.map((t) => ({ t, pos: animLinear(m.pos, t, 3), rot: animLinear(m.rot, t, 3) }));
+}
+function moverPose(m, t) {
+  const keys = moverKeys(m);
   const start = [0];              // when it reaches each key: every step takes at least 0.05 s (UCMotion's Seg)
-  for (let j = 1; j < times.length; j++) start.push(start[j - 1] + Math.max(0.05, times[j] - times[j - 1]));
+  for (let j = 1; j < keys.length; j++) start.push(start[j - 1] + Math.max(0.05, keys[j].t - keys[j - 1].t));
   let j = 0;
-  while (j < times.length - 1 && start[j + 1] <= t) j++;
-  if (j >= times.length - 1 || t <= start[0]) return at(times[j]);
+  while (j < keys.length - 1 && start[j + 1] <= t) j++;
+  if (j >= keys.length - 1 || t <= start[0]) return { pos: keys[j].pos, rot: keys[j].rot, scale: 1 };
   let u = (t - start[j]) / (start[j + 1] - start[j]);
   if (moverGlide(m)) u = u * u * (3 - 2 * u);
-  const a = at(times[j]), b = at(times[j + 1]);
+  const a = keys[j], b = keys[j + 1];
   return { pos: a.pos.map((v, k) => v + (b.pos[k] - v) * u), rot: a.rot.map((v, k) => v + (b.rot[k] - v) * u), scale: 1 };
 }
 function animIsMover(p) { return !!(p && (p.userData.kind === 'mover' || (p.userData.box && p.userData.box.mover) || /Mover/.test((p.userData.actor || {}).cls || ''))); }
 function animNameOf(p) { return p.userData.box ? p.userData.box.name : p.userData.actor.name; }
-function animPose(t) {
-  const m = motionOf(anim.name) || {};
-  if (anim.mover) return moverPose(m, t);
+function animPose(t) { return motionPose(motionOf(anim.name) || {}, t, anim.mover); }
+// an animation's pose at time t of its clock, offsets from where the object stands: a mover's through its keys as the
+// engine moves it, any other object's as UCMotion does (the Animation panel; a cutscene's preview)
+function motionPose(m, t, mover) {
+  if (mover) return moverPose(m, t);
   const loop = m.mode === 'loop', len = motionLength(m);
   return { pos: sampleTrack(m.pos, t, 3, loop, len), rot: sampleTrack(m.rot, t, 3, loop, len), scale: sampleTrack(m.scale, t, 1, loop, len) };
 }
-function animApply(t) {
-  const p = anim.p, b = anim.base, q = animPose(t);
+function animApply(t) { applyMotion(anim.p, anim.base, animPose(t), anim.mover); }
+// an object p at the pose q of its animation, from b (where it stands: {pos, yaw, scale}; a mover keeps its size)
+function applyMotion(p, b, q, mover) {
   p.position.copy(T([b.pos[0] + q.pos[0], b.pos[1] + q.pos[1], b.pos[2] + q.pos[2]]));
   p.rotation.y = yawToRad(b.yaw + q.rot[1]);
   p.rotation.z = q.rot[0] * 2 * Math.PI / YAW;       // pitch and roll: a preview (the game turns it exactly)
   p.rotation.x = q.rot[2] * 2 * Math.PI / YAW;
-  if (!anim.mover) p.scale.setScalar(b.scale * q.scale);
+  if (!mover) p.scale.setScalar(b.scale * q.scale);
+}
+
+// ---------------------------------------------------------------- a cutscene's events previewed (cutscene.js)
+// What the preview of a cutscene's events (cutscene-preview.js) needs of an object they act on, read as it stands now:
+// {p: its proxy, motion: its animation ({len, mode, m}), mover: its keys as a door, an elevator or a moving block goes
+// through them (an animated one: its animation's), elevator: it has floors, light: {on}, walker: {from, yaw, walk, run,
+// height}}; null: the editor has no such object
+function previewTarget(name) {
+  const p = proxyOf(name) || objOf('b:' + name);
+  if (!p) return null;
+  const a = p.userData.actor, m = (edits.motions || {})[name], moves = !!m && motionLength(m) > 0;
+  const read = (key) => (a ? keyValue(a, key) : undefined);
+  const out = { p };
+  if (animIsMover(p)) {
+    out.mover = moverFromProps(read);
+    if (moves) {                           // through its animation's keys, each step its own time (UCMotion's Seg)
+      const keys = moverKeys(m);
+      Object.assign(out.mover, { keys: keys.map((k) => ({ pos: k.pos, rot: k.rot })), at: 0, glide: moverGlide(m),
+        seg: keys.slice(1).map((k, i) => Math.max(0.05, k.t - keys[i].t)) });
+    }
+    out.elevator = lkElevator(a) === 'elevator';
+  } else if (moves) out.motion = { len: motionLength(m), mode: m.mode || 'once', m };
+  if (a && (p.userData.kind === 'light' || lampKind(a))) out.light = { on: !!lampKind(a) };
+  if (a && isCharacter(a)) {                // ScriptedPawn: walking at GroundSpeed x WalkingSpeed, running x MaxDesiredSpeed
+    const ground = +read('GroundSpeed') || 320;
+    out.walker = { from: UE(p.position), yaw: radToYaw(p.rotation.y), walk: ground * (+read('WalkingSpeed') || 0.4),
+      run: ground * (+read('MaxDesiredSpeed') || 1), height: +a.height || 45 };
+  }
+  return out;
+}
+// the classes of these objects asked for once (their defaults, an elevator's class), for previewTarget
+function previewClasses(names) { return Promise.all(names.map((n) => lkActor(n)).filter(Boolean).map((a) => chainOf(a.cls))); }
+// The way a character walks to a place in a cutscene's preview: on the AI paths of the last rebuild as the game's AI
+// goes there (findRoute, from the path node nearest it to the one nearest the place), the nodes at the height it has
+// above the first; sent on the walkable area (nav), or with no route: straight there (UCNavRoute walks straight where
+// the floor is open)
+function walkWay(from, to, nav) {
+  const a = !nav && pathData && nearestPoint(pathData, from, 1200, 'from'), b = a && nearestPoint(pathData, to, 1200, 'to');
+  const route = b && a !== b ? findRoute(pathData, a, b).route : null;
+  if (!route) return [from, to];
+  const at = (n) => pathData.points[n], lift = from[2] - at(a)[3];
+  return [from, ...route.map((n) => [at(n)[1], at(n)[2], at(n)[3] + lift]), to];
 }
 function animKeyTimes(m) { return new Set(['pos', 'rot'].flatMap((k) => (m[k] || []).map((x) => Math.round(x.t * 1000) / 1000))); }
 function animSetKey(track, t, v) {
@@ -7986,28 +8752,40 @@ function animPlay(dir) {
   if (!m || len <= 0) { status('Make two keys first: move the object at another time of the timeline.', 'warn'); return; }
   anim.playing = true;
   anim.dir = dir;
-  let t = anim.t;
-  if (dir > 0 && t >= len) t = 0;
-  if (dir < 0 && t <= 0) t = len;
+  // its clock as UCMotion runs it (motion-events.js playStep): played on from where it stopped, it does not play the
+  // event there again; from its start or end (or where the playhead was put) it does. A door, an elevator or a moving
+  // block loops back and forth
+  let clock = { t: anim.t, dir, moved: anim.t === anim.stoppedAt };
+  if (dir > 0 && clock.t >= len) clock = { t: 0, dir, moved: false };
+  if (dir < 0 && clock.t <= 0) clock = { t: len, dir, moved: false };
+  const mode = anim.mover && m.mode === 'loop' ? 'pingpong' : m.mode || 'once';
+  if (!shotsWait()) shots.lengths((m.events || []).map((e) => e.sound).filter(Boolean)).catch(() => {});   // read before they are due
   let last = performance.now();
   const step = (now) => {
     if (!anim || !anim.playing) return;
-    const dt = Math.min(0.1, (now - last) / 1000);
+    clock = playStep(clock, Math.min(0.1, (now - last) / 1000), len, mode, animEventTimes(m, len));
     last = now;
-    t += dt * anim.dir;
-    const mode = m.mode || 'once';
-    if (t >= len || t <= 0) {
-      if (mode === 'loop' && !anim.mover) t = anim.dir > 0 ? t - len : t + len;
-      else if (mode === 'pingpong' || mode === 'loop') { t = Math.max(0, Math.min(len, t)); anim.dir = -anim.dir; }
-      else { t = Math.max(0, Math.min(len, t)); anim.playing = false; }
-    }
-    anim.t = t;
-    animApply(t);
+    animEvents(m, clock.fired);
+    anim.t = anim.stoppedAt = clock.t;
+    anim.dir = clock.dir;
+    anim.playing = clock.playing;
+    animApply(anim.t);
     animPlayhead();
     if (anim.playing) requestAnimationFrame(step); else renderAnim();
   };
   requestAnimationFrame(step);
   renderAnim();
+}
+// the times of an animation's events on its clock (one after its last key: at its end)
+function animEventTimes(m, len) { return (m.events || []).map((e) => eventTime(e, len)); }
+// the events its preview passed (their indexes, in order): a sound event heard, an Event said in the status bar (the
+// editor triggers nothing)
+function animEvents(m, fired) {
+  for (const i of fired) {
+    const e = (m.events || [])[i];
+    if (e?.kind === 'sound' && e.sound && !shotsWait()) shots.play([{ sound: e.sound, volume: e.volume ?? SOUND_DEFAULTS.volume }], false).catch(() => {});
+    else if (e?.kind === 'event' && e.tag) status(`Animation event at ${(+e.t).toFixed(2)} s: it triggers ${e.tag} in the game`);
+  }
 }
 function animPlayhead() {
   const ph = $('#anplayhead'), tl = $('#antl');
@@ -8042,6 +8820,17 @@ function renderAnim() {
     return [`<div class="an-left ${off ? 'off' : ''}"><span class="an-name">${name}</span>${fields}<button data-ankey="${tr}" title="A key here (or take it away)" ${off ? 'disabled' : ''}>◆</button></div>`,
       `<div class="an-track ${off ? 'off' : ''}" data-antr="${tr}">${keys}</div>`];
   });
+  // the Events row (motion-events.js): each timed event a marker at its time; the chosen one's bar under the buttons
+  const evs = m.events || [], ev = anim.ev != null ? evs[anim.ev] : null;
+  rows.push([`<div class="an-left"><span class="an-name">Events</span><button id="anevadd" title="A timed event at the playhead: a sound at the object, or an Event (Tag) it triggers (or drop a sound from the browser on this row)">+</button></div>`,
+    `<div class="an-track an-events" id="anevs" title="Timed events: drag one to retime it; drop a sound here from the browser for a sound event at that time">${evs.map((e, i) => `<span class="an-ev ${e.kind === 'sound' ? 'snd' : 'tag'} ${anim.ev === i ? 'on' : ''}" data-anev="${i}" style="left:${Math.min(+e.t || 0, max) / max * 100}%" title="${(+e.t || 0).toFixed(2)} s · ${escapeHtml(eventText(e))}${+e.t > len ? ' (after the last key: at the end)' : ''}"></span>`).join('')}</div>`]);
+  const evBar = !ev ? '' : `<div class="row" style="flex-wrap:wrap;row-gap:4px"><b style="margin-right:6px">Event · ${(+ev.t || 0).toFixed(2)} s</b>
+      <select id="anevkind" title="What happens then">${EVENT_KINDS.map(([v, l, tip]) => `<option value="${v}" title="${escapeHtml(tip)}" ${v === ev.kind ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
+      ${ev.kind === 'sound' ? `<span class="hint" style="margin:0 4px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(ev.sound || '')}">${escapeHtml(ev.sound ? ev.sound.split('.').slice(1).join(' · ') : '(no sound)')}</span>${ev.sound ? `<button id="anevplay" data-splay="${escapeHtml(ev.sound)}" title="Listen">▶</button>` : ''}<button id="anevsnd" title="Choose its sound: the game's or yours">Choose...</button>
+        <label style="width:auto" title="1 = as recorded (up to 4)">volume</label><input type="number" id="anevvol" value="${ev.volume ?? SOUND_DEFAULTS.volume}" min="0" max="4" step="0.1" style="width:52px">
+        <label style="width:auto" title="How far from the object it is heard (units)">heard within</label><input type="number" id="anevrad" value="${ev.radius ?? SOUND_DEFAULTS.radius}" min="16" step="64" style="width:64px">`
+    : `<label style="width:auto" title="Every object whose Tag is this is triggered: a door, a light, an alarm, a sound effect">Tag</label><input type="text" id="anevtag" value="${escapeHtml(ev.tag || '')}" placeholder="the Tag of what it triggers" maxlength="64" style="width:170px">`}
+      <span style="flex:1"></span><button id="anevdel" title="Delete this timed event">Delete event</button></div>`;
   const ticks = Array.from({ length: max + 1 }, (_, s) => `<span style="left:${s / max * 100}%">${s}s</span>`).join('');
   animBox.innerHTML = `<div class="row" style="flex-wrap:wrap;row-gap:4px"><b style="margin-right:6px">Animation · ${escapeHtml(label)}</b>
       <button id="anplay" title="Play">${anim.playing && anim.dir > 0 ? '❚❚' : '▶'}</button><button id="anback" title="Play backwards">◀</button><button id="anstop" title="Stop, back to the start">■</button>
@@ -8053,8 +8842,8 @@ function renderAnim() {
       <span style="flex:1"></span>
       ${sel && !anim.mover ? `<label style="width:auto">Curve</label><select id="ancurve">${ANIM_CURVES.map(([v, l, tip]) => `<option value="${v}" title="${tip}" ${v === (sel.e ?? 1) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}${sel ? '<button id="ankdel" title="Delete this key">Delete key</button>' : ''}
       <button id="anclear" title="Take the animation away">Clear</button><button id="anclose">Close</button></div>
-    ${moverOdd ? `<div class="hint" style="margin:2px 0 0;color:var(--warn)">Its keys have different curves (or Ease in, Ease out, Hold), which the game cannot do for a door, an elevator or a moving block: it ${glide ? 'glides through all of them' : 'goes at a constant speed'}, as shown here. Pick one above to make them all the same.</div>` : ''}
-    <div class="hint" style="margin:2px 0 6px">Move the playhead, then move, turn${anim.mover ? '' : ' or scale'} the object with the gizmo (W, E${anim.mover ? '' : ', R'}) or type its values: each change is a key at that time. Drag a key to move it in time. Then play it from an interaction (<i>Then... → Play its animation</i>) or tick <i>at the start</i>.</div>
+    ${evBar}${moverOdd ? `<div class="hint" style="margin:2px 0 0;color:var(--warn)">Its keys have different curves (or Ease in, Ease out, Hold), which the game cannot do for a door, an elevator or a moving block: it ${glide ? 'glides through all of them' : 'goes at a constant speed'}, as shown here. Pick one above to make them all the same.</div>` : ''}
+    <div class="hint" style="margin:2px 0 6px">Move the playhead, then move, turn${anim.mover ? '' : ' or scale'} the object with the gizmo (W, E${anim.mover ? '' : ', R'}) or type its values: each change is a key at that time. Drag a key to move it in time. Then play it from an interaction (<i>Then... → Play its animation</i>) or tick <i>at the start</i>. <b>Events</b>: + (or a sound dropped on the row) puts a sound or an Event at the playhead; ▶ plays the sounds.</div>
     <div class="an-grid"><div class="an-lefts"><div class="an-ticks-pad"></div>${rows.map((r) => r[0]).join('')}</div>
       <div id="antl" class="an-tl" data-max="${max}"><div class="an-ticks">${ticks}</div>${rows.map((r) => r[1]).join('')}<div id="anplayhead" class="an-ph" style="left:${anim.t / max * 100}%"></div></div></div>`;
   animBox.style.display = 'block';
@@ -8075,6 +8864,7 @@ function wireAnim2(m, max) {
   if (gl) gl.onchange = () => change(() => { for (const tr of ['pos', 'rot']) for (const k of motionOf(anim.name, true)[tr] || []) k.e = +gl.value; });
   const kd = $('#ankdel');
   if (kd) kd.onclick = () => change(() => { m[anim.sel[0]].splice(anim.sel[1], 1); anim.sel = null; }, 'Delete an animation key');
+  wireAnimEvents(change);
   for (const b of animBox.querySelectorAll('[data-ankey]')) b.onclick = () => change(() => {
     const tr = b.dataset.ankey, mm = motionOf(anim.name, true), keys = mm[tr] = mm[tr] || [];
     const i = keys.findIndex((x) => Math.abs(x.t - anim.t) < 0.011);
@@ -8090,41 +8880,107 @@ function wireAnim2(m, max) {
   // the playhead: click or drag on the timeline; a key: click to select (and go there), drag to move it in time
   const tl = $('#antl'), timeAt = (e) => { const r = tl.getBoundingClientRect(); return Math.max(0, Math.min(max, (e.clientX - r.left) / r.width * max)); };
   const scrub = (e) => { anim.playing = false; anim.t = Math.round(timeAt(e) * 20) / 20; animApply(anim.t); animPlayhead(); };
+  // dragged forwards, the playhead plays the sound events it passes (backwards: none)
+  const drag = (e) => { const from = anim.t; scrub(e); if (anim.t > from) animEvents(m, passed(animEventTimes(m, motionLength(m)), from, anim.t, true)); };
   tl.addEventListener('pointerdown', (e) => {
     if (e.target.dataset.ank) return;
     scrub(e);
-    const up = () => { window.removeEventListener('pointermove', scrub); window.removeEventListener('pointerup', up); renderAnim(); };
-    window.addEventListener('pointermove', scrub);
+    const up = () => { window.removeEventListener('pointermove', drag); window.removeEventListener('pointerup', up); renderAnim(); };
+    window.addEventListener('pointermove', drag);
     window.addEventListener('pointerup', up);
   });
-  for (const k of animBox.querySelectorAll('[data-ank]')) k.addEventListener('pointerdown', (e) => {
+  // a key or a timed event: click to choose it (and go there), drag to move it in time (one undo step)
+  const marker = (el, list, item, choose, label) => el.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
-    const tr = k.dataset.ank, i = +k.dataset.i, keys = m[tr], key = keys[i], track = k.parentElement;
-    anim.sel = [tr, i];
-    anim.t = key.t;
+    const track = el.parentElement;
+    choose(list.indexOf(item));
+    anim.t = item.t;
     animApply(anim.t);
     let moved = false;
-    pushUndo('Move an animation key');
+    pushUndo(label);
     const move = (ev) => {
       const r = track.getBoundingClientRect();
       const t = Math.max(0, Math.min(max, Math.round((ev.clientX - r.left) / r.width * max * 20) / 20));
-      if (Math.abs(t - key.t) < 0.001) return;
+      if (Math.abs(t - item.t) < 0.001) return;
       moved = true;
-      key.t = t;
-      k.style.left = (t / max * 100) + '%';
+      item.t = t;
+      el.style.left = (t / max * 100) + '%';
       anim.t = t;
       animPlayhead();
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      if (moved) { keys.sort((a, b) => a.t - b.t); anim.sel = [tr, keys.indexOf(key)]; setDirty(); } else dropUndo();
+      if (moved) { list.sort((a, b) => a.t - b.t); choose(list.indexOf(item)); setDirty(); } else dropUndo();
       renderAnim();
       animApply(anim.t);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   });
+  for (const k of animBox.querySelectorAll('[data-ank]')) {
+    const tr = k.dataset.ank, keys = m[tr];
+    marker(k, keys, keys[+k.dataset.i], (i) => { anim.sel = [tr, i]; anim.ev = null; }, 'Move an animation key');
+  }
+  for (const k of animBox.querySelectorAll('[data-anev]')) marker(k, m.events, m.events[+k.dataset.anev], (i) => { anim.ev = i; anim.sel = null; }, 'Move a timed event');
+}
+// The Events row's controls (renderAnim draws them): + (a sound picked, or an Event) at the playhead, a sound of the
+// browser dropped on the row at that time, and the chosen event's kind, sound, volume, radius, Tag, Delete. Each change
+// one undo step (change: wireAnim2's); the event looked up when it is made (the edits may have been undone since)
+function wireAnimEvents(change) {
+  const events = () => motionOf(anim.name)?.events || [];
+  const add = (e, label) => {
+    if (events().length >= MAX_EVENTS) { status(`An animation has at most ${MAX_EVENTS} timed events: delete one first.`, 'warn'); return; }
+    change(() => {
+      const list = motionOf(anim.name, true).events ||= [];
+      list.push(e);
+      list.sort((a, b) => a.t - b.t);
+      anim.ev = list.indexOf(e);
+      anim.sel = null;
+    }, label);
+  };
+  const soundAt = (t, name) => { if (anim && name) add({ t, kind: 'sound', sound: name, ...SOUND_DEFAULTS }, 'Add a sound event'); };
+  $('#anevadd').onclick = (e) => {
+    const t = Math.round(anim.t * 100) / 100, r = e.currentTarget.getBoundingClientRect();
+    openMenu(r.left, r.bottom, EVENT_KINDS.map(([kind, label]) => ({ label: `${label} at ${t.toFixed(2)} s${kind === 'sound' ? '...' : ''}`,
+      run: () => (kind === 'sound' ? pickSound('', (name) => soundAt(t, name)) : add({ t, kind, tag: '' }, 'Add an event')) })));
+  };
+  const row = $('#anevs'), timeAt = (e) => { const r = row.getBoundingClientRect(), max = +$('#antl').dataset.max; return Math.max(0, Math.min(max, (e.clientX - r.left) / r.width * max)); };
+  row.addEventListener('dragover', (e) => {
+    if (!dragSound) return;
+    e.preventDefault(); e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    row.classList.add('sounddrop');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('sounddrop'));
+  row.addEventListener('drop', (e) => {
+    row.classList.remove('sounddrop');
+    if (!dragSound) return;
+    e.preventDefault(); e.stopPropagation();
+    const name = dragSound;
+    dragSound = null;
+    soundAt(Math.round(timeAt(e) * 20) / 20, name);
+  });
+  const ev = () => events()[anim.ev];
+  if (!ev()) return;
+  const edit = (fn, label = 'Edit a timed event') => { if (ev()) change(() => fn(ev()), label); else renderAnim(); };
+  $('#anevkind').onchange = (e) => edit((x) => {
+    const kind = e.target.value;
+    for (const k of Object.keys(x)) if (k !== 't') delete x[k];
+    Object.assign(x, kind === 'sound' ? { kind, sound: '', ...SOUND_DEFAULTS } : { kind, tag: '' });
+  });
+  $('#anevdel').onclick = () => edit(() => {
+    const m = motionOf(anim.name);
+    m.events.splice(anim.ev, 1);
+    if (!m.events.length) delete m.events;
+    anim.ev = null;
+  }, 'Delete a timed event');
+  const snd = $('#anevsnd'), play = $('#anevplay'), vol = $('#anevvol'), rad = $('#anevrad'), tag = $('#anevtag');
+  if (snd) snd.onclick = () => pickSound(ev()?.sound || '', (name) => { if (name) edit((x) => { x.sound = name; }); });
+  if (play) play.onclick = () => playSound(play.dataset.splay, play);
+  if (vol) vol.onchange = () => edit((x) => { x.volume = Math.max(0, Math.min(4, +vol.value || 0)); });
+  if (rad) rad.onchange = () => edit((x) => { x.radius = Math.max(16, Math.round(+rad.value || SOUND_DEFAULTS.radius)); });
+  if (tag) tag.onchange = () => edit((x) => { x.tag = tag.value.trim().replace(/\W/g, '_').slice(0, 64); });
 }
 
 // ---------------------------------------------------------------- collision volumes: box or cylinder, same actor and links
@@ -8354,19 +9210,23 @@ function unsetProp(a, key) {               // back to the map's own value (or th
   setDirty();
 }
 // what behaviours.js needs of the editor (Movement, Tactics, Player movement), and all-props.js (multiField: a
-// field of several objects, as the multi-object Inspector's; rawField: a field's right click, Copy value, Paste value, Reset)
+// field of several objects, as the multi-object Inspector's; rawField: a field's right click, Copy value, Paste value, Reset;
+// written: objects it wrote values of, a lamp's notes said again)
 const behaveApi = {
   get edits() { return edits; }, actorProp, setProp, unsetProp, pushUndo, setDirty, status, UE, requireUnlocked,
   section: (key, title, body, open) => inspectorSection(key, title, body, open), api,
   find: $,                              // the Inspector's own lookup (in a Properties window: that window's fields)
   multiField: (el, entry) => multiFields.set(el, entry), rawField: (el, entry) => rawFields.set(el, entry),
+  written: (actors) => actors.forEach(refreshLampNotes),
 };
 function previewPropertySlider(p) {
   updateScriptTagField(p.userData.actor);
   refreshLight(p);
   showSoundRange(p);
+  refreshLampNotes(p.userData.actor);       // a lamp's notes as its Period, Phase or Brightness is now (dragged too)
   if (p.userData.kind !== 'light') return;
-  const l = liveLight(p.userData.actor), color = $('#details [data-light-color]'), hint = $('#details [data-light-hint]');
+  // the colour row's swatch and hint: the Properties' own values, as the sliders under them (not All properties')
+  const l = liveLight(p.userData.actor, actorProp), color = $('#details [data-light-color]'), hint = $('#details [data-light-hint]');
   if (color) color.value = lightHex(l);
   if (hint) hint.textContent = `brightness ${l.b}, radius ${l.radius}`;
 }
@@ -8442,6 +9302,8 @@ function tagSuggestions(id) {
   const tags=[...new Set(allActors().map(scriptingTagOf).filter(validScriptTag))].sort();
   return `<datalist id="${escapeHtml(id)}">${tags.map(tag=>`<option value="${escapeHtml(tag)}"></option>`).join('')}</datalist>`;
 }
+// the objects an action acts on (src: its rule's object): its own, the members of its area, or those with its tag
+function lkTargetsOf(x, src) { return x.area ? lkAreaTargets(x, src) : x.targetTag ? lkTagTargets(x, src) : [x.target]; }
 function lkTagTargets(x,source) {
   const kind=TAG_CHARACTER_VERBS.has(x.verb) ? 'character' : x.verb.startsWith('light') ? 'light' : TAG_DOOR_VERBS.has(x.verb) ? 'door' : '';
   return allActors().filter(a=>a.name !== source && lkAreaAvailable(a.name) && x.targetTag && tagMatches(scriptingTagOf(a),x.targetTag)
@@ -8592,7 +9454,9 @@ function poseModel(grp, f0, f1, t) {
   }
 }
 let previewing = null;                     // {g, grp, seq, rate, t}
+let previewSerial = 0;                     // one more at each startPreview and stopPreview: a call still loading is over
 function stopPreview() {
+  previewSerial++;
   if (!previewing) return;
   const { g, grp } = previewing;
   g.remove(grp);
@@ -8602,10 +9466,12 @@ function stopPreview() {
 }
 async function startPreview(g, cls, seqName, rate = 1) {
   stopPreview();
+  const mine = previewSerial;
   const info = await animsOf(cls, meshOf(g.userData.actor));
   const seq = info && info.seqs.find((s) => s.name === seqName);
-  if (!seq || !g.parent) return false;
+  if (mine !== previewSerial || !seq || !g.parent) return false;
   const d = await animFrames(info);
+  if (mine !== previewSerial || !g.parent) return false;      // another preview (or none) was asked for meanwhile
   const grp = animatedModel(g, info, d);
   if (!grp.children.length) { log('This character has no model to animate here.', 'warn'); return false; }
   fitAnimated(g, info, d, grp, seq);
@@ -8631,6 +9497,8 @@ function fitAnimated(g, info, d, grp, seq = info.seqs[0]) {
     g.userData.model.visible = false;
   }
 }
+// the animation previewed on g at t seconds of it (a cutscene's preview: the walk at its playhead)
+function previewClock(g, t) { if (previewing && previewing.g === g) previewing.t = t; }
 function stepPreview(dt) {
   if (!previewing) return;
   const p = previewing;
@@ -8777,7 +9645,7 @@ function rangesOf(p) {
   if (!a) return [];
   const centre = UE(p.position), out = [];
   const fields = (...props) => Object.fromEntries(props.map((k) => [k, fieldOf(a, k) || { label: k, kind: 'float' }]));
-  const read = (key, fallback) => actorProp(a, key) ?? classDefault(a, key) ?? fallback;
+  const read = (key, fallback) => keyValue(a, key) ?? fallback;
   if (p.userData.kind === 'light') {
     const l = liveLight(a), size = byteReach(l.radius), color = lightColor(l);
     if (SPOT_EFFECTS.test(String(read('LightEffect', a.cls === 'Spotlight' ? 'LE_Spotlight' : '')))) {
@@ -8881,6 +9749,11 @@ async function playSound(name, btn) {
   if (btn && name) btn.dataset.splay = name;
   return soundBrowser.play(name);
 }
+// the previews' sounds, each played once at its volume and pitch (sound-shots.js): a sound effect's Preview, the sound
+// events of an animation; ended with the map. Not read while a Rebuild or the map's loading holds the server
+const shots = createShots({ Context: window.AudioContext || window.webkitAudioContext, cache: soundCache });
+window.addEventListener('deusedix:map-state', () => shots.stop());
+const shotsWait = () => !!buildJob || mapLoading;
 const soundRef = (v) => { const m = /Sound'([^']+)'/i.exec(String(v || '')); return m ? m[1] : ''; };
 async function pickSound(current, onPick) {
   const box = $('#soundbox');
@@ -9986,7 +10859,7 @@ function drawProps(p, fields, box) {
   const redraw = () => inInspector(view, () => renderProps(p));     // later too (a pick in the 3D view): in its Inspector
   const itemSel = (id, v) => `<select id="${id}" style="max-width:190px">${itemOptions(v)}</select>`;
   let html = scriptTagHtml(a), group = '';
-  const wires = [() => wireScriptTag(a, p, redraw)];
+  const wires = [() => wireScriptTag(a, p, redraw)], notes = lampNotes(a);      // (a lamp's: what does nothing in the game)
   if (canReplaceModel(p)) {
     html += inspectorSectionStart('appearance-model', 'Model', true) + modelReplaceRow(a, 'replace-model') + '</div></details>';
     wires.push(() => { $('#replace-model').onclick = () => inspectorAction(p, () => beginModelReplacement(p)); });
@@ -10056,8 +10929,8 @@ function drawProps(p, fields, box) {
         wirePropertySlider(p, r, n, f.prop);
       });
     } else if (f.kind === 'lightcolor') {
-      // the colour of the light: UnrealEd's hue (0-255) and saturation (0 = full colour, 255 = white)
-      const l = liveLight(a), hex = lightHex(l);
+      // the colour of the light: UnrealEd's hue (0-255) and saturation (0 = full colour, 255 = white), the Properties' own
+      const l = liveLight(a, actorProp), hex = lightHex(l);
       html += `<div class="row">${lab}<input type="color" data-light-color id="${id}c" value="${hex}" title="pick the colour (sets Hue and Saturation)" style="width:46px;height:28px;padding:1px">
         <span class="hint" data-light-hint style="margin:0">brightness ${l.b}, radius ${l.radius}</span></div>
         <div class="row slider-row"><label for="${id}" style="width:auto;min-width:96px" data-prop="${escapeHtml(f.prop)}">Hue</label><input type="range" id="${id}" aria-label="Hue" min="0" max="255" value="${l.hue}" style="flex:1;min-width:0;padding:0;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)"><input ${numberField(true)} id="${id}n" aria-label="Hue value" min="0" max="255" value="${l.hue}" style="width:58px"></div>`;
@@ -10210,8 +11083,16 @@ function drawProps(p, fields, box) {
         if (pl) pl.onclick = () => playSound(cur, pl);
         $('#' + id + 'c').onclick = () => pickSound(cur, (name) => { setProp(a, f.prop, name ? `Sound'${name}'` : 'None'); showSoundRange(p); redraw(); });
       });
-    } else if (f.kind === 'hidden') {
-      return;
+    } else if (f.kind === 'reverb') {
+      const rv = reverbField(a, p, id, lab, redraw);
+      html += rv.html;
+      wires.push(rv.wire);
+    } else if (f.kind === 'playlist') {
+      const pl = playlistField(a, p, id, lab, redraw);
+      html += pl.html;
+      wires.push(pl.wire);
+    } else if (f.kind === 'hidden' || f.kind === 'reverbpart' || f.kind === 'playlistpart') {     // (a zone's echoes: its Reverb
+      return;                                                         // row shows them; a sound effect's list: its More sounds)
     } else if (f.kind === 'half' || f.kind === 'radius') {
       // Box dimensions and cylinder height are displayed whole; radius stays a radius.
       const size = propRow(f.kind);
@@ -10292,6 +11173,8 @@ function drawProps(p, fields, box) {
         };
       });
     }
+    // a lamp's notes about this property, in a box of their own that is there even while it has none (refreshLampNotes)
+    if (NOTE_PROPS.includes(f.prop)) html += `<div data-lamp-note="${f.prop}" data-lamp="${escapeHtml(a.name)}">${lampNoteHtml(notes, f.prop)}</div>`;
   });
   if (group) html += '</div></details>';
   html += lk.html;
@@ -10326,6 +11209,131 @@ function drawProps(p, fields, box) {
   markPropSections(box, a);
   for (const w of wires) w();
   for (const l of box.querySelectorAll('[data-link]')) l.onclick = (e) => { e.preventDefault(); const q = proxyOf(links[+l.dataset.link].name); if (q) select(q); };
+}
+
+// A zone's Reverb row (zone-reverb.js, as Unity's Audio Reverb Zone): a preset sets its echoes in one step (and
+// Revision's OpenAL reverb, where its class has one: the row after it); Custom shows the zone's own values under it,
+// each changed by itself (bytes, but the cutoff). A line under them says which audio of the game plays them.
+let reverbValuesOpen = false;             // the values under the row shown (kept from a zone to the next)
+function reverbField(a, p, id, lab, redraw) {
+  // efx: the class's own OpenAL reverb (its ReverbPreset field's default: RP_None, a water zone's RP_Underwater; ''
+  // for a class without one): where it is not RP_None the presets leave it and None puts it back (zone-reverb.js)
+  const efxField = fieldOf(a, EFX), efx = efxField ? String(efxField.default?.[0] || 'RP_None') : '';
+  const read = (key) => keyValue(a, key), now = presetOf(read, efx);
+  // no gain boxes with efx: such a class's Gain is OpenAL's float, which hides the echo gains (Rebuild leaves them out:
+  // props.py openal_gain), so its echoes keep the class's
+  const boxes = [...REVERB_LEVELS.map(([key, , , most]) => [key, most]), ...DELAYS.map((key) => [key, 255]), ...(efx ? [] : GAINS.map((key) => [key, 255]))];
+  const box = (key, title) => {
+    const n = boxes.findIndex(([k]) => k === key);
+    return `<input ${numberField(true)} id="${id}v${n}" value="${+read(key) || 0}" min="0" max="${boxes[n][1]}" style="width:58px" title="${escapeHtml(title)}">`;
+  };
+  const which = efx && efx !== 'RP_None' ? `Galaxy audio plays these echoes (their gains are the class's: this zone's Gain is OpenAL's), Revision's OpenAL audio the class's own OpenAL reverb (${efx}: the presets leave it, None puts it back)`
+    : efx ? 'Galaxy audio plays these echoes (their gains are the class\'s: this zone\'s Gain is OpenAL\'s), Revision\'s OpenAL audio the OpenAL reverb: a preset sets both'
+    : projectGame(projectContext) === 'revision' ? 'Galaxy audio plays these echoes, Revision\'s OpenAL audio imitates them. A RevZoneInfo also has OpenAL\'s own reverbs'
+      : 'The game\'s Galaxy audio plays these echoes';
+  const html = `<div class="row">${lab}<select id="${id}" style="flex:1;min-width:0">${REVERB_PRESETS.map((r) => `<option value="${r.id}" ${r.id === now ? 'selected' : ''}>${escapeHtml(r.label)}</option>`).join('')}
+    <option value="custom" ${now === 'custom' ? 'selected' : ''}>Custom</option></select></div>
+    <details id="${id}d" ${now === 'custom' || reverbValuesOpen ? 'open' : ''}><summary class="hint">Values</summary>
+    ${REVERB_LEVELS.map(([key, label, help]) => `<div class="row"><label style="width:auto;min-width:96px" title="${escapeHtml(help)}">${escapeHtml(label)}</label>${box(key, help)}</div>`).join('')}
+    ${DELAYS.map((key, i) => `<div class="row"><label style="width:auto;min-width:96px" title="${efx ? `${key}: when it comes back (milliseconds)` : `${key} and ${GAINS[i]}: when it comes back (milliseconds) and how loud (0-255)`}">Echo ${i + 1}</label>${box(key, `${key}: milliseconds`)}<span class="hint" style="margin:0">ms</span>${efx ? '' : box(GAINS[i], `${GAINS[i]}: how loud, 0-255`)}</div>`).join('')}
+    </details><div class="hint" style="margin:0 0 4px">${escapeHtml(which)}</div>`;
+  const wire = () => {
+    const sel = $('#' + id);
+    $('#' + id + 'd').addEventListener('toggle', (e) => { reverbValuesOpen = e.target.open; });
+    sel.onchange = () => {
+      const want = sel.value === 'custom' ? { bReverbZone: 'True' } : presetProps(sel.value, efx);
+      if (sel.value === 'custom') reverbValuesOpen = true;
+      putPropsStep(a, p, `Reverb ${sel.selectedOptions[0].textContent}`, Object.entries(want), redraw);
+    };
+    boxes.forEach(([key, most], n) => {
+      const input = $(`#${id}v${n}`);
+      input.onchange = () => { setProp(a, key, reverbValue(input.value, most)); redraw(); };
+    });
+  };
+  return { html, wire };
+}
+// a property's value by its key (a zone's Delay(2), a sound effect's FXSounds(3)...): edited, the map's, else its class's
+function keyValue(a, key) {
+  return actorProp(a, key) ?? fieldOf(a, baseOf(key))?.default?.[+(/\((\d+)\)/.exec(key)?.[1] ?? 0)];
+}
+// Several properties of one object in one undo step ("<label> of <object>"): those of pairs ([key, its text]) whose
+// value changes; drawn again (redraw) whether any did or not
+function putPropsStep(a, p, label, pairs, redraw) {
+  const changes = pairs.filter(([key, text]) => !sameText(keyValue(a, key) ?? '', text));
+  if (!changes.length || !requireUnlocked(p)) return redraw();
+  pushUndo(`${label} of ${hierLabel(a)}`);
+  for (const [key, text] of changes) putProp(a, key, text);
+  setDirty();
+  redraw();
+}
+
+// A sound effect's More sounds (sound-playlist.js, as Unity's Audio Random Container): the sounds of its list after
+// its Sound, each with ▶, ↑ ↓ (its place in the list) and ✕; a sound of the browser dropped on one replaces it, on the
+// last row it is added (+ Add... picks one). With two or more, the Order. How much its pitch and volume vary each
+// time, and how soon it plays again by itself; ▶ Preview plays a few picks the way the game makes them.
+function playlistField(a, p, id, lab, redraw) {
+  const names = LIST_KEYS.map((key) => soundRef(keyValue(a, key))), sounds = names.filter(Boolean);
+  const num = (key) => +keyValue(a, key) || 0, flag = (key) => String(keyValue(a, key) ?? '').toLowerCase() === 'true';
+  const free = LIST_KEYS[names.findIndex((n) => !n)];          // where a sound added goes (none: the list is full)
+  const label = (text, tip) => `<label style="width:auto;min-width:96px" title="${escapeHtml(tip)}">${escapeHtml(text)}</label>`;
+  const rows = names.map((name, i) => {
+    if (!i || !name) return '';
+    const k = names.slice(0, i).filter(Boolean).length;          // its place in the list
+    return `<div class="row" data-sndprop="${LIST_KEYS[i]}" title="Drop a sound here from the browser to replace it"><span class="hint" style="margin:0 2px 0 8px">${k + 1}</span>
+      <span class="hint" title="${escapeHtml(name)}" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(name.split('.').slice(1).join(' · ') || name)}</span>
+      <button data-splay="${escapeHtml(name)}" title="Listen">▶</button><button data-plmove="${k}" data-to="${k - 1}" title="Earlier in the list" ${k ? '' : 'disabled'}>↑</button><button data-plmove="${k}" data-to="${k + 1}" title="Later in the list" ${k < sounds.length - 1 ? '' : 'disabled'}>↓</button><button data-plx="${k}" title="Take it out of the list">✕</button></div>`;
+  }).join('');
+  const spread = (key, text, tip) => {
+    const v = Math.round(num(key) * 100), most = MOST[key] * 100;
+    return `<div class="row slider-row">${label(text, tip)}<input type="range" id="${id}${key}" aria-label="${escapeHtml(text)}" min="0" max="${most}" step="1" value="${v}" style="flex:1;min-width:0;padding:0"><input ${numberField(true)} id="${id}${key}n" aria-label="${escapeHtml(text)} (%)" min="0" max="${most}" value="${v}" style="width:48px"><span class="hint" style="margin:0">%</span></div>`;
+  };
+  const again = num('RepeatMax') <= 0 ? 'It plays once each time it is set off'
+    : flag('bTriggerOnceOnly') ? 'Only once is on: it plays one sound and never again'
+      : String(keyValue(a, 'bOnTouch') ?? 'True') !== 'False' ? 'It plays again by itself while JC stays in its zone'
+        : 'It plays again by itself until an interaction stops it (Stop its repeats)';
+  const html = `<div id="${id}"><div class="row">${lab}<span style="flex:1"></span><button id="${id}pv" title="Play a few picks the way the game would: its order, its pitch and volume varied, its repeats (again: stop)" ${sounds.length ? '' : 'disabled'}>▶ Preview</button></div>
+    ${rows}${free ? `<div class="row" data-sndprop="${free}" title="Drop a sound here from the browser: it is added to the list"><span class="hint" style="margin:0 0 0 8px;flex:1">Drop sounds here (${sounds.length}/${LIST_KEYS.length})</span><button id="${id}a" title="Add a sound to the list: the game's or yours">+ Add...</button></div>` : `<div class="hint" style="margin:0 0 4px 8px">${LIST_KEYS.length} sounds: the list is full.</div>`}
+    ${sounds.length > 1 ? `<div class="row">${label('Order', 'Which one it plays each time')}<select id="${id}o" style="flex:1;min-width:0">${ORDERS.map(([v, text, tip]) => `<option value="${v}" title="${escapeHtml(tip)}" ${v === num('FXOrder') ? 'selected' : ''}>${escapeHtml(text)}</option>`).join('')}</select></div>` : ''}
+    ${spread('RandomPitch', 'Pitch ±', 'Each time, the pitch up to this much higher or lower (the sound faster or slower)')}
+    ${spread('RandomVolume', 'Volume ±', 'Each time, the volume up to this much louder or softer')}
+    <div class="row">${label('Repeats every', 'Once it has played, it plays again by itself after a random wait between these (0 to 0: it does not)')}<input ${numberField()} id="${id}r0" aria-label="Repeats every, at least (seconds)" value="${num('RepeatMin')}" min="0" step="0.5" style="width:52px"><span class="hint" style="margin:0">to</span><input ${numberField()} id="${id}r1" aria-label="Repeats every, at most (seconds)" value="${num('RepeatMax')}" min="0" step="0.5" style="width:52px"><span class="hint" style="margin:0">s</span></div>
+    <div class="hint" style="margin:0 0 4px">${escapeHtml(again)}</div></div>`;
+  const wire = () => {
+    const box = $('#' + id), set = (text, after) => putPropsStep(a, p, text, listChanges(names, after), redraw);
+    for (const b of box.querySelectorAll('[data-splay]')) b.onclick = () => playSound(b.dataset.splay, b);
+    for (const b of box.querySelectorAll('[data-plmove]')) b.onclick = () => set('Reorder the sounds', listMoved(names, +b.dataset.plmove, +b.dataset.to));
+    for (const b of box.querySelectorAll('[data-plx]')) b.onclick = () => set('Take a sound out of the list', listWithout(names, +b.dataset.plx));
+    const add = $('#' + id + 'a');
+    if (add) add.onclick = () => pickSound('', (name) => { if (name) set('Add a sound to the list', listWith(names, name)); });
+    const order = $('#' + id + 'o');
+    if (order) order.onchange = () => putPropsStep(a, p, 'Order of the sounds', [['FXOrder', order.value]], redraw);
+    for (const key of ['RandomPitch', 'RandomVolume']) {
+      const r = $('#' + id + key), n = $('#' + id + key + 'n');
+      const commit = (v) => putPropsStep(a, p, propertyName(key), [[key, propText('float', Math.max(0, Math.min(MOST[key] * 100, +v || 0)) / 100)]], redraw);
+      r.oninput = () => { n.value = r.value; };
+      r.onchange = () => commit(r.value);
+      n.onchange = () => commit(n.value);
+    }
+    ['RepeatMin', 'RepeatMax'].forEach((key, i) => {
+      const n = $('#' + id + 'r' + i);
+      n.onchange = () => putPropsStep(a, p, 'Repeats', [[key, propText('float', Math.max(0, +n.value || 0))]], redraw);
+    });
+    $('#' + id + 'pv').onclick = () => previewPlaylist({ sounds, order: num('FXOrder'), volume: +(keyValue(a, 'FXVolume') ?? 1), pitch: +(keyValue(a, 'FXPitch') ?? 1),
+      randomVolume: num('RandomVolume'), randomPitch: num('RandomPitch'), repeatMin: num('RepeatMin'), repeatMax: num('RepeatMax') });
+  };
+  return { html, wire };
+}
+// A few plays of a sound effect as the game makes them (sound-playlist.js previewPicks), each at its time; pressed
+// again while they play: stopped
+async function previewPlaylist(fx) {
+  if (shots.playing) { shots.stop(); status('Preview stopped'); return; }
+  if (waitsForRebuild('a preview') || mapLoading) return;
+  const picks = previewPicks(fx);
+  try {
+    const lengths = await shots.lengths(picks.map((x) => x.sound)), at = timesOf(picks, (name) => lengths[name]);
+    if (await shots.play(picks.map((x, i) => ({ ...x, at: at[i] }))))
+      status(`Preview: ${picks.map((x, i) => `${x.sound.split('.').pop()} at ${at[i].toFixed(1)} s`).join(', ')}`, 'ok');
+  } catch (e) { log(`Preview: ${e.message || e}`, 'warn'); }
 }
 
 let allMapNames = null;               // every map (Leads to of the map exits, New map)
@@ -10462,7 +11470,7 @@ const LK_VERBS = {
 Object.assign(LK_VERBS, BLOCK_VERBS);
 function lkVerbLabel(v, cat) {
   if (v === 'on') return { soundfx: 'Play it', zone: 'Activate it', targettrigger: 'Activate it', alarm: 'Sound the alarm' }[cat] || 'Switch on';
-  if (v === 'off') return { alarm: 'Stop the alarm', zone: 'Deactivate it' }[cat] || 'Switch off';
+  if (v === 'off') return { alarm: 'Stop the alarm', zone: 'Deactivate it', soundfx: 'Stop its repeats' }[cat] || 'Switch off';
   return LK_VERBS[v] ? LK_VERBS[v][0] : v;
 }
 
@@ -11648,8 +12656,7 @@ $('#mapsetbtn').onclick = () => openMapSettings().catch((e) => { mapBox.innerHTM
 
 // UnrealEd's light colour: hue 0 red, 85 green, 170 blue; saturation 255 = white (the engine's FGetHSV)
 function ueLightRGB(hue, sat) {
-  const h = hue < 86 ? [(85 - hue) / 85, hue / 85, 0] : hue < 171 ? [0, (170 - hue) / 85, (hue - 85) / 85] : [(hue - 170) / 85, 0, (255 - hue) / 85];
-  const s = sat / 255, c = h.map((x) => x + (1 - x) * s), m = Math.max(...c) || 1;
+  const c = lightHue(hue, sat), m = Math.max(...c) || 1;
   return c.map((x) => x / m);
 }
 function ueHueSat(hex) {
@@ -11788,6 +12795,40 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) finis
 // Every number of the Inspector, like Unity and PlayCanvas: drag its label left or right to change it, a step
 // every 4 pixels (Shift: finer), Esc puts it back. The field's own change handler saves it when the button is let go.
 // A field of several objects showing — (their values differ) moves each one from its own value: +=8 on each.
+// Preview only the object's pose. Restore it before the existing change handler takes its undo snapshot
+// and commits the fields. Structures carry their actors; mixed selections keep their relative angles.
+function rotationScrubPreview(input) {
+  const axis = { pyaw: 1, byaw: 1, spitch: 0, bpitch: 0, ppitch: 0, sroll: 2, broll: 2, proll: 2,
+    mtpitch: 0, mtyaw: 1, mtroll: 2 }[input.id];
+  if (axis === undefined) return null;
+  const p = inspectedObject();
+  if (!p) return null;
+  const key = ['pitch', 'yaw', 'roll'][axis], many = multiFields.get(input);
+  const list = many ? uncarried(members()).filter(m => key in transformOf(m)) : [p];
+  if (!list.length || list.some(memberLocked)) return null;
+  const parts = list.map(partNow);
+  const refresh = () => { showLightRange(p); showSoundRange(p); wake(); };
+  return {
+    update(text) {
+      const values = many ? evaluateAll(text, many.values.map(plainNumber)).values : [plainNumber(text)];
+      if (!values || values.length !== parts.length || !values.every(Number.isFinite)) return;
+      parts.forEach((part, i) => {
+        if (part.fixed) return;
+        const rot = [...part.rot]; rot[axis] = Math.round(values[i] * YAW / 360);
+        setObjectRotation(part.p, rot);
+        if (part.ms) followStructure(part.ms);
+      });
+      refresh();
+    },
+    restore() {
+      for (const part of parts) {
+        putBack(part);
+        if (part.ms === moveStart) moveStart = null;
+      }
+      refresh();
+    },
+  };
+}
 function wireNumberScrub(details) {
   let numDrag = null;
   const numberOf = (label) => {
@@ -11799,21 +12840,26 @@ function wireNumberScrub(details) {
     const d = numDrag;
     if (!d) return;
     numDrag = null;
+    cancelNumberScrub = null;
     document.body.classList.remove('inspector-scrubbing');
     window.removeEventListener('keydown', d.esc, true);
+    if (d.label.hasPointerCapture(d.pointer)) d.label.releasePointerCapture(d.pointer);
+    d.preview?.restore();
     if (cancel) { d.input.value = d.text; return; }
-    if (d.input.value !== d.text) d.input.dispatchEvent(new Event('change', { bubbles: true }));
+    if (d.input.isConnected && d.input.value !== d.text) d.input.dispatchEvent(new Event('change', { bubbles: true }));
   };
   details.addEventListener('pointerover', (e) => { const l = e.target.closest?.('label'); if (l && numberOf(l)) l.classList.add('num-scrub'); });
   details.addEventListener('pointerdown', (e) => {
     const label = e.target.closest('label'), input = numberOf(label);
-    if (!input || e.button !== 0 || inspectorDrag || numDrag) return;
+    if (!input || e.button !== 0 || inspectorDrag || cancelNumberScrub || numDrag) return;
     e.preventDefault();
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const step = parseFloat(input.step) || 1, offset = input.hasAttribute('data-mixed');
     numDrag = { input, label, step, offset, start: plainNumber(input.value) || 0, text: input.value,
+      preview: rotationScrubPreview(input),
       x: e.clientX, travel: 0, pointer: e.pointerId,
       esc: (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); endNumDrag(true); } } };
+    cancelNumberScrub = () => endNumDrag(true);
     label.setPointerCapture(e.pointerId);
     window.addEventListener('keydown', numDrag.esc, true);
     document.body.classList.add('inspector-scrubbing');
@@ -11826,11 +12872,18 @@ function wireNumberScrub(details) {
     d.x = e.clientX;
     const steps = Math.round(d.travel / 4);
     const text = d.offset ? steppedBy(steps, { step: d.step }) : stepped(d.start, steps, { step: d.step, min: d.input.min, max: d.input.max });
-    if (text !== d.input.value) { d.input.value = text; d.input.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (text !== d.input.value) {
+      d.input.value = text;
+      d.preview?.update(text);
+      d.input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
   });
   details.addEventListener('pointerup', (e) => { if (numDrag && e.pointerId === numDrag.pointer) endNumDrag(false); });
   details.addEventListener('pointercancel', (e) => { if (numDrag && e.pointerId === numDrag.pointer) endNumDrag(true); });
+  details.addEventListener('lostpointercapture', (e) => { if (numDrag && e.pointerId === numDrag.pointer) endNumDrag(true); });
 }
+window.addEventListener('blur', () => cancelNumberScrub?.());
+document.addEventListener('visibilitychange', () => { if (document.hidden) cancelNumberScrub?.(); });
 // Maths in the number fields, as Unity's (number-expr.js): what is typed (2+3, 10/4, pi, +=16, *=0.8...) is worked
 // out before the field's own change handler reads it, and the sum shows in the status bar once that handler is done;
 // a mistake puts the value back. Esc puts back the value the field had when it was entered; the arrow keys step it,
@@ -12099,7 +13152,7 @@ function propRows(list, prop, of) {
   else if (row.row === 'choice') row.options = f.options || [];
   if (f.kind !== 'lightcolor') return [row];
   const colour = { id: 'mpcolour', row: 'color', prop, label: f.label, title: 'Pick the colour (sets Hue and Saturation)', names, of,
-    values: actors.map((a) => lightHex(liveLight(a))),
+    values: actors.map((a) => lightHex(liveLight(a, actorProp))),      // the Properties' own, as the Hue row's
     apply: (hexes) => {
       const hs = hexes.map(ueHueSat);
       return setPropsAll(list, [['LightHue', hs.map(([hue]) => String(hue))], ['LightSaturation', hs.map(([, sat]) => String(sat))]]);
@@ -12126,7 +13179,7 @@ async function renderMulti(ms) {
   let html = '';
   const wires = [];
   for (const [group, rows] of groups) { const m = multiRows(multiApi, rows); html += groupSectionStart(group) + m.html + '</div></details>'; wires.push(m.wire); }
-  const left = [...new Set(first.filter((f) => !props.includes(f.prop) && !['hidden', 'mesh'].includes(f.kind)).map((f) => INSPECTOR_LABELS[f.prop] || f.label))];
+  const left = [...new Set(first.filter((f) => !props.includes(f.prop) && !['hidden', 'mesh', 'reverbpart', 'playlistpart'].includes(f.kind)).map((f) => INSPECTOR_LABELS[f.prop] || f.label))];
   if (list.length === ms.length && left.length) html += `<div class="hint">${classes.length > 1 ? 'Not common to all of them, or one object at a time' : 'One object at a time (select one)'}: ${escapeHtml(left.join(', '))}.</div>`;
   if (classes.length === 1 && list.length === ms.length) { const ap = allPropsSection(behaveApi, actors, groupPivot); html += ap.html; wires.push(ap.wire); }
   box.innerHTML = html;
@@ -12486,6 +13539,7 @@ function showDetails(live, view = null) {
   if (!view && showPanel(live)) return;
   if (!live && propertySlider) finishPropertySlider(true);
   if (!live && inspectorDrag) finishInspectorDrag(true);
+  if (!live && cancelNumberScrub) cancelNumberScrub();
   const p = inspectedObject(), el = $('#details');
   if (!live && !view) { clearLinks(); disposeGroup(routeLines); }      // the lines of the panel's object
   if (!p) { el.innerHTML = '<div class="hint inspector-empty">Select an object to edit it.<br>Right-click for actions.<br>RMB + WASD: fly · Ctrl+click: multiselect</div>'; return; }
@@ -12556,10 +13610,11 @@ function showDetails(live, view = null) {
     if (st.scalable !== false) {
       const sc = pose.scale || ONE;
       html += `<div class="row"><label>Scale %</label>${num('ssx', Math.round(sc[0] * 100), 'X scale %')}${num('ssz', Math.round(sc[2] * 100), 'Y scale % (height)')}${num('ssy', Math.round(sc[1] * 100), 'Z scale %')}</div>
-        <div class="row"><label style="width:auto" title="On: textures grow with the object (signs, pictures). Off: textures repeat at their original size (walls). Pieces default to On when resized; your choice is kept."><input type="checkbox" id="sstretch" ${pose.stretch ? 'checked' : ''}> Stretch textures</label></div>`;
+        <div class="row"><label style="width:auto" title="On: textures grow with the object (signs, pictures). Off: textures repeat at their original size (walls). Pieces and Prefabs default to On when resized; your choice is kept."><input type="checkbox" id="sstretch" ${pose.stretch ? 'checked' : ''}> Stretch textures</label></div>`;
     }
     html += '</div></details>';
     html += moverPanel(movingEntry, { escapeHtml, section: inspectorSectionStart, built: !!nativeMover });
+    html += prefabSection(st);                   // a linked copy of a prefab: its version, overrides, Update, Apply
     if (st.scalable === false) html += '<div class="hint">Doors and elevators keep their size; position and rotation remain editable.</div>';
     if (st.gameplay) html += '<div class="warn">Contains mission objects: they move together with the structure.</div>';
     if (mapKind !== 'script') html += '<div class="warn">Existing map: moving its pieces makes the rebuild recalculate geometry and lighting. Check the result with "View in game".</div>';
@@ -12610,6 +13665,7 @@ function showDetails(live, view = null) {
     $('#bdel').onclick = () => inspectorAction(p, deleteSelected);
     if ($('#breset')) $('#breset').onclick = () => restoreStructure(st.name);
     if ($('#bunnest')) $('#bunnest').onclick = () => takeApart(st);
+    wirePrefabSection(el, p, st);
     if ($('#bfrom')) $('#bfrom').onclick = (ev) => { ev.preventDefault(); const f = structures[st.piece_of]; if (f && !f.dissolved) select(f.obj); };
     if ($('#bnest')) $('#bnest').onclick = (ev) => { ev.preventDefault(); selectNest(nestIn.id); };
     if ($('#bnestout')) $('#bnestout').onclick = (ev) => { ev.preventDefault(); takeOut('s:' + st.name); };
@@ -12795,7 +13851,7 @@ function showDetails(live, view = null) {
     // this Inspector (view: a Properties window, or the panel), whichever is at work then
     const b = d.box;
     // the look in the form (the preview follows every key and click; the texture is made when a change is done)
-    const form = () => ({ font: $('#sgfont').value, bold: $('#sgbold').classList.contains('on'), italic: $('#sgitalic').classList.contains('on'),
+    const form = () => ({ bgFit: b.sign.look?.bgFit, font: $('#sgfont').value, bold: $('#sgbold').classList.contains('on'), italic: $('#sgitalic').classList.contains('on'),
       align: $('#sgalign').value, fg: $('#sgfg').value, size: $('#sgsize').value === 'auto' ? 'auto' : +$('#sgsize').value,
       outline: $('#sgoutc').value, outlineWidth: +$('#sgoutw').value, glow: $('#sgglow').checked, shadow: $('#sgshadow').checked,
       bg: $('#sgbg').value, bgTex: $('#sgbgtex').value.trim(), border: $('#sgborder').checked ? $('#sgborderc').value : '', stripes: $('#sgstripes').checked,
@@ -12913,7 +13969,7 @@ function showChanges() {
   $('#changes').innerHTML = any ? `${parts.join('<br>')}${dirty ? ' <span class="warn">(unsaved)</span>' : ''}
     <div class="row"><button id="resetall">Revert all changes</button></div>` : 'No changes.';
   const r = $('#resetall');
-  if (r) r.onclick = () => { if (confirm('Revert all the changes made with the editor on this map?')) { pushUndo('Revert all changes'); edits = Object.assign(EMPTY(), withPublishedLayout({}, publishedLayout)); rebuildProxies(); setDirty(); } };
+  if (r) r.onclick = () => { if (confirm('Revert all the changes made with the editor on this map?')) { pushUndo('Revert all changes'); edits = Object.assign(EMPTY(), withPublishedLayout({}, publishedLayout)); if (!buildJob) textureSlip?.hold?.(null); rebuildProxies(); setDirty(); } };
 }
 
 // ---------------------------------------------------------------- toolbar
@@ -12923,7 +13979,7 @@ function autosaveState() {
   return { ...preferences, key: autosaveKey(), dirty: dirty || !!window.__story?.dirty,
     tutorial: temporaryTutorial(), busy: !!(gameView?.active || buildJob || mapLoading || mapSaveQueue.pending || window.__story?.saving ||
       $('#busy')?.style.display === 'flex' || window.__projectNavigation || projectHub?.visible ||
-      tc.dragging || inspectorDrag || dragHandles?.dragging || propertySlider || moveStart || placing ||
+      tc.dragging || inspectorDrag || cancelNumberScrub || dragHandles?.dragging || propertySlider || moveStart || placing ||
       document.querySelector('dialog[open]') || Date.now() - lastEditingInput < 1500) };
 }
 function save({ automatic = false } = {}) {
@@ -12944,11 +14000,16 @@ function save({ automatic = false } = {}) {
     return true;
   });
 }
-$('#save').onclick = () => {
+// Save as the user asks for it: the Save button (File > Save) and its key (Ctrl+S). A Texture Slip ends first, unqueued;
+// not while a Rebuild runs, nor in the temporary tutorial; a queued surface row the Rebuild would fail on is said again
+// once saved. (The Rebuild, Local geometry and the other tools save with save() itself.)
+function saveFromUser() {
+  textureSlip?.cancel();                  // a Texture Slip ends first, unqueued
   if (waitsForRebuild('saving waits')) return;
   if (temporaryTutorial()) { status('The tutorial cannot be saved. Rebuild/Play use a temporary copy; Close map discards it.'); return; }
-  save().catch((e) => log(e.message, 'bad'));
-};
+  save().then((saved) => { const failing = saved && rebuildRefusal(); if (failing) status(`Saved. ${failing}`, 'warn'); }).catch((e) => log(e.message, 'bad'));
+}
+$('#save').onclick = () => saveFromUser();
 let openingExperimentalBsp = false;
 async function openExperimentalBsp() {
   if (!script || mapLoading || gameView?.active || temporaryTutorial() || openingExperimentalBsp ||
@@ -13069,10 +14130,19 @@ async function cancelBuild() {
 function logBuild(job, end) {
   const lines = end.lines || [];
   if (end.state !== 'cancelled') log(lines.filter((l) => !isWarning(l)), end.state === 'failed' ? 'bad' : '');
-  logRows(buildReport({ map: job.map, mode: job.mode, state: end.state, page: job.page, report: end.report || {}, lines }));
+  logRows(buildReport({ map: job.map, mode: job.mode, state: end.state, page: job.page, after: job.after || [], elapsed: (performance.now() - job.at) / 1000, report: end.report || {}, lines }));
+}
+// what the preview of the queued surface rows says the Rebuild would fail on (the host refuses a face: its whole
+// Rebuild fails), in the user's words; '' for nothing. A row Save refuses stops it before, at its save.
+function rebuildRefusal() {
+  const failing = surfacePreview.refused.filter((r) => r.stage === 'rebuild'), n = failing.length;
+  return n ? `The Rebuild would fail: ${failing[0].refused} (${n} face${n === 1 ? '' : 's'}). Undo or fix that change.` : '';
 }
 async function rebuildMap(mode = 'auto') {
+  textureSlip?.cancel();                  // a Texture Slip ends first, unqueued
   if (!script || gameView?.active || waitsForRebuild('another Rebuild waits')) return;
+  const failing = rebuildRefusal();
+  if (failing && !confirm(`${failing}\n\nRebuild anyway?`)) { status(failing, 'warn'); return; }
   const rebuildingScript = script, now = performance.now();
   const job = { map: mapName, mode, page: [], at: now, stage: null, stageAt: now, edits: JSON.stringify(edits), token: null,
     server: null, heard: now, cancelling: false };
@@ -13095,14 +14165,24 @@ async function rebuildMap(mode = 'auto') {
     if (job.cancelling) job.server = await api('/api/build_cancel', { token: job.token });    // pressed while it started
     const end = await followBuild(job);
     setBuilding(null);
-    logBuild(job, end);
     if (end.state === 'done') {
       const open = script === rebuildingScript;           // (closing the map, opening another, wait for the build)
-      if (open) { await loadScene(script, false); camera.position.copy(camPos); cam.yaw = yaw; cam.pitch = pitch; }
+      let opened = true;
+      if (open) {
+        const previewAt = performance.now();
+        opened = await loadScene(script, false);
+        job.after = [{ label: 'Opening map', seconds: (performance.now() - previewAt) / 1000 }];
+        camera.position.copy(camPos); cam.yaw = yaw; cam.pitch = pitch;
+      }
+      logBuild(job, end);
+      if (!opened) { status(`${job.map}: rebuilt, but the preview could not be opened. See Messages.`, 'warn'); return; }
       status(`${job.map}: rebuilt`, 'ok');
       if (open) await navCheckAfterBuild(baked);
-    } else if (end.state === 'cancelled') status(`${job.map}: Rebuild cancelled, the map is as it was before it.`, 'warn');
-    else status('rebuild failed: see Messages', 'bad');
+    } else {
+      logBuild(job, end);
+      if (end.state === 'cancelled') status(`${job.map}: Rebuild cancelled, the map is as it was before it.`, 'warn');
+      else status('rebuild failed: see Messages', 'bad');
+    }
   } catch (e) { log(e.message, 'bad'); status('rebuild failed: see Messages', 'bad'); }
   finally {
     if (buildJob === job) setBuilding(null);
@@ -13156,6 +14236,11 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') finishInspectorDrag(true);
     return;
   }
+  if (cancelNumberScrub) {
+    e.preventDefault();
+    if (e.key === 'Escape' || (e.ctrlKey && e.key.toLowerCase() === 'z')) cancelNumberScrub();
+    return;
+  }
   if (cam.look) {                      // right button held: the keys fly the camera, wherever the focus is
     // Esc or Shift+P ends a pilot while it flies too (the view goes back: the flying stops with it)
     if (pilot && (e.key === 'Escape' || (e.code === 'KeyP' && e.shiftKey))) { e.preventDefault(); resetInput(); endPilot(); return; }
@@ -13167,7 +14252,15 @@ window.addEventListener('keydown', (e) => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && !(e.target.type === 'range' && e.ctrlKey && e.key.toLowerCase() === 'z')) return;
   if (buildKeyGate(e)) return;          // a Rebuild running: only the keys that look, and the browser's own, go on
   const k = e.key.toLowerCase();
-  if (e.ctrlKey && k === 's') { e.preventDefault(); save(); return; }
+  if (e.ctrlKey && k === 's') { e.preventDefault(); saveFromUser(); return; }
+  // Face selection's keys (menubar.js context faces), before the selection slots': Alt+1…9 and Alt+0 put a recent texture
+  // of the Surface panel on the selected faces (an edit: not while a Rebuild runs), Alt+G grows the selection in its
+  // plane, Alt+Shift+G at any angle (surface-ui.js)
+  if (surfaceTools.mode && e.altKey && !e.ctrlKey && !e.target.isContentEditable) {
+    const slot = /^Digit(\d)$/.exec(e.code || '');
+    if (slot && !e.shiftKey) { e.preventDefault(); if (!waitsForRebuild('applying a texture waits')) surfaceTools.applyRecent(slotOfDigit(slot[1])); return; }
+    if (e.code === 'KeyG') { e.preventDefault(); surfaceTools.grow(e.shiftKey); return; }
+  }
   // camera bookmarks, as Unreal Editor's: Ctrl+1..9 (or Shift, in a browser that keeps Ctrl+digit) keeps the view, 1..9 goes back
   const digit = /^Digit([1-9])$/.exec(e.code || '');
   if (digit && mapName && !e.altKey) { e.preventDefault(); if (e.ctrlKey || e.shiftKey) keepView(digit[1]); else goToView(digit[1]); return; }
@@ -13225,6 +14318,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'p' && e.shiftKey) togglePilot();
   else if (k === 'p') togglePaths();
   else if (k === 'q') surfaceTools.toggle();
+  // Texture Slip (texture-slip-ui.js): at the face under the pointer, or once the pointer comes over a selected one
+  else if (k === 'y' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.target.isContentEditable) textureSlip.start(hoverAt);
   else if (k === 'b') startPlacing({ box: true, size: [128, 128, 16], tex: 'ClenGreyCncrt_A' }, $('#addbox'));
   else if (k === 'f' && e.shiftKey) alignViewToSelected();
   else if (k === 'f') focusSelected();
@@ -13233,7 +14328,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 't') aimAtPointer();
   else if (k === 'z') toggleGizmo('pivot');
   else if (k === 'x') toggleGizmo('space');
-  else if (k === 'l') setLightMode({ shaded: 'lit', lit: 'unlit', unlit: 'shaded' }[lightMode] || 'shaded');
+  else if (k === 'l') setLightMode({ shaded: 'preview', preview: 'lit', lit: 'unlit', unlit: 'shaded' }[lightMode] || 'shaded');
 });
 $('#lightmode').onchange = () => setLightMode($('#lightmode').value);
 // Shift+Space (Window > Maximize panel), as Unity's Maximize View: the dock under the pointer (or the 3D view) fills the
@@ -13370,7 +14465,9 @@ viewGrid = createViewGrid({ scene, camera, step: () => SNAP.move, floor: gridFlo
 try { viewGrid.on = localStorage.getItem('deusedix.viewGrid') === '1'; } catch { /* no storage */ }
 vpBar = createViewportToolbar({
   keyOf: (id) => window.__menubar?.keyOf?.(id),
-  getLightMode: () => viewModes.mode || lightMode, setLightMode,
+  getLightMode: () => viewModes.mode || lightMode, setLightMode, viewModes: VIEW_MODES,
+  getEffects: () => ({ on: effectsOn, shown: effectsShown() }), setEffects,
+  getAudio: () => ({ on: sceneAudio.on }), setAudio,
   getMode: () => tc.mode, setMode: (m) => setMode(m),
   getSnap: () => snap, setSnap: (on) => { snap = on; applySnap(); status('grid snap ' + (snap ? 'on' : 'off')); },
   getSteps: () => SNAP,
@@ -13422,7 +14519,7 @@ window.addEventListener('keyup', (e) => { const m = MOVE[e.code]; if (m) cam.key
 function shortcutState() {
   return { map: !!script && !gameView?.active && !projectHub?.visible, fly: cam.look, pilot: !!pilot, aim: aimPicking,
     route: !!placing?.route, draw: placing?.draw || '', place: !placing ? '' : placing.box ? 'block' : 'object',
-    vertices: !!vertexEdit?.active, measure: !!measure?.active, faces: !!surfaceTools.mode,
+    vertices: !!vertexEdit?.active, measure: !!measure?.active, faces: !!surfaceTools.mode, slip: !!textureSlip?.active,
     cutscene: !!window.__cutscene?.isOpen(), selected: !!selected, tool: tc.mode };
 }
 
@@ -13449,6 +14546,8 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   copyProperties: copySelectionProps, pasteProperties: pasteSelectionProps, get propertyClip() { return propClip?.of || ''; },
   setViewMode: (mode) => setViewMode(mode),
   get viewMode() { return viewModes.mode; },
+  setEffects, get effectsOn() { return effectsOn; },          // View > Effects
+  setAudio, get audioOn() { return sceneAudio.on; },          // View > Hear the map
   pasteT3D: () => pasteT3D(),
   selectAllOfClass: () => selectAllOfClass(selected?.userData?.actor?.cls),
   findReferences: () => findReferences(),        // Edit > Find references (the Hierarchy's search: ref:<name>)
@@ -13482,6 +14581,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   toggleIsolation, toggleRevealHidden, sceneView,                   // View > Isolate selection, Show hidden objects for now
   get kinds() { return kindFilter().toJSON(); }, setKindView, soloKind, resetKinds, setIconSize,     // the 3D view's Show menu
   surfaceTools, loadMaps, openMap, openNewMap, saveAsTemplate, openMapPicker: () => startScreen.openPicker(),
+  get textureSlip() { return textureSlip; },     // Edit > Slip the texture's state; the menus end it (menubar.js)
   closeMap, confirmLeave: () => startScreen.confirmLeave(),
   endTutorialSession, resetTutorialView, get temporaryTutorial() { return temporaryTutorial(); },
   get project() { return projectContext; }, confirmProjectLeave,
@@ -13532,6 +14632,7 @@ function viewShot({ from, lookAt, focus, keep = false, clean = false } = {}) {
     }
   }
   camera.lookAt(camera.position.clone().add(forward()));
+  liveBlocks.sync(proxies.children); stepLiveLighting();
   renderer.render(scene, camera);
   const url = renderer.domElement.toDataURL('image/jpeg', 0.86);      // before the next frame clears it
   marks.forEach((o, i) => { o.visible = shown[i]; });
@@ -13543,7 +14644,7 @@ function viewShot({ from, lookAt, focus, keep = false, clean = false } = {}) {
 // what an AI assistant's calls use (agent.js): the editor's own steps, so that what it does is what a click does
 window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorProp, setProp, unsetProp, pushUndo, setDirty,
   proxyOf, select, setMulti, focusSelected: () => focusSelected({ instant: true }), deleteSelected, commit, rebuildProxies, showDetails, hierLabel, boxKind,
-  placeOnRay, placeWith, startPlacing, cancelPlacing, undoStep, redoStep, viewShot, isCharacter, warnHiddenKinds,
+  placeOnRay, placeWith, startPlacing, cancelPlacing, placingOf, signPicture, undoStep, redoStep, viewShot, isCharacter, warnHiddenKinds,
   save: () => saveWorkspace(), openMap, mapList: () => mapList, palette: () => palette, chainOf: (cls) => chainNow[cls] || null,
   get lightMode() { return lightMode; }, setLightMode, api,
   structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,
@@ -13551,7 +14652,11 @@ window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorPro
 // the cutscene cameras (cutscene.js) use these
 window.__editor.cutKit = { T, UE, canvas, proxyOf, select, focusSelected, pushUndo, undoPop: dropUndo, setDirty, allActors,
   hierLabel, isCharacter, status, log, lkList, lkStartPick, lkNewAct, lkSentence, lkActText, showDetails: () => showDetails(),
-  pickSound, playSound, makeProxy, nextName, intoDefaultFolder, warnHiddenKinds };
+  pickSound, playSound, makeProxy, nextName, intoDefaultFolder, warnHiddenKinds,
+  // the preview of its events and voices: what an object is, putting it at a pose, a walk, lamps off, the voices' sounds
+  previewTarget, previewClasses, lkTargetsOf, motionPose, applyMotion, yawToRad, radToYaw, walkWay, setLampsOff, applyObjectVisibility,
+  startPreview, stopPreview, previewClock, previewOf: () => previewing && previewing.g, soundData, soundCache,
+  serverBusy: shotsWait };                   // a Rebuild or the map's loading holds the server: ask it nothing
 window.__closeAnim = () => closeAnim();
 window.addEventListener('deusedix:original-conversations', () => { buildHierarchy(); showDetails(); });
 $('#storybtn').onclick = () => window.__story && window.__story.open();
@@ -13625,3 +14730,4 @@ projectHub.init().then(() => loadMaps()).then(() => {
   startScreen.error(e); log(e.message,'bad');
   if (isTrainingProject(projectContext)) window.__tutorialLoading?.fail(e);
 });
+

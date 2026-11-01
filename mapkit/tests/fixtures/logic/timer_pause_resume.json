@@ -1,0 +1,129 @@
+{
+  "id": "timer_pause_resume",
+  "title": "A paused timer keeps what it had left",
+  "behaviour": "Started for 3 s, paused 1 s later with 2 s left, resumed 2 s after that: it runs out 2 s after the resume.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [674, 684], "has": "function TimerDo(UCTimer T, string how, float secs)"},
+    {"file": "UCTimer.uc", "lines": [57, 63], "has": "function PauseIt()"},
+    {"file": "UCTimer.uc", "lines": [66, 72], "has": "function ResumeIt()"}
+  ],
+  "assumes": ["A1", "A3"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 6.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: start Timer1 (3 s)",
+        "do": [{"id": "a1", "verb": "timerstart", "target": "Timer1", "delay": 0, "a": "3"}]
+      },
+      {
+        "id": "L2",
+        "src": "Button2",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button2: pause Timer1",
+        "do": [{"id": "a1", "verb": "timerpause", "target": "Timer1", "delay": 0}]
+      },
+      {
+        "id": "L3",
+        "src": "Button3",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button3: resume Timer1",
+        "do": [{"id": "a1", "verb": "timerresume", "target": "Timer1", "delay": 0}]
+      },
+      {
+        "id": "L4",
+        "src": "Timer1",
+        "when": "finished",
+        "once": false,
+        "label": "When Timer1 runs out: the message Time up",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Time up"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Button2", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [64, 0, 0]},
+      {"name": "Button3", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [128, 0, 0]},
+      {"name": "Timer1", "chain": ["UCTimer", "UCEditorStory", "Info", "Actor"], "at": [0, 128, 0], "seconds": 30}
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Button2", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 4.0, "fire": {"thing": "Button3", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: start Timer1 (3 s)"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|timerstart|Timer1|3"},
+    {"t": 2.0, "line": "fire|LogicFixtures|L2|Button2|used|JCDentonMale0|When JC uses Button2: pause Timer1"},
+    {"t": 2.1, "line": "act|LogicFixtures|L2|timerpause|Timer1|"},
+    {"t": 4.0, "line": "fire|LogicFixtures|L3|Button3|used|JCDentonMale0|When JC uses Button3: resume Timer1"},
+    {"t": 4.1, "line": "act|LogicFixtures|L3|timerresume|Timer1|"},
+    {"t": 6.1, "line": "fire|LogicFixtures|L4|Timer1|finished|Timer1|When Timer1 runs out: the message Time up"},
+    {"t": 6.1, "line": "act|LogicFixtures|L4|message||Time up"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: start Timer1 (3 s)\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|timerstart|Timer1|3||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button2",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Button2: pause Timer1\"",
+        "Source": "\"Button2\"",
+        "Act(0)": "\"0|timerpause|Timer1|||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button3",
+        "When": "used",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC uses Button3: resume Timer1\"",
+        "Source": "\"Button3\"",
+        "Act(0)": "\"0|timerresume|Timer1|||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L4",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Timer1_Done",
+        "When": "finished",
+        "Rule": "\"L4\"",
+        "Label": "\"When Timer1 runs out: the message Time up\"",
+        "Source": "\"Timer1\"",
+        "Act(0)": "\"0|message||Time up||\""
+      }
+    }
+  ]
+}

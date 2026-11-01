@@ -16,7 +16,7 @@ function fixture() {
   const originals = ['DoorA', 'DoorB', 'Lamp'].map((name, i) => ({name, cls: i < 2 ? 'DeusExMover' : 'Light', kind: i < 2 ? 'mover' : 'light', loc: [i * 10, 0, 0], rot: [0, 0, 0]}));
   const proxies = {children: [], remove(p) { this.children = this.children.filter(o => o !== p); p.parent = null; }, clear() { for (const p of this.children) p.parent = null; this.children = []; }};
   const wall = {userData: {kind: 'structure', name: 'Room'}, visible: true};
-  const c = vm.createContext({ buildJob: null,
+  const c = vm.createContext({ buildJob: null, textureSlip: null,
     edits: {deleted: {}, moved: {}, added: [], boxes: [], drawn: [], groups: {}, prefabs: [], copies: [], nests: [{id:'n1', items: ['a:DoorA', 'a:DoorB']}],
       props: {DoorA: {bLocked: 'True'}}, motions: {DoorA: {pos: [{t:0,v:[0,0,0]}, {t:1,v:[0,40,0]}]}}},
     baseActors: originals, proxies, structures: {Room: {name:'Room', obj:wall, placement:{}, actors:['DoorA','DoorB','Lamp']}}, actorStruct: {DoorA:'Room',DoorB:'Room'},

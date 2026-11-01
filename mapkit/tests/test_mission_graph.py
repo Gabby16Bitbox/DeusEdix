@@ -6,7 +6,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'editor'))
 from mission_graph import Graph, uncomment, code_mask
 
 def fixture(target='revision'):
-    return dict(project={'name':'UNATCO Continues' if target=='unatco' else target,'target':'revision' if target=='unatco' else target},
+    return dict(project={'name':'My mod' if target=='unatco' else target,'target':'revision' if target=='unatco' else target},
         maps=[dict(name='01_Test',complete=True,actors=[
             dict(name='Anna0',cls='AnnaNavarre',props={'BindName':'"AnnaNavarre"','Tag':'AnnaStory'}),
             dict(name='Button0',cls='Button1',props={'Event':'DoorTag'}),

@@ -1,0 +1,74 @@
+{
+  "id": "script_noinput_and_noscript",
+  "title": "An input the script does not handle, an input on something that is no script",
+  "behaviour": "A script whose Input() does not handle the name passes it to UCScript.Input, which writes noinput (a renamed port); an input on an object that is no script fails with \"noscript\".",
+  "derivedFrom": [
+    {"file": "UCScript.uc", "lines": [48, 51], "has": "function Input(string InputName, string Args, Actor Caller)"},
+    {"file": "UCLink.uc", "lines": [590, 593], "has": "else if (verb == \"input\" && UCScript(T) != None)"}
+  ],
+  "assumes": ["A9"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: script Gen0: Stop, Door1: Go",
+        "do": [
+          {"id": "a1", "verb": "input", "target": "Gen0", "delay": 0, "a": "Stop"},
+          {"id": "a2", "verb": "input", "target": "Door1", "delay": 0, "a": "Go"}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [128, 0, 0]},
+      {
+        "name": "Gen0",
+        "chain": ["Generator", "UCScript", "Actor"],
+        "at": [0, 64, 0],
+        "ports": {
+          "inputs": [{"id": "Sabotage", "label": "Sabotage it", "args": ["Seconds"]}],
+          "outputs": [{"id": "Sabotaged", "label": "it is sabotaged"}]
+        },
+        "script": {"input": {"Sabotage": []}}
+      }
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: script Gen0: Stop, Door1: Go"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|input|Gen0|Stop"},
+    {"t": 1.1, "line": "input|LogicFixtures|Gen0|Stop|"},
+    {"t": 1.1, "line": "noinput|LogicFixtures|Gen0|Stop"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|input|Door1|Go"},
+    {"t": 1.1, "line": "fail|LogicFixtures|L1|input|Door1|noscript"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: script Gen0: Stop, Door1: Go\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|input|Gen0|Stop||\"",
+        "Act(1)": "\"0|input|Door1|Go||\""
+      }
+    }
+  ]
+}

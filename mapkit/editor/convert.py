@@ -135,7 +135,7 @@ def _run(game, target, label, extra_paths=(), packages=()):
     (Revision's with the original game's editor engine, as workspace.py makes it), the host, the game's
     ini with its EditPackages; Input, Output and T3D folders."""
     profile = settings.TARGETS[target]
-    system_src = (game / profile['root'] if profile['root'] else game) / 'System'
+    system_src = settings.system_folder(target, game)
     RUNS.mkdir(parents=True, exist_ok=True)
     folder = RUNS / ('%s-%s-%s' % (time.strftime('%Y%m%d-%H%M%S'), label[:60], uuid.uuid4().hex[:6]))
     system = folder / 'System'

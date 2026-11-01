@@ -12,7 +12,7 @@ catalog (cache/_characters, made once from the game with the host) has:
            trousers fit every body with the same legs, a face every head of the same kind;
   people   every human character of the game, for "Start from" (body, clothes, faction, weapons);
   textures the PNG of every texture.
-In a map a character is a UCCustomCivilian / UCCustomSoldier / UCCustomThug (src/UnatcoContinues): the
+In a map a character is a UCCustomCivilian / UCCustomSoldier / UCCustomThug (src/<settings.PACKAGE>): the
 editor sets its Mesh, MultiSkins and LookBody; it keeps that look (no HDTP swap) and so does its corpse.
 Characters are saved in tools/mapkit/characters/<id>.json.
 """

@@ -14,3 +14,15 @@
 .prefab-dialog #prefab-name { width:100%; box-sizing:border-box; }
 .prefab-dialog .hint { margin:12px 0 0; line-height:1.5; }
 .prefab-dialog .map-error { margin:10px 0 0; overflow-wrap:anywhere; }
+/* linked prefabs: a card's picture (the 3D view), its copies in the open map, its menu */
+.prefab-thumb { flex:none; width:72px; height:40px; border-radius:4px; object-fit:cover; background:var(--line); }
+.prefab-copy small.prefab-here { color:var(--acc); }
+.prefab-copy small.prefab-here.old { color:var(--warn); }
+.prefab-card .prefab-more { padding:5px 8px; }
+/* a linked copy in the Hierarchy (app.js prefabBadge), as Unity's prefab rows: its version, an older one, a deleted prefab */
+#hier .prefab-badge { flex:none; margin:0 2px; padding:0 4px; border:1px solid currentColor; border-radius:7px; font-size:10px; line-height:12px; color:var(--acc); opacity:.85; }
+#hier .prefab-badge.old { color:var(--warn); }
+#hier .prefab-badge.gone { color:var(--dim); border-style:dashed; }
+/* the Inspector's Prefab section: what was changed on the copy (its overrides) */
+.prefab-overrides { margin:2px 0 6px; padding-left:18px; font-size:11px; line-height:16px; }
+.prefab-overrides small { color:var(--dim); }

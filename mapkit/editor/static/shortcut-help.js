@@ -10,6 +10,8 @@
 // keymap (menubar.js): { keyOf(id): a command's key now, actions: [{ id, label, ctx }], contexts: { ctx: its name } }.
 // A key is written as comboOf writes it (menubar.js): Ctrl, Alt, Shift in that order, then the key ('Ctrl+Shift+[').
 
+import { RECENT_ACTIONS } from './recent-textures.js';
+
 // the modifiers in comboOf's order, and their flag on an event
 const MODS = [['Ctrl', 'ctrlKey'], ['Alt', 'altKey'], ['Shift', 'shiftKey']];
 const MOD_NAMES = MODS.map(([m]) => m);
@@ -25,7 +27,10 @@ const SHORT = { save: 'Save', undo: 'Undo', redo: 'Redo', copy: 'Copy', paste: '
   viewtoselected: 'View from it', pilot: 'Pilot', pushgrid: 'Push to grid', gridless: 'Half grid', gridmore: 'Double grid',
   block: 'Block', paths: 'AI paths', light: 'Lighting', faces: 'Faces', vertices: 'Vertices', measure: 'Measure',
   isolate: 'Isolate', nest: 'Nest', unnest: 'Un-nest', palette: 'Search', history: 'History', maximize: 'Maximize', help: 'Help',
-  fwd: 'Forward', back: 'Back', left: 'Left', right: 'Right', down: 'Down', up: 'Up', cutkey: 'Add a key', cutplay: 'Play / pause' };
+  fwd: 'Forward', back: 'Back', left: 'Left', right: 'Right', down: 'Down', up: 'Up', cutkey: 'Add a key', cutplay: 'Play / pause',
+  facegrow: 'Grow', facegrowall: 'Grow (any angle)', faceslip: 'Slip', facetex1: 'Texture 1', facetex2: 'Texture 2', facetex3: 'Texture 3',
+  facetex4: 'Texture 4', facetex5: 'Texture 5', facetex6: 'Texture 6', facetex7: 'Texture 7', facetex8: 'Texture 8',
+  facetex9: 'Texture 9', facetex10: 'Texture 10' };
 
 const digits = (mods) => Array.from({ length: 9 }, (_, i) => mods + (i + 1));
 const LOOK = { key: 'right-drag', label: 'Look / fly', does: 'Right mouse held: look round; with W A S D, Q E: fly' };
@@ -35,6 +40,7 @@ const KEEP_PLACING = { Shift: [{ key: 'Shift+click', label: 'Place, keep going',
 const STEPS_45 = { Shift: [{ key: 'Shift', label: '45° steps', does: 'Held while drawing: the line keeps to steps of 45 degrees from the last point' }] };
 const WIDTH = { key: ['[', ']'], show: '[ ]', label: 'Narrower / wider', does: 'Stairs or a roof 16 units narrower or wider' };
 const STOP_DRAWING = { key: 'Esc', label: 'Cancel', does: 'Stops drawing: nothing is made' };
+const LIGHTS_HERE = { key: 'Ctrl+Alt+click', label: 'Lights here', does: 'Lists the lamps that light the point clicked, brightest first: click one to select it' };
 // what Shift, Ctrl and Alt do with the mouse where things are picked (selecting, and the gizmo's tools)
 const PICKING = {
   Shift: [{ key: 'Shift+click', label: 'Add / remove', does: 'Adds what is under the pointer to the selection, or takes it out' },
@@ -48,13 +54,14 @@ const PICKING = {
     { key: 'Alt+drag', label: 'Orbit', does: 'Turns the view round the selection (with none: round what is under the pointer)' },
     { key: 'Alt+right-drag', label: 'Dolly', does: 'Moves the view toward that point, or away from it' },
     { key: digits('Alt+'), show: 'Alt+1…9', label: 'Recall a selection', does: 'Selects again what slot 1…9 keeps' }],
-  'Ctrl+Alt': [{ key: digits('Ctrl+Alt+'), show: 'Ctrl+Alt+1…9', label: 'Keep the selection', does: 'Keeps the selection in slot 1…9 (Alt+1…9 brings it back)' }],
+  'Ctrl+Alt': [LIGHTS_HERE, { key: digits('Ctrl+Alt+'), show: 'Ctrl+Alt+1…9', label: 'Keep the selection', does: 'Keeps the selection in slot 1…9 (Alt+1…9 brings it back)' }],
 };
 
 // The modes: id, the name shown, the keys, the keys while modifiers are held (held: { 'Ctrl+Shift': [...] }), and the
-// context whose commands with just those modifiers come after them (fill: 'edit' when not said). An entry is
-// { action } (a command, its short name), { as: a command, label, does } (that command's key does this here) or
-// { key: a key or several, show, label, does }.
+// context whose commands with just those modifiers come after them (fill: 'edit' when not said; a list for several).
+// An entry is { action } (a command, its short name), { as: a command, label, does } (that command's key does this
+// here), { actions: several commands, show, label, does } (one entry for them all: written as show while each has its
+// own key) or { key: a key or several, show, label, does }.
 export const MODES = [
   { id: 'select', label: 'Selecting', keys: [
     { key: 'click', label: 'Select', does: 'Selects what is under the pointer; again on the same spot: the next thing behind it' },
@@ -99,9 +106,21 @@ export const MODES = [
     Ctrl: [{ key: 'Ctrl+click', label: 'One more corner', does: 'Picks one more corner (or lets one go)' }] } },
   { id: 'measure', label: 'Measure', keys: [{ key: 'click', label: 'A point', does: 'A point of the measure (two make one, a third starts again)' },
     { action: 'snap' }, { action: 'measure', label: 'End', does: 'Ends Measure' }, { key: 'Esc', label: 'End', does: 'Ends Measure' }, LOOK] },
-  { id: 'faces', label: 'Face selection', keys: [{ key: 'click', label: 'Pick a face', does: 'Selects the face under the pointer' },
-    { action: 'faces', label: 'End', does: 'Back to selecting objects' }, { action: 'undo' }, LOOK],
-  held: { Shift: [{ key: 'Shift+click', label: 'One more face', does: 'Adds a face to the faces selected' }] } },
+  { id: 'faces', label: 'Face selection', fill: ['faces', 'edit'], keys: [{ key: 'click', label: 'Pick a face', does: 'Selects the face under the pointer' },
+    { action: 'faces', label: 'End', does: 'Back to selecting objects' }, { action: 'facegrow' }, { action: 'facegrowall' }, { action: 'faceslip' },
+    { action: 'undo' }, LOOK],
+  held: { Shift: [{ key: 'Shift+click', label: 'One more face', does: 'Adds a face to the faces selected' }], 'Ctrl+Alt': [LIGHTS_HERE],
+    Alt: [{ actions: RECENT_ACTIONS, show: 'Alt+1…0', label: 'Recent texture', does: "Puts texture 1…10 of the Surface panel's recent textures on the selected faces" }] } },
+  // the Texture Slip (texture-slip-ui.js): the pointer, the wheel and the keys are its own while it goes on
+  { id: 'slip', label: 'Texture Slip', fill: [], keys: [
+    { key: 'drag', show: 'Move', label: 'Roll it', does: 'Moving the pointer rolls the texture: the texel under the pointer stays under it' },
+    { key: 'Wheel', label: 'Larger / smaller', does: 'The texture larger (up) or smaller round the point under the pointer: four notches double it' },
+    { key: ['Left', 'Right', 'Up', 'Down'], show: 'Arrows', label: 'Nudge', does: 'A texel the way the arrow points on the screen (with Ctrl: an eighth of the tile)' },
+    { key: 'P', label: 'One pan for all', does: "Every face the pan of the one under the pointer, when each its own would need too many queued changes" },
+    { key: ['click', 'Enter'], show: 'click / Enter', label: 'Keep it', does: 'Queues the slip: one Ctrl+Z takes it back, Rebuild puts it in the game' },
+    { key: ['Esc', 'right-click'], show: 'Esc / right-click', label: 'Cancel', does: 'Ends the slip: nothing changes' }],
+  held: { Shift: [{ key: 'Shift', label: 'Finer', does: "Held: the texture goes an eighth of the pointer's way, the wheel a sixteenth of a doubling" }],
+    Ctrl: [{ key: 'Ctrl', label: 'Snap', does: 'Held: the pan snaps to an eighth of the tile, the wheel to whole powers of two' }] } },
   { id: 'aim', label: 'Aim', keys: [{ key: 'click', label: 'The point', does: 'The selection turns to look at the point clicked' },
     { key: 'Esc', label: 'Cancel', does: 'Cancels Aim at a point' }, { action: 'undo' }, LOOK] },
   { id: 'pilot', label: 'Pilot', keys: [{ key: 'right-drag', label: 'Fly it', does: 'Right mouse held and W A S D: the view flies, the piloted object goes along' },
@@ -119,11 +138,12 @@ const TOOLS = { translate: 'move', rotate: 'rotate', scale: 'scale' };      // t
 const DRAWN = { stairs: 'stairs', roof: 'roof' };      // what is drawn with keys of its own (the rest: 'draw')
 
 // the mode the 3D view is in, from what app.js says (shortcutState): the first that holds, the most particular first.
-// s: { map, fly, pilot, aim, route, draw: its kind, place: 'object' | 'block', vertices, measure, faces, cutscene,
-// selected, tool: the gizmo's mode }; '' without a map
+// s: { map, fly, slip (a Texture Slip going on), pilot, aim, route, draw: its kind, place: 'object' | 'block', vertices,
+// measure, faces, cutscene, selected, tool: the gizmo's mode }; '' without a map
 export function modeOf(s) {
   if (!s || !s.map) return '';
   if (s.fly) return 'fly';
+  if (s.slip) return 'slip';
   if (s.pilot) return 'pilot';
   if (s.aim) return 'aim';
   if (s.route) return 'route';
@@ -159,10 +179,13 @@ const withoutShift = (mods) => mods.split('+').filter((m) => m && m !== 'Shift')
 const actionOf = (keymap, id) => keymap.actions.find((a) => a.id === id);
 // an entry with its keys now: { keys: [combos], show: as written on the strip, label, does, action: the command it is }
 function resolve(e, keymap) {
-  const id = e.action || e.as, keys = (id ? [keymap.keyOf(id)] : [].concat(e.key)).map(normCombo);
+  const id = e.action || e.as, ids = e.actions || (id ? [id] : []);
+  const keys = (ids.length ? ids.map((x) => keymap.keyOf(x)) : [].concat(e.key)).map(normCombo);
+  // an entry of several commands is written short only while none of them was given another key
+  const moved = !!e.actions?.some((x, i) => keys[i] !== normCombo(actionOf(keymap, x)?.def));
   const full = e.action ? actionOf(keymap, e.action)?.label : '';
   const label = e.label || SHORT[e.action] || full || '';
-  return { keys, show: e.show || keys.join(' '), label, does: e.does || full || label, action: e.action || '' };
+  return { keys, show: (!moved && e.show) || keys.join(' '), label, does: e.does || full || label, action: e.action || '', actions: e.actions || [] };
 }
 const entriesOf = (mode) => [mode.keys, ...Object.values(mode.held || {})].flat();
 
@@ -174,13 +197,13 @@ export function stripFor(id, mods, keymap) {
   if (!mode) return null;
   let held = [];
   if (mods) {
-    const ctx = mode.fill || 'edit';
+    const ctxs = [].concat(mode.fill || 'edit');
     held = [...(mode.held?.[mods] || []), ...keymap.actions
-      .filter((a) => a.ctx === ctx && splitCombo(keymap.keyOf(a.id)).mods === mods).map((a) => ({ action: a.id }))];
+      .filter((a) => ctxs.includes(a.ctx) && splitCombo(keymap.keyOf(a.id)).mods === mods).map((a) => ({ action: a.id }))];
   }
   const items = [];
   for (const r of (held.length ? held : mode.keys).map((e) => resolve(e, keymap))) {
-    if (!items.some((x) => (r.action ? x.action === r.action : x.show === r.show && x.label === r.label))) items.push(r);
+    if (!items.some((x) => (r.action ? x.action === r.action || x.actions.includes(r.action) : x.show === r.show && x.label === r.label))) items.push(r);
   }
   return { id, label: mode.label, mods: held.length ? mods : '', items: items.slice(0, MAX_KEYS) };
 }
@@ -208,7 +231,7 @@ export function findKey(query, keymap) {
     if (hits(key, a.ctx === 'fly')) add(normCombo(key), a.label, keymap.contexts[a.ctx] || a.ctx, a.id);
   }
   for (const mode of MODES) for (const e of entriesOf(mode)) {
-    if (e.action && !e.does) continue;                     // the command itself: listed above
+    if (e.actions || (e.action && !e.does)) continue;     // the commands themselves: listed above
     const r = resolve(e, keymap);
     if (r.keys.some((k) => hits(k))) add(r.show, r.does, mode.label, '');
   }

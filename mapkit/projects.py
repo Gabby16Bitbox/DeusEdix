@@ -27,9 +27,10 @@ PYTHON.add('experimental_payload.py')
 PYTHON.add('atomicfile.py')
 PYTHON.add('mods.py')                    # Export mod... and the launcher's Mods (both games)
 PYTHON.add('signs.py')                   # signs drawn like the game's (the tutorial map and the maps use it)
-PYTHON.add('conditions.py')             # the rules' and the Story's conditions (links, story)
 PYTHON.update({'vec3.py', 'classtree.py'})   # the vector type (geom, blocks) and the class hierarchy (props, data)
 PYTHON.add('mover_transform.py')        # a mover moved or turned in the editor keeps its keys (scene, dxmaps)
+PYTHON.add('conditions.py')             # the rules' and the Story's conditions (links, story)
+PYTHON.update({'build_cache.py', 'build_cached.py', 'build_cpu.py', 'preview_bundle.py', 'texture_cache.py', 'resident_build.py'})
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
 GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc'}
@@ -164,7 +165,7 @@ def _workspace_metadata(path):
     if 'DEUSEDIX_WORKSPACE_ID' not in source:
         raise ValueError('This workspace needs the existing-workspace compatibility update before opening.')
     cfg = _read(path / 'deusedix.json') if (path / 'deusedix.json').exists() else {}
-    package = cfg.get('package', 'DeusEdix') if cfg else 'UnatcoContinues'
+    package = cfg.get('package', 'DeusEdix') if cfg else settings.devmode(path)['package']
     if not isinstance(package, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', package):
         raise ValueError('Invalid existing workspace package.')
     for relative in ('maps', 'tools/mapkit/maps', 'src/' + package + '/Classes'):
@@ -292,7 +293,7 @@ class ProjectManager:
             packages.add(package.casefold())
         cfg = _read(self.app / 'deusedix.json') if (self.app / 'deusedix.json').exists() else {}
         defaults = [dict(id='legacy', name='Existing workspace', kind='legacy', path=str(self.app), legacy=True,
-                         package=cfg.get('package', 'UnatcoContinues'))]
+                         package=cfg.get('package', settings.devmode(self.app)['package']))]
         for ident, name in BUILTINS:
             kind, target = RESERVED[ident]
             defaults.append(dict(id=ident, name=name, kind=kind, path=str(self.root / ident), legacy=False, package=_package(ident),

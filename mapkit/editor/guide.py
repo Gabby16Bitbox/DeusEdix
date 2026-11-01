@@ -17,9 +17,9 @@ if settings.STANDALONE:          # DeusEdix installed: its own guide (made from 
     TITLE = 'DeusEdix'
 else:
     TUTORIALS = PROJECT / 'docs' / 'tutorials'
-    REPO = 'https://github.com/Gabby16Bitbox/unatco-continues/blob/main/'
+    REPO = settings.DEV['repo']   # the mod's repository (devmode.json): links to its other files
     DEFAULT = '07-map-editor.md'
-    TITLE = 'UNATCO Continues Map Editor'
+    TITLE = settings.DEV['name'] + ' Map Editor'
 
 
 def _link(url):

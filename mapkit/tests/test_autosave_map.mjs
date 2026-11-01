@@ -33,7 +33,7 @@ function setup({ automaticResponses = false } = {}) {
     mapGeneration: 1, edits: { moved: { Crate0: [1, 2, 3] } }, editRevision: 1,
     dirty: true, mapLoading: false, lastEditingInput: 0, projectHub: { visible: false }, gameView: null, openingExperimentalBsp: false,
     buildJob: null, waitsForRebuild: () => false,       // no Rebuild running (rebuildMap)
-    tc: { dragging: false }, inspectorDrag: null, dragHandles: null, propertySlider: null, moveStart: null, placing: null,
+    tc: { dragging: false }, inspectorDrag: null, cancelNumberScrub: null, dragHandles: null, propertySlider: null, moveStart: null, placing: null,
     tutorialSession: { revision: 1 }, mapSaveQueue: createSaveQueue(), autosave: null,
     window: { __story: story, __menubar: { prefs: {} }, __projectNavigation: false },
     document: { querySelector: () => null }, $: () => busy,

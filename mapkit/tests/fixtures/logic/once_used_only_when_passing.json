@@ -1,0 +1,67 @@
+{
+  "id": "once_used_only_when_passing",
+  "title": "Only once is used up only when the rule passes",
+  "behaviour": "A rule that runs only once and is refused by a condition is not used up: it runs the next time its output happens and the condition holds, and is skipped as \"once\" after that.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [266, 288], "has": "function RunRule"},
+    {"file": "UCLink.uc", "lines": [36, 36], "has": "// only the first time"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 4.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": true,
+        "label": "When JC uses Button1, only if Power is Yes: open Door1",
+        "requires": [{"flag": "Power", "is": true}],
+        "do": [{"id": "a1", "verb": "open", "target": "Door1", "delay": 0}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [128, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "set": {"flags": {"Power": true}}},
+    {"t": 3.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 4.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "skip|LogicFixtures|L1|cond|flag|Power|1"},
+    {
+      "t": 3.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if Power is Yes: open Door1"
+    },
+    {"t": 3.1, "line": "act|LogicFixtures|L1|open|Door1|"},
+    {"t": 4.0, "line": "skip|LogicFixtures|L1|once|"}
+  ],
+  "end": {"flags": {"Power": true}},
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if Power is Yes: open Door1\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"flag|Power|1\"",
+        "bOnce": "True",
+        "Act(0)": "\"0|open|Door1|||\""
+      }
+    }
+  ]
+}

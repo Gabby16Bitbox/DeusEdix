@@ -1,0 +1,78 @@
+{
+  "id": "area_dynamic",
+  "title": "Area target with current entrants: saved members, then what is in the radius now",
+  "behaviour": "An area action that also takes current entrants acts on its saved members wherever they are now, then on everything of its kind inside the radius when the action runs, each once.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [408, 437], "has": "function DoArea(string s)"},
+    {"file": "UCLink.uc", "lines": [342, 348], "has": "function bool AreaKind(Actor A, string kind)"},
+    {"file": "UCLink.uc", "lines": [354, 368], "has": "function QueueRecipient("},
+    {"file": "UCLink.uc", "lines": [451, 451], "has": "Report(\"act\", Field(s, 1) $ \"|area \" $ Field(s, 7));"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: turn off the lights in the area",
+        "do": [
+          {
+            "id": "a1",
+            "verb": "lightoff",
+            "target": "",
+            "delay": 0,
+            "area": {"kind": "light", "at": [0, 0, 0], "radius": 512, "members": ["Light1", "Light2"], "dynamic": true}
+          }
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Light1", "chain": ["Light", "Actor"], "at": [100, 0, 0]},
+      {"name": "Light2", "chain": ["Light", "Actor"], "at": [2000, 0, 0]},
+      {"name": "Light3", "chain": ["Light", "Actor"], "at": [200, 0, 0]},
+      {"name": "Light4", "chain": ["Light", "Actor"], "at": [3000, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: turn off the lights in the area"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|area light"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|Light1|"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|Light2|"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|Light3|"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLinkGroup",
+      "name": "UCLG_L1_0_0",
+      "loc": [0, 0, 0],
+      "props": {"Member(0)": "Light1", "Member(1)": "Light2"}
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: turn off the lights in the area\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|lightoff|||||area+|light|512|0.000000|0.000000|0.000000|UCLG_L1_0_0\""
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 """Behaviours of the characters and how the player moves (the Inspector's Tactics and Player movement).
 
 edits['behave'][<character>] = {loc, grenades: {cls, above, range, every}, jump: {max}, dodge: {chance, speed, every}}
-  -> a UCBehave actor of the mod per character (PawnName = the character), which throws grenades at a player
+  -> a UCBehave actor of the editor's package per character (PawnName = the character), which throws grenades at a player
      above it, jumps over low obstacles and dodges when shot at, on top of the game's AI.
 edits['player_move'] = {loc, air, air_if, jump_if, aug, skill, level}
   -> one UCPlayerMove: JC's air control, and other values while an aug is on or a skill is high enough.

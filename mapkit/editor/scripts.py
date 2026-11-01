@@ -1,5 +1,5 @@
 """The scripts written in the map editor (Tools > Scripts): UnrealScript classes of their own package,
-settings.SCRIPTS_PACKAGE (UCScripts for the mod, DeusEdixScripts / <project>Scripts for DeusEdix), kept in
+settings.SCRIPTS_PACKAGE (devmode.json's in development mode, DeusEdixScripts / <project>Scripts for DeusEdix), kept in
 src\\<package>\\Classes and compiled apart from the editor's own package, in a few seconds.
 
 A script extends UCScript (an invisible actor of the editor's package: Started / Triggered / Repeat, Input /

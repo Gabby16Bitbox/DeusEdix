@@ -33,11 +33,6 @@ _exports = {}           # path -> (stamp, set of names)
 _disk = None
 
 
-def _root(target):
-    profile = settings.TARGETS[target]
-    return settings.GAME / profile['root'] if profile['root'] else settings.GAME
-
-
 def installed(target):
     return not settings.check_game(settings.GAME, target)
 
@@ -45,7 +40,7 @@ def installed(target):
 def search_paths(target):
     """The folders and patterns the game reads packages from: the Paths lines of its ini's [Core.System]
     (Revision.ini also lists the original game's folders), resolved from its System folder."""
-    system = _root(target) / 'System'
+    system = settings.system_folder(target)
     ini = system / settings.TARGETS[target]['ini']
     try:
         text = ini.read_text(encoding='latin1', errors='replace')
@@ -60,9 +55,10 @@ def search_paths(target):
         value = Path(line[6:].strip().replace('/', '\\'))
         full = value if value.is_absolute() else (system / value)
         out.append((full.parent.resolve(), full.name))
-    if not out:                 # no ini (or no Paths): the game's own folders
-        out = [(system, '*.u'), (_root(target) / 'Maps', '*.dx'), (_root(target) / 'Textures', '*.utx'),
-               (_root(target) / 'Sounds', '*.uax'), (_root(target) / 'Music', '*.umx')]
+    if not out:                 # no ini (or no Paths): the game's own folders, beside its System folder
+        root = system.parent
+        out = [(system, '*.u'), (root / 'Maps', '*.dx'), (root / 'Textures', '*.utx'), (root / 'Sounds', '*.uax'),
+               (root / 'Music', '*.umx')]
     return out
 
 
@@ -175,7 +171,7 @@ def own_packages():
     """The packages that are there when this project's maps play though the game has not them: the
     project's own, and the other mods' packages it uses (Packages panel)."""
     import kit
-    return ({settings.PACKAGE, settings.ANIMS_PACKAGE, settings.MODELS_PACKAGE, settings.SOUNDS_PACKAGE, settings.SCRIPTS_PACKAGE, 'UnatcoVoices'}
+    return ({settings.PACKAGE, settings.ANIMS_PACKAGE, settings.MODELS_PACKAGE, settings.SOUNDS_PACKAGE, settings.SCRIPTS_PACKAGE, settings.VOICES_PACKAGE}
             | {p['name'] for p in kit.extra_packages()})
 
 

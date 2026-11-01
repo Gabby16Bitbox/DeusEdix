@@ -1,4 +1,4 @@
-// Cutscenes of the map editor (editor/cutscenes.py builds them, src/UnatcoContinues/Classes/UCCutscene.uc plays
+// Cutscenes of the map editor (editor/cutscenes.py builds them, src/<settings.PACKAGE>/Classes/UCCutscene.uc plays
 // them): a "Cutscene camera" (+ Cutscene, or Objects > Triggers) and its timeline at the bottom, like the camera
 // paths of Premiere or of the Minecraft film mods.
 //
@@ -10,9 +10,15 @@
 // - Shots: ✂ New shot cuts at the playhead (no movement between two shots: the film jumps).
 // - Subtitles: who speaks, the line, how long, a sound. Events: what happens during it (a door opens at 3 s): the
 //   Interactions "When it starts" of the cutscene, each action after its seconds; drag them on the timeline.
+// - 👁 Preview: while the playhead moves or plays, what the events have done by then shows on the objects (a door open,
+//   an animation, a light off, a guard walking: cutscene-preview.js), and the voices of the subtitles play with ▶;
+//   nothing is changed, all goes back where it is.
 // Data: edits.cutscenes[<actor name>] (see cutscenes.py). Keys: p = where the eyes are (Unreal units), r = [pitch,
 // yaw, roll] (65536 = a turn; the yaw does not wrap between keys), fov = degrees across the width, e = curve, s = shot.
 import * as THREE from 'three';
+import { stateAt, voicesAt, shows, lineLen } from './cutscene-preview.js';
+import { createShots } from './sound-shots.js';
+import { waveformEnvelope, waveformPath } from './sound-browser.js';
 
 const E = () => window.__editor;
 const kit = () => window.__editor.cutKit;
@@ -54,7 +60,6 @@ function cutOf(name, create) {
 }
 const shotOf = (k) => +k.s || 0;
 function sortKeys(c) { c.keys.sort((a, b) => shotOf(a) - shotOf(b) || a.t - b.t); }
-function lineLen(ln) { return +ln.d > 0 ? +ln.d : 2 + String(ln.text || '').length * 0.06; }
 function lengthOf(c) {
   const ends = (c.keys || []).map((k) => +k.t).concat((c.lines || []).filter((l) => String(l.text || '').trim()).map((l) => +l.t + lineLen(l)));
   return Math.max(+c.length || 0, 0.5, ...ends);
@@ -157,6 +162,7 @@ function viewNow() {                       // the editor's view as a key: [p, r]
   return [p, [ed.cam.pitch * YAW / TURN, ed.cam.yaw * YAW / TURN, (cur ? cur.roll : 0) * YAW / 360]];
 }
 function goTo(t) {                          // the editor's camera where the cutscene's is at time t
+  previewFrame();                           // the objects first: it may look at a character walking
   const c = cutOf(cur.name);
   const q = c && pose(c, t);
   if (!q) return;
@@ -341,11 +347,166 @@ function startPlay() {
   if (!c || !c.keys.length) { kit().status('Make a key first: fly the camera and press K.', 'warn'); return; }
   if (!cur.look) setLook(true);
   if (cur.t >= lengthOf(c) - 0.01) cur.t = 0;
+  stopVoices();
   cur.playing = true;
   last = performance.now();
   render();
 }
-function stopPlay() { if (cur && cur.playing) { cur.playing = false; render(); } }
+function stopPlay() { if (cur && cur.playing) { cur.playing = false; stopVoices(); render(); } }
+
+// ---------------------------------------------------------------- the events and voices, previewed (cutscene-preview.js)
+// While the playhead moves or plays, the objects the Events lane acts on show what has happened to them by then (a door
+// open, an object's animation, a light off, a guard walking, something vanished), as the game does it. They go back to
+// where they are (no edit, no undo step) when the playhead goes back before their events, when 👁 Preview is off, when
+// the panel closes, and before anything else is done in the editor (a click outside the panel, a key): the next move
+// of the playhead shows them again. Each voiced subtitle shows its sound's waveform, and plays in time with ▶.
+let previewOn = true;          // the panel's 👁 Preview (for as long as the page is open)
+const shown = new Map();       // name -> {p, rest: how it stood, base: its place, turn and size for applyMotion}
+let shownAt = null;            // the playhead's time the objects show (null: to work out again)
+let heldAt = null;             // put back at this time of the playhead, until it moves
+let walking = null;            // the character whose walk animation shows: {p, seq, t, ok (false: its model has none)}
+let darkLamps = [];            // the lamps it has turned off (View > Effects shows them dark)
+const ways = [];               // the ways characters walk, asked once each: [{from, to, nav, way}]
+// the voices' player, its sounds from the editor's one cache (app.js soundCache, sound-cache.js)
+const voices = createShots({ Context: window.AudioContext || window.webkitAudioContext,
+  cache: { decoded: (name, context) => kit().soundCache.decoded(name, context) } });
+const waves = new Map();       // a voice's {seconds, peaks} once decoded ({}: it could not be read; null: being read)
+const sounding = new Map();    // the voices started in this play: line index -> the seconds they started at (ms)
+
+// the cutscene's events: each action of its Interactions "When it starts", once for each object it acts on
+function previewEvents() {
+  const l = startRule(cur.name, false);
+  return l ? (l.do || []).flatMap((x) => kit().lkTargetsOf(x, l.src).filter(Boolean)
+    .map((name) => ({ verb: x.verb, t: +x.delay || 0, name, at: x.at, nav: !!x.nav, a: x.a }))) : [];
+}
+// what an object is (app.js previewTarget); a character the preview has moved walks from where it stands
+function targetOf(name) {
+  const tg = kit().previewTarget(name), s = shown.get(name);
+  if (tg && tg.walker && s && s.p === tg.p) Object.assign(tg.walker, { from: s.base.pos, yaw: s.base.yaw });
+  return tg;
+}
+// the way a character walks there (app.js walkWay), asked once for each
+function wayOf(from, to, e) {
+  const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 0.5);
+  let w = ways.find((x) => x.nav === e.nav && same(x.from, from) && same(x.to, to));
+  if (!w) {
+    w = { from, to, nav: e.nav, way: kit().walkWay(from, to, e.nav) };
+    ways.unshift(w);
+    ways.length = Math.min(ways.length, 32);
+  }
+  return w.way;
+}
+function restOf(p) {
+  const m = p.userData.kind === 'light' && p.userData.body && p.userData.body.material;
+  return { position: p.position.clone(), rotation: p.rotation.clone(), scale: p.scale.clone(), icon: m ? { m, color: m.color.getHex(), opacity: m.opacity } : null };
+}
+function setRest(p, r) {
+  p.position.copy(r.position);
+  p.rotation.copy(r.rotation);
+  p.scale.copy(r.scale);
+  if (r.icon) { r.icon.m.color.setHex(r.icon.color); r.icon.m.opacity = r.icon.opacity; }
+}
+// the objects as they are at time t of the cutscene, each from where it stands
+function showAt(t) {
+  const K = kit(), events = previewEvents(), targets = new Map();
+  for (const e of events) if (!targets.has(e.name)) targets.set(e.name, targetOf(e.name));
+  const now = stateAt(events, t, targets, wayOf);
+  for (const name of [...shown.keys()]) if (!now.has(name) || shown.get(name).p !== targets.get(name).p) putBack(name);
+  const off = [];
+  let walker = null, vanish = false;
+  for (const [name, st] of now) {
+    const tg = targets.get(name), p = tg.p;
+    if (!shown.has(name)) shown.set(name, { p, rest: restOf(p), base: { pos: K.UE(p.position), yaw: K.radToYaw(p.rotation.y), scale: p.scale.x } });
+    const s = shown.get(name);
+    setRest(p, s.rest);
+    if (st.clock !== undefined) K.applyMotion(p, s.base, K.motionPose(tg.motion.m, st.clock, false), false);
+    if (st.pose) K.applyMotion(p, s.base, { pos: st.pose.pos, rot: st.pose.rot, scale: 1 }, true);
+    if (st.walk) {
+      p.position.copy(K.T(st.walk.pos));
+      p.rotation.y = K.yawToRad(st.walk.yaw);
+      if (st.walk.moving && !walker) walker = { p, seq: st.walk.run ? 'Run' : 'Walk', t: st.walk.walked };
+    }
+    if (!!st.hidden !== !!p.userData.cutHidden) {
+      vanish = true;
+      if (st.hidden) p.userData.cutHidden = true; else delete p.userData.cutHidden;
+    }
+    if (st.light === false) off.push(name);           // off: dark in View > Effects, its icon dark
+    if (st.light === false && s.rest.icon) { s.rest.icon.m.color.setHex(0x505050); s.rest.icon.m.opacity = 0.55; }
+  }
+  if (vanish) K.applyObjectVisibility();
+  if (off.join() !== darkLamps.join()) { darkLamps = off; K.setLampsOff(off); }
+  walkAs(walker);
+  shownAt = t;
+  if (E().wake) E().wake(250);
+}
+function putBack(name) {
+  const s = shown.get(name);
+  shown.delete(name);
+  if (walking && walking.p === s.p) walkAs(null);
+  setRest(s.p, s.rest);
+  if (s.p.userData.cutHidden) { delete s.p.userData.cutHidden; kit().applyObjectVisibility(); }
+}
+function putAllBack() {
+  for (const name of [...shown.keys()]) putBack(name);
+  walkAs(null);
+  if (darkLamps.length) { darkLamps = []; kit().setLampsOff([]); }
+  shownAt = null;
+  if (E().wake) E().wake(250);
+}
+// a walking character's Walk (or Run) animation (app.js startPreview), at the walk's second; none: the one shown ends
+function walkAs(w) {
+  const K = kit();
+  if (walking && (!w || w.p !== walking.p || w.seq !== walking.seq)) {
+    if (K.previewOf() === walking.p) K.stopPreview();
+    walking = null;
+  }
+  if (!w) return;
+  if (!walking) {
+    const mine = walking = { p: w.p, seq: w.seq, t: w.t, ok: null };
+    K.startPreview(w.p, w.p.userData.actor.cls, w.seq).then((ok) => {
+      mine.ok = ok;
+      if (walking !== mine && K.previewOf() === mine.p) K.stopPreview();     // its walk ended while the model loaded
+    }, () => { mine.ok = false; });
+  }
+  walking.t = w.t;
+}
+// every frame while the panel is open: the objects at the playhead (worked out again when it has moved), the walk's clock
+function previewFrame() {
+  if (!previewOn || (heldAt !== null && heldAt === cur.t && !cur.playing)) {
+    if (shown.size || darkLamps.length) putAllBack();
+    return;
+  }
+  heldAt = null;
+  if (shownAt !== cur.t) showAt(cur.t);
+  if (walking && walking.ok) kit().previewClock(walking.p, walking.t);
+}
+// anything done outside the panel (a click, a key) starts from where the objects are: put back until the playhead moves
+function hold() {
+  if (!cur || (!shown.size && !darkLamps.length)) return;
+  putAllBack();
+  heldAt = cur.t;
+}
+// a voice's sound decoded once (sound-shots.js) and its waveform kept; the panel drawn again when it is there
+function waveOf(snd) {
+  if (waves.has(snd)) return waves.get(snd);
+  if (kit().serverBusy()) return null;                  // not while a Rebuild or the map's loading holds the server
+  waves.set(snd, null);
+  voices.decoded(snd).then((b) => {
+    waves.set(snd, { seconds: b.duration, peaks: waveformEnvelope(Array.from({ length: b.numberOfChannels }, (_, i) => b.getChannelData(i)), 64) });
+  }, () => waves.set(snd, {})).then(() => { if (cur) render(); });
+  return null;
+}
+// while it plays: each voice the playhead has come to starts, from where the playhead is in it
+function voiceFrame(c) {
+  if (!previewOn) return;
+  for (const v of voicesAt(c.lines || [], cur.t, (snd) => waveOf(snd)?.seconds)) {
+    const start = Math.round((cur.t - v.from) * 1000), started = sounding.get(v.line) || new Set();
+    if (started.has(start)) continue;
+    sounding.set(v.line, started.add(start));
+    voices.play([{ sound: v.sound, from: v.from }], false).catch(() => {});
+  }
+}
+function stopVoices() { voices.stop(); sounding.clear(); }
 
 // ---------------------------------------------------------------- the panel
 function curveName(e) { return (CURVES.find((x) => x[0] === (e === 3 ? 2 : e ?? 1)) || CURVES[0])[1]; }
@@ -353,6 +514,7 @@ function render() {
   if (!cur) return;
   const c = cutOf(cur.name, true), len = lengthOf(c), max = Math.max(8, Math.ceil(len + 3));
   const K = kit();
+  shownAt = null;                          // the objects worked out again: an event may have changed
   const evRule = startRule(cur.name, false);
   const evs = evRule ? (evRule.do || []) : [];
   const sel = cur.sel;
@@ -391,8 +553,18 @@ function render() {
   }
   const keyEls = c.keys.map((k, i) => `<span class="cs-key ${cur.sel && cur.sel.ref === k ? 'on' : ''}" data-csk="${i}" style="left:${pct(k.t)};background:#${SHOT_COLORS[shotOf(k) % SHOT_COLORS.length].toString(16).padStart(6, '0')}" title="${k.t.toFixed(2)} s · shot ${shotOf(k) + 1} · ${curveName(k.e)}"></span>`).join('');
   const shotEls = shots.map((x) => `<span class="cs-shot" style="left:${pct(x.from)};width:calc(${pct(Math.max(0.05, x.to - x.from))} - 2px);background:#${SHOT_COLORS[x.s % SHOT_COLORS.length].toString(16).padStart(6, '0')}33;border-color:#${SHOT_COLORS[x.s % SHOT_COLORS.length].toString(16).padStart(6, '0')}">Shot ${x.s + 1}</span>`).join('');
-  const lineEls = (c.lines || []).map((ln, i) => `<span class="cs-line ${cur.sel && cur.sel.ref === ln ? 'on' : ''}" data-csl="${i}" style="left:${pct(+ln.t)};width:calc(${pct(lineLen(ln))} - 2px)" title="${esc((ln.who ? ln.who + ': ' : '') + ln.text)}">${esc((ln.who ? ln.who + ': ' : '') + (ln.text || ''))}</span>`).join('');
-  const evEls = evs.map((x, i) => `<span class="cs-ev ${cur.sel && cur.sel.ref === x ? 'on' : ''}" data-cse="${i}" style="left:${pct(+x.delay || 0)}" title="${(+x.delay || 0).toFixed(2)} s · ${esc(K.lkActText(x))}">${esc(K.lkActText(x))}</span>`).join('');
+  const lineEls = (c.lines || []).map((ln, i) => {
+    const w = ln.snd && String(ln.text || '').trim() ? waveOf(ln.snd) : null, say = esc((ln.who ? ln.who + ': ' : '') + (ln.text || ''));
+    // a voice: its waveform under the text, as long as it lasts (past the line's end: cut at the clip's)
+    const wave = w && w.peaks ? `<svg class="cs-wave" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:${w.seconds / lineLen(ln) * 100}%"><path d="${waveformPath(w.peaks)}"/></svg>` : '';
+    return `<span class="cs-line ${cur.sel && cur.sel.ref === ln ? 'on' : ''}" data-csl="${i}" style="left:${pct(+ln.t)};width:calc(${pct(lineLen(ln))} - 2px)" title="${say}${w && w.peaks ? ` · voice ${w.seconds.toFixed(1)} s` : ''}">${wave}<span class="cs-lt">${say}</span></span>`;
+  }).join('');
+  // an event the editor cannot show (a message, a sound, a lock...): dashed, the game alone does it
+  const unseen = (x) => !K.lkTargetsOf(x, evRule.src).some((n) => shows(x.verb, targetOf(n)));
+  const evEls = evs.map((x, i) => {
+    const off = unseen(x);
+    return `<span class="cs-ev ${cur.sel && cur.sel.ref === x ? 'on' : ''} ${off ? 'cs-unseen' : ''}" data-cse="${i}" style="left:${pct(+x.delay || 0)}" title="${(+x.delay || 0).toFixed(2)} s · ${esc(K.lkActText(x))}${off ? ' · not shown in the editor: Rebuild and Play' : ''}">${esc(K.lkActText(x))}</span>`;
+  }).join('');
   const ticks = Array.from({ length: max + 1 }, (_, s) => `<span style="left:${pct(s)}">${s}s</span>`).join('');
   box.innerHTML = `<div class="row" style="flex-wrap:wrap;row-gap:4px"><b>🎬</b><input id="cstitle" value="${esc(c.title || cur.name)}" style="width:170px" title="Its name in the editor">
       <button id="csplay" title="Play it (Space)">${cur.playing ? '❚❚' : '▶'}</button><button id="csstop" title="Stop, back to the start">■</button>
@@ -401,6 +573,7 @@ function render() {
       <button id="cskey" title="A key at the playhead: the camera where the editor's view is now (K)">◆ Key (K)</button>
       <button id="cscut" title="A cut at the playhead: a new shot starts there">✂ New shot</button>
       <button id="cseven" title="Space the keys so the camera keeps the same speed in each shot">Even speed</button>
+      <button id="cspv" class="${previewOn ? 'primary' : ''}" title="The events shown on the objects as the playhead moves (doors, animations, lights, characters walking, what vanishes) and the subtitles' voices played with ▶; nothing is changed. Off: everything stays where it is">👁 Preview</button>
       <span style="flex:1"></span>
       <label style="width:auto">Zoom</label><input id="csfov" type="number" min="10" max="120" step="1" value="${r2(cur.fov)}" style="width:52px" title="Field of view of the next key (degrees across the width; smaller = closer)">°
       <label style="width:auto">Roll</label><input id="csroll" type="number" step="5" value="${r2(cur.roll)}" style="width:52px" title="Tilt of the next key (degrees)">°
@@ -440,6 +613,7 @@ function wire(c, max) {
   on('#cskey', 'onclick', recordKey);
   on('#cscut', 'onclick', newShot);
   on('#cseven', 'onclick', evenSpeed);
+  on('#cspv', 'onclick', () => { previewOn = !previewOn; if (!previewOn) stopVoices(); render(); });
   on('#csclose', 'onclick', close);
   on('#csfov', 'onchange', (e) => { cur.fov = Math.max(10, Math.min(120, +e.target.value || DEFAULT_FOV)); if (cur.look) applyFov(cur.fov); });
   on('#csroll', 'onchange', (e) => { cur.roll = +e.target.value || 0; if (cur.look) E().cam.roll = cur.roll * Math.PI / 180; });
@@ -586,10 +760,15 @@ function open(name, opts = {}) {
   }
   if (window.__closeAnim) window.__closeAnim();
   render();
+  // the classes of what its events act on (a character's speeds, a door's state), then the preview again with them
+  if (!kit().serverBusy()) kit().previewClasses(previewEvents().map((e) => e.name)).then(() => { shownAt = null; });
   if (opts.look) setLook(true);
 }
 function close() {
   if (!cur) return;
+  putAllBack();
+  stopVoices();
+  heldAt = null;
   if (cur.look) setLook(false);
   cur = null;
   box.style.display = 'none';
@@ -627,6 +806,7 @@ function frame(now) {
   if (!E() || !E().cutKit) return;
   if (cur) {
     if (E().edits !== cur.lastEdits) {            // Ctrl+Z, another map: read it again
+      putAllBack();
       cur.lastEdits = E().edits;
       if (!(E().edits.added || []).some((a) => a.name === cur.name)) { close(); return; }
       render();
@@ -640,9 +820,11 @@ function frame(now) {
         render();
       }
       goTo(cur.t);
+      if (cur.playing) voiceFrame(c);
       playhead();
       if (E().wake) E().wake(250);                 // the view draws every frame while it plays (app.js)
     }
+    previewFrame();
     last = now;
     drawFilm();
     drawPath(cur.name, false);
@@ -666,6 +848,15 @@ window.addEventListener('keydown', (e) => {
   if (k === 'k') { e.preventDefault(); e.stopImmediatePropagation(); recordKey(); }
   else if (k === ' ' && !e.shiftKey && !E().cam.look) { e.preventDefault(); e.stopImmediatePropagation(); if (cur.playing) stopPlay(); else startPlay(); }
   else if (k === 'escape' && (cur.playing || cur.look)) { e.preventDefault(); e.stopImmediatePropagation(); if (cur.playing) stopPlay(); else setLook(false); }
+}, true);
+
+// a click outside the panel (not the right or middle button in the 3D view: flying, turning) or a key outside it (not
+// while flying, not a modifier alone) works on the objects where they are: the preview puts them back first
+window.addEventListener('pointerdown', (e) => {
+  if (cur && !box.contains(e.target) && !(e.target === kit().canvas && e.button !== 0)) hold();
+}, true);
+window.addEventListener('keydown', (e) => {
+  if (cur && !box.contains(e.target) && !E().cam.look && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) hold();
 }, true);
 
 // Check map: cutscenes without keys, cutscenes nothing plays

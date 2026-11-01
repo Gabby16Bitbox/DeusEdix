@@ -98,11 +98,11 @@ def _original(map_name, name, log=print):
     import dxmaps
     import t3d
     _, folder, _ = dxmaps.reference(map_name, log=log)
-    text = (Path(folder) / 'scene.t3d').read_text(encoding='latin1', errors='replace')
-    for a in t3d.actors(text):
-        if a['name'] == name:
-            return a
-    raise KeyError('%s has no %s' % (map_name, name))
+    import build_cache
+    try:
+        return build_cache.actor(Path(folder) / 'scene.t3d', name, t3d.actors)
+    except KeyError:
+        raise KeyError('%s has no %s' % (map_name, name)) from None
 
 
 def original_center(map_name, name, log=print):
@@ -286,12 +286,19 @@ def load(pid):
     return json.loads((ROOT / pid / 'prefab.json').read_text(encoding='utf-8'))
 
 
+class Gone(LookupError):
+    """A prefab version whose files are not on disk: a deleted prefab's, taken off it when the project was opened again
+    (prefab_library.sweep). The display route answers 404 for it, what a paste of such a copy refuses (app.js)."""
+
+
 def display(pid):
-    """Upgrade legacy preview texture frames without writing a map or running the SDK."""
+    """Upgrade legacy preview texture frames without writing a map or running the SDK. Gone: no such version on disk."""
     import data
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,240}', pid):
         raise ValueError('Invalid prefab preview identity.')
     path = ROOT / pid / 'display.json'
+    if not (ROOT / pid / 'prefab.json').is_file():
+        raise Gone('This prefab version is not on disk any more.')
     source = load(pid).get('source', '')
     paths = []
     if re.fullmatch(r'[\w.-]+', source):
@@ -412,21 +419,35 @@ def entry_xform(pivot, e):
                       bool(e.get('stretch')), pitch=e.get('pitch') or 0, roll=e.get('roll') or 0)
 
 
+def member_tag(pid):
+    """The start of the names of a placed copy's objects (place): UCPf and its pid, then B (a brush) or A (an object)
+    and the object's slot in its prefab."""
+    return 'UCPf' + re.sub(r'\W', '', str(pid))
+
+
+def member_slot(pid, name):
+    """The slot in its prefab of an object of the copy pid, by its name (place); None for any other name."""
+    m = re.fullmatch(re.escape(member_tag(pid)) + r'[AB](\d+)', str(name))
+    return int(m.group(1)) if m else None
+
+
 def place(entry):
     """The T3D blocks of one paste, renamed (unique in the map) and placed. Returns (blocks, brush
-    names, actor names)."""
+    names, actor names). An object is named after its slot in the prefab: a new version of a library prefab keeps
+    each object's slot (prefab_library.new_version), a prefab without slots numbers them in order."""
     pf = entry.get('_prefab') or load(entry['prefab'])
-    tag = re.sub(r'\W', '', str(entry['pid']))
+    tag = member_tag(entry['pid'])
     xf = entry_xform(pf['pivot'], entry)
     out, brushes, actors = [], [], []
     for i, b in enumerate(pf['blocks']):
         raw = b['raw']
         original_raw = raw
-        new = 'UCPf%s%s%d' % (tag, 'B' if b['brush'] else 'A', i)
+        slot = b.get('slot', i)
+        new = '%s%s%d' % (tag, 'B' if b['brush'] else 'A', slot)
         model = re.search(r"Brush=Model'MyLevel\.(\w+)'", raw)
         if model:
-            raw = raw.replace("Model'MyLevel.%s'" % model.group(1), "Model'MyLevel.UCPf%sM%d'" % (tag, i))
-            raw = re.sub(r'Begin Brush Name=\w+', 'Begin Brush Name=UCPf%sM%d' % (tag, i), raw, count=1)
+            raw = raw.replace("Model'MyLevel.%s'" % model.group(1), "Model'MyLevel.%sM%d'" % (tag, slot))
+            raw = re.sub(r'Begin Brush Name=\w+', 'Begin Brush Name=%sM%d' % (tag, slot), raw, count=1)
         if b['brush']:
             brushes.append(new)
         else:
@@ -439,3 +460,73 @@ def place(entry):
             raw = moving_pieces.placed(raw, xf, new, original_raw)
         out.append(raw)
     return out, brushes, actors
+
+
+def _at_place(actor, record):
+    """Is this object (t3d.actors) the one a record of the editor is about: its class (in any case, with or without its
+    package) and the place it had before the change (orig), within 2 units, as scene.py matches a map script's."""
+    import t3d
+    cls = str(record.get('cls') or '').split('.')[-1].lower()
+    if cls and cls != actor['cls'].split('.')[-1].lower():
+        return False
+    orig = record.get('orig')
+    return not orig or max(abs(a - b) for a, b in zip(t3d.vec(actor['props'].get('Location')), orig)) <= 2
+
+
+def _posed(raw, loc, rot=None):
+    """One exported actor block at loc (x y z) and, when given, turned to rot (pitch yaw roll)."""
+    at = '(X=%.3f,Y=%.3f,Z=%.3f)' % tuple(float(v) for v in loc)
+    raw, n = re.subn(r'(?m)^(\s*Location=)\([^)]*\)', lambda m: m.group(1) + at, raw, count=1)
+    if not n:                                   # at the origin: the export leaves the line out
+        raw = re.sub(r'^(Begin Actor[^\n]*\n)', lambda m: m.group(1) + '    Location=%s\n' % at, raw, count=1)
+    if rot is not None:
+        turn = '(Pitch=%d,Yaw=%d,Roll=%d)' % tuple(int(v) for v in rot)
+        raw, n = re.subn(r'(?m)^(\s*Rotation=)\([^)]*\)', lambda m: m.group(1) + turn, raw, count=1)
+        if not n:
+            raw = re.sub(r'(?m)^(\s*Location=.*)$', lambda m: m.group(1) + '\n    Rotation=' + turn, raw, count=1)
+    return raw
+
+
+def edited(blocks, edits):
+    """A placed copy's blocks (place) with what the editor changed on its objects one by one, for an original map's
+    build (dxmaps.build): it starts from the map's source, which has no copy, so UC_SET and UC_DEL would find none. As
+    scene.py does for a map script's objects: a record is the object's when its name, its class and the place it had
+    (orig) are the block's; a moved object goes where the editor put it (a door's keys with it), a deleted one and one
+    given another class (Replace with...: an entry of edits.added that replaces it) are left out, the replacing one
+    coming in under its name. Returns (blocks, lines, grown, unreplaced): the blocks to import, the build report's
+    lines, {name: DrawScale} of the moved objects scaled (UC_SCALE once imported), and the objects given another class
+    that are not where the editor saw them: they stay, so their replacing objects must not come in (two objects never
+    share a name)."""
+    import mover_transform
+    import t3d
+    moved, deleted = edits.get('moved') or {}, edits.get('deleted') or {}
+    replaced = {a['name']: a['replaces'] for a in edits.get('added') or [] if isinstance(a.get('replaces'), dict)}
+    out, lines, grown, unreplaced = [], [], {}, set()
+    for raw in blocks:
+        actor = next(t3d.actors(raw))
+        n = actor['name']
+        if n in deleted:
+            if _at_place(actor, deleted[n]):
+                lines.append('  EDIT deleted %s' % n)
+                continue
+            lines.append('  EDIT skipped %s (not found as %s at its original place)' % (n, deleted[n].get('cls')))
+        if n in replaced:
+            if _at_place(actor, replaced[n]):
+                lines.append('  EDIT replaced %s (%s)' % (n, str(replaced[n].get('cls') or '').split('.')[-1]))
+                continue
+            lines.append('  EDIT %s not replaced (not found as %s at its original place)' % (n, replaced[n].get('cls')))
+            unreplaced.add(n)
+        record = moved.get(n)
+        if record and _at_place(actor, record):
+            old = actor['props']
+            raw = _posed(raw, record['loc'], record.get('rot'))
+            if 'Mover' in actor['cls']:             # a door's base and keys go with it, as dxmaps' move_keys does
+                xf = mover_transform.relocation(old, record['loc'], record.get('rot') or t3d.rot(old.get('Rotation')))
+                raw = mover_transform.apply(raw, old, xf)
+            lines.append('  EDIT moved %s' % n)
+            if record.get('scale') and abs(float(record['scale']) - 1) > 1e-3:
+                grown[n] = float(record['scale'])
+        elif record:
+            lines.append('  EDIT skipped %s (not found as %s at its original place)' % (n, record.get('cls')))
+        out.append(raw)
+    return out, lines, grown, unreplaced

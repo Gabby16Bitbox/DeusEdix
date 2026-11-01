@@ -26,7 +26,7 @@ class TutorialUpdateTests(unittest.TestCase):
         own['infolinks'][2]['lines'] = [{'text': 'My own door instructions'}]
         own['infolinks'].pop(4)  # A deliberate deletion stays deleted.
         own['events'][1]['when']['radius'] = 222
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as tmp:
             path = Path(tmp) / 'story.json'
             path.write_text(json.dumps(own))
             tutorial._refresh_story(path, old, new)
@@ -197,6 +197,21 @@ class TutorialSessionTests(unittest.TestCase):
                 self.assertEqual(runtime.read_bytes(), b'user changed data')
         with patch.object(tutorial.settings, 'PROJECT_ID', 'another-tutorial'):
             self.assertFalse(tutorial.available())
+
+    def test_tutorial_workers_are_locked_to_their_own_game(self):
+        for ident, target in [('training','revision'), ('training-revision','revision'), ('training-vanilla','vanilla')]:
+            with self.subTest(ident=ident), patch.object(tutorial.settings,'PROJECT_ID',ident), \
+                    patch.object(tutorial.settings,'TARGET',target,create=True):
+                self.assertTrue(tutorial.available())
+                self.assertEqual(tutorial.info()['target'],target)
+                with patch.object(tutorial.settings,'TARGET','vanilla' if target=='revision' else 'revision'):
+                    self.assertFalse(tutorial.available())
+
+    def test_pristine_cache_cannot_cross_game_targets(self):
+        with patch.object(tutorial.settings,'TARGET','revision',create=True):
+            revision = tutorial._fingerprint()
+        with patch.object(tutorial.settings,'TARGET','vanilla',create=True):
+            self.assertNotEqual(revision,tutorial._fingerprint())
 
     def test_failed_build_never_creates_session_or_pristine_snapshot(self):
         self.write(self.built, b'old user build')

@@ -1,0 +1,118 @@
+{
+  "id": "condition_counter",
+  "title": "Condition: a counter compared with a number",
+  "behaviour": "A counter never set reads 0; ==, < and != compare it as the game does.",
+  "derivedFrom": [
+    {"file": "UCEditorStory.uc", "lines": [857, 858], "has": "if (kind == \"count\")"},
+    {"file": "UCEditorStory.uc", "lines": [866, 883], "has": "function bool Compare(int a, string op, int b)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if the counter Keys is exactly 2: the message Exactly two",
+        "requires": [{"type": "counter", "counter": "Keys", "op": "==", "value": 2}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Exactly two"}]
+      },
+      {
+        "id": "L2",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if the counter Keys is less than 2: the message Fewer than two",
+        "requires": [{"type": "counter", "counter": "Keys", "op": "<", "value": 2}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Fewer than two"}]
+      },
+      {
+        "id": "L3",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if the counter Keys is not 0: the message Some keys",
+        "requires": [{"type": "counter", "counter": "Keys", "op": "!=", "value": 0}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Some keys"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "set": {"counters": {"Keys": 2}}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "skip|LogicFixtures|L1|cond|count|Keys|==|2"},
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L2|Button1|used|JCDentonMale0|When JC uses Button1, only if the counter Keys is less than 2: the message Fewer than two"
+    },
+    {"t": 1.0, "line": "skip|LogicFixtures|L3|cond|count|Keys|!=|0"},
+    {"t": 1.1, "line": "act|LogicFixtures|L2|message||Fewer than two"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if the counter Keys is exactly 2: the message Exactly two"
+    },
+    {"t": 2.0, "line": "skip|LogicFixtures|L2|cond|count|Keys|<|2"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L3|Button1|used|JCDentonMale0|When JC uses Button1, only if the counter Keys is not 0: the message Some keys"
+    },
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||Exactly two"},
+    {"t": 2.1, "line": "act|LogicFixtures|L3|message||Some keys"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if the counter Keys is exactly 2: the message Exactly two\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"count|Keys|==|2\"",
+        "Act(0)": "\"0|message||Exactly two||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Button1, only if the counter Keys is less than 2: the message Fewer than two\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"count|Keys|<|2\"",
+        "Act(0)": "\"0|message||Fewer than two||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC uses Button1, only if the counter Keys is not 0: the message Some keys\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"count|Keys|!=|0\"",
+        "Act(0)": "\"0|message||Some keys||\""
+      }
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "id": "self_retrigger_skips_running",
+  "title": "A rule that sets off its own output finds itself running",
+  "behaviour": "A rule whose action makes its own output happen again is told while it is still in Running, and skips.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"},
+    {"file": "UCLink.uc", "lines": [790, 809], "has": "state Running"},
+    {"file": "UCTimer.uc", "lines": [45, 55], "has": "function StopIt()"}
+  ],
+  "assumes": ["A1"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.0,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: start Timer1, stop Timer1",
+        "do": [
+          {"id": "a1", "verb": "timerstart", "target": "Timer1", "delay": 0},
+          {"id": "a2", "verb": "timerstop", "target": "Timer1", "delay": 0}
+        ]
+      },
+      {
+        "id": "L2",
+        "src": "Timer1",
+        "when": "stopped",
+        "once": false,
+        "label": "When Timer1 is stopped: start Timer1, stop Timer1",
+        "do": [
+          {"id": "a1", "verb": "timerstart", "target": "Timer1", "delay": 0},
+          {"id": "a2", "verb": "timerstop", "target": "Timer1", "delay": 0}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Timer1", "chain": ["UCTimer", "UCEditorStory", "Info", "Actor"], "at": [0, 128, 0], "seconds": 30}
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: start Timer1, stop Timer1"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|timerstart|Timer1|"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|timerstop|Timer1|"},
+    {"t": 1.1, "line": "fire|LogicFixtures|L2|Timer1|stopped|Timer1|When Timer1 is stopped: start Timer1, stop Timer1"},
+    {"t": 1.1, "line": "act|LogicFixtures|L2|timerstart|Timer1|"},
+    {"t": 1.1, "line": "act|LogicFixtures|L2|timerstop|Timer1|"},
+    {"t": 1.1, "line": "skip|LogicFixtures|L2|running|"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: start Timer1, stop Timer1\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|timerstart|Timer1|||\"",
+        "Act(1)": "\"0|timerstop|Timer1|||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Timer1_Stop",
+        "When": "stopped",
+        "Rule": "\"L2\"",
+        "Label": "\"When Timer1 is stopped: start Timer1, stop Timer1\"",
+        "Source": "\"Timer1\"",
+        "Act(0)": "\"0|timerstart|Timer1|||\"",
+        "Act(1)": "\"0|timerstop|Timer1|||\""
+      }
+    }
+  ]
+}

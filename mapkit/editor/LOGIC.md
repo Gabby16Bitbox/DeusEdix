@@ -68,7 +68,8 @@ does not say; a MultiMover's sequences 0-3 that have keys, `SeqKey1..4(0)`) is r
 nothing. The page caps the field and Check map says so too (`lkFloorOk`).
 
 A sound effect played by a rule (`UCSoundFX` with `bOnTouch` off) says neither "walks in" nor "walks out": the page
-does not offer them, and Check map warns about a rule saved before.
+does not offer them, and Check map warns about a rule saved before. Its input `off` (the page's *Stop its repeats*)
+untriggers it: one that plays again by itself (`RepeatMax`, its More sounds' *Repeats every*) stops.
 
 ## Conditions: one model for rules and the Story
 

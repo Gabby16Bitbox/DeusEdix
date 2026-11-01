@@ -63,6 +63,7 @@ import project_server  # noqa: E402
 import tutorial  # noqa: E402
 import rebuild as rebuild_options  # noqa: E402
 import play_preview  # noqa: E402
+import play_prepare  # noqa: E402
 import build_job  # noqa: E402
 import player_start  # noqa: E402
 import mods  # noqa: E402
@@ -192,6 +193,9 @@ def run_ps(script, *args):
     if settings.STANDALONE:           # DeusEdix installed: the same steps in Python (workspace.py)
         import workspace
         return {'build.ps1': workspace.build, 'install.ps1': workspace.install}[script]()
+    if script == 'build.ps1':         # it writes into the files of dist, which the warm build host holds
+        import resident_build
+        resident_build.release()
     r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(PROJECT / script)] + list(args),
                        cwd=str(PROJECT), capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1200)
     text = (r.stdout or '') + (r.stderr or '')
@@ -287,6 +291,18 @@ def map_source(script):
     return dxmaps.source(map_of(script)) if is_dx(script) else KIT / 'maps' / (script + '.py')
 
 
+def play_files(script):
+    """A map's own files as Play's preparation and a Rebuild's record of it hash them, by their content
+    (play_prepare): its .dx or map script (map_source), its edits and, for a .dx map edited from its private copy (an
+    authoring record), the copy installed in the project, which its build checks (dxmaps.source refuses one changed
+    outside DeusEdix): the only other map of the project a build reads."""
+    files = [map_source(script), edits_path(script)]
+    installed = dxmaps.MOD_MAPS / (map_of(script) + '.dx') if is_dx(script) else None
+    if installed is not None and files[0] != installed and installed.is_file():
+        files.append(installed)
+    return files
+
+
 def check_edits(edits):
     """What a map's edits must be before they are kept (ValueError, TypeError, AttributeError): /api/edits, a map
     template's (maptemplates.save)."""
@@ -298,6 +314,20 @@ def check_edits(edits):
     player_profiles.validate_edits(edits)
 
 
+def compile_for_player(edits):
+    """The project's package compiled before a map with a player character is built, when its record says so
+    (play_prepare.compile_step: workspace.needs_build is always True in a development working copy, which compiled at
+    every build of such a map: re-test 3 of 31 Oct 2026, #2). (ok, lines)."""
+    if not player_profiles.blocks(edits):
+        return True, []
+
+    def compile_package():
+        if game_running():
+            return False, ['Close the game before rebuilding player characters.']
+        return run_ps('build.ps1', '-Isolated')
+    return play_prepare.compile_step(compile_package)
+
+
 def build(script, options=None, watch=None):
     """Build a map with its edits: (ok, the lines worth showing). watch: the background Rebuild that follows it
     (build_job.Job): told of the processes the build starts, it can stop them."""
@@ -306,14 +336,9 @@ def build(script, options=None, watch=None):
     prefab_edits = load_edits(script)
     # Rebuild can run before Play on an upgraded workspace. Do not silently drop
     # the new map controller because the old compiled package lacks its class.
-    if player_profiles.blocks(prefab_edits):
-        import workspace
-        if workspace.needs_build():
-            if game_running():
-                return False, ['Close the game before rebuilding player characters.']
-            ready, runtime_lines = run_ps('build.ps1', '-Isolated')
-            if not ready:
-                return False, runtime_lines
+    ready, runtime_lines = compile_for_player(prefab_edits)
+    if not ready:
+        return False, runtime_lines
     prefab_source = map_source(script)
     prefab_source_state = prefab_snapshot.source_state(prefab_source)
     if is_dx(script):
@@ -323,20 +348,25 @@ def build(script, options=None, watch=None):
         return ok, lines
     path = KIT / 'maps' / (script + '.py')
     env = rebuild_options.script_environment(options)
+    env['DEUSEDIX_BUILD_PREVIEW'] = '1'
     if watch is not None:
         env[kit.HOST_LOG_ENV] = str(watch.note)       # the script's host runs name their log there (the stages)
-    process = subprocess.Popen(settings.python() + [str(path)], cwd=str(PROJECT), stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
-                               creationflags=subprocess.CREATE_NO_WINDOW, env=env)
-    try:
-        if watch is not None:
-            watch.started(process, None)
-        out, err = process.communicate(timeout=3600)
-    except BaseException:                             # stopped or too long: never left running
-        process.kill()
-        process.communicate()
-        raise
-    text = (out or '') + (err or '')
+    import resident_build
+    with resident_build.offer(env, watch) as build_offer:
+        process = subprocess.Popen(settings.python() + [str(KIT / 'build_cached.py'), str(path)], cwd=str(PROJECT), stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                                   creationflags=subprocess.CREATE_NO_WINDOW, env=env)
+        try:
+            if watch is not None:
+                watch.started(process, None)
+            if build_offer:
+                build_offer.attach(process)
+            out, err = process.communicate(timeout=3600)
+        except BaseException:                             # stopped or too long: never left running
+            process.kill()
+            process.communicate()
+            raise
+        text = (out or '') + (err or '')
     lines = [l for l in text.splitlines()
              if re.search(r'built |IN SOLID|TEXTURE|STRETCHED|DROP:|SNAP:|EDIT |ZONE |retry|Error|Traceback', l)]
     if process.returncode != 0:
@@ -355,7 +385,9 @@ def _record_prefab_build(script, edits, lines, expected_source=None):
         lines.append('Prefab snapshot not available: %s. Rebuild before saving a prefab.' % exc)
 
 
-def save_prefab_selection(script, body):
+def _prefab_source(script, body):
+    """The map a prefab is taken from, as it is shown: its rebuilt cache, checked current against the edits the page
+    sent (never rebuilt or saved here). Returns (map name, its cache folder, its saved edits)."""
     if not isinstance(body, dict) or not isinstance(body.get('edits'), dict):
         raise ValueError('Invalid prefab request.')
     if tutorial.available():
@@ -367,7 +399,55 @@ def save_prefab_selection(script, body):
     folder = data.CACHE / map_name
     prefab_snapshot.require_current(shown, saved, body['edits'], folder, data.MESH_VERSION, source,
                                     original=is_dx(script) and shown == source)
-    return prefab_library.save(map_name, body.get('selection'), body.get('label'), folder, data.structures(map_name))
+    return map_name, folder, saved
+
+
+def save_prefab_selection(script, body):
+    map_name, folder, _ = _prefab_source(script, body)
+    return prefab_library.save(map_name, body.get('selection'), body.get('label'), folder, data.structures(map_name),
+                               body.get('picture'))
+
+
+def apply_prefab(script, body):
+    """Apply to prefab: a placed copy (body['pid'], as the map's saved edits have it) saved back as its prefab's newest
+    version, from the map as it is built."""
+    map_name, folder, saved = _prefab_source(script, body)
+    entry = next((e for e in saved.get('prefabs') or [] if isinstance(e, dict) and e.get('pid') == body.get('pid')), None)
+    if entry is None:
+        raise ValueError('This copy is not in the saved map yet: Rebuild first.')
+    if entry.get('unpacked'):
+        raise ValueError('This copy was unpacked: it is no longer linked to its prefab.')
+    return prefab_library.new_version(map_name, entry, folder, data.structures(map_name))
+
+
+def change_prefab_library(path, body):
+    """The Prefabs browser's changes to the library: a prefab renamed, its picture replaced, deleted (body['open']: the
+    versions the open map places, its edits not saved yet)."""
+    if not isinstance(body, dict):
+        raise ValueError('Invalid prefab request.')
+    if tutorial.available():
+        raise ValueError('The tutorial is temporary: change prefabs in a normal project.')
+    if path == '/api/prefab_rename':
+        return prefab_library.rename(body.get('line'), body.get('label'))
+    if path == '/api/prefab_thumb':
+        return prefab_library.thumbnail(body.get('line'), body.get('picture'))
+    opened = body.get('open') or []
+    if not isinstance(opened, list) or len(opened) > 4096:
+        raise ValueError('Invalid prefab request.')
+    return prefab_library.delete(body.get('line'), opened)
+
+
+def sweep_prefabs():
+    """A project opened: the versions of its deleted prefabs that nothing saved places any more go
+    (prefab_library.sweep). One that cannot be checked is kept; it never stops the editor from starting."""
+    try:
+        gone = prefab_library.sweep()
+    except (OSError, ValueError) as exc:
+        print('The files of deleted prefabs were kept: %s' % exc, flush=True)
+        return 0
+    if gone:
+        print('Deleted prefabs: %d version(s) that nothing places any more taken away.' % gone, flush=True)
+    return gone
 
 
 def require_player_start(script):
@@ -383,26 +463,37 @@ def loadout_catalog():
 
 
 def prepare_play(script):
-    """Build a test copy without baking edits into the project's editable map."""
+    """Build a test copy without baking edits into the project's editable map. The package's compile, the map's build
+    and the install of the packages are each left out, and the lines say so, when nothing they are made from changed
+    since they last succeeded (play_prepare). The route checked the map's Player start already (do_POST)."""
     import workspace
-    require_player_start(script)
     play_preview.restore()
     lines = story.write_all(current=map_of(script))
-    if workspace.needs_build():
-        ok, output = run_ps('build.ps1', '-Isolated')
-        lines += output
-        if not ok:
-            return False, lines
-    ok, output = build(script)
-    lines += output
-    if not ok:
-        return False, lines
-    ok, output = workspace.install(maps=False, activate_project=False)
+    ok, output = play_prepare.prepare(script, map_of(script), play_files(script),
+                                      lambda: run_ps('build.ps1', '-Isolated'),
+                                      lambda mode: build(script, {'mode': mode}),
+                                      lambda: workspace.install(maps=False, activate_project=False))
     lines += output
     if not ok:
         return False, lines
     lines += play_preview.stage(data.OUT / (map_of(script) + '.dx'), map_of(script))
     return True, lines
+
+
+def rebuild(script, options=None, watch=None):
+    """The page's Rebuild (build_job): build(), in any mode, leaving the record of the map's build that Play's
+    preparation leaves (play_prepare.rebuilt), so the next Play stages the map the editor shows without building it
+    again: a forced mode only adds stages to what the edits need (rebuild.plan), from the same inputs (game re-test of
+    30 Oct 2026: a Rebuild in Lighting was built again by the next Play, in Automatic, without its lighting); the record
+    keeps the mode for the Plays that build the map again. A player character's package is compiled first, so the record
+    reads what the map is made from after it (compile_for_player; the one in build() is then left out). A cancelled
+    Rebuild leaves the record as it was, as its job puts the earlier output back (watch.settle, asked as it ends)."""
+    ready, lines = compile_for_player(load_edits(script))
+    if not ready:
+        return False, lines
+    return play_prepare.rebuilt(script, map_of(script), play_files(script), lambda: build(script, options, watch=watch),
+                                rebuild_options.normalize(options)['mode'],
+                                watch.settle if watch is not None else lambda: False)
 
 
 def install_map(script):
@@ -632,7 +723,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, [])
                 return self._send(409, dict(error='Choose a project first.'))
             with project_server.operation():
-                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/pieces', '/api/build_status'):
+                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/prefab_usage', '/api/pieces', '/api/build_status'):
                     project_server.ensure_runtime()
                 return self._project_GET()
         except (ValueError, RuntimeError, OSError) as exc:
@@ -644,6 +735,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == '/api/prefab_library':
                 return self._send(200, dict(items=prefab_library.library()))
+            if u.path == '/api/prefab_usage':           # where a prefab is placed: what its Delete asks about
+                return self._send(200, prefab_library.usage(q.get('line')))
             if u.path == '/api/missiongraph':
                 return self._send(200, mission_graph.status())
             if u.path == '/api/state_catalog':
@@ -663,7 +756,10 @@ class Handler(BaseHTTPRequestHandler):
                 if '..' in rel.parts:
                     return self._send(403, {'error': 'no'})
                 if len(rel.parts) == 2 and rel.name == 'display.json':
-                    return self._send(200, prefabs.display(rel.parts[0]))
+                    try:
+                        return self._send(200, prefabs.display(rel.parts[0]))
+                    except prefabs.Gone as exc:       # not there any more, unlike a file that cannot be read (409)
+                        return self._send(404, dict(error=str(exc)))
                 return self._file(prefabs.ROOT / rel, keep=True)
             if u.path.startswith('/map_templates/'):      # a map template's picture (New map's tiles)
                 return self._file(maptemplates.picture_file(u.path[len('/map_templates/'):]), keep=True)
@@ -973,10 +1069,13 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         project_server.ensure_runtime()
                     map_name = map_of(script)
+                    # whether an existing map's build is current, asked once (it reads and hashes the whole source):
+                    # what is shown, built= and builtSurfaces= follow it
+                    current = dxmaps.built_current(map_name) if is_dx(script) else True
                     if is_dx(script):
                         # an existing map: shown as built with the edits, or as it is; structures found
                         # automatically on the map as it is
-                        data.prepare(map_name, src=dxmaps.shown(map_name), log=lambda *a: None,
+                        data.prepare(map_name, src=dxmaps.shown(map_name, current), log=lambda *a: None,
                                      analyse=lambda folder: dxmaps.structures(map_name, folder, data.actors(map_name)))
                     else:
                         data.prepare(map_name, log=lambda *a: None)
@@ -992,11 +1091,14 @@ class Handler(BaseHTTPRequestHandler):
                     edits=load_edits(script), publishedLayout=tutorial.published_edits() if session else None, palette=data.palette(),
                     kind=('dx-' + ('mod' if dxmaps.source(map_name).parent == dxmaps.MOD_MAPS else 'game'))
                     if is_dx(script) else 'script',
-                    built=dxmaps.built_current(map_name) if is_dx(script) else True, package=settings.PACKAGE,
+                    built=current, package=settings.PACKAGE,
+                    # the surface rows the map shown was built with (null: not known): the view previews the others
+                    builtSurfaces=dxmaps.built_surfaces(map_name, current) if is_dx(script) else data.built_surfaces(map_name, edits_path(script)),
                     models_package=settings.MODELS_PACKAGE, standalone=settings.STANDALONE,
                     game=game_running(), tutorialSession=session, target=settings.TARGET,
                     gameName=settings.GAME_NAME, features=sorted(settings.FEATURES),
-                    north=mapsettings.true_north(map_name)))           # the 3D view's heading (view-axes.js)
+                    north=mapsettings.true_north(map_name),            # the 3D view's heading (view-axes.js)
+                    zones=data.zone_looks(map_name)))                  # what each zone does to the view's Effects, its sound
             return self._send(404, {'error': 'unknown'})
         except (ValueError, RuntimeError, OSError) as e:
             return self._send(409, project_server.error_payload(e))
@@ -1014,7 +1116,7 @@ class Handler(BaseHTTPRequestHandler):
         if not project_server.authorized(self.headers):
             return self._send(409, dict(error='This editor session changed. Reopen the project before saving.'))
         try:
-            if path == '/api/prefab_library' and not 0 < int(self.headers.get('Content-Length', 0) or 0) <= 8 * 1024 * 1024:
+            if path in ('/api/prefab_library', '/api/prefab_apply', '/api/prefab_thumb') and not 0 < int(self.headers.get('Content-Length', 0) or 0) <= 8 * 1024 * 1024:
                 return self._send(400, dict(error='The prefab request is too large or empty.'))
             if path.startswith('/api/projects/') or path.startswith('/api/project/'):
                 n = int(self.headers.get('Content-Length', 0) or 0)
@@ -1047,6 +1149,25 @@ class Handler(BaseHTTPRequestHandler):
             if path in ('/api/agent/call', '/api/agent/result'):
                 # not an operation of the project: a call waits for the page, which makes its own requests
                 return self._agent_POST(path)
+            if path.startswith('/api/blender/'):
+                # Draft exchange only: never wait for or initiate a game runtime rebuild.
+                import blender_bridge
+                n = int(self.headers.get('Content-Length', 0) or 0)
+                if not 0 <= n <= blender_bridge.MAX_BYTES:
+                    return self._send(400, dict(error='The Blender request is too large.'))
+                body = json.loads(self.rfile.read(n) or b'{}')
+                if not isinstance(body, dict):
+                    return self._send(400, dict(error='Invalid Blender request.'))
+                with project_server.operation():
+                    return self._send(200, blender_bridge.handle(path.rsplit('/', 1)[-1], body))
+            if path in ('/api/screen_color/pick', '/api/screen_color/cancel'):
+                # UI-only sampling: no runtime preparation, map writes or build lock.
+                import screen_picker
+                n = int(self.headers.get('Content-Length', 0) or 0)
+                if not 0 < n <= 128:
+                    return self._send(400, dict(error='Invalid screen picker request.'))
+                body = json.loads(self.rfile.read(n))
+                return self._send(200, screen_picker.handle(path.rsplit('/', 1)[-1], body))
             if path == '/api/missiongraph/scan':
                 # Analysis never saves maps or compiles the project runtime.
                 n = int(self.headers.get('Content-Length', 0) or 0)
@@ -1146,7 +1267,7 @@ class Handler(BaseHTTPRequestHandler):
         def guard():
             tutorial_write_guard(path, query, headers)
             project_server.ensure_runtime()
-        return self._send(200, build_job.start(script, map_of(script), rebuild_options.normalize(body), build=build,
+        return self._send(200, build_job.start(script, map_of(script), rebuild_options.normalize(body), build=rebuild,
                                                out=data.OUT, turn=UserTurn, operation=project_server.operation, guard=guard))
 
     def _mods_POST(self, path):
@@ -1423,7 +1544,7 @@ class Handler(BaseHTTPRequestHandler):
                         voiced = sounds.rekey(body['story'], log=lambda *a: None)
                         story.save(map_of(q['script']), body['story'])
                     lines = voiced + story.write_all(current=map_of(q['script']))
-                    ok, out = run_ps('build.ps1', '-Isolated')
+                    ok, out = play_prepare.recompiled(lambda: run_ps('build.ps1', '-Isolated'))     # Play's record too
                     lines += out
                     if ok and not game_running():
                         ok, out = run_ps('install.ps1')
@@ -1449,6 +1570,17 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/prefab_library':
                 with LOCK:
                     return self._send(200, save_prefab_selection(q['script'], body))
+            if u.path == '/api/prefab_apply':
+                # Apply to prefab: a placed copy saved back as its prefab's newest version (Rebuild first)
+                with LOCK:
+                    return self._send(200, apply_prefab(q['script'], body))
+            if u.path in ('/api/prefab_rename', '/api/prefab_thumb', '/api/prefab_delete'):
+                with LOCK:
+                    return self._send(200, change_prefab_library(u.path, body))
+            if u.path == '/api/prefab_members':
+                # Update instances: where the objects of the copies stand in the version they are put on
+                with LOCK:
+                    return self._send(200, dict(members=prefab_library.members(body.get('entries') if isinstance(body, dict) else None)))
             if u.path == '/api/drawn_look':
                 # a drawing's faces with their textures as the build maps them (the editor's preview until a Rebuild)
                 import drawn
@@ -1566,7 +1698,8 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     return self._send(200, user_scripts.compile(log=lambda *a: None))
             if u.path == '/api/console':
-                # the Console: one line for the running game's own console (UCConsoleLink), not under LOCK
+                # the Console: one line for the running game's own console (UCConsoleLink), under LOCK like every
+                # request (UserTurn): a line sent during a Stop waits for it, then is refused (not running, or closing)
                 import live
                 answer = live.console(body.get('command', ''))
                 return self._send(200, dict(ok=True, answer=answer, queued=answer is None))
@@ -1580,11 +1713,19 @@ class Handler(BaseHTTPRequestHandler):
                             raise RuntimeError('This Play preparation has changed. Refresh its status before cancelling.')
                     if body.get('token') and not secrets.compare_digest(str(body['token']), str(session.get('token') or '')):
                         raise RuntimeError('This Play session has been replaced. Refresh its status before stopping.')
-                    answer = live.stop(timeout=5)
+                    # the page's embedded Stop first only asks the game to close (force false): one still open
+                    # stays as it is (live.STILL_OPEN, still running), for the page to take it out of its panel and
+                    # Stop again; any other Stop may close it from outside, and with ask false (a game stopped in
+                    # its error box, which can no longer answer) at once, without asking first
+                    answer = live.stop(timeout=5, force=body.get('force', True) is not False,
+                                       ask=body.get('ask', True) is not False)
                     session = live.session_status()
-                    if not session.get('running') and not session.get('launching') and game_running():
+                    # asked once: a second game_running gave the same answer while Stop's answer waited for it (game
+                    # test 2d O2; then a tasklist run of about 0.5 s)
+                    ended = not session.get('running') and not session.get('launching')
+                    if ended and game_running():
                         raise RuntimeError('Another game is still running. Close it before restoring the Play copy.')
-                    stopped = not session.get('running') and not session.get('launching') and not session.get('error') and not game_running()
+                    stopped = ended and not session.get('error')
                     if stopped:
                         # Keep recovery visible until every temporary map has
                         # been restored, so a conflict stays retryable.
@@ -1625,7 +1766,6 @@ class Handler(BaseHTTPRequestHandler):
                 map_name = map_of(q['script'])
                 lines = []
                 prepared = bool(body.get('previewToken'))
-                require_player_start(q['script'])
                 if prepared:
                     if PREVIEW['script'] != q['script'] or not secrets.compare_digest(str(body['previewToken']), PREVIEW['token'] or ''):
                         raise ValueError('This Play preparation expired. Press Play again.')
@@ -1668,8 +1808,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def watch_game():
-    """The game opened by "View in game" or "Play from here" and then closed with its own X: put its
-    settings back (RevisionUser.ini without the runner's section, no UCLive maps), as "Close game" does."""
+    """The game opened by "View in game" or "Play from here" and then closed by itself (its own X or Quit): tidy up
+    after it as Stop does (play_session_status: its launch copies of the game's ini files and its UCLive maps gone, the
+    maps a prepared Play staged put back)."""
     import live
     while True:
         time.sleep(3)
@@ -1686,20 +1827,21 @@ def watch_game():
 
 
 def restore_cut_short_play():
-    """At start-up, with no game running: a Play of this workspace cut short (the editor killed while its game ran, so
-    the session's cleanup never ran) left the game's SavePath on DeusEdix's folder, and the player's own games would
-    save there; the player's own folder again (project_game.deactivate_if_current: for a workspace that is not a
-    project, only that). A project's settings are left to its close (retire_project). An ini or snapshot that cannot
-    be read or restored never stops the project opening: it is only logged. A game another process of this workspace
-    is still starting through Steam is not running yet: that Play would then save in the player's folder, a narrow
-    window (27 Oct 2026). -> restored"""
+    """At start-up, with no game running: a Play of DeusEdix 0.1.58 or older of this workspace cut short (the editor
+    killed while its game ran, so the session's cleanup never ran) left the game's SavePath on DeusEdix's folder, where
+    the player's own games would save, and its record of the map the player's game played last: the player's own again
+    (project_game.deactivate_if_current: for a workspace that is not a project, only those). A Play of today's never
+    writes the player's ini files, only its own launch copies of them, which live.tidy_cut_short() removes just before
+    this. A project's settings are left to its close (retire_project). An ini or snapshot that cannot be read or
+    restored never stops the project opening: it is only logged, in the words of the mapkit MCP's start-up
+    (project_game.RESTORE_FAILED). -> restored"""
     if getattr(settings, 'MANAGED_PROJECT', False):
         return False
+    import project_game
     try:
-        import project_game
         return project_game.deactivate_if_current()
     except Exception as exc:
-        print('The save folder of a Play cut short could not be restored: %s' % exc, flush=True)
+        print(project_game.RESTORE_FAILED % exc, flush=True)
         return False
 
 
@@ -1709,11 +1851,15 @@ def main():
     for d in (KIT / 'out', KIT / 'runs', KIT / 'maps', HERE / 'cache', PROJECT / 'maps', PROJECT / 'dist'):
         d.mkdir(parents=True, exist_ok=True)
     if project_server.WORKER and not game_running():
-        live.stop()          # a live session left over by a crash or a game closed while the editor was off
+        try:
+            live.tidy_cut_short()          # what a launch whose game no editor saw close left in the game
+        except Exception as exc:
+            print(live.TIDY_FAILED % exc, flush=True)
         play_preview.restore()
         restore_cut_short_play()
     if project_server.WORKER:
         threading.Thread(target=watch_game, daemon=True).start()
+        sweep_prefabs()          # the project opened: no page of it can still place a deleted prefab's version
     port = int(sys.argv[sys.argv.index('--port') + 1]) if '--port' in sys.argv else PORT
     srv = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     url = 'http://localhost:%d/' % port

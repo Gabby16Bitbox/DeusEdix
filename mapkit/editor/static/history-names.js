@@ -1,8 +1,9 @@
 // The map's undo history with a name for each step, as Unity's Undo History window and its Edit menu ("Undo Move 3
-// objects"). A step is the edits as a change found them (their JSON) and the change's short name, kept together: the
-// name goes wherever its snapshot goes (undone, redone, taken back by a drag that changed nothing, dropped by the cap).
-// The logic only, without the page: app.js keeps the history of the map open (it is not kept across a reload, nor a
-// Rebuild, which loads the map again: the edits themselves are saved and autosaved), history-panel.js lists it.
+// objects"). A step is the edits as a change found them (their JSON), the change's short name and what the page keeps
+// of those edits beside them (page: anything, or null), kept together: the name and the page go wherever the snapshot
+// goes (undone, redone, taken back by a drag that changed nothing, dropped by the cap). The page lives in memory only,
+// never saved. The logic only, no page code: app.js keeps the history of the map open (it is not kept across a reload,
+// nor a Rebuild, which loads the map again: the edits themselves are saved and autosaved), history-panel.js lists it.
 
 export const HISTORY_LIMIT = 100;          // steps kept: past it the oldest goes
 export const MAP_OPENED = 'Map opened';    // the bottom of the list: the map as it was opened
@@ -37,10 +38,12 @@ export function propertyName(key) {
   return words.map((w, i) => (i && !/^[A-Z0-9]+$/.test(w) ? w.toLowerCase() : w)).join(' ');
 }
 
-// a change about to be made: state, the edits before it; label, its name. The steps Redo had go (they followed
-// another past); past the cap the oldest goes. Both are kept aside until the next step, or a step back or forward
-export function recordStep(h, state, label, limit = HISTORY_LIMIT) {
-  const step = { state, label: stepName(label) };
+// a change about to be made: state, the edits before it; label, its name; limit: the cap (undefined: HISTORY_LIMIT);
+// page: what the page keeps of those edits beside them (none: null), last, so a caller that gives a cap as before is
+// read as before. The steps Redo had go (they followed another past); past the cap the oldest goes. Both are kept aside
+// until the next step, or a step back or forward
+export function recordStep(h, state, label, limit = HISTORY_LIMIT, page = null) {
+  const step = { state, label: stepName(label), page };
   h.undo.push(step);
   const oldest = h.undo.length > limit ? h.undo.splice(0, h.undo.length - limit) : [];
   h.kept = { step, redo: h.redo.splice(0), oldest, trimmed: h.trimmed };
@@ -57,14 +60,15 @@ export function dropStep(h) {
 }
 // the last step named again (an Alt copy that the drag went on to move is one step: "Duplicate and move")
 export function renameStep(h, label) { const s = h.undo.at(-1); if (s) s.label = stepName(label); }
-// One step back (way 'undo') or forward ('redo'). now: the edits now (JSON), the way back to them. Returns the step
-// taken ({state: the edits to put in place, label}), or null when there is none that way
-export function travelStep(h, way, now) {
+// One step back (way 'undo') or forward ('redo'). now: the edits now (JSON), the way back to them; page: what the page
+// keeps of them (as recordStep's), which that way back keeps. Returns the step taken ({ state: the edits to put in
+// place, label, page: what the page kept of them }), or null when there is none that way
+export function travelStep(h, way, now, page = null) {
   h.kept = null;                           // past the last step recorded: nothing to give back any more
   const [from, to] = way === 'undo' ? [h.undo, h.redo] : [h.redo, h.undo];
   const s = from.pop();
   if (!s) return null;
-  to.push({ state: now, label: s.label });
+  to.push({ state: now, label: s.label, page });
   return s;
 }
 

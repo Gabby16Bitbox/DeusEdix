@@ -56,7 +56,7 @@ KEEP = {
     'retexture': 'what wears them',
     'surfaces': 'the textures and alignment of faces',
     'level': "Map settings, the sky and the time of day (not the old place's own words: LEVEL_DROP)",
-    'motions': 'objects that move (Animation)',
+    'motions': 'objects that move (Animation), with their timed events (sounds, Events)',
     'anims': 'what objects do when idle',
     'player_move': 'how JC moves in the map',
     'paths': 'whether a Rebuild makes the AI paths again',
@@ -67,6 +67,7 @@ KEEP = {
 # what the editor makes again
 DROP = {
     'links': "Interactions: rules about the old map's objects, its flags and its goals",
+    'logic': "Logic's groups, signals, blocks, phases and graph layout: they name the old map's objects and states",
     'usable': 'objects JC uses for an interaction',
     'objectTags': "the interactions' scripting tags",
     'cutscenes': "cutscenes: they film the old map's characters and say its lines (their cameras go too)",

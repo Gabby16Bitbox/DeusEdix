@@ -4,7 +4,7 @@
 The game's computers read texts ("ExtString" objects) from a text package (Computers.TextPackage):
 the inbox of an account is "<mission>_EmailMenu_<login>" (one <EMAIL=text name,subject,from,to,cc>
 line per email), a public terminal's list is its bulletinTag (<FILE=text name,title> lines). Here each
-text becomes a hidden UCTextBlock actor of the map (TextName, Text); UCBoot makes them into
+text becomes a hidden UCTextBlock actor of the map (TextName, Text); the editor's runtime makes them into
 ExtStrings of the editor's package (settings.PACKAGE) when the map starts, and the editor sets the
 computer's TextPackage to it (and a public terminal's bulletinTag).
 """

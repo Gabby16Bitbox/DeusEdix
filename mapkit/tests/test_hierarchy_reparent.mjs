@@ -14,7 +14,7 @@ function body(name) {
 }
 const functions = ['keyOf', 'objOf', 'nestLeaves', 'nestsWithin', 'newNest', 'nextNestLabel', 'dropEmptyNests',
   'poseToPose', 'rotUE', 'keptPlaces', 'bakeOut', 'takeOutOf', 'stateTargets', 'stateKeys', 'keysAny', 'keysLocked', 'requireKeysUnlocked', 'sayLocked', 'captureHierarchyActors', 'retainHierarchyActors',
-  'reparentCheck', 'moveTo', 'hierarchyRoots', 'nestKeys', 'unnestNest', 'rebuildProxies', 'uncarried', 'beginGroupMove', 'followGroupMove', 'canScale'];
+  'reparentCheck', 'moveTo', 'hierarchyRoots', 'nestKeys', 'unnestNest', 'rebuildProxies', 'carries', 'carriedBy', 'uncarried', 'beginGroupMove', 'followGroupMove', 'canScale'];
 
 function setup() {
   const scene = new THREE.Scene(), proxies = new THREE.Group(), world = new THREE.Group(), groupPivot = new THREE.Group();
@@ -24,6 +24,7 @@ function setup() {
   const calls = [], history = [], locked = new Set();
   const context = vm.createContext({ THREE, rotations, scene, proxies, world, groupPivot, selected: null,
     waitsForRebuild: () => false,                         // sayLocked's: no Rebuild running (rebuildMap)
+    replacingOf: () => [],                                // carries': no pasted copy here (Room is a group of the map)
     objectRotation: p => p.userData.actor ? [p.userData.actor.rot?.[0] || 0, ((Math.round(-p.rotation.y*65536/(2*Math.PI))%65536)+65536)%65536, p.userData.actor.rot?.[2] || 0] : rotations.rot(p.quaternion),
     setObjectRotation: (p, r) => p.quaternion.copy(rotations.quat(r)),
     script: 'regression', baseActors: [initial], builtScale: {}, actorStruct: { Light1: 'Room' }, textureTransfer: null, surfaceTexturePreview: null,

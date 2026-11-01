@@ -167,12 +167,13 @@ def watching(name, x, y, anim, rate=.5):
 # A quiet burgundy weave, generated locally, gives reception the requested red floor.
 # Its mirror flag is handled by the game renderer; the editor shows the base material.
 from PIL import Image
+import signs
 carpet = Image.new('RGB', (128,128))
 carpet.putdata([(96+((x*17+y*31)%9)-4, 17+((x+y)%3), 27+((x*3+y)%5))
                 for y in range(128) for x in range(128)])
 carpet_path=KIT/'textures'/'_tutorial'/'TrainingBurgundy.pcx'
 carpet_path.parent.mkdir(parents=True,exist_ok=True)
-carpet.quantize(colors=32).save(carpet_path)
+signs.save(carpet.quantize(colors=32), carpet_path)     # its file kept when the same (play_prepare)
 s.texture(carpet_path,'TrainingBurgundy','Training')
 
 # Carve the complete connected shell before fittings. The cells make genuine L/U plans;
@@ -398,7 +399,7 @@ for ox,oy in ((0,0),(128,0),(0,128),(128,128)):
     paint.arc(tile((43,48,85,87)),0,180,fill='#282722',width=4)
 smile_path=KIT/'textures'/'_tutorial'/'HaleMoraleCrate.pcx'
 smile_path.parent.mkdir(parents=True,exist_ok=True)
-smile.quantize(colors=64).save(smile_path)
+signs.save(smile.quantize(colors=64), smile_path)
 s.texture(smile_path,'HaleMoraleCrate','Training')
 s.begin_group('materials','Materials workshop: side-by-side submissions','Building')
 for x,label in [(-1248,'HALE / APPROVED'),(-992,'RECRUIT / PENDING')]:

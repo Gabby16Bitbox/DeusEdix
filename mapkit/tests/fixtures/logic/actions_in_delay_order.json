@@ -1,0 +1,61 @@
+{
+  "id": "actions_in_delay_order",
+  "title": "Actions run in delay order, delays counted from the start",
+  "behaviour": "The editor sorts the actions by delay (equal delays keep their order) and the rule waits from one to the next: each delay counts from the moment the rule started, not from the action before.",
+  "derivedFrom": [
+    {"file": "links.py", "lines": [260, 260], "has": "acts.sort(key=lambda a: float(a.get('delay') or 0))"},
+    {"file": "UCLink.uc", "lines": [799, 803], "has": "Delay = float(Field(Act[Step], 0));"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 3.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: four messages",
+        "do": [
+          {"id": "a1", "verb": "message", "target": "", "delay": 2, "a": "C"},
+          {"id": "a2", "verb": "message", "target": "", "delay": 0, "a": "A"},
+          {"id": "a3", "verb": "message", "target": "", "delay": 1, "a": "B1"},
+          {"id": "a4", "verb": "message", "target": "", "delay": 1, "a": "B2"}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {"t": 1.0, "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: four messages"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||A"},
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||B1"},
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||B2"},
+    {"t": 3.1, "line": "act|LogicFixtures|L1|message||C"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: four messages\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|message||A||\"",
+        "Act(1)": "\"1|message||B1||\"",
+        "Act(2)": "\"1|message||B2||\"",
+        "Act(3)": "\"2|message||C||\""
+      }
+    }
+  ]
+}

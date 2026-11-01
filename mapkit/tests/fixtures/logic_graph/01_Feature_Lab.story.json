@@ -1,0 +1,117 @@
+{
+ "route": "always",
+ "dialogues": [
+  {
+   "id": "d1",
+   "title": "Rossi at the door",
+   "owner": "UCEdit8",
+   "bind": "UCEd_UCEdit8",
+   "start": "talk",
+   "radius": 200,
+   "once": true,
+   "requires": [],
+   "steps": [
+    {
+     "type": "line",
+     "who": "npc",
+     "text": "why are you mad?",
+     "id": "n1"
+    },
+    {
+     "type": "choice",
+     "options": [
+      {
+       "text": "well",
+       "goto": "to_n3"
+      },
+      {
+       "text": "well that's suck",
+       "goto": "to_n8"
+      }
+     ],
+     "id": "n2"
+    },
+    {
+     "type": "label",
+     "name": "to_n3",
+     "id": "n4"
+    },
+    {
+     "type": "line",
+     "who": "npc",
+     "text": "are you mad?",
+     "id": "n3"
+    },
+    {
+     "type": "line",
+     "who": "jc",
+     "text": "no",
+     "id": "n6"
+    },
+    {
+     "type": "line",
+     "who": "npc",
+     "text": "good.",
+     "id": "n7"
+    },
+    {
+     "type": "end",
+     "id": "n5"
+    },
+    {
+     "type": "label",
+     "name": "to_n8",
+     "id": "n9"
+    },
+    {
+     "type": "flag",
+     "flag": "UCEd9fd2_d1_Played",
+     "is": true,
+     "id": "n8"
+    },
+    {
+     "type": "end",
+     "id": "n10"
+    }
+   ]
+  }
+ ],
+ "events": [],
+ "infolinks": [],
+ "layout": {
+  "d1": {
+   "n1": [
+    0,
+    120
+   ],
+   "n2": [
+    0,
+    240
+   ],
+   "n3": [
+    297.5382062545454,
+    334.2515013818182
+   ],
+   "n5": [
+    355.0636218181817,
+    712.7392
+   ],
+   "n6": [
+    297.5382062545454,
+    454.2515013818182
+   ],
+   "n7": [
+    282.21171898181814,
+    567.8654650181818
+   ],
+   "n8": [
+    68.42181818181814,
+    398.7723636363636
+   ],
+   "n10": [
+    157.37914181818178,
+    496.93678545454543
+   ]
+  }
+ }
+}

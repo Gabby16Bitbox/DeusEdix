@@ -18,6 +18,29 @@ test('under the pointer: nearest first, each thing once, an icon just behind a w
   assert.deepEqual(stackKeys([]), []);
 });
 
+test('a model barely intersecting its supporting tabletop gets picked before the block', () => {
+  const hits = [{ key: 'b:Desk', distance: 348.7, proxy: true },
+    { key: 'a:Computer', distance: 351.3, proxy: true, detail: true },
+    { key: 'a:Computer', distance: 359, proxy: true, detail: true }];
+  assert.deepEqual(stackKeys(hits), ['a:Computer', 'b:Desk']);
+});
+
+test('a nearby prefab on a supporting block is selectable, with the block still in the cycle', () => {
+  const hits = [{key: 'b:Table', distance: 100, proxy: true},
+    {key: 's:paste~p1', distance: 108, proxy: false, detail: true}];
+  assert.deepEqual(stackKeys(hits), ['s:paste~p1', 'b:Table']);
+});
+
+test('never promote a detail through a wall or an unrelated closer actor', () => {
+  const desk = {key: 'b:Desk', distance: 100, proxy: true};
+  const computer = {key: 'a:Computer', distance: 108, proxy: true, detail: true};
+  assert.equal(stackKeys([desk, {key: null, distance: 105}, computer])[0], 'b:Desk');
+  assert.equal(stackKeys([desk, {key: 's:Wall', distance: 105}, computer])[0], 'b:Desk');
+  assert.deepEqual(stackKeys([desk, {key: 'a:Light', distance: 103, proxy:true}, computer]), ['b:Desk', 'a:Light', 'a:Computer']);
+  assert.deepEqual(stackKeys([desk, {...computer, distance: 120}]), ['b:Desk', 'a:Computer']);
+  assert.deepEqual(stackKeys([desk, {...computer, detail: false}]), ['b:Desk', 'a:Computer']);
+});
+
 test("the map's own walls are one step of their own (nothing to select), where they are", () => {
   const hits = [{ key: 'a:Crate', distance: 300, proxy: true }, { key: null, distance: 120 }, { key: null, distance: 500 }];
   assert.deepEqual(stackKeys(hits), [null, 'a:Crate']);                     // a click on the wall: nothing, again: the crate

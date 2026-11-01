@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { DRAW_LABELS } from '../editor/static/draw-tools.js';
 import { namedStep } from '../editor/static/history-names.js';
+import { linkFields } from '../editor/static/prefab-links.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const body = (name) => { const start = source.indexOf(`function ${name}(`); assert.ok(start >= 0, name); return source.slice(start, source.indexOf('\n}', start) + 2); };
@@ -31,7 +32,7 @@ function page(extra = {}) {
     nextName: (prefix) => prefix + (used[prefix] = (used[prefix] ?? -1) + 1),
     pushUndo() {}, dropUndo() {}, namedStep, objectLabel: (p) => [nameOf(p), ''], itemLabel: (it) => it.cls, setDirty() {}, intoDefaultFolder() {}, folderForNew: () => null, cancelPlacing() {}, focusSelected() {},
     select: (p) => { c.selected = p; }, status: (text, kind) => c.said.push([text, kind]), log: (text, kind) => c.logged.push([text, kind]),
-    menuKey: (id) => ({ move: 'W', rotate: 'E', scale: 'Y' }[id]),             // the Scale tool bound to Y in Settings
+    menuKey: (id) => ({ move: 'W', rotate: 'E', scale: 'J' }[id]),             // the Scale tool bound to J in Settings
     warnHiddenKinds: (list, done) => c.warned.push([[...list].map(nameOf), done]),
     makeBoxProxy: (b) => { const p = proxy({ box: b, kind: 'box' }); proxies.children.push(p); return p; },
     makeProxy: (a) => { const p = proxy({ actor: a, kind: a.kind }); proxies.children.push(p); return p; },
@@ -60,13 +61,19 @@ test('placing from the browser: an object, a block, a prefab, a hole; the hole\'
   c.placeWith(r, { quiet: true });
   assert.deepEqual(c.warned.at(-1), [['UCEdit0'], 'Placed']);
   Object.assign(c, { placing: { prefab: { id: 'pf', label: 'Booth', source: 'Other', pivot: [0, 0, 0] } }, prefabYaw: () => 0, nextPid: () => 'p1',
-    moverFields: () => ({}), rebuildProxies: () => { c.structures['paste~p1'] = { obj: { userData: { kind: 'structure', name: 'paste~p1' } } }; } });
+    moverFields: () => ({}), linkFields, rebuildProxies: () => { c.structures['paste~p1'] = { obj: { userData: { kind: 'structure', name: 'paste~p1' } } }; } });
   c.placeWith(r);
   assert.deepEqual(c.warned.at(-1), [['paste~p1'], 'Placed'], 'a prefab: its structure');
+  assert.equal(c.edits.prefabs.at(-1).line, undefined, 'not one of the library: not linked');
+  c.placing = { prefab: { id: 'usr_22222222222222222222222222222222', line: 'usr_11111111111111111111111111111111', version: 2, label: 'Desk', source: 'Office', pivot: [0, 0, 0] } };
+  c.placeWith(r);
+  assert.deepEqual([c.edits.prefabs.at(-1).prefab, c.edits.prefabs.at(-1).line, c.edits.prefabs.at(-1).version], ['usr_22222222222222222222222222222222', 'usr_11111111111111111111111111111111', 2],
+    'a prefab of the library: the copy is linked to it, at its newest version');
+  c.edits.prefabs.pop(); c.warned.pop();
   Object.assign(c, { placing: { box: true, hole: true, size: [1, 1, 1] }, holeBox: () => ({ name: 'UCEditBox9', lo: [0, 0, 0], hi: [64, 64, 112], tex: 'Tex', hole: true }) });
   c.placeWith(r);
   assert.deepEqual(c.warned.at(-1), [['UCEditBox9'], 'Placed']);
-  assert.match(c.logged.at(-1)[0], /resize it with Y or in the panel/);
+  assert.match(c.logged.at(-1)[0], /resize it with J or in the panel/);
   assert.equal(c.warned.length, 4);
 });
 
@@ -75,7 +82,7 @@ test('the Hierarchy\'s + (a cube, a wedge...): said, and the tools\' keys as Set
   load(c, 'createSolid');
   c.createSolid('box');
   assert.deepEqual(c.warned, [[['UCEditBox0'], 'Added']]);
-  assert.match(c.said.at(-1)[0], /^Cube added: W moves it, E turns it, Y resizes it;/);
+  assert.match(c.said.at(-1)[0], /^Cube added: W moves it, E turns it, J resizes it;/);
 });
 
 test('the 2D Shape Editor\'s blocks, a drawing, a hole\'s light', () => {
@@ -118,12 +125,13 @@ test('Fill AI paths, Clip / Intersect, a point of a patrol route', async () => {
 
 test('R while placing turns it: the status names the Scale tool\'s key as Settings binds it', () => {
   const c = page({ placing: { cls: 'Barrel1' }, lastPlacingMove: null, movePlacing() {}, gameView: null, projectHub: null, textureTransfer: null,
-    propertySlider: null, inspectorDrag: null, cam: { look: false, keys: {} }, document: { querySelector: () => null },
+    propertySlider: null, inspectorDrag: null, cancelNumberScrub: null, cam: { look: false, keys: {} }, document: { querySelector: () => null },
+    surfaceTools: { mode: false },                       // (Face selection off: its Alt keys are not these)
     window: { addEventListener: (type, fn) => { if (type === 'keydown') c.keydown = fn; } } });
   vm.runInContext(body('turnPlacing') + '\n' + body('buildKeyGate') + '\n' + keysSource, c);     // (buildKeyGate: the keys during a Rebuild)
   c.keydown({ key: 'r', code: 'KeyR', ctrlKey: false, shiftKey: false, altKey: false, target: { tagName: 'CANVAS' }, preventDefault() {} });
   assert.equal(c.placing.turn, 16384);
-  assert.equal(c.said.at(-1)[0], 'Turned 90° (Y turns it again). Click where it goes.');
+  assert.equal(c.said.at(-1)[0], 'Turned 90° (J turns it again). Click where it goes.');
   // no status of placing names the tools' keys as they were at first
   assert.doesNotMatch(source, /\(R turns it again\)|W moves it, E turns it, R resizes it|[Rr]esize it with R\b/);
 });

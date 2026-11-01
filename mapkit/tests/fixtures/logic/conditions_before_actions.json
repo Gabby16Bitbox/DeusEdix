@@ -1,0 +1,92 @@
+{
+  "id": "conditions_before_actions",
+  "title": "All the rules on one output check their conditions before any action runs",
+  "behaviour": "Two rules on the same output: the first adds to a counter, the second reads it. The second still sees the old value that time, because every rule checks its conditions when the output happens and acts later, from its next tick.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [196, 219], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
+    {"file": "UCLink.uc", "lines": [266, 288], "has": "function RunRule"},
+    {"file": "UCLink.uc", "lines": [790, 809], "has": "state Running"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Lever1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Lever1: add 1 to the counter Levers",
+        "do": [{"id": "a1", "verb": "count", "target": "", "delay": 0, "a": "Levers", "b": "1"}]
+      },
+      {
+        "id": "L2",
+        "src": "Lever1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Lever1, only if the counter Levers is at least 1: the message Counted",
+        "requires": [{"type": "counter", "counter": "Levers", "op": ">=", "value": 1}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Counted"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Lever1", "chain": ["Switch1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Lever1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Lever1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Lever1|used|JCDentonMale0|When JC uses Lever1: add 1 to the counter Levers"
+    },
+    {"t": 1.0, "line": "skip|LogicFixtures|L2|cond|count|Levers|>=|1"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|count||Levers"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Lever1|used|JCDentonMale0|When JC uses Lever1: add 1 to the counter Levers"
+    },
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L2|Lever1|used|JCDentonMale0|When JC uses Lever1, only if the counter Levers is at least 1: the message Counted"
+    },
+    {"t": 2.1, "line": "act|LogicFixtures|L1|count||Levers"},
+    {"t": 2.1, "line": "act|LogicFixtures|L2|message||Counted"}
+  ],
+  "end": {"counters": {"Levers": 2}},
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Lever1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Lever1: add 1 to the counter Levers\"",
+        "Source": "\"Lever1\"",
+        "Act(0)": "\"0|count||Levers|1|\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Lever1",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Lever1, only if the counter Levers is at least 1: the message Counted\"",
+        "Source": "\"Lever1\"",
+        "Cond(0)": "\"count|Levers|>=|1\"",
+        "Act(0)": "\"0|message||Counted||\""
+      }
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "id": "group_saved_members",
+  "title": "Group target: only the saved members that can do it",
+  "behaviour": "Without current entrants the action reaches exactly the members saved at build (deleted ones are left out by the editor), wherever they are; a member gone from the map or of another kind is skipped without a line, and an object in the radius that is not a member is not reached.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [408, 437], "has": "function DoArea(string s)"},
+    {"file": "UCLink.uc", "lines": [342, 348], "has": "function bool AreaKind(Actor A, string kind)"},
+    {
+      "file": "links.py",
+      "lines": [74, 74],
+      "has": "members=list(dict.fromkeys(n for n in members if n not in excluded))"
+    },
+    {"file": "UCLinkGroup.uc", "lines": [12, 16], "has": "function name GetMember(int i)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: turn off the lights of the group",
+        "do": [
+          {
+            "id": "a1",
+            "verb": "lightoff",
+            "target": "",
+            "delay": 0,
+            "area": {
+              "kind": "light",
+              "at": [0, 0, 0],
+              "radius": 512,
+              "members": ["Light1", "Door1", "Light5", "Light6", "Light2"],
+              "dynamic": false
+            }
+          }
+        ]
+      }
+    ],
+    "deleted": {"Light6": {"cls": "Light"}}
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Light1", "chain": ["Light", "Actor"], "at": [100, 0, 0]},
+      {"name": "Light2", "chain": ["Light", "Actor"], "at": [2000, 0, 0]},
+      {"name": "Light3", "chain": ["Light", "Actor"], "at": [200, 0, 0]},
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [50, 0, 0]},
+      {"name": "Light5", "chain": ["Light", "Actor"], "at": [150, 0, 0], "absent": "missing"},
+      {"name": "Light6", "chain": ["Light", "Actor"], "at": [160, 0, 0], "absent": "deleted"}
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: turn off the lights of the group"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|area light"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|Light1|"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|Light2|"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLinkGroup",
+      "name": "UCLG_L1_0_0",
+      "loc": [0, 0, 0],
+      "props": {"Member(0)": "Light1", "Member(1)": "Door1", "Member(2)": "Light5", "Member(3)": "Light2"}
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: turn off the lights of the group\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|lightoff|||||group|light|512|0.000000|0.000000|0.000000|UCLG_L1_0_0\""
+      }
+    }
+  ]
+}

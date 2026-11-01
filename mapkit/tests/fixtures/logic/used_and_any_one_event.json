@@ -1,0 +1,95 @@
+{
+  "id": "used_and_any_one_event",
+  "title": "Outputs heard on the same event run together",
+  "behaviour": "\"used\" and \"any\" of a decoration are the same event of the object (its Event becomes UCL_<object>): one use runs both rules, in rule order. A watched output of the same object is not touched.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [196, 219], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
+    {"file": "UCLink.uc", "lines": [139, 142], "has": "else if (A.Event != Tag)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: the message used",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "used"}]
+      },
+      {
+        "id": "L2",
+        "src": "Button1",
+        "when": "any",
+        "once": false,
+        "label": "When Button1 triggers: the message any",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "any"}]
+      },
+      {
+        "id": "L3",
+        "src": "Button1",
+        "when": "near",
+        "once": false,
+        "label": "When JC comes near Button1: the message near",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "near"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {"jc": [2000, 0, 0]},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {"t": 1.0, "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: the message used"},
+    {"t": 1.0, "line": "fire|LogicFixtures|L2|Button1|any|JCDentonMale0|When Button1 triggers: the message any"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||used"},
+    {"t": 1.1, "line": "act|LogicFixtures|L2|message||any"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: the message used\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|message||used||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "any",
+        "Rule": "\"L2\"",
+        "Label": "\"When Button1 triggers: the message any\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|message||any||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L3",
+        "When": "near",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC comes near Button1: the message near\"",
+        "Source": "\"Button1\"",
+        "NearDist": "256.000000",
+        "Act(0)": "\"0|message||near||\""
+      }
+    }
+  ]
+}

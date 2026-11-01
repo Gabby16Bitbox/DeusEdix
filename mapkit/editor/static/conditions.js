@@ -14,6 +14,12 @@ export const MAX_CONDITIONS = 8;                // a rule's (UCLink.Cond[8], con
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const kindOf = (c) => c.type || ('flag' in c ? 'flag' : null);
+// a condition's Yes or No (a state's or a character's `is`, an item's `has`) as the game gets it: conditions.py _yes
+// writes 1 for a key left out, else Python's truth of the value (0, null, '', an empty list or object are No), and
+// Holds reads Field != "0". The page's words and fields, the Logic simulator and the Story's Play-test (story-sim.js)
+// all read it here, so none says Yes where the game reads No
+const pyTruth = (v) => (v !== null && typeof v === 'object' ? Object.keys(v).length > 0 : !!v);
+export const yesOf = (c, key) => !Object.hasOwn(c, key) || c[key] === undefined || pyTruth(c[key]);
 const opText = (op) => (OPS.find((o) => o[0] === op) || [op, op])[1];
 const skillName = (s) => (SKILLS.find((k) => k[0] === s) || [s, s])[1];
 
@@ -29,13 +35,14 @@ export function newCondition(kind) {
   }
 }
 
-// "JC carries Multitool", "Guard1 is alive"... names: {actor(name), item(cls), state(c)} give the page's own words
+// "JC carries Multitool", "Guard1 is alive"... names: {actor(name), item(cls), state(c)} give the page's own words;
+// state gets the condition with its `is` already the game's Yes or No (true, false)
 export function conditionText(c, names = {}) {
   const actor = names.actor || ((n) => n), item = names.item || ((cls) => String(cls).split('.').pop());
   switch (kindOf(c)) {
-    case 'flag': return names.state ? names.state(c) : `${c.flag || '?'} is ${c.is === false ? 'No' : 'Yes'}`;
-    case 'item': return `JC ${c.has === false ? 'does not carry' : 'carries'} ${c.item ? item(c.item) : '?'}`;
-    case 'alive': return `${c.actor ? actor(c.actor) : '?'} is ${c.is === false ? 'not alive' : 'alive'}`;
+    case 'flag': return names.state ? names.state({ ...c, is: yesOf(c, 'is') }) : `${c.flag || '?'} is ${yesOf(c, 'is') ? 'Yes' : 'No'}`;
+    case 'item': return `JC ${yesOf(c, 'has') ? 'carries' : 'does not carry'} ${c.item ? item(c.item) : '?'}`;
+    case 'alive': return `${c.actor ? actor(c.actor) : '?'} is ${yesOf(c, 'is') ? 'alive' : 'not alive'}`;
     case 'skill': return `JC's ${skillName(c.skill)} skill is at least ${(LEVELS.find((l) => l[0] === +c.level) || [0, '?'])[1]}`;
     case 'counter': return `the counter ${c.counter || '?'} is ${opText(c.op)} ${+c.value || 0}`;
     case 'credits': return `JC has ${opText(c.op)} ${+c.value || 0} credits`;
@@ -54,11 +61,33 @@ export function conditionProblem(c) {
   }
 }
 
+// Does a condition hold now? The page's twin of the game's UCEditorStory.Holds, for every kind, so the Logic
+// simulator (logic-sim.js) judges a rule's conditions as the game does (story-sim.js knows states only). game: what
+// the game reads, {flag(name), counter(name), carries(cls), alive(actor), skill(name), credits}; a part left out
+// reads as nothing set (No, 0, carries nothing, nobody alive, untrained). A kind the game does not know never holds
+// (Holds logs it: logic-log.js 'bad').
+const COMPARE = { '<': (a, b) => a < b, '<=': (a, b) => a <= b, '==': (a, b) => a === b, '!=': (a, b) => a !== b,
+  '>=': (a, b) => a >= b, '>': (a, b) => a > b };
+const whole = (v) => Math.trunc(+v || 0);       // the game's int(): a fraction cut, not a number 0
+const compare = (a, op, b) => Object.hasOwn(COMPARE, op) && COMPARE[op](whole(a), whole(b));     // Holds' Compare
+export function conditionHolds(c, game) {
+  const yes = (key) => yesOf(c, key);
+  switch (kindOf(c)) {
+    case 'flag': return !!(game.flag && game.flag(c.flag)) === yes('is');
+    case 'item': return !!(game.carries && game.carries(c.item)) === yes('has');
+    case 'alive': return !!(game.alive && game.alive(c.actor)) === yes('is');
+    case 'skill': return whole(game.skill ? game.skill(c.skill) : 0) >= whole(c.level);
+    case 'counter': return compare(game.counter ? game.counter(c.counter) : 0, c.op, c.value);
+    case 'credits': return compare(game.credits, c.op, c.value);
+    default: return false;
+  }
+}
+
 const options = (pairs, cur) => pairs.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(t)}</option>`).join('');
 
 // one row's own fields (data-cf: the field it writes)
 function rowFields(c, ctx) {
-  const yesNo = (key, yes, no) => `<select data-cf="${key}">${options([['1', yes], ['0', no]], c[key] === false ? '0' : '1')}</select>`;
+  const yesNo = (key, yes, no) => `<select data-cf="${key}">${options([['1', yes], ['0', no]], yesOf(c, key) ? '1' : '0')}</select>`;
   const number = (key) => `<input type="number" data-cf="${key}" value="${+c[key] || 0}" step="1" style="width:70px">`;
   switch (kindOf(c)) {
     case 'flag': return '<div class="cond-state" style="flex:1;min-width:0"></div>';
@@ -89,7 +118,7 @@ export function mountConditions(host, list, ctx) {
     + `<datalist id="${counterList}">${(ctx.counters || []).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
   list.forEach((c, i) => {
     const row = host.querySelector(`[data-ci="${i}"]`);
-    if (kindOf(c) === 'flag') ctx.mountState(row.querySelector('.cond-state'), { flag: c.flag || '', is: c.is !== false }, (v) => ctx.change(() => { c.flag = v.flag; c.is = v.is !== false; }));
+    if (kindOf(c) === 'flag') ctx.mountState(row.querySelector('.cond-state'), { flag: c.flag || '', is: yesOf(c, 'is') }, (v) => ctx.change(() => { c.flag = v.flag; c.is = v.is !== false; }));
     for (const f of row.querySelectorAll('[data-cf]')) f.onchange = () => ctx.change(() => {
       const key = f.dataset.cf;
       if (key === 'has' || key === 'is') c[key] = f.value === '1';

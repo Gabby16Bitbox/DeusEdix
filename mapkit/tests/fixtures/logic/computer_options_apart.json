@@ -1,0 +1,113 @@
+{
+  "id": "computer_options_apart",
+  "title": "A computer's options and its use are told apart",
+  "behaviour": "Each special option has its own Tag (UCL_<computer>_Opt<n>) and its use another: choosing option 3 runs only the rule on option 3.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [130, 137], "has": "else if (When == 'option')"},
+    {"file": "links.py", "lines": [104, 109], "has": "def option_of(link):"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Computer1",
+        "when": "option",
+        "once": false,
+        "label": "When JC chooses Computer1's option 3: the message Option 3",
+        "option": 2,
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Option 3"}]
+      },
+      {
+        "id": "L2",
+        "src": "Computer1",
+        "when": "option",
+        "once": false,
+        "label": "When JC chooses Computer1's option 1: the message Option 1",
+        "option": 0,
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Option 1"}]
+      },
+      {
+        "id": "L3",
+        "src": "Computer1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Computer1: the message Logged in",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Logged in"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {
+        "name": "Computer1",
+        "chain": ["ComputerPersonal", "Computers", "ElectronicDevices", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [0, 0, 0]
+      }
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Computer1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Computer1", "output": "option", "by": "JCDentonMale0", "option": 2}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L3|Computer1|used|JCDentonMale0|When JC uses Computer1: the message Logged in"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L3|message||Logged in"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Computer1|option|JCDentonMale0|When JC chooses Computer1's option 3: the message Option 3"
+    },
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||Option 3"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Computer1_Opt2",
+        "When": "option",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC chooses Computer1's option 3: the message Option 3\"",
+        "Source": "\"Computer1\"",
+        "Option": "2",
+        "Act(0)": "\"0|message||Option 3||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Computer1_Opt0",
+        "When": "option",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC chooses Computer1's option 1: the message Option 1\"",
+        "Source": "\"Computer1\"",
+        "Option": "0",
+        "Act(0)": "\"0|message||Option 1||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Computer1",
+        "When": "used",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC uses Computer1: the message Logged in\"",
+        "Source": "\"Computer1\"",
+        "Act(0)": "\"0|message||Logged in||\""
+      }
+    }
+  ]
+}

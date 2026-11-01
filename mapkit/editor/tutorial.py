@@ -30,7 +30,7 @@ SRC = KIT / 'tutorial'
 SCRIPT = 'deusedix_tutorial'
 MAP = '00_DeusEdix_Tutorial'
 _ACTIVE = None
-_OUTPUTS = ('.dx', '.t3d', '.groups.json', '.disabled-actors.json')
+_OUTPUTS = ('.dx', '.t3d', '.groups.json', '.disabled-actors.json', '.surfaces.json')
 sys.path.insert(0, str(KIT))
 import settings  # noqa: E402
 
@@ -329,7 +329,7 @@ def end(session):
 
 
 def portrait(png_data_url):
-    """The guide's InfoLink portrait (DeusEdix installed only: inside UNATCO Continues the mod's own
+    """The guide's InfoLink portrait (DeusEdix installed only: in development mode the mod's own
     portraits are not touched). Returns True when it changed."""
     if not settings.STANDALONE:
         return False

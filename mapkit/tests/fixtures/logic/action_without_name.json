@@ -1,0 +1,67 @@
+{
+  "id": "action_without_name",
+  "title": "A counter, a state or a goal with no name fails, the next actions still run",
+  "behaviour": "The editor builds such an action with no name and the game refuses it with \"noname\" after its act line.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [568, 579], "has": "else if (verb == \"goal\" && a == \"\")"},
+    {"file": "UCLink.uc", "lines": [615, 618], "has": "if (counter == '')"}
+  ],
+  "assumes": ["A5"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: a counter, a state and a goal with no name, then a message",
+        "do": [
+          {"id": "a1", "verb": "count", "target": "", "delay": 0, "a": "", "b": "1"},
+          {"id": "a2", "verb": "flag", "target": "", "delay": 0, "a": "", "b": "1"},
+          {"id": "a3", "verb": "goal", "target": "", "delay": 0, "a": "", "b": "Find it"},
+          {"id": "a4", "verb": "message", "target": "", "delay": 0, "a": "After"}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: a counter, a state and a goal with no name, then a message"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|count||"},
+    {"t": 1.1, "line": "fail|LogicFixtures|L1|count||noname"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|flag||"},
+    {"t": 1.1, "line": "fail|LogicFixtures|L1|flag||noname"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|goal||"},
+    {"t": 1.1, "line": "fail|LogicFixtures|L1|goal||noname"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||After"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: a counter, a state and a goal with no name, then a message\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|count|||1|\"",
+        "Act(1)": "\"0|flag|||1|\"",
+        "Act(2)": "\"0|goal|||Find it|\"",
+        "Act(3)": "\"0|message||After||\""
+      }
+    }
+  ]
+}

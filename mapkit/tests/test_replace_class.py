@@ -95,6 +95,9 @@ class DxMapBuildTests(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def execute(self, folder, commands, *args, **kwargs):
+        if commands[-1] == 'MAP EXPORT FILE="..\\Output\\source.t3d"':        # the source's objects (dxmaps.source_scene)
+            (folder / 'Output' / 'source.t3d').write_text('Begin Map\nEnd Map\n')
+            return '', 0.01
         self.commands = commands
         (folder / 'Output' / 'ReplaceFixture.dx').write_bytes(b'private built map')
         (folder / 'Output' / 'ReplaceFixture.t3d').write_text('Begin Map\nEnd Map\n')

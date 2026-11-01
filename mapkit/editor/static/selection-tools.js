@@ -4,15 +4,32 @@
 
 // an object's icon or box a little behind a wall still counts as in front of it, as a plain click has it
 export const PROXY_LEAD = 4;
+// Real model surfaces near a supporting block are easier to pick; walls still win.
+export const DETAIL_LEAD = 12;
 
 // hits: {key, distance, proxy} in any order, key null for the map's own walls (nothing to select);
 // nestOf(key): the key of the outermost nest around it, or null.
 // The keys under the pointer, nearest first, each once (the walls once, as null): what a plain click picks
 // first (the nest of the nearest thing, when it is in one), then every thing itself.
 export function stackKeys(hits, nestOf = () => null) {
-  const keys = hits.map((h) => ({ key: h.key ?? null, rank: h.distance - (h.proxy ? PROXY_LEAD : 0) }))
-    .sort((a, b) => a.rank - b.rank)
-    .map((h) => h.key);
+  const ranked = hits.map((h) => ({ ...h, key: h.key ?? null, rank: h.distance - (h.proxy ? PROXY_LEAD : 0) }))
+    .sort((a, b) => a.rank - b.rank);
+  const first = ranked[0];
+  let detail = null;
+  if (first?.proxy && /^(b|d):/.test(first.key || '')) {
+    for (const hit of ranked.slice(1)) {
+      if (hit.distance > first.distance + DETAIL_LEAD) continue;
+      if (hit.detail && hit.key && hit.key !== first.key) {
+        // A wall or a different structure in front of the detail still wins.
+        const blocked = ranked.some(other => !other.proxy && other.key !== hit.key && other.distance < hit.distance);
+        if (!blocked) detail = hit.key;
+        break;
+      }
+      if (!hit.proxy || (hit.key && !/^(b|d):/.test(hit.key))) break;
+    }
+  }
+  const keys = ranked.map((h) => h.key);
+  if (detail) keys.unshift(detail);
   const nest = keys[0] ? nestOf(keys[0]) : null;
   return [...new Set(nest ? [nest, ...keys] : keys)];
 }

@@ -112,3 +112,21 @@ test('conditions, values and loops play as in the game', () => {
   assert.equal(run.state.credits, 50);
   assert.deepEqual(play([{ type: 'label', name: 'l' }, line('Again'), { type: 'goto', label: 'l' }]).slice(-1), ['END: It goes round in a loop']);
 });
+
+test("a step's and an answer's Yes or No play as story.py writes them for the game: 0, null or '' is No", () => {
+  const ask = (is) => [{ type: 'if', flag: 'Alarm', is, goto: 'q' }, line('Loud'), { type: 'end' }, { type: 'label', name: 'q' }, line('Quiet')];
+  const askAll = (is) => [{ type: 'if', requires: [{ flag: 'Alarm', is }], goto: 'q' }, ...ask(is).slice(1)];
+  const answer = (is) => [{ type: 'choice', options: [{ text: 'Sneak', goto: 'q', flag: 'Alarm', is }, { text: 'Run', goto: 'q' }] },
+    { type: 'label', name: 'q' }];
+  for (const [is, yes] of [[false, false], [0, false], [null, false], ['', false], [true, true], [1, true], ['no', true]]) {
+    const what = JSON.stringify(is);
+    assert.deepEqual(play(ask(is)), [yes ? 'Loud' : 'Quiet', 'END'], `if Alarm is ${what}, with Alarm never set`);
+    assert.deepEqual(play(askAll(is)), [yes ? 'Loud' : 'Quiet', 'END'], `if its conditions ask Alarm ${what}`);
+    assert.deepEqual(play(answer(is), [1]), [yes ? '?Run' : '?Sneak|Run', 'END'], `an answer shown while Alarm is ${what}`);
+    for (const step of [{ type: 'flag', flag: 'Alarm', is }, { type: 'flag', requires: [{ flag: 'Alarm', is }] }]) {
+      const run = createPlay([step], { flags: { Alarm: !yes } });
+      assert.equal(run.next().text, `Alarm = ${yes}`, `the state set to ${what}${step.requires ? ', in a list' : ''}`);
+      assert.equal(run.state.flags.Alarm, yes);
+    }
+  }
+});

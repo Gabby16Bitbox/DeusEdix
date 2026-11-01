@@ -1,0 +1,154 @@
+{
+  "id": "condition_alive",
+  "title": "Condition: a character is alive or not",
+  "behaviour": "Alive means in the map and with health: a character killed or knocked out (his body replaces him) is not alive, and neither is a name that is not in the map. His death is also an output of his own.",
+  "derivedFrom": [
+    {"file": "UCEditorStory.uc", "lines": [853, 854], "has": "if (kind == \"alive\")"},
+    {"file": "UCEditorStory.uc", "lines": [958, 964], "has": "function bool Dead(name n)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if Guard1 is alive: the message He lives",
+        "requires": [{"type": "alive", "actor": "Guard1", "is": true}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "He lives"}]
+      },
+      {
+        "id": "L2",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if Guard1 is not alive: the message He is down",
+        "requires": [{"type": "alive", "actor": "Guard1", "is": false}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "He is down"}]
+      },
+      {
+        "id": "L3",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if Ghost1 is not alive: the message Never here",
+        "requires": [{"type": "alive", "actor": "Ghost1", "is": false}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Never here"}]
+      },
+      {
+        "id": "L4",
+        "src": "Guard1",
+        "when": "dies",
+        "once": false,
+        "label": "When Guard1 dies: the message Guard down",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Guard down"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Guard1", "chain": ["UNATCOTroop", "HumanMilitary", "ScriptedPawn", "Pawn", "Actor"], "at": [512, 0, 0]},
+      {
+        "name": "Ghost1",
+        "chain": ["UNATCOTroop", "HumanMilitary", "ScriptedPawn", "Pawn", "Actor"],
+        "absent": "missing"
+      }
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "set": {"dead": ["Guard1"]}},
+    {"t": 1.5, "fire": {"thing": "Guard1", "output": "dies", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if Guard1 is alive: the message He lives"
+    },
+    {"t": 1.0, "line": "skip|LogicFixtures|L2|cond|alive|Guard1|0"},
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L3|Button1|used|JCDentonMale0|When JC uses Button1, only if Ghost1 is not alive: the message Never here"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||He lives"},
+    {"t": 1.1, "line": "act|LogicFixtures|L3|message||Never here"},
+    {"t": 1.5, "line": "fire|LogicFixtures|L4|Guard1|dies|JCDentonMale0|When Guard1 dies: the message Guard down"},
+    {"t": 1.6, "line": "act|LogicFixtures|L4|message||Guard down"},
+    {"t": 2.0, "line": "skip|LogicFixtures|L1|cond|alive|Guard1|1"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L2|Button1|used|JCDentonMale0|When JC uses Button1, only if Guard1 is not alive: the message He is down"
+    },
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L3|Button1|used|JCDentonMale0|When JC uses Button1, only if Ghost1 is not alive: the message Never here"
+    },
+    {"t": 2.1, "line": "act|LogicFixtures|L2|message||He is down"},
+    {"t": 2.1, "line": "act|LogicFixtures|L3|message||Never here"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if Guard1 is alive: the message He lives\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"alive|Guard1|1\"",
+        "Act(0)": "\"0|message||He lives||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Button1, only if Guard1 is not alive: the message He is down\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"alive|Guard1|0\"",
+        "Act(0)": "\"0|message||He is down||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC uses Button1, only if Ghost1 is not alive: the message Never here\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"alive|Ghost1|0\"",
+        "Act(0)": "\"0|message||Never here||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L4",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Guard1",
+        "When": "dies",
+        "Rule": "\"L4\"",
+        "Label": "\"When Guard1 dies: the message Guard down\"",
+        "Source": "\"Guard1\"",
+        "Act(0)": "\"0|message||Guard down||\""
+      }
+    }
+  ]
+}

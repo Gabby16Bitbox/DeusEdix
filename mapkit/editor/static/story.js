@@ -6,7 +6,7 @@ import {createGraphView} from './story-graph-view.js';
 import {mountConditions} from './conditions.js';
 // "Story" panel of the map editor: dialogues attached to the characters and objects of the map, InfoLinks
 // (one-way radio calls) and the events of the mission. Saved in tools/mapkit/story/<map>.json; "Apply in game" turns them into
-// UnrealScript (tools/mapkit/story.py), compiles the mod and installs it.
+// UnrealScript (tools/mapkit/story.py), compiles the editor's package and installs it.
 const $ = (s, root = document) => root.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const E = () => window.__editor;
@@ -39,7 +39,7 @@ function cutscenes() {
   return ((ed && ed.edits.added) || []).filter((a) => a.cls === 'UCCutscene' && !(ed.edits.deleted || {})[a.name])
     .map((a) => [a.name, ((ed.edits.cutscenes || {})[a.name] || {}).title || a.name]);
 }
-// InfoLink callers with a portrait in the game (InfoPortraits.<bind name>, or the mod's UCPortraits)
+// InfoLink callers with a portrait in the game (InfoPortraits.<bind name>, or the editor's UCPortraits)
 const CALLERS = [
   ['AlexJacobson', 'Alex Jacobson'], ['WaltonSimons', 'Walton Simons'], ['Jock', 'Jock'], ['PaulDenton', 'Paul Denton'],
   ['SamCarter', 'Sam Carter'], ['JaimeReyes', 'Jaime Reyes'], ['AnnaNavarre', 'Anna Navarre'], ['GuntherHermann', 'Gunther Hermann'],

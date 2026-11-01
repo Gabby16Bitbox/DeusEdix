@@ -1,0 +1,119 @@
+{
+  "id": "script_input_output",
+  "title": "A script's input and output",
+  "behaviour": "A rule calls a script's input (input line), the script says an output inside that call, and the rules waiting for it are told at once; the output line counts every rule told, the skipped one too. A rule told during an earlier rule's action acts in that same tick.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [626, 631], "has": "function ScriptInput(UCScript S, string inputName, string args)"},
+    {"file": "UCScript.uc", "lines": [55, 78], "has": "final function Output(string OutputName)"},
+    {"file": "UCLink.uc", "lines": [224, 235], "has": "function Actor Who(Actor Other, Pawn EventInstigator)"}
+  ],
+  "assumes": ["A1", "A9"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: script Gen0: Sabotage it (Seconds=4)",
+        "do": [{"id": "a1", "verb": "input", "target": "Gen0", "delay": 0, "a": "Sabotage", "b": "Seconds=4"}]
+      },
+      {
+        "id": "L2",
+        "src": "Gen0",
+        "when": "output",
+        "once": false,
+        "label": "When Gen0 says it is sabotaged: the message Blackout",
+        "port": "Sabotaged",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Blackout"}]
+      },
+      {
+        "id": "L3",
+        "src": "Gen0",
+        "when": "output",
+        "once": false,
+        "label": "When Gen0 says it is sabotaged, only if Never is Yes: the message Never",
+        "port": "Sabotaged",
+        "requires": [{"flag": "Never", "is": true}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Never"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {
+        "name": "Gen0",
+        "chain": ["Generator", "UCScript", "Actor"],
+        "at": [0, 64, 0],
+        "ports": {
+          "inputs": [{"id": "Sabotage", "label": "Sabotage it", "args": ["Seconds"]}],
+          "outputs": [{"id": "Sabotaged", "label": "it is sabotaged"}]
+        },
+        "script": {"input": {"Sabotage": ["Sabotaged"]}}
+      }
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: script Gen0: Sabotage it (Seconds=4)"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|input|Gen0|Sabotage"},
+    {"t": 1.1, "line": "input|LogicFixtures|Gen0|Sabotage|Seconds=4"},
+    {"t": 1.1, "line": "fire|LogicFixtures|L2|Gen0|output|Gen0|When Gen0 says it is sabotaged: the message Blackout"},
+    {"t": 1.1, "line": "skip|LogicFixtures|L3|cond|flag|Never|1"},
+    {"t": 1.1, "line": "output|LogicFixtures|Gen0|Sabotaged|2"},
+    {"t": 1.1, "line": "act|LogicFixtures|L2|message||Blackout"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: script Gen0: Sabotage it (Seconds=4)\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|input|Gen0|Sabotage|Seconds=4|\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L2",
+        "When": "output",
+        "Rule": "\"L2\"",
+        "Label": "\"When Gen0 says it is sabotaged: the message Blackout\"",
+        "Source": "\"Gen0\"",
+        "Port": "\"Sabotaged\"",
+        "Act(0)": "\"0|message||Blackout||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L3",
+        "When": "output",
+        "Rule": "\"L3\"",
+        "Label": "\"When Gen0 says it is sabotaged, only if Never is Yes: the message Never\"",
+        "Source": "\"Gen0\"",
+        "Port": "\"Sabotaged\"",
+        "Cond(0)": "\"flag|Never|1\"",
+        "Act(0)": "\"0|message||Never||\""
+      }
+    }
+  ]
+}

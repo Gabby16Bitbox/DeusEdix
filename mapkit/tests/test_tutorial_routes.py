@@ -123,6 +123,8 @@ class TutorialRouteTests(unittest.TestCase):
         self.data = types.SimpleNamespace(
             OUT=self.root / 'out', prepare=Mock(side_effect=lambda *a, **k: self.events.append('prepare')),
             palette_meshes=Mock(), actors=Mock(return_value=[]), structures=Mock(return_value=[]), palette=Mock(return_value=[]), object_tags=Mock(return_value={}),
+            zone_looks=Mock(return_value=[]),
+            built_surfaces=Mock(return_value=[]),     # the surface rows of a map script's build (test_texture_slip_data)
         )
         self.play = types.SimpleNamespace(
             pending_install=Mock(return_value=True), flags_text=Mock(return_value=''),
@@ -141,7 +143,7 @@ class TutorialRouteTests(unittest.TestCase):
                                               TARGET='revision', GAME_NAME='Deus Ex: Revision', FEATURES=frozenset()),
             'game_running': lambda: self.game,
             'data': self.data, 'story': self.story, 'textures': self.textures, 'play': self.play,
-            'dxmaps': types.SimpleNamespace(built_current=Mock(return_value=True)),
+            'dxmaps': types.SimpleNamespace(built_current=Mock(return_value=True), built_surfaces=Mock(return_value=[])),
             'mapsettings': types.SimpleNamespace(true_north=Mock(return_value=0)),     # the scene's heading (view-axes.js)
             'is_dx': lambda script: False,
             'map_of': lambda script: MAP if script == SCRIPT else '01_MyRoom',
@@ -333,6 +335,40 @@ class TutorialRouteTests(unittest.TestCase):
         self.assertIsNone(result['publishedLayout'])
         self.assertEqual(self.session.active, 'session-A')
         self.assertEqual(self.events, ['ensure_runtime', 'prepare'])
+
+    def test_scene_sends_the_surface_rows_the_map_shown_was_built_with(self):
+        # a map script: the rows scene.py kept next to its build, else its saved edits' (data.built_surfaces)
+        rows = [{'op': 'pan', 'args': [4, 0], 'targets': [{'brush': 'Brush1', 'poly': 0}]}]
+        self.data.built_surfaces.return_value = rows
+        code, result = self.request('/api/scene?script=my_room', method='GET')
+        self.assertEqual(code, 200, result)
+        self.assertEqual(result['builtSurfaces'], rows)
+        self.data.built_surfaces.assert_called_once_with('01_MyRoom', self.edits)
+        # an existing map: its build's rows (dxmaps.built_surfaces), None when not known
+        dx = self.namespace['dxmaps']
+        dx.shown, dx.structures, dx.MOD_MAPS = Mock(), Mock(), self.root / 'mod'
+        dx.source = Mock(return_value=self.root / 'game' / '01_MyRoom.dx')
+        dx.built_surfaces.return_value = None
+        self.namespace['is_dx'] = lambda script: True
+        code, result = self.request('/api/scene?script=dx:01_MyRoom', method='GET')
+        self.assertEqual(code, 200, result)
+        self.assertIsNone(result['builtSurfaces'])
+        dx.built_surfaces.assert_called_once_with('01_MyRoom', True)
+        self.data.built_surfaces.assert_called_once()
+
+    def test_scene_asks_once_whether_an_existing_maps_build_is_current(self):
+        # built_current reads and hashes the whole source map: its answer goes to what is shown, built= and builtSurfaces=
+        dx = self.namespace['dxmaps']
+        dx.shown, dx.structures, dx.MOD_MAPS = Mock(), Mock(), self.root / 'mod'
+        dx.source = Mock(return_value=self.root / 'game' / '01_MyRoom.dx')
+        dx.built_current.return_value = False
+        self.namespace['is_dx'] = lambda script: True
+        code, result = self.request('/api/scene?script=dx:01_MyRoom', method='GET')
+        self.assertEqual(code, 200, result)
+        dx.built_current.assert_called_once_with('01_MyRoom')
+        dx.shown.assert_called_once_with('01_MyRoom', False)
+        dx.built_surfaces.assert_called_once_with('01_MyRoom', False)
+        self.assertIs(result['built'], False)
 
     def test_custom_map_named_like_tutorial_is_not_treated_as_an_exercise(self):
         self.session.enabled = False

@@ -10,6 +10,10 @@ from pathlib import Path
 
 import atomicfile
 
+# a placed copy's link to its library prefab (static/prefab-links.js): its version goes with the prefab id it places,
+# and unpacking it changes nothing built
+LINK_FIELDS = ('line', 'version', 'unpacked')
+
 
 def engine_edits(edits):
     if not isinstance(edits, dict):
@@ -24,8 +28,12 @@ def engine_edits(edits):
             return int(value)
         return value
 
-    return {k: normal(v) for k, v in edits.items()
-            if k not in ('nests', 'order', 'defaultFolder') and v not in ({}, [], None)}
+    out = {k: normal(v) for k, v in edits.items()
+           if k not in ('nests', 'order', 'defaultFolder') and v not in ({}, [], None)}
+    if isinstance(out.get('prefabs'), list):
+        out['prefabs'] = [{k: v for k, v in e.items() if k not in LINK_FIELDS} if isinstance(e, dict) else e
+                          for e in out['prefabs']]
+    return out
 
 
 def _digest(value):

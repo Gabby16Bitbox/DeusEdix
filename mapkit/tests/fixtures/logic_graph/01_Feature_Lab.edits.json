@@ -1,0 +1,1060 @@
+{
+ "moved": {},
+ "deleted": {},
+ "added": [
+  {
+   "name": "UCEdit0",
+   "cls": "TrafficLight",
+   "loc": [
+    104,
+    -760,
+    37.1
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "radius": 15.6,
+   "height": 36.55,
+   "props": {}
+  },
+  {
+   "name": "UCEdit1",
+   "cls": "CageLight",
+   "loc": [
+    192,
+    -736,
+    17.6
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "radius": 17.14,
+   "height": 17.14,
+   "props": {}
+  },
+  {
+   "name": "UCEdit2",
+   "cls": "FlagPole",
+   "loc": [
+    32,
+    -736,
+    56.9
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "radius": 17,
+   "height": 56.39,
+   "props": {}
+  },
+  {
+   "name": "UCEdit3",
+   "cls": "HKMarketLight",
+   "loc": [
+    104,
+    -800,
+    24.5
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "radius": 8,
+   "height": 24,
+   "props": {}
+  },
+  {
+   "name": "UCEdit4",
+   "cls": "LightSwitch",
+   "loc": [
+    1016,
+    208,
+    119.9
+   ],
+   "rot": [
+    0,
+    32768,
+    0
+   ],
+   "radius": 3.75,
+   "height": 6.25,
+   "props": {}
+  },
+  {
+   "name": "UCEdit5",
+   "cls": "Button1",
+   "loc": [
+    1021,
+    120,
+    119.9
+   ],
+   "rot": [
+    0,
+    32768,
+    0
+   ],
+   "radius": 2,
+   "height": 2,
+   "props": {}
+  },
+  {
+   "name": "UCEdit6",
+   "cls": "UCMeshDeco",
+   "loc": [
+    704,
+    224,
+    18.5
+   ],
+   "rot": [
+    0,
+    32768,
+    0
+   ],
+   "radius": 10.6,
+   "height": 18,
+   "props": {
+    "Mesh": "LodMesh'DXP_69db6c66478f43bdac83ceead4358a8eModels.UCM_desk_fan'",
+    "CollisionRadius": "10.600000",
+    "CollisionHeight": "18.000000",
+    "PrePivot": "(X=0.000000,Y=0.000000,Z=0.000000)",
+    "IdleAnim": "Spin"
+   }
+  },
+  {
+   "name": "UCEdit7",
+   "cls": "UCMeshDeco",
+   "loc": [
+    696,
+    200,
+    22
+   ],
+   "rot": [
+    0,
+    32768,
+    0
+   ],
+   "radius": 54.7,
+   "height": 21.5,
+   "props": {
+    "Mesh": "LodMesh'DXP_69db6c66478f43bdac83ceead4358a8eModels.UCM_barrier'",
+    "CollisionRadius": "54.700000",
+    "CollisionHeight": "21.500000",
+    "PrePivot": "(X=0.000000,Y=0.000000,Z=0.000000)"
+   }
+  },
+  {
+   "name": "UCEdit8",
+   "cls": "UCCustomSoldier",
+   "loc": [
+    -96,
+    64,
+    48
+   ],
+   "rot": [
+    0,
+    42052,
+    0
+   ],
+   "radius": 20,
+   "height": 47.5,
+   "props": {
+    "Mesh": "LodMesh'DeusExCharacters.GM_Jumpsuit'",
+    "MultiSkins(0)": "Texture'DeusExCharacters.Skins.MiscTex1'",
+    "MultiSkins(1)": "Texture'DeusExCharacters.Skins.UNATCOTroopTex1'",
+    "MultiSkins(2)": "Texture'DeusExCharacters.Skins.UNATCOTroopTex2'",
+    "MultiSkins(3)": "Texture'DeusExCharacters.Skins.JCDentonTex0'",
+    "MultiSkins(4)": "Texture'DeusExCharacters.Skins.MiscTex1'",
+    "MultiSkins(5)": "Texture'DeusExItems.Skins.PinkMaskTex'",
+    "MultiSkins(6)": "Texture'DeusExCharacters.Skins.UNATCOTroopTex3'",
+    "MultiSkins(7)": "Texture'DeusExItems.Skins.PinkMaskTex'",
+    "Texture": "Texture'DeusExItems.Skins.PinkMaskTex'",
+    "LookBody": "Class'DeusEx.UNATCOTroop'",
+    "CollisionRadius": "20.000000",
+    "CollisionHeight": "47.500000",
+    "FamiliarName": "\"Officer Rossi\"",
+    "UnfamiliarName": "\"Officer Rossi\"",
+    "InitialAlliances(0)": "(AllianceName=Player,AllianceLevel=1.000000,bPermanent=False)",
+    "InitialInventory(0)": "(Inventory=Class'DeusEx.WeaponAssaultGun',Count=1)",
+    "InitialInventory(1)": "(Inventory=Class'DeusEx.Ammo762mm',Count=12)",
+    "InitialInventory(2)": "(Inventory=Class'DeusEx.WeaponCombatKnife',Count=1)",
+    "Orders": "Standing",
+    "BindName": "\"UCEd_UCEdit8\""
+   },
+   "custom": "officer-rossi",
+   "kind": "pawn",
+   "bind": "UCEd_UCEdit8",
+   "scale": 1
+  },
+  {
+   "name": "UCEdit9",
+   "cls": "PathNode",
+   "loc": [
+    491.8,
+    -843.7,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit10",
+   "cls": "PathNode",
+   "loc": [
+    170,
+    418.5,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit11",
+   "cls": "PathNode",
+   "loc": [
+    457.8,
+    33.3,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit12",
+   "cls": "PathNode",
+   "loc": [
+    833.3,
+    -517.1,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit13",
+   "cls": "PathNode",
+   "loc": [
+    -452,
+    20.4,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit14",
+   "cls": "PathNode",
+   "loc": [
+    911.3,
+    262.1,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit15",
+   "cls": "PathNode",
+   "loc": [
+    438.4,
+    803.3,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit16",
+   "cls": "PathNode",
+   "loc": [
+    -297.8,
+    435.6,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit17",
+   "cls": "PathNode",
+   "loc": [
+    -483.7,
+    909,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit18",
+   "cls": "PathNode",
+   "loc": [
+    -970.1,
+    -197.5,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit19",
+   "cls": "PathNode",
+   "loc": [
+    907.2,
+    769,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit20",
+   "cls": "PathNode",
+   "loc": [
+    -523.6,
+    -454.1,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit21",
+   "cls": "PathNode",
+   "loc": [
+    -343.7,
+    -866.9,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit22",
+   "cls": "PathNode",
+   "loc": [
+    -914.4,
+    295.2,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit23",
+   "cls": "PathNode",
+   "loc": [
+    -903.2,
+    -818.5,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit24",
+   "cls": "PathNode",
+   "loc": [
+    -919.5,
+    763.4,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit25",
+   "cls": "PathNode",
+   "loc": [
+    1632.8,
+    172.5,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit26",
+   "cls": "PathNode",
+   "loc": [
+    1203.9,
+    7.4,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit27",
+   "cls": "PathNode",
+   "loc": [
+    1416,
+    72,
+    44
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "radius": 12,
+   "height": 14.5,
+   "props": {}
+  },
+  {
+   "name": "UCEdit28",
+   "cls": "Light",
+   "loc": [
+    1576,
+    -144,
+    220
+   ],
+   "rot": [
+    0,
+    43145,
+    0
+   ],
+   "radius": 8,
+   "height": 8,
+   "props": {
+    "LightBrightness": 128,
+    "LightHue": 32,
+    "LightSaturation": 160,
+    "LightRadius": 12
+   }
+  },
+  {
+   "name": "UCEdit29",
+   "cls": "DXP_69db6c66478f43bdac83ceead4358a8eScripts.TestBlock",
+   "loc": [
+    960,
+    160,
+    60
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "radius": 16,
+   "height": 16,
+   "props": {}
+  }
+ ],
+ "boxes": [
+  {
+   "name": "UCEditBox0",
+   "shape": "cylinder",
+   "lo": [
+    -528,
+    -428,
+    0
+   ],
+   "hi": [
+    -272,
+    -172,
+    192
+   ],
+   "tex": "flatconcrete_a",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "hollow": 24
+  },
+  {
+   "name": "UCEditBox1",
+   "shape": "sphere",
+   "lo": [
+    204,
+    -396,
+    0
+   ],
+   "hi": [
+    396,
+    -204,
+    192
+   ],
+   "tex": "flatconcrete_a",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "hollow": 16
+  },
+  {
+   "name": "UCEditBox2",
+   "shape": "dome",
+   "lo": [
+    172,
+    72,
+    0
+   ],
+   "hi": [
+    428,
+    328,
+    128
+   ],
+   "tex": "flatconcrete_a",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "hollow": 16
+  },
+  {
+   "name": "UCEditBox3",
+   "shape": "cone",
+   "lo": [
+    -480,
+    120,
+    0
+   ],
+   "hi": [
+    -320,
+    280,
+    224
+   ],
+   "tex": "flatconcrete_a",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "UCEditBox4",
+   "shape": "wedge",
+   "lo": [
+    -128,
+    336,
+    0
+   ],
+   "hi": [
+    128,
+    464,
+    96
+   ],
+   "tex": "DrtySilvMetal_A",
+   "solid": true,
+   "rot": [
+    0,
+    16384,
+    0
+   ]
+  },
+  {
+   "name": "UCEditBox5",
+   "shape": "box",
+   "lo": [
+    1000,
+    -96,
+    0
+   ],
+   "hi": [
+    1400,
+    96,
+    160
+   ],
+   "tex": "DrtySilvMetal_A",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "hole": true
+  },
+  {
+   "name": "UCEditBox6",
+   "shape": "box",
+   "lo": [
+    1400,
+    -320,
+    0
+   ],
+   "hi": [
+    1912,
+    320,
+    256
+   ],
+   "tex": "DrtySilvMetal_A",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "hole": true
+  },
+  {
+   "name": "UCEditBox7",
+   "shape": "box",
+   "lo": [
+    1200,
+    -96,
+    0
+   ],
+   "hi": [
+    1216,
+    96,
+    160
+   ],
+   "tex": "DrtySilvMetal_A",
+   "solid": true,
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "mover": true
+  }
+ ],
+ "groups": {},
+ "copies": [],
+ "prefabs": [],
+ "nests": [
+  {
+   "id": "n1",
+   "label": "vabb",
+   "items": [
+    "a:UCEdit8",
+    "s:room"
+   ],
+   "folder": true
+  }
+ ],
+ "unnest": [],
+ "motions": {
+  "UCEditBox7": {
+   "pos": [
+    {
+     "t": 0,
+     "v": [
+      0,
+      0,
+      0
+     ],
+     "e": 1
+    },
+    {
+     "t": 2,
+     "v": [
+      0,
+      0,
+      160
+     ],
+     "e": 1
+    }
+   ],
+   "rot": [],
+   "scale": [],
+   "mode": "once",
+   "autoplay": false
+  }
+ },
+ "links": [
+  {
+   "id": "L1",
+   "src": "UCEdit5",
+   "when": "used",
+   "once": false,
+   "at": [
+    1024,
+    120,
+    119.9
+   ],
+   "do": [
+    {
+     "verb": "anim",
+     "target": "UCEditBox7",
+     "delay": 0
+    },
+    {
+     "verb": "goto",
+     "target": "UCEdit8",
+     "delay": 0,
+     "at": [
+      1572.7,
+      -208.3,
+      40
+     ],
+     "nav": true
+    }
+   ],
+   "label": "When JC uses Button UCEdit5: play the animation of door UCEditBox7, Officer Rossi UCEdit8 walks to a place"
+  },
+  {
+   "id": "L2",
+   "src": "UCEdit5",
+   "when": "used",
+   "do": [
+    {
+     "verb": "count",
+     "a": "Test_Presses",
+     "b": "1",
+     "delay": 0
+    },
+    {
+     "verb": "message",
+     "a": "Press counted",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "once": false,
+   "label": "When JC uses Button UCEdit5: add 1 to the counter Test_Presses, the message \"Press counted\""
+  },
+  {
+   "id": "L3",
+   "src": "UCEdit5",
+   "when": "used",
+   "requires": [
+    {
+     "type": "counter",
+     "counter": "Test_Presses",
+     "op": ">=",
+     "value": 2
+    }
+   ],
+   "do": [
+    {
+     "verb": "message",
+     "a": "Second press: the counter holds",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "once": false,
+   "label": "When JC uses Button UCEdit5, only if the counter Test_Presses is at least 2: the message \"Second press: the counter holds\""
+  },
+  {
+   "id": "L4",
+   "src": "UCEdit5",
+   "when": "used",
+   "do": [
+    {
+     "verb": "input",
+     "target": "UCEdit29",
+     "a": "Start",
+     "b": "Seconds=1",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "once": false,
+   "label": "When JC uses Button UCEdit5: script UCEdit29: Start it (Seconds=1)"
+  },
+  {
+   "id": "L5",
+   "src": "UCEdit29",
+   "when": "output",
+   "port": "Done",
+   "do": [
+    {
+     "verb": "message",
+     "a": "TestBlock said Done",
+     "delay": 0
+    },
+    {
+     "verb": "count",
+     "a": "Test_Done",
+     "b": "1",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "once": false,
+   "label": "When script UCEdit29 says \"it is done\": the message \"TestBlock said Done\", add 1 to the counter Test_Done"
+  },
+  {
+   "id": "L6",
+   "src": "UCEditBox7",
+   "when": "opened",
+   "do": [
+    {
+     "verb": "message",
+     "a": "Door opened",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "once": false,
+   "label": "When door UCEditBox7 has opened: the message \"Door opened\""
+  },
+  {
+   "id": "L7",
+   "src": "UCEditBox7",
+   "when": "destroyed",
+   "do": [
+    {
+     "verb": "message",
+     "a": "Door destroyed",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "once": false,
+   "label": "When door UCEditBox7 is blown up: the message \"Door destroyed\""
+  },
+  {
+   "id": "L8",
+   "src": "UCEdit5",
+   "when": "used",
+   "requires": [
+    {
+     "type": "counter",
+     "counter": "Test_Presses",
+     "op": ">=",
+     "value": 3
+    }
+   ],
+   "once": true,
+   "do": [
+    {
+     "verb": "blow",
+     "target": "UCEditBox7",
+     "delay": 0
+    }
+   ],
+   "at": [
+    0,
+    0,
+    0
+   ],
+   "label": "When JC uses Button UCEdit5, only if the counter Test_Presses is at least 3: blow up door UCEditBox7 (only once)"
+  }
+ ],
+ "textures": {
+  "UCT_TrafficLightTex1_1": {
+   "pcx": "01_Feature_Lab/UCT_TrafficLightTex1_1.pcx",
+   "png": "01_Feature_Lab/UCT_TrafficLightTex1_1.png",
+   "w": 128,
+   "h": 128,
+   "masked": false,
+   "scale": 1,
+   "from": "DeusExDeco.Skins.TrafficLightTex1"
+  }
+ },
+ "retexture": [
+  {
+   "kind": "actor",
+   "name": "UCEdit0",
+   "slot": 0,
+   "tex": "UCT_TrafficLightTex1_1"
+  }
+ ],
+ "navmesh": {
+  "v": 1,
+  "key": "01_Feature_Lab|1|5",
+  "polys": [
+   "6 176 -688 4 144 -736 4 80 -736 4 48 -688 4 192 -368 4 256 -416 4 -1 11 -1 6 -1 3",
+   "3 -432 -456 4 -368 -456 4 -16 -752 4 -1 4 10",
+   "3 -16 -752 4 32 -784 4 32 -992 4 -1 14 10",
+   "3 256 -416 4 200 -688 4 176 -688 4 23 -1 0",
+   "4 -280 -408 4 -16 -720 4 -16 -752 4 -368 -456 4 7 -1 1 -1",
+   "3 -992 -304 4 -552 -304 4 -552 -352 4 41 -1 9",
+   "3 192 -368 4 48 -688 4 16 -688 4 0 -1 7",
+   "6 192 -368 4 16 -688 4 -16 -720 4 -280 -408 4 -248 -352 4 176 -296 4 6 -1 4 -1 8 -1",
+   "3 -248 -352 4 -248 -296 4 176 -296 4 -1 56 7",
+   "3 -992 -304 4 -552 -352 4 -504 -424 4 5 -1 10",
+   "6 -992 -304 4 -504 -424 4 -432 -456 4 -16 -752 4 32 -992 4 -992 -992 4 9 -1 1 2 -1 -1",
+   "5 48 -784 4 80 -736 4 144 -736 4 176 -784 4 32 -992 4 -1 0 -1 20 14",
+   "3 1880 -288 4 1432 -288 4 1432 -88 4 -1 -1 35",
+   "3 232 344 4 176 296 4 96 336 4 -1 40 16",
+   "3 32 -992 4 32 -784 4 48 -784 4 2 -1 11",
+   "4 -88 328 4 -64 312 20 -296 232 4 -360 304 4 -1 50 -1 30",
+   "4 232 344 4 96 336 4 96 536 4 336 352 4 13 -1 28 -1",
+   "4 304 -176 4 304 48 4 368 56 4 368 -192 4 47 -1 22 -1",
+   "3 1000 88 4 432 288 4 384 336 4 21 -1 38",
+   "3 1432 88 4 1432 296 4 1880 296 4 -1 -1 35",
+   "3 32 -992 4 176 -784 4 208 -784 4 11 -1 26",
+   "3 1000 88 4 448 256 4 432 288 4 29 -1 18",
+   "3 408 -232 4 368 -192 4 368 56 4 -1 17 27",
+   "3 200 -688 4 256 -416 4 336 -424 4 3 -1 25",
+   "3 -440 304 4 -504 240 4 -992 200 4 -1 39 36",
+   "4 240 -720 4 200 -688 4 336 -424 4 368 -408 4 -1 23 -1 31",
+   "4 32 -992 4 208 -784 4 240 -752 4 1000 -992 4 20 -1 31 -1",
+   "4 424 -264 4 408 -232 4 368 56 4 432 112 4 -1 22 -1 34",
+   "4 336 352 4 96 536 4 72 560 4 384 336 4 16 -1 38 -1",
+   "3 1000 88 4 448 144 4 448 256 4 34 -1 21",
+   "4 -88 328 4 -360 304 4 -440 304 4 -88 544 4 15 -1 36 -1",
+   "6 240 -752 4 240 -720 4 368 -408 4 424 -336 4 1000 -80 4 1000 -992 4 -1 25 -1 34 -1 26",
+   "4 72 560 4 -72 560 4 -992 992 4 1000 992 4 -1 36 -1 38",
+   "4 1000 88 4 1016 72 4 1016 -64 4 1000 -80 4 -1 37 -1 34",
+   "6 424 -264 4 432 112 4 448 144 4 1000 88 4 1000 -80 4 424 -336 4 27 -1 29 33 31 -1",
+   "6 1416 72 4 1432 88 4 1880 296 4 1880 -288 4 1432 -88 4 1408 -64 4 -1 19 -1 12 -1 37",
+   "5 -72 560 4 -88 544 4 -440 304 4 -992 200 4 -992 992 4 -1 30 24 -1 32",
+   "4 1016 72 4 1416 72 4 1408 -64 4 1016 -64 4 -1 35 -1 33",
+   "4 1000 992 4 1000 88 4 384 336 4 72 560 4 -1 18 28 32",
+   "3 -504 240 4 -504 200 4 -992 200 4 -1 44 24",
+   "4 80 312 4 96 336 4 176 296 4 152 256 4 -1 13 -1 42",
+   "3 -552 -248 4 -552 -304 4 -992 -304 4 -1 5 49",
+   "4 40 328 24 80 312 4 152 256 4 152 144 4 -1 40 -1 45",
+   "4 -32 328 24 -32 504 92 40 504 92 40 328 24 -1 -1 -1 45",
+   "3 -992 200 4 -504 200 4 -504 160 4 39 -1 49",
+   "5 -64 312 20 -32 328 24 40 328 24 152 144 4 168 112 4 -1 43 42 -1 46",
+   "6 176 -296 4 -248 -248 4 -296 -176 4 -360 96 4 -64 312 20 168 112 4 56 -1 55 54 45 53",
+   "4 232 56 4 304 48 4 304 -176 4 232 -192 4 -1 17 -1 51",
+   "4 -368 -144 4 -432 -144 4 -440 96 4 -360 96 4 -1 52 -1 55",
+   "6 -520 -192 4 -552 -248 4 -992 -304 4 -992 200 4 -504 160 4 -464 112 4 -1 41 -1 44 -1 52",
+   "3 -296 160 4 -296 232 4 -64 312 20 -1 15 54",
+   "3 232 56 4 232 -192 4 192 -232 4 47 -1 53",
+   "4 -464 112 4 -440 96 4 -432 -144 4 -520 -192 4 -1 48 -1 49",
+   "4 168 112 4 232 56 4 192 -232 4 176 -296 4 -1 51 -1 46",
+   "3 -360 96 4 -296 160 4 -64 312 20 -1 50 46",
+   "3 -360 96 4 -296 -176 4 -368 -144 4 46 -1 48",
+   "3 176 -296 4 -248 -296 4 -248 -248 4 8 -1 46"
+  ]
+ },
+ "props": {
+  "UCEdit8": {
+   "bInvincible": "False"
+  }
+ }
+}

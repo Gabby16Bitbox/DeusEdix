@@ -1,7 +1,7 @@
 // The three.js the tests run with: the 0.160.0 the editor's page loads from its import map
 // (editor/static/index.html), taken from a copy on this PC, never downloaded. The first one found of
 //   DEUSEDIX_THREE_MODULE                         a three.module.js of 0.160.0 (an error if it is not that)
-//   ../../research/rea-blender/three.module.mjs   beside tools/mapkit in the UNATCO Continues working copy
+//   ../../research/rea-blender/three.module.mjs   beside tools/mapkit in a development working copy
 //   three in a node_modules                       npm install --no-save three@0.160.0 in mapkit
 // Without one the tests that need it are skipped, saying why: `test` from here skips every test of a file,
 // and a file with only a few such tests gives those { skip: noThree }.

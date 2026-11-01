@@ -1,0 +1,2324 @@
+{
+ "about": "The maps tests/test_logic_sim.mjs drives the Logic simulator on, beyond the behaviour fixtures: edits, world, and what logic_compile.compiled makes of the edits (written by backup/20261027_logic_phase_a/sim/make_cases.py; tests/test_logic_compile.py checks it is still so).",
+ "cases": {
+  "doors": {
+   "about": "A door blown up by an action tells its destroyed rules apart from its opened ones on their next Tick; one opened by an action leaves its \"has opened\" to the user; open on what is no door cannot.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "blow",
+        "target": "Door1",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Door1",
+      "when": "opened",
+      "once": false,
+      "label": "Door1 opened",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "Door1 opened"
+       }
+      ]
+     },
+     {
+      "id": "L3",
+      "src": "Door1",
+      "when": "destroyed",
+      "once": false,
+      "label": "Door1 destroyed",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "Door1 destroyed"
+       }
+      ]
+     },
+     {
+      "id": "L4",
+      "src": "Button2",
+      "when": "used",
+      "once": false,
+      "label": "Button2 used",
+      "do": [
+       {
+        "verb": "open",
+        "target": "Door2",
+        "delay": 0
+       },
+       {
+        "verb": "open",
+        "target": "Crate1",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L5",
+      "src": "Door2",
+      "when": "opened",
+      "once": false,
+      "label": "Door2 opened",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "Door2 opened"
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button2",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       64,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Door1",
+      "chain": [
+       "DeusExMover",
+       "Mover",
+       "Brush",
+       "Actor"
+      ],
+      "at": [
+       128,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Door2",
+      "chain": [
+       "DeusExMover",
+       "Mover",
+       "Brush",
+       "Actor"
+      ],
+      "at": [
+       256,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Crate1",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       300,
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Act(0)": "\"0|blow|Door1|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Door1",
+      "When": "opened",
+      "Rule": "\"L2\"",
+      "Label": "\"Door1 opened\"",
+      "Source": "\"Door1\"",
+      "Act(0)": "\"0|message||Door1 opened||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L3",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Door1",
+      "When": "destroyed",
+      "Rule": "\"L3\"",
+      "Label": "\"Door1 destroyed\"",
+      "Source": "\"Door1\"",
+      "Act(0)": "\"0|message||Door1 destroyed||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L4",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button2",
+      "When": "used",
+      "Rule": "\"L4\"",
+      "Label": "\"Button2 used\"",
+      "Source": "\"Button2\"",
+      "Act(0)": "\"0|open|Door2|||\"",
+      "Act(1)": "\"0|open|Crate1|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L5",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Door2",
+      "When": "opened",
+      "Rule": "\"L5\"",
+      "Label": "\"Door2 opened\"",
+      "Source": "\"Door2\"",
+      "Act(0)": "\"0|message||Door2 opened||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "decisions": {
+   "about": "What only the game decides after an action, offered while a rule waits for it: a character arriving, a character having used an object, an animation ending (withdrawn by animstop), set off by its UCMotion.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "goto",
+        "target": "Guard1",
+        "delay": 0,
+        "at": [
+         512,
+         0,
+         0
+        ]
+       },
+       {
+        "verb": "npcuse",
+        "target": "Guard1",
+        "delay": 0,
+        "a": "Crate1",
+        "b": "2",
+        "c": "stand"
+       },
+       {
+        "verb": "anim",
+        "target": "Crate2",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Guard1",
+      "when": "arrived",
+      "once": false,
+      "label": "Guard1 arrived",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "there"
+       }
+      ]
+     },
+     {
+      "id": "L3",
+      "src": "Crate1",
+      "when": "npcused",
+      "once": false,
+      "label": "Crate1 npcused",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "used"
+       }
+      ]
+     },
+     {
+      "id": "L4",
+      "src": "Crate2",
+      "when": "animdone",
+      "once": false,
+      "label": "Crate2 animdone",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "done"
+       }
+      ]
+     },
+     {
+      "id": "L5",
+      "src": "Button2",
+      "when": "used",
+      "once": false,
+      "label": "Button2 used",
+      "do": [
+       {
+        "verb": "animstop",
+        "target": "Crate2",
+        "delay": 0
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button2",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       64,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Guard1",
+      "chain": [
+       "UNATCOTroop",
+       "HumanMilitary",
+       "ScriptedPawn",
+       "Pawn",
+       "Actor"
+      ],
+      "at": [
+       900,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Crate1",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       300,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Crate2",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       400,
+       0,
+       0
+      ],
+      "motion": "UCMotion_Crate2"
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Act(0)": "\"0|goto|Guard1|512.0|0.0|0.0\"",
+      "Act(1)": "\"0|npcuse|Guard1|Crate1|2|stand\"",
+      "Act(2)": "\"0|anim|Crate2|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L2",
+      "When": "arrived",
+      "Rule": "\"L2\"",
+      "Label": "\"Guard1 arrived\"",
+      "Source": "\"Guard1\"",
+      "Act(0)": "\"0|message||there||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L3",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Crate1_Npc",
+      "When": "npcused",
+      "Rule": "\"L3\"",
+      "Label": "\"Crate1 npcused\"",
+      "Source": "\"Crate1\"",
+      "Act(0)": "\"0|message||used||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L4",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Crate2_Anim",
+      "When": "animdone",
+      "Rule": "\"L4\"",
+      "Label": "\"Crate2 animdone\"",
+      "Source": "\"Crate2\"",
+      "Act(0)": "\"0|message||done||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L5",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button2",
+      "When": "used",
+      "Rule": "\"L5\"",
+      "Label": "\"Button2 used\"",
+      "Source": "\"Button2\"",
+      "Act(0)": "\"0|animstop|Crate2|||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "cutscene": {
+   "about": "A cutscene played by a rule tells its start rules at once; while it plays no rule looks (JC is a camera); skipped, its start rules do what they still had to at once.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "",
+      "when": "start",
+      "once": false,
+      "label": "start",
+      "do": [
+       {
+        "verb": "cutplay",
+        "target": "Cut1",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Cut1",
+      "when": "cutstart",
+      "once": false,
+      "label": "Cut1 cutstart",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "a"
+       },
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 5,
+        "a": "b"
+       }
+      ]
+     },
+     {
+      "id": "L3",
+      "src": "Cut1",
+      "when": "cutdone",
+      "once": false,
+      "label": "Cut1 cutdone",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "over"
+       }
+      ]
+     },
+     {
+      "id": "L4",
+      "src": "Crate1",
+      "when": "near",
+      "once": false,
+      "label": "Crate1 near",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "near"
+       }
+      ],
+      "near": 256
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Cut1",
+      "chain": [
+       "UCCutscene",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Crate1",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "start": {
+    "jc": [
+     2000,
+     0,
+     0
+    ]
+   },
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L1",
+      "When": "start",
+      "Rule": "\"L1\"",
+      "Label": "\"start\"",
+      "Act(0)": "\"0|cutplay|Cut1|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut1_Start",
+      "When": "cutstart",
+      "Rule": "\"L2\"",
+      "Label": "\"Cut1 cutstart\"",
+      "Source": "\"Cut1\"",
+      "Act(0)": "\"0|message||a||\"",
+      "Act(1)": "\"5|message||b||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L3",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut1_End",
+      "When": "cutdone",
+      "Rule": "\"L3\"",
+      "Label": "\"Cut1 cutdone\"",
+      "Source": "\"Cut1\"",
+      "Act(0)": "\"0|message||over||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L4",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L4",
+      "When": "near",
+      "Rule": "\"L4\"",
+      "Label": "\"Crate1 near\"",
+      "Source": "\"Crate1\"",
+      "NearDist": "256.000000",
+      "Act(0)": "\"0|message||near||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "cutstop": {
+   "about": "A rule that stops a cutscene ends it as skipped (UCCutscene.Stop, Finish(True, False)): its start rules do at once what they still had to, then its end rules are told.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "",
+      "when": "start",
+      "once": false,
+      "label": "start",
+      "do": [
+       {
+        "verb": "cutplay",
+        "target": "Cut1",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Cut1",
+      "when": "cutstart",
+      "once": false,
+      "label": "Cut1 cutstart",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "a"
+       },
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 5,
+        "a": "b"
+       }
+      ]
+     },
+     {
+      "id": "L3",
+      "src": "Timer1",
+      "when": "finished",
+      "once": false,
+      "label": "Timer1 finished",
+      "do": [
+       {
+        "verb": "cutstop",
+        "target": "Cut1",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L4",
+      "src": "Cut1",
+      "when": "cutdone",
+      "once": false,
+      "label": "Cut1 cutdone",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "over"
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Cut1",
+      "chain": [
+       "UCCutscene",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Timer1",
+      "chain": [
+       "UCTimer",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ],
+      "seconds": 2,
+      "autostart": true
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L1",
+      "When": "start",
+      "Rule": "\"L1\"",
+      "Label": "\"start\"",
+      "Act(0)": "\"0|cutplay|Cut1|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut1_Start",
+      "When": "cutstart",
+      "Rule": "\"L2\"",
+      "Label": "\"Cut1 cutstart\"",
+      "Source": "\"Cut1\"",
+      "Act(0)": "\"0|message||a||\"",
+      "Act(1)": "\"5|message||b||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L3",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Timer1_Done",
+      "When": "finished",
+      "Rule": "\"L3\"",
+      "Label": "\"Timer1 finished\"",
+      "Source": "\"Timer1\"",
+      "Act(0)": "\"0|cutstop|Cut1|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L4",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut1_End",
+      "When": "cutdone",
+      "Rule": "\"L4\"",
+      "Label": "\"Cut1 cutdone\"",
+      "Source": "\"Cut1\"",
+      "Act(0)": "\"0|message||over||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "cutplay": {
+   "about": "What UCCutscene.Play refuses (one that plays, one played only once, one with no keys) and what waits for the cutscene that plays (CanStart), and a rule that stops one that waits.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "cutplay",
+        "target": "Cut1",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Button2",
+      "when": "used",
+      "once": false,
+      "label": "Button2 used",
+      "do": [
+       {
+        "verb": "cutplay",
+        "target": "Cut2",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L3",
+      "src": "Button3",
+      "when": "used",
+      "once": false,
+      "label": "Button3 used",
+      "do": [
+       {
+        "verb": "cutstop",
+        "target": "Cut2",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L4",
+      "src": "Button4",
+      "when": "used",
+      "once": false,
+      "label": "Button4 used",
+      "do": [
+       {
+        "verb": "cutplay",
+        "target": "Cut3",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L5",
+      "src": "Cut1",
+      "when": "cutstart",
+      "once": false,
+      "label": "Cut1 cutstart",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "one"
+       }
+      ]
+     },
+     {
+      "id": "L6",
+      "src": "Cut2",
+      "when": "cutstart",
+      "once": false,
+      "label": "Cut2 cutstart",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "two"
+       }
+      ]
+     },
+     {
+      "id": "L7",
+      "src": "Cut1",
+      "when": "cutdone",
+      "once": false,
+      "label": "Cut1 cutdone",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "one over"
+       }
+      ]
+     },
+     {
+      "id": "L8",
+      "src": "Cut2",
+      "when": "cutdone",
+      "once": false,
+      "label": "Cut2 cutdone",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "two over"
+       }
+      ]
+     },
+     {
+      "id": "L9",
+      "src": "Cut3",
+      "when": "cutstart",
+      "once": false,
+      "label": "Cut3 cutstart",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "three"
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button2",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       64,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button3",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       128,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button4",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       192,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Cut1",
+      "chain": [
+       "UCCutscene",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Cut2",
+      "chain": [
+       "UCCutscene",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ],
+      "once": false
+     },
+     {
+      "name": "Cut3",
+      "chain": [
+       "UCCutscene",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ],
+      "keys": 0
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Act(0)": "\"0|cutplay|Cut1|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button2",
+      "When": "used",
+      "Rule": "\"L2\"",
+      "Label": "\"Button2 used\"",
+      "Source": "\"Button2\"",
+      "Act(0)": "\"0|cutplay|Cut2|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L3",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button3",
+      "When": "used",
+      "Rule": "\"L3\"",
+      "Label": "\"Button3 used\"",
+      "Source": "\"Button3\"",
+      "Act(0)": "\"0|cutstop|Cut2|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L4",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button4",
+      "When": "used",
+      "Rule": "\"L4\"",
+      "Label": "\"Button4 used\"",
+      "Source": "\"Button4\"",
+      "Act(0)": "\"0|cutplay|Cut3|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L5",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut1_Start",
+      "When": "cutstart",
+      "Rule": "\"L5\"",
+      "Label": "\"Cut1 cutstart\"",
+      "Source": "\"Cut1\"",
+      "Act(0)": "\"0|message||one||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L6",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut2_Start",
+      "When": "cutstart",
+      "Rule": "\"L6\"",
+      "Label": "\"Cut2 cutstart\"",
+      "Source": "\"Cut2\"",
+      "Act(0)": "\"0|message||two||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L7",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut1_End",
+      "When": "cutdone",
+      "Rule": "\"L7\"",
+      "Label": "\"Cut1 cutdone\"",
+      "Source": "\"Cut1\"",
+      "Act(0)": "\"0|message||one over||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L8",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut2_End",
+      "When": "cutdone",
+      "Rule": "\"L8\"",
+      "Label": "\"Cut2 cutdone\"",
+      "Source": "\"Cut2\"",
+      "Act(0)": "\"0|message||two over||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L9",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Cut3_Start",
+      "When": "cutstart",
+      "Rule": "\"L9\"",
+      "Label": "\"Cut3 cutstart\"",
+      "Source": "\"Cut3\"",
+      "Act(0)": "\"0|message||three||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "cannot": {
+   "about": "Actions the target cannot do: the game says cannot, nofloor or noscript, and the next ones still run.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "timerstart",
+        "target": "Crate1",
+        "delay": 0
+       },
+       {
+        "verb": "cutplay",
+        "target": "Crate1",
+        "delay": 0
+       },
+       {
+        "verb": "floor",
+        "target": "Lift1",
+        "delay": 0,
+        "a": "5"
+       },
+       {
+        "verb": "floor",
+        "target": "Lift1",
+        "delay": 0,
+        "a": "1"
+       },
+       {
+        "verb": "floor",
+        "target": "Crate1",
+        "delay": 0,
+        "a": "0"
+       },
+       {
+        "verb": "open",
+        "target": "Crate1",
+        "delay": 0
+       },
+       {
+        "verb": "input",
+        "target": "Crate1",
+        "delay": 0,
+        "a": "Go"
+       },
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "after"
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Crate1",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       300,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Lift1",
+      "chain": [
+       "ElevatorMover",
+       "Mover",
+       "Brush",
+       "Actor"
+      ],
+      "at": [
+       0,
+       300,
+       0
+      ]
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Act(0)": "\"0|timerstart|Crate1|||\"",
+      "Act(1)": "\"0|cutplay|Crate1|||\"",
+      "Act(2)": "\"0|floor|Lift1|5||\"",
+      "Act(3)": "\"0|floor|Lift1|1||\"",
+      "Act(4)": "\"0|floor|Crate1|0||\"",
+      "Act(5)": "\"0|open|Crate1|||\"",
+      "Act(6)": "\"0|input|Crate1|Go||\"",
+      "Act(7)": "\"0|message||after||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "timers": {
+   "about": "A timer that starts with the map and loops: it counts in its own turn from the first tick.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Timer1",
+      "when": "finished",
+      "once": false,
+      "label": "Timer1 finished",
+      "do": [
+       {
+        "verb": "count",
+        "target": "",
+        "delay": 0,
+        "a": "Ticks",
+        "b": "1"
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Timer1",
+      "chain": [
+       "UCTimer",
+       "UCEditorStory",
+       "Info",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ],
+      "seconds": 1,
+      "autostart": true,
+      "loop": true
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Timer1_Done",
+      "When": "finished",
+      "Rule": "\"L1\"",
+      "Label": "\"Timer1 finished\"",
+      "Source": "\"Timer1\"",
+      "Act(0)": "\"0|count||Ticks|1|\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "names": {
+   "about": "The game's names ignore case (a state, a scripting tag); a text's backslash is the T3D's doubled one.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Back\\slash",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "a\\b"
+       }
+      ],
+      "requires": [
+       {
+        "flag": "Ready",
+        "is": true
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Button2",
+      "when": "used",
+      "once": false,
+      "label": "Button2 used",
+      "do": [
+       {
+        "verb": "flag",
+        "target": "",
+        "delay": 0,
+        "a": "ready",
+        "b": "1"
+       },
+       {
+        "verb": "lightoff",
+        "target": "",
+        "delay": 0,
+        "targetTag": "RED"
+       }
+      ]
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button2",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       64,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Light1",
+      "chain": [
+       "Light",
+       "Actor"
+      ],
+      "at": [
+       100,
+       0,
+       0
+      ],
+      "tag": "red"
+     },
+     {
+      "name": "Light2",
+      "chain": [
+       "Light",
+       "Actor"
+      ],
+      "at": [
+       200,
+       0,
+       0
+      ],
+      "tag": "blue"
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Back\\\\slash\"",
+      "Source": "\"Button1\"",
+      "Cond(0)": "\"flag|Ready|1\"",
+      "Act(0)": "\"0|message||a\\\\b||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button2",
+      "When": "used",
+      "Rule": "\"L2\"",
+      "Label": "\"Button2 used\"",
+      "Source": "\"Button2\"",
+      "Act(0)": "\"0|flag||ready|1|\"",
+      "Act(1)": "\"0|lightoff|||||tag|RED\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "script_on": {
+   "about": "Switching a script on starts it and runs its Triggered(): what it says there tells its rules at once.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "on",
+        "target": "Gen0",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Gen0",
+      "when": "output",
+      "once": false,
+      "label": "Gen0 output",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "ready"
+       }
+      ],
+      "port": "Ready"
+     }
+    ]
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Gen0",
+      "chain": [
+       "Generator",
+       "UCScript",
+       "Actor"
+      ],
+      "at": [
+       0,
+       64,
+       0
+      ],
+      "ports": {
+       "inputs": [],
+       "outputs": [
+        {
+         "id": "Ready",
+         "label": "it is ready"
+        }
+       ]
+      },
+      "script": {
+       "triggered": [
+        "Ready"
+       ]
+      }
+     }
+    ]
+   },
+   "start": {},
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Act(0)": "\"0|on|Gen0|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L2",
+      "When": "output",
+      "Rule": "\"L2\"",
+      "Label": "\"Gen0 output\"",
+      "Source": "\"Gen0\"",
+      "Port": "\"Ready\"",
+      "Act(0)": "\"0|message||ready||\""
+     }
+    }
+   ],
+   "left": []
+  },
+  "why": {
+   "about": "Rules refused, never set off, running, used up, failing, left out of the game: what why() says of each.",
+   "edits": {
+    "links": [
+     {
+      "id": "L1",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "lit"
+       }
+      ],
+      "requires": [
+       {
+        "flag": "Power",
+        "is": true
+       }
+      ]
+     },
+     {
+      "id": "L2",
+      "src": "Lever1",
+      "when": "used",
+      "once": false,
+      "label": "Lever1 used",
+      "do": [
+       {
+        "verb": "flag",
+        "target": "",
+        "delay": 2,
+        "a": "Power",
+        "b": "1"
+       }
+      ]
+     },
+     {
+      "id": "L3",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "two"
+       }
+      ],
+      "requires": [
+       {
+        "type": "counter",
+        "counter": "Levers",
+        "op": ">=",
+        "value": 2
+       }
+      ]
+     },
+     {
+      "id": "L4",
+      "src": "Lever1",
+      "when": "used",
+      "once": false,
+      "label": "Lever1 used",
+      "do": [
+       {
+        "verb": "count",
+        "target": "",
+        "delay": 0,
+        "a": "Levers",
+        "b": "1"
+       }
+      ]
+     },
+     {
+      "id": "L5",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "tool"
+       }
+      ],
+      "requires": [
+       {
+        "type": "item",
+        "item": "DeusEx.Multitool",
+        "has": true
+       }
+      ]
+     },
+     {
+      "id": "L6",
+      "src": "Button2",
+      "when": "used",
+      "once": false,
+      "label": "Button2 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "go"
+       },
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 3,
+        "a": "still"
+       }
+      ]
+     },
+     {
+      "id": "L7",
+      "src": "Ghost1",
+      "when": "used",
+      "once": false,
+      "label": "Ghost1 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "boo"
+       }
+      ]
+     },
+     {
+      "id": "L8",
+      "src": "Crate1",
+      "when": "near",
+      "once": false,
+      "label": "Crate1 near",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "near"
+       }
+      ],
+      "near": 256
+     },
+     {
+      "id": "L9",
+      "src": "Button1",
+      "when": "used",
+      "once": false,
+      "label": "Button1 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "never"
+       }
+      ],
+      "requires": [
+       {
+        "flag": "Nobody",
+        "is": true
+       }
+      ]
+     },
+     {
+      "id": "L10",
+      "src": "Button3",
+      "when": "used",
+      "once": false,
+      "label": "Button3 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "gone"
+       }
+      ]
+     },
+     {
+      "id": "L11",
+      "src": "Button2",
+      "when": "used",
+      "once": false,
+      "label": "Button2 used",
+      "do": [
+       {
+        "verb": "hide",
+        "target": "Crate9",
+        "delay": 0
+       }
+      ]
+     },
+     {
+      "id": "L12",
+      "src": "",
+      "when": "start",
+      "once": false,
+      "label": "start",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "hello"
+       }
+      ]
+     },
+     {
+      "id": "L13",
+      "src": "Lever1",
+      "when": "used",
+      "once": true,
+      "label": "Lever1 used",
+      "do": [
+       {
+        "verb": "message",
+        "target": "",
+        "delay": 0,
+        "a": "first pull"
+       }
+      ]
+     }
+    ],
+    "deleted": {
+     "Button3": {
+      "cls": "Button1"
+     }
+    }
+   },
+   "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+     {
+      "name": "Button1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Button2",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       64,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Lever1",
+      "chain": [
+       "Switch1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       0,
+       64,
+       0
+      ]
+     },
+     {
+      "name": "Crate1",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "at": [
+       300,
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Ghost1",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "absent": "missing"
+     },
+     {
+      "name": "Button3",
+      "chain": [
+       "Button1",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "absent": "deleted"
+     },
+     {
+      "name": "Crate9",
+      "chain": [
+       "CrateUnbreakableSmall",
+       "Containers",
+       "DeusExDecoration",
+       "Decoration",
+       "Actor"
+      ],
+      "absent": "missing"
+     }
+    ]
+   },
+   "start": {
+    "jc": [
+     2000,
+     0,
+     0
+    ]
+   },
+   "actors": [
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L1",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L1\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Cond(0)": "\"flag|Power|1\"",
+      "Act(0)": "\"0|message||lit||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L2",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Lever1",
+      "When": "used",
+      "Rule": "\"L2\"",
+      "Label": "\"Lever1 used\"",
+      "Source": "\"Lever1\"",
+      "Act(0)": "\"2|flag||Power|1|\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L3",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L3\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Cond(0)": "\"count|Levers|>=|2\"",
+      "Act(0)": "\"0|message||two||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L4",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Lever1",
+      "When": "used",
+      "Rule": "\"L4\"",
+      "Label": "\"Lever1 used\"",
+      "Source": "\"Lever1\"",
+      "Act(0)": "\"0|count||Levers|1|\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L5",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L5\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Cond(0)": "\"item|DeusEx.Multitool|1\"",
+      "Act(0)": "\"0|message||tool||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L6",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button2",
+      "When": "used",
+      "Rule": "\"L6\"",
+      "Label": "\"Button2 used\"",
+      "Source": "\"Button2\"",
+      "Act(0)": "\"0|message||go||\"",
+      "Act(1)": "\"3|message||still||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L7",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Ghost1",
+      "When": "used",
+      "Rule": "\"L7\"",
+      "Label": "\"Ghost1 used\"",
+      "Source": "\"Ghost1\"",
+      "Act(0)": "\"0|message||boo||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L8",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L8",
+      "When": "near",
+      "Rule": "\"L8\"",
+      "Label": "\"Crate1 near\"",
+      "Source": "\"Crate1\"",
+      "NearDist": "256.000000",
+      "Act(0)": "\"0|message||near||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L9",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button1",
+      "When": "used",
+      "Rule": "\"L9\"",
+      "Label": "\"Button1 used\"",
+      "Source": "\"Button1\"",
+      "Cond(0)": "\"flag|Nobody|1\"",
+      "Act(0)": "\"0|message||never||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L11",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Button2",
+      "When": "used",
+      "Rule": "\"L11\"",
+      "Label": "\"Button2 used\"",
+      "Source": "\"Button2\"",
+      "Act(0)": "\"0|hide|Crate9|||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L12",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCLW_L12",
+      "When": "start",
+      "Rule": "\"L12\"",
+      "Label": "\"start\"",
+      "Act(0)": "\"0|message||hello||\""
+     }
+    },
+    {
+     "cls": "UCLink",
+     "name": "UCLink_L13",
+     "loc": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "props": {
+      "Tag": "UCL_Lever1",
+      "When": "used",
+      "Rule": "\"L13\"",
+      "Label": "\"Lever1 used\"",
+      "Source": "\"Lever1\"",
+      "bOnce": "True",
+      "Act(0)": "\"0|message||first pull||\""
+     }
+    }
+   ],
+   "left": [
+    {
+     "id": "L10",
+     "src": "Button3",
+     "why": "deleted",
+     "text": "its object is deleted"
+    }
+   ]
+  }
+ }
+}

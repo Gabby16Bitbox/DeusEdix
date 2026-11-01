@@ -1,0 +1,68 @@
+{
+  "id": "once_checked_before_running",
+  "title": "Only once is checked before running",
+  "behaviour": "A rule that runs only once and is still doing its delayed actions is skipped as \"once\", not \"running\": RunRule checks once first.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [270, 273], "has": "if (bOnce && bDone)"},
+    {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 5.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": true,
+        "label": "When JC uses Button1, only once: the message Opening, after 3 s open Door1",
+        "do": [
+          {"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Opening"},
+          {"id": "a2", "verb": "open", "target": "Door1", "delay": 3}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [128, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 5.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only once: the message Opening, after 3 s open Door1"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||Opening"},
+    {"t": 2.0, "line": "skip|LogicFixtures|L1|once|"},
+    {"t": 4.1, "line": "act|LogicFixtures|L1|open|Door1|"},
+    {"t": 5.0, "line": "skip|LogicFixtures|L1|once|"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only once: the message Opening, after 3 s open Door1\"",
+        "Source": "\"Button1\"",
+        "bOnce": "True",
+        "Act(0)": "\"0|message||Opening||\"",
+        "Act(1)": "\"3|open|Door1|||\""
+      }
+    }
+  ]
+}

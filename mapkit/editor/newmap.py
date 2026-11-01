@@ -24,12 +24,29 @@ MISSIONS = [(1, 'Liberty Island'), (2, 'New York: Battery Park, Hell\'s Kitchen'
 TEXTURES = dict(floor='ClenGrayCemnt_A', walls='DrtyGrayBlock_A', ceiling='WhitCeilnTile_B')   # a smooth floor: no joints
 # the light of the room (New map > Mood): a light every ~512 units (4 lights left a 2048 room dark, Crypt Test,
 # 20 Oct 2026); hue/saturation as the game's lights (saturation 255 = white), a dark mood flickers here and there
+# (flicker_type)
 MOODS = {
     'normal': dict(label='Normal', bright=150, hue=0, sat=255, flicker=False),
     'dark': dict(label='Dark (horror): dim red, some lights flicker', bright=120, hue=8, sat=110, flicker=True),
     'warm': dict(label='Warm: lamps, wood, evening', bright=165, hue=24, sat=150, flicker=False),
     'cold': dict(label='Cold: blue, metal, night', bright=160, hue=150, sat=160, flicker=False),
 }
+
+# A lamp that flickers, by the project's game (measured in the game, 28 Oct 2026): Revision's renderer never lights an
+# LT_Flicker lamp, whatever its settings (it never updates their random values), and its LT_Blink is on in about half
+# of the frames at random, for good with a LightPeriod whose Period + 1 is not a power of two: the Light class's own,
+# 32, left as it is. The original game lights LT_Flicker, and its LT_Blink turns steady after 7.3 x (Period + 1) s.
+FLICKER_NOTE = {
+    'LT_Blink': "# some lamps flicker: LT_Blink, on in about half of the frames at random (Revision's renderer never "
+                "lights LT_Flicker; the class's LightPeriod, 32, never turns steady)\n",
+    'LT_Flicker': "# some lamps flicker: LT_Flicker (the original game lights it; its LT_Blink turns steady in minutes)\n",
+}
+
+
+def flicker_type():
+    """The LightType of a lamp that flickers in this project's game (settings.IS_REVISION): FLICKER_NOTE."""
+    return 'LT_Blink' if settings.IS_REVISION else 'LT_Flicker'
+
 
 TEMPLATE = '''"""{map} - a new map made in the map editor ({date}).
 
@@ -56,18 +73,20 @@ FLOOR, WALLS, CEILING = Mat('{floor}'), Mat('{walls}'), Mat('{ceiling}')
 s.begin_group('room', 'Room', 'Building')
 s.sub(box((-W / 2, -D / 2, 0), (W / 2, D / 2, H), {{'sides': WALLS, 'top': CEILING, 'bottom': FLOOR}}))
 NX, NY = max(2, min(8, round(W / 512))), max(2, min(8, round(D / 512)))     # a light every ~512 units ({mood})
-for i in range(NX):
+{flicker_note}for i in range(NX):
     for j in range(NY):
         x, y = -W / 2 + W * (i + 0.5) / NX, -D / 2 + D * (j + 0.5) / NY
         s.actor('Light', (x, y, H - 24), LightBrightness={bright}, LightRadius=32, LightHue={hue}, LightSaturation={sat},
-                LightType='LT_Flicker' if {flicker} and (i + j) % 3 == 1 else 'LT_Steady')
+                LightType='{flicker_type}' if {flicker} and (i + j) % 3 == 1 else 'LT_Steady')
 
 # where JC appears: the start of the map, and the arrival point "Start" (other maps: {map}#Start)
 s.actor('PlayerStart', (0, -D / 4, 48), rot=(0, 16384, 0))
 s.actor('Teleporter', (0, -D / 4, 48), name='Start', Tag='Start', bEnabled=False, rot=(0, 16384, 0))
 s.actor('DeusExLevelInfo', (0, 0, H - 48), MapName='"{map}"', MissionLocation='"{location}"', missionNumber={mission},
         Script={mission_script!r}, ConversationPackage={conversations!r})
-s.actor('PathNode', (0, 0, 48))
+# a path node on the floor, where the build rests it (its collision height, 15, over the floor): the editor shows it
+# where the script puts it, and finds it there again when it was moved in the editor
+s.actor('PathNode', (0, 0, 16))
 
 if __name__ == '__main__':
     s.build(OUT, edits=HERE / '{script}.edits.json')
@@ -78,7 +97,7 @@ if __name__ == '__main__':
 ROOM_LINES = (re.compile(r"^W, D, H = (\d+), (\d+), (\d+)", re.M),
               re.compile(r"^FLOOR, WALLS, CEILING = Mat\('(\w+)'\), Mat\('(\w+)'\), Mat\('(\w+)'\)", re.M),
               re.compile(r"LightBrightness=(\d+), LightRadius=32, LightHue=(\d+), LightSaturation=(\d+),\s*"
-                         r"LightType='LT_Flicker' if (True|False)"))
+                         r"LightType='LT_(?:Flicker|Blink)' if (True|False)"))      # either game's (flicker_type)
 
 
 def room_of(text):
@@ -133,8 +152,11 @@ def create_empty(name, mission, size=(2048, 2048, 384), location='', textures=No
     mission_script = 'None' if dxmaps.isolated_project() else settings.mission_script(mission)
     conversations = '"None"' if dxmaps.isolated_project() else settings.CONVERSATIONS
     m = MOODS.get(mood) or MOODS['normal']
+    flicker = flicker_type()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(TEMPLATE.format(mood=m['label'].split(':')[0], bright=m['bright'], hue=m['hue'], sat=m['sat'], flicker=m['flicker'], map=new, script=script, date=time.strftime('%d %b %Y'), mission=int(mission),
+    path.write_text(TEMPLATE.format(mood=m['label'].split(':')[0], bright=m['bright'], hue=m['hue'], sat=m['sat'], flicker=m['flicker'],
+                                    flicker_type=flicker, flicker_note=FLICKER_NOTE[flicker] if m['flicker'] else '',
+                                    map=new, script=script, date=time.strftime('%d %b %Y'), mission=int(mission),
                                     mission_name=mission_name, w=w, d=d, h=h, location=str(location or new).replace('"', ''),
                                     mission_script=mission_script, conversations=conversations,
                                     **tex), encoding='utf-8')

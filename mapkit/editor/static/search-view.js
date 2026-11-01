@@ -6,16 +6,23 @@
 // gizmo, the selection's outline). Their layers are put on before each picture and taken off right after it.
 const SOLID = 30, ICON = 31;           // layers nothing else uses: the matches' meshes and lines; their icons
 
-// a soft round dot: the glow of an icon behind a wall
-function dotTexture(THREE) {
-  const n = 32, data = new Uint8Array(n * n * 4);
+// a round picture n x n: white, its alpha alphaAt(r) (0 to 1) at r from its middle in halves of its side; filter: how
+// it is sampled drawn bigger or smaller (none: a DataTexture's own, nearest). View > Effects' coronas are one too
+// (light-effects-view.js)
+export function radialTexture(THREE, n, alphaAt, filter) {
+  const data = new Uint8Array(n * n * 4);
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
     const r = Math.hypot(x - n / 2 + 0.5, y - n / 2 + 0.5) / (n / 2), i = (y * n + x) * 4;
-    data.set([255, 255, 255, Math.round(255 * Math.max(0, 1 - r) ** 1.5)], i);
+    data.set([255, 255, 255, Math.round(255 * alphaAt(r))], i);
   }
   const t = new THREE.DataTexture(data, n, n);
+  if (filter) t.magFilter = t.minFilter = filter;
   t.needsUpdate = true;
   return t;
+}
+// a soft round dot: the glow of an icon behind a wall
+export function dotTexture(THREE) {
+  return radialTexture(THREE, 32, (r) => Math.max(0, 1 - r) ** 1.5);
 }
 
 // renderer, scene, camera: the 3D view's; over(): what is drawn again over the veil (it must stay bright)

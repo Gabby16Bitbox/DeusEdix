@@ -1,6 +1,6 @@
 """The walkable area in the game (navmesh phase 3, Gabby 17 Oct 2026): the navigation mesh the editor makes with
-Recast (static/navmesh.js, View > Walkable area) goes into the map as a UCNavMesh actor of the mod, so that the
-game's scripts find their way on it (src/UnatcoContinues/Classes/UCNavMesh.uc, UCNavRoute.uc): characters sent
+Recast (static/navmesh.js, View > Walkable area) goes into the map as a UCNavMesh actor of the editor's package, so that the
+game's scripts find their way on it (src/<settings.PACKAGE>/Classes/UCNavMesh.uc, UCNavRoute.uc): characters sent
 somewhere "on the walkable area" walk the way a man would, without path nodes.
 
 The editor's page makes the polygons (navmesh.js bakePolys) just before a Rebuild, when needed() says the map

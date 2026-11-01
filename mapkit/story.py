@@ -1,6 +1,6 @@
 """Stories written in the map editor ("Storia"): dialogues attached to the characters and objects of
 a map, and the events of the mission. Saved in tools/mapkit/story/<map>.json, turned into UnrealScript
-(src/UnatcoContinues/Classes/UCEd_<map>.uc, a subclass of UCEditorStory) and compiled with the mod.
+(src/<settings.PACKAGE>/Classes/UCEd_<map>.uc, a subclass of UCEditorStory) and compiled with the editor's package.
 
 story = {
   "route": "unatco" | "always",

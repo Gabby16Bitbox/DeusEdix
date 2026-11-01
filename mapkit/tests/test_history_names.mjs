@@ -1,6 +1,7 @@
 // The undo history's named steps (static/history-names.js): a name stays with its snapshot through undo, redo, a step
-// taken back unused and the cap; Edit > Undo and Redo say the step they take; the History panel's rows (newest first,
-// the map as opened at the bottom) and how far a click on one goes.
+// taken back unused and the cap, and so does what the page keeps of its edits (page, given after the cap); Edit > Undo
+// and Redo say the step they take; the History panel's rows (newest first, the map as opened at the bottom) and how far
+// a click on one goes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HISTORY_LIMIT, MAP_OPENED, OLDEST_KEPT, UNNAMED, createHistory, clearHistory, stepName, namedStep, propertyName,
@@ -148,4 +149,58 @@ test('the rows: newest first, Redo\'s dimmed above the current one, the map as o
   assert.equal(p.edits, 4);                                         // the top row: every step redone
   assert.deepEqual(stepsTo(0), { way: 'redo', count: 0 });
   assert.deepEqual(stepsTo(-3), { way: 'undo', count: 3 });
+});
+
+test('what the page keeps of each step\'s edits goes with them: undone, redone, a step taken back unused, the cap and what it gives back', () => {
+  // the page's own state of the edits (app.js gives what the Texture Slip's slips know), an object per state as the
+  // edits are a number: each change's step holds the page's state before it; a step back or forward gives back the one
+  // its edits had, and its way back holds the state left; a step taken back unused and the cap keep them with their
+  // snapshots
+  const h = createHistory(), pages = [];
+  let edits = 0, now = null;
+  const change = (label) => { recordStep(h, String(edits), label, undefined, now); edits++; now = { edits }; pages[edits] = now; };
+  const step = (way) => { const s = travelStep(h, way, String(edits), now); if (s) { edits = +s.state; now = s.page; } return s; };
+  change('Slip the texture'); change('Pan the texture'); change('Slip the texture');
+  assert.deepEqual(h.undo.map((s) => s.page), [null, pages[1], pages[2]]);
+  step('undo');
+  assert.deepEqual([edits, now], [2, pages[2]]);
+  step('undo'); step('undo');
+  assert.deepEqual([edits, now], [0, null]);
+  step('redo'); step('redo'); step('redo');
+  assert.deepEqual([edits, now], [3, pages[3]]);
+  const plain = createHistory();
+  recordStep(plain, '0', 'Move Light4');
+  travelStep(plain, 'undo', '1');
+  assert.deepEqual([plain.undo, plain.redo], [[], [{ state: '1', label: 'Move Light4', page: null }]], 'none given: null');
+  // a click that moved nothing after two Undos: Redo keeps its steps and their pages
+  step('undo'); step('undo');
+  recordStep(h, String(edits), 'Move Light4', undefined, now);
+  dropStep(h);
+  step('redo');
+  assert.deepEqual([edits, now], [2, pages[2]]);
+  // the cap: the oldest steps go with their pages, a step taken back unused gives them back
+  const q = createHistory();
+  for (let i = 0; i < HISTORY_LIMIT; i++) recordStep(q, String(i), `Step ${i}`, undefined, { i });
+  const oldest = q.undo[0];
+  recordStep(q, String(HISTORY_LIMIT), 'Move Light4', undefined, { i: HISTORY_LIMIT });
+  assert.equal(q.undo[0].page.i, 1);
+  dropStep(q);
+  assert.equal(q.undo[0], oldest);
+});
+
+test('the page comes after the cap: a caller that gives a cap as before still caps at it, and one that gives a page and leaves the cap keeps HISTORY_LIMIT steps', () => {
+  // (app.js gives undefined for the cap, then the page: an older history-names.js, whose fourth parameter is the cap,
+  // takes that undefined as its own cap and never sees the page. With the page fourth, a page given there was read as
+  // the cap by an older module, and a cap given there as the page: no step kept, or every step kept)
+  assert.equal(recordStep.length, 3);                               // (the cap and the page have defaults)
+  const capped = createHistory(), paged = createHistory();
+  for (let i = 0; i < HISTORY_LIMIT + 50; i++) {
+    recordStep(capped, String(i), `Step ${i}`, 3);
+    recordStep(paged, String(i), `Step ${i}`, undefined, new Map([['Brush2', i]]));
+  }
+  assert.deepEqual([capped.undo.length, capped.undo.at(-1).page], [3, null]);
+  assert.deepEqual([paged.undo.length, paged.undo.at(-1).page.get('Brush2')], [HISTORY_LIMIT, HISTORY_LIMIT + 49]);
+  const four = createHistory();
+  for (let i = 0; i < HISTORY_LIMIT + 50; i++) recordStep(four, String(i), `Step ${i}`, HISTORY_LIMIT);
+  assert.equal(four.undo.length, HISTORY_LIMIT, 'four arguments, the cap as before');
 });

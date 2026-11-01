@@ -5,10 +5,13 @@ edits['motions'] = {'<object name>': {
     'pos':   [{'t': seconds, 'v': [x, y, z] (offset from where it is), 'e': curve}],
     'rot':   [{'t': seconds, 'v': [pitch, yaw, roll] (rotation units: 65536 = a turn), 'e': curve}],
     'scale': [{'t': seconds, 'v': times its size, 'e': curve}],
-    'mode': 'once' | 'loop' | 'pingpong', 'autoplay': False}}
-curves: 0 linear, 1 smooth, 2 ease in, 3 ease out, 4 hold.
+    'mode': 'once' | 'loop' | 'pingpong', 'autoplay': False,
+    'events': [{'t': seconds, 'kind': 'sound', 'sound': 'Pkg.Group.Name', 'volume': 1, 'radius': 1024}
+               | {'t': seconds, 'kind': 'event', 'tag': 'Alarm'}]}}
+curves: 0 linear, 1 smooth, 2 ease in, 3 ease out, 4 hold. events: its timed events (the Events row: a sound at the
+object, an Event triggered), played by UCMotion when its clock passes them (static/motion-events.js says how).
 
-In the game (src/UnatcoContinues/Classes/UCMotion.uc) an object is moved every frame, through its keys with the
+In the game (src/<settings.PACKAGE>/Classes/UCMotion.uc) an object is moved every frame, through its keys with the
 speed it has at each (a smooth key does not stop it); a MOVER (a door, an elevator, a moving block) gets the keys
 as its own KeyPos/KeyRot (up to 8: the engine moves it and carries who stands on it) and UCMotion gives it the
 time of each step. The engine moves a mover one way through all its keys (mover_glide): gliding (easing in and
@@ -18,6 +21,7 @@ animback, animstop) and can start when one has finished ('animdone').
 A block with 'mover' is built as a DeusExMover (a block that can move); a UCTriggerBox with bSolidBox gets an
 invisible solid brush of its size (an invisible wall).
 """
+import math
 import re
 
 import geom
@@ -27,6 +31,8 @@ PF_SEMISOLID = 32
 MODES = {'once': 0, 'loop': 1, 'pingpong': 2}
 MAX_KEYS = 16
 MAX_MOVER_KEYS = 8
+MAX_EVENTS = 16
+SOUND = re.compile(r'\w+(\.\w+)+')            # a sound of a package: Pkg.Group.Name
 
 
 def _name(s):
@@ -94,6 +100,41 @@ def length(m):
     return max([float(k['t']) for key in ('pos', 'rot', 'scale') for k in _track(m, key)] + [0.0])
 
 
+def _number(v, default, lo, hi):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, f)) if math.isfinite(f) else default
+
+
+def events(m, end):
+    """A motion's timed events as its UCMotion gets them: [{'t', 'sound', 'volume', 'radius'} | {'t', 'tag'}] in time
+    order (the same time: as listed), at most MAX_EVENTS; one after the end (seconds) at the end, one without its sound
+    or its Tag left out."""
+    out = []
+    for e in m.get('events') or []:
+        if not isinstance(e, dict):
+            continue
+        t = _number(e.get('t'), 0.0, 0.0, end)
+        if e.get('kind') == 'sound' and SOUND.fullmatch(str(e.get('sound') or '')):
+            out.append(dict(t=t, sound=e['sound'], volume=_number(e.get('volume'), 1.0, 0.0, 4.0),
+                            radius=_number(e.get('radius'), 1024.0, 16.0, 65536.0)))
+        elif e.get('kind') == 'event' and _name(e.get('tag')):
+            out.append(dict(t=t, tag=_name(e['tag'])))
+    out.sort(key=lambda e: e['t'])
+    return out[:MAX_EVENTS]
+
+
+def mover_clock(keys, t):
+    """Time t (seconds) of a mover's animation as its UCMotion counts it, in keys (2.5: half way from its key 2 to its
+    key 3: UCMotion.MoverClock), so that an event at a key is at that key exactly."""
+    for j, ((ta, _, _), (tb, _, _)) in enumerate(zip(keys, keys[1:])):
+        if t <= tb:
+            return j + (0.0 if tb <= ta else max(0.0, t - ta) / (tb - ta))
+    return float(len(keys) - 1)
+
+
 def movers_of(edits, known_movers):
     """Names of the animated objects that are movers: the map's (known_movers), raw movers added, moving blocks."""
     out = set(known_movers or ())
@@ -135,6 +176,7 @@ def blocks(edits, known_movers=()):
             for i in range(len(keys) - 1):
                 props['Seg(%d)' % i] = '%.4f' % max(0.05, keys[i + 1][0] - keys[i][0])
             props['Length'] = '%.4f' % keys[-1][0]
+            evs = [dict(e, t=mover_clock(keys, e['t'])) for e in events(m, keys[-1][0])]
         else:
             n = 0
             for key, arr in (('pos', 'Pos'), ('rot', 'Rot'), ('scale', 'Scale')):
@@ -150,6 +192,17 @@ def blocks(edits, known_movers=()):
             if not n:
                 continue
             props['Length'] = '%.4f' % max(0.05, length(m))
+            evs = events(m, max(0.05, length(m)))
+        for i, e in enumerate(evs):
+            props['EvT(%d)' % i] = '%.4f' % e['t']
+            if 'sound' in e:
+                props['EvSound(%d)' % i] = "Sound'%s'" % e['sound']
+                props['EvVolume(%d)' % i] = '%.4f' % e['volume']
+                props['EvRadius(%d)' % i] = '%.1f' % e['radius']
+            else:
+                props['EvTag(%d)' % i] = e['tag']
+        if evs:
+            props['NumEv'] = str(len(evs))
         out.append(dict(cls='UCMotion', name='UCMotion_' + name, loc=[0.0, 0.0, 0.0], props=props))
     return out
 
@@ -192,6 +245,8 @@ def report(edits, known_movers=()):
             how = ', a mover: %s' % ('it glides, stopping at every key' if glide else 'at a constant speed')
             if notes:
                 how += ' (the game cannot do: %s)' % '; '.join(notes)
+        evs = events(m, length(m))
+        how += ', %d timed event%s' % (len(evs), '' if len(evs) == 1 else 's') if evs else ''
         lines.append('  EDIT animation of %s: %.1f s, %s%s%s' % (n, length(m), m.get('mode', 'once'),
                                                                 ', at the start' if m.get('autoplay') else '', how))
     return lines

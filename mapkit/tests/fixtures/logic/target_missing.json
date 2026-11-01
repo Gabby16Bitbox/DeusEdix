@@ -1,0 +1,69 @@
+{
+  "id": "target_missing",
+  "title": "A target that is gone fails, the next actions still run",
+  "behaviour": "An action on an object no longer in the map writes its act line, then fails with \"missing\".",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [468, 468], "has": "Report(\"act\", verb $ \"|\" $ target $ \"|\" $ a);"},
+    {"file": "UCLink.uc", "lines": [469, 472], "has": "if (target != \"\" && T == None)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 1.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: Crate1 vanishes, the message Done",
+        "do": [
+          {"id": "a1", "verb": "hide", "target": "Crate1", "delay": 0},
+          {"id": "a2", "verb": "message", "target": "", "delay": 0, "a": "Done"}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {
+        "name": "Crate1",
+        "chain": ["CrateUnbreakableSmall", "Containers", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [64, 0, 0]
+      }
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 0.5, "set": {"missing": ["Crate1"]}},
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: Crate1 vanishes, the message Done"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|hide|Crate1|"},
+    {"t": 1.1, "line": "fail|LogicFixtures|L1|hide|Crate1|missing"},
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||Done"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: Crate1 vanishes, the message Done\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|hide|Crate1|||\"",
+        "Act(1)": "\"0|message||Done||\""
+      }
+    }
+  ]
+}

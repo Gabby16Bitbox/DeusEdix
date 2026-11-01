@@ -1,0 +1,144 @@
+/* The node graph canvas (graph-canvas.js): DESIGN.md tokens, sizes and icons. A node is a small panel: a 28 px header
+   (--gc-header), 22 px rows (--gc-row), 12 px text, 13 px SVG icons. The three sizes are set on .gc by graph-canvas.js
+   from graph-geometry.js NODE, so the wires always meet the pins. Status colours (ok, warn, bad) mean status only. */
+.gc { position:relative; height:100%; min-height:0; overflow:hidden; outline:none; touch-action:none; user-select:none;
+  background-color:var(--viewport); color:var(--text); font-size:12px; line-height:1.35;
+  background-image:radial-gradient(color-mix(in srgb, var(--line) 80%, transparent) 1px, transparent 1px); }
+.gc *, .gc *::before, .gc *::after { box-sizing:border-box; }
+.gc:focus-visible { box-shadow:inset 0 0 0 2px var(--acc); }
+.gc.gc-show-titles, .gc.gc-show-frames { background-image:none; }
+.gc.gc-panning, .gc.gc-grab { cursor:grabbing; }
+.gc-world { position:absolute; left:0; top:0; transform-origin:0 0; }
+.gc-frames, .gc-chips, .gc-nodes, .gc-notes { position:absolute; left:0; top:0; }
+
+/* nodes */
+/* a node off the screen is skipped by the browser (no style, no layout): measured with 1000 nodes, a change of zoom
+   level restyled every node (100-220 ms) without it. The clip margin keeps the pins on the edges whole.
+   Three layers that never replace one another: the status ring (--gc-ring: ok, warn, bad), a block's bar (--gc-bar),
+   and outside them the outline of what is lit (hot) or selected, so a selected node keeps its status and a toned block
+   its bar */
+.gc-node { --gc-ring:var(--line); --gc-bar:0 0 transparent; position:absolute; left:0; top:0; width:var(--gc-w); background:var(--panel);
+  border-radius:var(--radius-card); box-shadow:0 0 0 1px var(--gc-ring), var(--gc-bar); line-height:var(--gc-row);
+  content-visibility:auto; overflow-clip-margin:8px; }
+.gc-node.bar { --gc-bar:inset 3px 0 0 var(--dim); }
+.gc-node.dim { opacity:.55; }
+.gc-node.ok { --gc-ring:var(--ok); }
+.gc-node.warn { --gc-ring:var(--warn); }
+.gc-node.bad { --gc-ring:var(--bad); }
+.gc-node.hot { outline:1px solid var(--accent-border); outline-offset:1px; }
+.gc-node.sel { outline:2px solid var(--acc); outline-offset:1px; }
+.gc.gc-kbd:focus .gc-node.cur { outline:2px solid var(--acc); outline-offset:3px; }
+.gc-h { position:relative; display:flex; align-items:center; gap:6px; height:var(--gc-header); padding:0 8px;
+  border-bottom:1px solid var(--line); white-space:nowrap; }
+.gc-node:not(:has(.gc-r)) .gc-h { border-bottom:0; }
+.gc-ic, .gc-thumb { flex:none; width:13px; height:13px; color:var(--dim); }
+.gc-thumb { width:20px; height:20px; border-radius:var(--radius-control); background:var(--field) center / cover no-repeat; }
+.gc-t { min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:13px; font-weight:600; color:var(--heading); }
+.gc-sub { flex:none; font-size:11px; color:var(--dim); }
+.gc-sp { flex:1; }
+.gc-b { flex:none; height:16px; padding:0 4px; line-height:14px; font-size:11px; color:var(--dim); border:1px solid var(--line);
+  border-radius:var(--radius-control); font-variant-numeric:tabular-nums; }
+.gc-pinned { display:flex; flex:none; color:var(--dim); }
+.gc-live { flex:none; font-variant-numeric:tabular-nums; color:var(--heading); }
+.gc-r { position:relative; display:flex; align-items:center; gap:6px; height:var(--gc-row); padding:0 12px; white-space:nowrap; }
+.gc-r.sep { border-top:1px solid var(--line); }
+.gc-r.head .gc-tx, .gc-foot { font-size:11px; color:var(--dim); }
+.gc-r.dim { opacity:.55; }
+.gc-r.ok .gc-tx { color:var(--ok); }
+.gc-r.warn .gc-tx { color:var(--warn); }
+.gc-r.bad .gc-tx { color:var(--bad); }
+.gc-time { flex:none; min-width:28px; text-align:right; font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; }
+.gc-tx { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.gc-c { flex:none; max-width:120px; height:16px; padding:0 4px; line-height:14px; overflow:hidden; text-overflow:ellipsis; font-size:11px;
+  color:var(--text); background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-control); }
+.gc-c.ok { border-color:var(--ok); }
+.gc-c.warn { border-color:var(--warn); }
+.gc-c.bad { border-color:var(--bad); color:var(--bad); }
+
+/* pins: dots on the edges, centred on the edge line; a larger invisible ring makes them easy to grab */
+.gc-pin { position:absolute; top:50%; width:9px; height:9px; margin-top:-4.5px; border-radius:50%; background:var(--panel);
+  border:1.5px solid var(--dim); cursor:crosshair; z-index:1; }
+.gc-pin::before { content:''; position:absolute; inset:-6px; border-radius:50%; }
+.gc-pin.in { left:-4.5px; }
+.gc-pin.out { right:-4.5px; }
+.gc-pin.on { background:var(--dim); }
+.gc-pin:hover, .gc-pin.ok { border-color:var(--acc); background:var(--accent-soft); }
+.gc-pin.free { border-style:dashed; }
+.gc-linking .gc-pin.no { opacity:.3; }
+
+/* wires: the colour of each kind comes from graph-canvas.js WIRE_KINDS (--gc-stroke); their width stays the same at any zoom */
+.gc-wires { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
+.gc-wire, .gc-bundle, .gc-ghost { fill:none; stroke-width:1.5; vector-effect:non-scaling-stroke; }
+.gc-wire { stroke:var(--gc-stroke, var(--dim)); }
+.gc-wire.warn { stroke:var(--warn); }
+.gc-wire.bad { stroke:var(--bad); stroke-dasharray:5 4; }
+.gc-lit .gc-wire:not(.hot):not(.sel) { opacity:.25; }
+.gc-wire.hot, .gc-wire.sel { stroke:var(--acc); stroke-width:2.5; }
+.gc-wire.drop { stroke:var(--acc); stroke-width:4; }
+/* a run's trail is a Web Animation (graph-canvas.js PULSE): nothing here, so nothing is left on after it */
+.gc-ghost { stroke:var(--acc); stroke-dasharray:6 4; }
+.gc-ghost.no { stroke:var(--bad); }
+.gc-bundles { display:none; }
+.gc.gc-show-frames .gc-bundles { display:inline; }
+.gc-bundle { stroke:var(--dim); stroke-width:2.5; }
+.gc-count { fill:var(--heading); font-size:calc(11px * var(--gc-inv, 1)); text-anchor:middle; dominant-baseline:middle;
+  paint-order:stroke; stroke:var(--viewport); stroke-width:calc(4px * var(--gc-inv, 1)); font-variant-numeric:tabular-nums; }
+
+/* a wire's label chip, its delay (dragged sideways or typed), its reroute dots */
+.gc-chip { position:absolute; left:0; top:0; display:flex; align-items:center; gap:4px; height:18px; padding:0 6px; line-height:16px;
+  font-size:11px; color:var(--text); white-space:nowrap; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius-control); cursor:pointer; }
+.gc-chip:hover { background:var(--hover); border-color:var(--accent-border); }
+.gc-chip.sel { border-color:var(--acc); }
+.gc-delay { color:var(--heading); font-variant-numeric:tabular-nums; cursor:ew-resize; }
+.gc-cl + .gc-delay { padding-left:4px; border-left:1px solid var(--line); }
+.gc-chip.typing { height:24px; }
+.gc-field { width:56px; height:22px; padding:0 4px; font:inherit; font-variant-numeric:tabular-nums; color:var(--text);
+  background:var(--field); border:1px solid var(--accent-border); border-radius:var(--radius-control); }
+.gc-dot { position:absolute; left:0; top:0; width:8px; height:8px; border-radius:50%; background:var(--dim); cursor:move; }
+.gc-dot:hover { background:var(--acc); }
+
+/* frames and notes; a frame's title keeps its size on the screen as the view zooms out (--gc-inv: 1 / zoom) */
+.gc-frame { position:absolute; left:0; top:0; border:1px solid var(--line); border-radius:var(--radius-card);
+  background:color-mix(in srgb, var(--text) 3%, transparent); }
+.gc-frame.t1 { background:color-mix(in srgb, var(--text) 6%, transparent); }
+.gc-frame.t2 { background:color-mix(in srgb, var(--text) 9%, transparent); }
+.gc-frame.t3 { background:color-mix(in srgb, var(--heading) 12%, transparent); }
+.gc-frame.sel { border-color:var(--acc); }
+.gc-ft { height:calc(var(--gc-header) * var(--gc-inv, 1)); padding:0 calc(8px * var(--gc-inv, 1)); line-height:calc(var(--gc-header) * var(--gc-inv, 1));
+  font-size:calc(13px * var(--gc-inv, 1)); font-weight:600; color:var(--heading); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:move; }
+.gc-fr { position:absolute; right:0; bottom:0; width:calc(12px * var(--gc-inv, 1)); height:calc(12px * var(--gc-inv, 1)); cursor:nwse-resize; }
+.gc-note { position:absolute; left:0; top:0; width:max-content; max-width:220px; padding:4px 8px; font-size:11px; line-height:1.4; color:var(--text);
+  white-space:pre-wrap; background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--dim);
+  border-radius:var(--radius-card); cursor:move; }
+.gc-note.on { cursor:default; }
+.gc-note.sel { border-color:var(--acc); }
+
+/* semantic zoom: under 50% a cover over each node shows only its title and live value, big enough to read; under 25%
+   the covers are blank, a node in a frame is hidden and the wires between frames are bundled. The rows stay laid out
+   under the cover and hidden things are only made invisible, so a change of level lays nothing out again */
+.gc-big { display:none; }
+.gc-show-titles .gc-big, .gc-show-frames .gc-big { position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:0 8px; overflow:hidden; text-align:center; background:var(--panel); border-radius:var(--radius-card); }
+.gc-big b { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:calc(13px * var(--gc-inv, 1)); font-weight:600;
+  line-height:1.2; color:var(--heading); }
+.gc-big span { font-size:calc(12px * var(--gc-inv, 1)); line-height:1.2; color:var(--heading); font-variant-numeric:tabular-nums; }
+.gc-show-frames .gc-big > *, .gc-show-titles .gc-pin, .gc-show-frames .gc-pin, .gc-show-titles .gc-chip, .gc-show-frames .gc-chip,
+.gc-show-titles .gc-dot, .gc-show-frames .gc-dot, .gc-show-titles .gc-note, .gc-show-frames .gc-note, .gc-show-frames .gc-node.framed { visibility:hidden; }
+.gc-show-frames .gc-wire-g { display:none; }
+
+/* the selection box, a refusal at the pointer, the zoom, the minimap */
+.gc-box { position:absolute; border:1px solid var(--acc); background:color-mix(in srgb, var(--acc) 12%, transparent); pointer-events:none; }
+.gc-reason { position:absolute; z-index:3; max-width:280px; padding:4px 8px; font-size:11px; line-height:1.4; color:var(--text);
+  background:var(--panel); border:1px solid var(--line); border-left:2px solid var(--bad); border-radius:var(--radius-control);
+  box-shadow:0 14px 30px #0009; pointer-events:none; }
+/* the zoom and the minimap stacked in the bottom-right corner: without the minimap (off, or no nodes) the zoom goes down
+   to the corner. The gap between them lets the pointer through to the graph */
+.gc-corner { position:absolute; right:8px; bottom:8px; display:flex; flex-direction:column; align-items:flex-end; gap:6px; pointer-events:none; }
+.gc-corner > * { pointer-events:auto; }
+.gc-zoom { height:22px; padding:0 6px; line-height:20px; font:inherit; font-size:11px; font-variant-numeric:tabular-nums; color:var(--text);
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-control); cursor:pointer; }
+.gc-zoom:hover { background:var(--hover); border-color:var(--accent-border); }
+.gc-zoom:focus-visible { outline:none; border-color:var(--accent-border); }
+.gc-mini { width:168px; height:112px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); cursor:pointer; }
+.gc-sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

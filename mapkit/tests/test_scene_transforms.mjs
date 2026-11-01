@@ -11,6 +11,10 @@ import {pushMove} from '../editor/static/grid-snap.js';
 import {putBeside} from '../editor/static/hierarchy-folders.js';
 import {createHistory,recordStep,renameStep,namedStep,dropStep,travelStep,currentName} from '../editor/static/history-names.js';
 import {airGap} from '../editor/static/map-check.js';
+import {overridesData,putOverrides,overridesOf,replacedOn} from '../editor/static/prefab-links.js';
+import {signedRot} from '../editor/static/surface-stick.js';
+import {mirrorPoint,faceMirrored,mirrorMotion} from '../editor/static/mirror.js';
+import {TRANSFORM} from '../editor/static/multi-edit.js';
 const rotations=createRotations(THREE), placementGeometry=createSurfacePlacement(THREE);
 const source=fs.readFileSync(new URL('../editor/static/app.js',import.meta.url),'utf8');
 const body=name=>{const i=source.indexOf(`function ${name}(`);assert.ok(i>=0,name);return source.slice(i,source.indexOf('\n}',i)+2);};
@@ -32,12 +36,15 @@ function setup(){
   rotationToVector:(p,y)=>[Math.cos(p*2*Math.PI/65536)*Math.cos(y*2*Math.PI/65536),Math.cos(p*2*Math.PI/65536)*Math.sin(y*2*Math.PI/65536),Math.sin(p*2*Math.PI/65536)],
   movedPose:p=>p.offset.some(Boolean)||p.yaw||p.pitch||p.roll||(p.scale||[1,1,1]).some(v=>v!==1),
   putBeside,nests:()=>c.edits.nests||=[],objOf:k=>k,warnHiddenKinds:(list,done)=>{c.warned=[list,done];},
+  // a structure let go with queued surface rows: their preview drawn again at the next frame (commitStructure)
+  surfaceFrame:0,frames:[],requestAnimationFrame:fn=>c.frames.push(fn),refreshSurfaceTexturePreview(){},wake(){},
  });
- for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','duplicateSelected','lightProps','stepOf','beginTransformUndo','endTransformUndo','dropUndo'])vm.runInContext(body(name),c);
+ for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','replacingOf','carries','carriedBy','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','duplicateSelected','lightProps','stepOf','beginTransformUndo','endTransformUndo','dropUndo'])vm.runInContext(body(name),c);
  // a step's verb, the gizmo's pose, snapping's hits (as var: the test reads them on the context)
  for(const start of ['const TOOL_VERBS = ','const gizmoPose = ','const pickableHits = '])vm.runInContext(line(start).replace(/^const /,'var '),c);
  let seq=0;
  c.nextName=()=>`copy${++seq}`;c.nextPid=()=>`p${++seq}`;
+ Object.assign(c,{overridesData,putOverrides,overridesOf,replacedOn});    // a copy of a copy takes its overrides, they go with it (prefab-links.js)
  c.keyOf=p=>p.userData.kind==='structure'?'s:'+p.userData.name:'a:'+p.userData.actor.name;
  c.selectKeys=keys=>c.copySelection=keys;
  c.makeProxy=(a,source)=>{const p=new THREE.Group();p.userData={actor:a,kind:a.kind,source,tilt:a.rot?.[0]||0,roll:a.rot?.[2]||0};p.rotation.y=c.yawToRad(a.rot?.[1]||0);p.position.copy(T(a.loc));p.scale.setScalar(a.scale||1);proxies.add(p);return p;};
@@ -196,6 +203,118 @@ test('Alt-copy starts in place and its drag shares the same Undo snapshot',()=>{
  assert.equal(names.length,2);assert.match(names[0],/^Duplicate and move /);assert.match(names[1],/^Move /);
 });
 
+// part B's #8 (B2, 1 Nov 2026): a linked copy pasted from the library (paste~p7, built) whose objects were moved, deleted
+// and given another class; Alt-drag (Duplicate in place) gives the new copy, not built yet, its overrides; then it is
+// dragged and turned before a Rebuild. pid: the copy, built: whether it is in the map, actors: its objects there
+function linkedCopies(){
+ const {c}=setup(),V='usr_'+'d'.repeat(32),clone=x=>JSON.parse(JSON.stringify(x));
+ Object.assign(c,{signedRot,applyTilt(){}});          // setObjectRotation's, for an added object dragged along
+ const paste=(pid,built,actors=[])=>{const name='paste~'+pid,obj=new THREE.Group();obj.userData={kind:'structure',name};c.world.add(obj);
+  const st={name,obj,label:'Desk',pivot:[0,0,0],placement:{offset:[0,0,0],yaw:0},rotatable:true,copyable:true,paste:true,pendingPaste:!built,built,actors:built?actors:[]};
+  c.structures[name]=st;c.showPose(st,c.poseOf(st));return st;};
+ c.edits.prefabs.push({pid:'p7',prefab:V,line:V,version:1,label:'Desk',pivot:[0,0,0],offset:[0,0,0],yaw:0});
+ c.edits.moved.UCPfp7A0={cls:'Chair1',loc:[110,0,0],rot:[0,0,0],orig:[100,0,0]};
+ c.edits.deleted.UCPfp7A1={cls:'Lamp1',orig:[50,0,0]};
+ c.edits.added.push({name:'UCPfp7A3',cls:'Plant2',loc:[70,0,0],rot:[0,0,0],props:{},replaces:{cls:'Plant1',orig:[70,0,0]}});
+ const p7=paste('p7',true,['UCPfp7A0','UCPfp7A1','UCPfp7A3']);
+ // its replacing object (an added one) in the view, as rebuildProxies draws it
+ const shown=name=>c.makeProxy({...c.edits.added.find(x=>x.name===name),kind:'prop'},'added');
+ return {c,clone,paste,p7,shown};
+}
+test('a linked copy not built yet takes its carried overrides along when moved or turned before a Rebuild, its replacing object too',()=>{
+ const {c,clone,paste,p7,shown}=linkedCopies();
+ const name=c.dupStructure(p7,0),pid=name.slice('paste~'.length),tag='UCPf'+pid,copy=paste(pid,false),plant=shown(tag+'A3');
+ const ms=c.beginStructMove(copy.obj);copy.obj.position.add(T([300,0,0]));c.followStructure(ms);
+ near(plant.position,T([370,0,0]));                                       // dragged with it
+ c.commitStructure(ms,true);
+ const e=c.edits,replacing=()=>e.added.find(x=>x.name===tag+'A3');
+ assert.deepEqual([clone(e.moved[tag+'A0'].loc),clone(e.moved[tag+'A0'].orig),clone(e.deleted[tag+'A1'].orig)],[[410,0,0],[400,0,0],[350,0,0]]);
+ assert.deepEqual([clone(replacing().loc),clone(replacing().replaces.orig)],[[370,0,0],[370,0,0]]);
+ assert.deepEqual([clone(e.moved.UCPfp7A0.orig),clone(e.deleted.UCPfp7A1.orig),clone(e.added[0].loc)],[[100,0,0],[50,0,0],[70,0,0]]);   // the first copy's stay
+ // turned a quarter round where it stands: each of them turns with it
+ const before=c.poseOf(copy),ms2=c.beginStructMove(copy.obj);copy.obj.quaternion.copy(c.rotations.pose({yaw:16384,pitch:0,roll:0}));c.followStructure(ms2);
+ const f=c.poseToPose(copy,before,c.livePose(copy));c.commitStructure(ms2,true);
+ assert.deepEqual([clone(e.moved[tag+'A0'].loc),clone(e.deleted[tag+'A1'].orig),clone(replacing().loc)],clone([f([410,0,0]),f([350,0,0]),f([370,0,0])].map(x=>x.map(r1))));
+ assert.equal(replacing().rot[1],16384);
+});
+test('a built linked copy\'s object given another class goes with it when it is moved (an added object)',()=>{
+ const {c,clone,p7,shown}=linkedCopies(),plant=shown('UCPfp7A3');
+ const ms=c.beginStructMove(p7.obj);p7.obj.position.add(T([100,0,0]));c.followStructure(ms);c.commitStructure(ms,true);
+ near(plant.position,T([170,0,0]));
+ const replacing=c.edits.added.find(x=>x.name==='UCPfp7A3');
+ assert.deepEqual([clone(replacing.loc),clone(replacing.replaces.orig),clone(c.edits.moved.UCPfp7A0.orig)],[[170,0,0],[170,0,0],[200,0,0]]);
+});
+// part B2's #0 (B3, 1 Nov 2026): a pasted copy and its object given another class (Replace with...) selected together,
+// the object first (as a rectangle or Ctrl+A picks them: pickables lists objects before structures) or after its copy.
+// The copy carries that object (carries), so a command on the selection moves it once, with its copy, built or not: the
+// page's own gizmo release, Transform fields of several objects, Mirror, Push to grid and Duplicate. built: p7 itself (its
+// objects its own, as syncPieces has them), else a copy of it not built yet; plant: the object's proxy, entry: its entry
+function carriedPair(built,objectFirst){
+ const {c,clone,paste,p7,shown}=linkedCopies();
+ vm.runInContext(['uncarried','beginGroupMove','followGroupMove','gizmoDragChanged','commit','transformOf','applyTransform','memberName','setTransforms','transformRows','mirrorSelection','gridAnchor','pushToGrid','shiftBlock'].map(body).join('\n'),c);
+ vm.runInContext(line('const MOVE_AXES = ').replace(/^const /,'var '),c);
+ Object.assign(c,{anim:null,TRANSFORM,canScale:()=>false,builtOf:()=>1,placeGroupPivot(){},unfoldTilt(){},localMoveFrom:null,groupStart:null,evenScale:null,scaleStart:null,
+  mirrorPoint,faceMirrored,mirrorMotion,groupPivotAt:()=>[200,0,0],pivotItems:()=>[],pushMove,SNAP:{move:16}});
+ let copy=p7;
+ if(built)for(const a of p7.actors)c.actorStruct[a]=p7.name;
+ else copy=paste(c.dupStructure(p7,0).slice('paste~'.length),false);
+ const tag='UCPf'+copy.name.slice('paste~'.length),plant=shown(tag+'A3'),entry=()=>c.edits.added.find(x=>x.name===tag+'A3');
+ c.selection=objectFirst?[plant,copy.obj]:[copy.obj,plant];c.selected=c.groupPivot;c.groupPivot.userData.members=c.selection;
+ return {c,copy,plant,entry,loc:()=>clone(entry().loc),clone,named:`${built?'built':'pending'} copy, ${objectFirst?'object':'copy'} first`};
+}
+const PAIRS=[[true,true],[true,false],[false,true],[false,false]];
+test('a pasted copy and its replacing object selected together: the group gizmo moves the object once, with its copy',()=>{
+ for(const [built,first] of PAIRS){
+  const {c,plant,loc,named}=carriedPair(built,first);
+  c.gizmoDragChanged({value:true});c.groupPivot.position.add(T([100,0,0]));c.followGroupMove(c.groupStart);c.gizmoDragChanged({value:false});
+  assert.deepEqual(loc(),[170,0,0],named);near(plant.position,T([170,0,0]));
+ }
+});
+test('a pasted copy and its replacing object selected together: the Transform fields of several objects move the object once',()=>{
+ for(const [built,first] of PAIRS){
+  const {c,copy,loc,named}=carriedPair(built,first);
+  assert.deepEqual([...c.uncarried(c.selection)].map(m=>m===copy.obj?'copy':'object'),['copy'],named);   // the rotation fields' drag's list too
+  const x=c.transformRows(c.selection).find(r=>r.key==='x');
+  assert.equal(x.of,1,named);
+  x.apply(x.values.map(v=>v+100));
+  assert.deepEqual(loc(),[170,0,0],named);
+ }
+});
+test('a pasted copy and its replacing object selected together: Mirror moves the object with its copy, once',()=>{
+ for(const [built,first] of PAIRS){
+  const {c,loc,named}=carriedPair(built,first);
+  c.mirrorSelection(0);                                                   // about X 200 (groupPivotAt): the copy to 400
+  assert.deepEqual(loc(),[470,0,0],named);
+ }
+});
+test('a pasted copy and its replacing object selected together: Push to grid moves the object with its copy only',()=>{
+ for(const [built,first] of PAIRS){
+  const {c,copy,plant,entry,loc,clone,named}=carriedPair(built,first);
+  const e=c.pasteEntry(copy.name);e.offset=[4,0,0];c.showPose(copy,c.poseOf(copy));          // 4 off the grid, its object too
+  entry().loc=[74,0,0];entry().replaces.orig=[74,0,0];plant.position.copy(T([74,0,0]));
+  c.pushToGrid();
+  assert.deepEqual([clone(e.offset),loc()],[[0,0,0],[70,0,0]],named);
+ }
+});
+test('a pasted copy and its replacing object selected together: Duplicate makes one such object, the new copy\'s own',()=>{
+ for(const [built,first] of PAIRS){
+  const {c,named}=carriedPair(built,first),plants=()=>c.edits.added.filter(x=>x.cls==='Plant2');
+  const before=plants().length;
+  assert.equal(c.duplicateSelected(),true);
+  const made=plants().slice(before);
+  assert.equal(made.length,1,named);assert.ok(made[0].replaces,named);
+ }
+});
+test('a group of the map and its object given another class selected together: Push to grid moves that object on its own, as the gizmo does',()=>{
+ const {c,piece}=setup(),st=piece('booth',{offset:[20,0,0]});st.actors=['Lamp1'];c.actorStruct.Lamp1='booth';
+ vm.runInContext(['uncarried','commit','gridAnchor','pushToGrid','shiftBlock'].map(body).join('\n'),c);Object.assign(c,{pushMove,SNAP:{move:16},anim:null});
+ c.edits.added.push({name:'Lamp1',cls:'Spotlight',loc:[74,0,64],rot:[0,0,0],replaces:{cls:'Light',orig:[74,0,64]}});
+ const lamp=c.makeProxy({...c.edits.added[0],kind:'light'},'added');
+ c.selection=[lamp,st.obj];c.selected=c.groupPivot;
+ assert.equal(c.uncarried(c.selection).length,2);                         // the group's gizmo moves both
+ c.pushToGrid();
+ assert.deepEqual([[...c.edits.groups.booth.offset],[...c.edits.added[0].loc],[...c.edits.added[0].replaces.orig]],[[16,0,0],[80,0,64],[70,0,64]]);
+});
 test('a click on the gizmo that moves nothing leaves no step, Redo as it was, nothing written; a move is one step',()=>{
  const {c,piece}=setup(),written=[];
  vm.runInContext(body('gizmoDragChanged'),c);

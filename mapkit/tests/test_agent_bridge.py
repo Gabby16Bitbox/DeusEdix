@@ -177,6 +177,16 @@ class McpServer(unittest.TestCase):
         self.assertEqual(content[0], dict(type='image', data='/9j/4AAQ', mimeType='image/jpeg'))
         self.assertEqual(json.loads(content[1]['text']), dict(camera=[0, 0, 0]))
 
+    def test_picture_placement_uses_its_own_operation(self):
+        args = dict(tex='Art_D', at=[0, 0, 80], width=128, face='+y', exact=True)
+        editor = FakeEditor(dict(ok=True, value=dict(name='UCEditBox1')))
+        content, error = deusedix_mcp.call_tool(editor, 'place_picture', args)
+        self.assertFalse(error)
+        self.assertEqual(json.loads(content[0]['text'])['name'], 'UCEditBox1')
+        self.assertEqual(editor.calls, [('picture', args, deusedix_mcp.TOOLS['place_picture'][1])])
+        self.assertIn('picture', agent_bridge.OPS)
+        self.assertEqual(deusedix_mcp.TOOL_KINDS['place_picture'], 'edit')
+
     def test_errors_are_tool_errors(self):
         content, error = deusedix_mcp.call_tool(FakeEditor(dict(ok=False, error='No map is open')), 'save', {})
         self.assertTrue(error)

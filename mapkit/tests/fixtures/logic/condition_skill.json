@@ -1,0 +1,67 @@
+{
+  "id": "condition_skill",
+  "title": "Condition: JC's skill is at least a level",
+  "behaviour": "At least: Advanced (2) holds at Advanced and at Master.",
+  "derivedFrom": [
+    {"file": "UCEditorStory.uc", "lines": [855, 856], "has": "if (kind == \"skill\")"},
+    {"file": "UCEditorStory.uc", "lines": [887, 897], "has": "function int SkillLevel(string skillName)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 3.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if JC's Lockpicking skill is at least Advanced: the message Picked",
+        "requires": [{"type": "skill", "skill": "SkillLockpicking", "level": 2}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Picked"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {"skills": {"SkillLockpicking": 1}},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "set": {"skills": {"SkillLockpicking": 2}}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.5, "set": {"skills": {"SkillLockpicking": 3}}},
+    {"t": 3.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "skip|LogicFixtures|L1|cond|skill|SkillLockpicking|2"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if JC's Lockpicking skill is at least Advanced: the message Picked"
+    },
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||Picked"},
+    {
+      "t": 3.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if JC's Lockpicking skill is at least Advanced: the message Picked"
+    },
+    {"t": 3.1, "line": "act|LogicFixtures|L1|message||Picked"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if JC's Lockpicking skill is at least Advanced: the message Picked\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"skill|SkillLockpicking|2\"",
+        "Act(0)": "\"0|message||Picked||\""
+      }
+    }
+  ]
+}

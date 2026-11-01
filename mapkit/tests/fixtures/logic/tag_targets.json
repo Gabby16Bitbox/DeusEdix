@@ -1,0 +1,104 @@
+{
+  "id": "tag_targets",
+  "title": "Scripting-tag target: what has the tag and can do the verb, never the source",
+  "behaviour": "A tag action reaches every object whose scripting tag is the wanted one (case does not matter) and whose kind fits the verb (lights for light verbs, any object for hide), except the rule's own object. Their order is the map's.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [386, 394], "has": "function bool TagKind(Actor A, string verb)"},
+    {"file": "UCLink.uc", "lines": [397, 405], "has": "function DoTag(string s)"},
+    {"file": "UCObjectTag.uc", "lines": [95, 98], "has": "static function bool Matches(Actor A, string wanted)"}
+  ],
+  "assumes": ["A2"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: turn off the lights tagged red, after 1 s hide what is tagged red",
+        "do": [
+          {"id": "a1", "verb": "lightoff", "target": "", "delay": 0, "targetTag": "red"},
+          {"id": "a2", "verb": "hide", "target": "", "delay": 1, "targetTag": "red"}
+        ]
+      }
+    ],
+    "objectTags": {
+      "Button1": {"mode": "manual", "value": "red"},
+      "Door1": {"mode": "manual", "value": "red"},
+      "Door2": {"mode": "manual", "value": "RED"}
+    }
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {
+        "name": "Button1",
+        "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [0, 0, 0],
+        "tag": "red"
+      },
+      {"name": "Light1", "chain": ["Light", "Actor"], "at": [100, 0, 0], "tag": "red"},
+      {"name": "Light2", "chain": ["Light", "Actor"], "at": [200, 0, 0], "tag": "red"},
+      {"name": "Light3", "chain": ["Light", "Actor"], "at": [300, 0, 0], "tag": "blue"},
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [400, 0, 0], "tag": "red"},
+      {"name": "Door2", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [500, 0, 0], "tag": "RED"}
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: turn off the lights tagged red, after 1 s hide what is tagged red"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|lightoff|tag red"},
+    {"t": 1.1, "anyOrder": ["act|LogicFixtures|L1|lightoff|Light1|", "act|LogicFixtures|L1|lightoff|Light2|"]},
+    {"t": 2.1, "line": "act|LogicFixtures|L1|hide|tag red"},
+    {
+      "t": 2.1,
+      "anyOrder": [
+        "act|LogicFixtures|L1|hide|Light1|",
+        "act|LogicFixtures|L1|hide|Light2|",
+        "act|LogicFixtures|L1|hide|Door1|",
+        "act|LogicFixtures|L1|hide|Door2|"
+      ]
+    }
+  ],
+  "compiled": [
+    {
+      "cls": "UCObjectTag",
+      "name": "UCTag_Button1",
+      "loc": [0, 0, 0],
+      "props": {"TargetName": "Button1", "Value": "\"red\"", "bAuto": "False", "bOriginal": "False"}
+    },
+    {
+      "cls": "UCObjectTag",
+      "name": "UCTag_Door1",
+      "loc": [0, 0, 0],
+      "props": {"TargetName": "Door1", "Value": "\"red\"", "bAuto": "False", "bOriginal": "False"}
+    },
+    {
+      "cls": "UCObjectTag",
+      "name": "UCTag_Door2",
+      "loc": [0, 0, 0],
+      "props": {"TargetName": "Door2", "Value": "\"RED\"", "bAuto": "False", "bOriginal": "False"}
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: turn off the lights tagged red, after 1 s hide what is tagged red\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|lightoff|||||tag|red\"",
+        "Act(1)": "\"1|hide|||||tag|red\""
+      }
+    }
+  ]
+}

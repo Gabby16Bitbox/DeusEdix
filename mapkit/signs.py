@@ -8,6 +8,7 @@ screws in the corners. Hong Kong's signs are bilingual, with the Chinese under t
 
 The picture is drawn 4 times bigger and scaled down (clean edges at 64-512 pixels), then saved as a
 256-colour .pcx. Fonts missing on a PC fall back to Arial Bold, then to PIL's own."""
+import io
 import os
 import random
 from dataclasses import dataclass
@@ -69,11 +70,22 @@ def _fit(d, text, kind, px, width):
     return f
 
 
+def _noise(size, rnd, sigma):
+    """Noise around 128 spread about as much as Image.effect_noise's (sigma), drawn from rnd, the plate's own generator:
+    effect_noise draws from the C library's rand(), so a sign made again in the same process came out other bytes and
+    its file was written again (cross-check of 31 Oct 2026). The mean of four layers of even noise is close to a bell
+    curve, its spread half of one layer's (73.9 / 2)."""
+    w, h = size
+    a, b, c, d = (Image.frombytes('L', (w, h), rnd.randbytes(w * h)) for _ in range(4))
+    mean = ImageChops.add(ImageChops.add(a, b, 2), ImageChops.add(c, d, 2), 2)     # 127 on average
+    return mean.point(lambda v: max(0, min(255, round(128 + (v - 127) * sigma / 36.95))))
+
+
 def _grain(size, rnd, amount):
     """Fine grain and broad blotches of grime, 128 = no change (for ImageChops)."""
     w, h = size
-    fine = Image.effect_noise((w, h), 9 * amount + 1).point(lambda v: 128 + (v - 128) * .35)
-    small = Image.effect_noise((max(2, w // 48), max(2, h // 48)), 40 * amount + 1)
+    fine = _noise((w, h), rnd, 9 * amount + 1).point(lambda v: 128 + (v - 128) * .35)
+    small = _noise((max(2, w // 48), max(2, h // 48)), rnd, 40 * amount + 1)
     broad = small.resize((w, h), Image.BICUBIC).filter(ImageFilter.GaussianBlur(w / 90)).point(lambda v: 128 + (v - 128) * .6)
     return Image.blend(fine, broad, .5)
 
@@ -112,7 +124,7 @@ def _ink(im, mask, colour, rnd, amount):
     """Paint colour through mask, the ink a little worn (speckles where it has flaked)."""
     if amount > 0:                 # flakes in small clumps, not a sandy speckle
         w, h = mask.size
-        small = Image.effect_noise((max(2, w // (SS * 2)), max(2, h // (SS * 2))), 60)
+        small = _noise((max(2, w // (SS * 2)), max(2, h // (SS * 2))), rnd, 60)
         holes = small.resize((w, h), Image.BICUBIC).point(lambda v: 0 if v > 255 - 20 * amount else 255)
         mask = ImageChops.multiply(mask, holes.filter(ImageFilter.GaussianBlur(SS * .6)))
     im.paste(Image.new('RGB', im.size, colour), (0, 0), mask)
@@ -212,6 +224,17 @@ def plate(path, size, style, lines, header=None, header_size=.3, screws=True, ru
     if screws and style != 'paper':
         _screws(ImageDraw.Draw(im), w, h, sr)
     out = im.resize(size, Image.LANCZOS)
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    out.convert('P', palette=Image.Palette.ADAPTIVE, colors=256).save(path)
-    return Path(path)
+    return save(out.convert('P', palette=Image.Palette.ADAPTIVE, colors=256), path)
+
+
+def save(image, path):
+    """image saved as path (its format by its suffix), written only when the file's bytes change: a map script makes
+    its textures again at every build, and the same bytes at a new time were a change of what the map is made from
+    (editor/play_prepare.py: the training map was built again at every Play). Returns path."""
+    path = Path(path)
+    data = io.BytesIO()
+    image.save(data, format=Image.registered_extensions()[path.suffix.lower()])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.is_file() or path.read_bytes() != data.getvalue():
+        path.write_bytes(data.getvalue())
+    return path

@@ -1,0 +1,123 @@
+{
+  "id": "near_watch_edge",
+  "title": "Near is watched every half second and happens when it becomes true",
+  "behaviour": "Each rule looks every half second; it runs when JC is within its distance and was not at the look before (the distance itself counts as near). The first look only notes, so JC standing near at the start does not count until he has left. A rule refused while JC is near does not try again until he has left and come back.",
+  "derivedFrom": [{"file": "UCLink.uc", "lines": [308, 335], "has": "function TickStory()"}],
+  "assumes": ["A8"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 4.0,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Crate1",
+        "when": "near",
+        "once": false,
+        "label": "When JC comes near Crate1: the message Close",
+        "near": 256,
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Close"}]
+      },
+      {
+        "id": "L2",
+        "src": "Crate1",
+        "when": "near",
+        "once": false,
+        "label": "When JC comes near Crate1, only if Ready is Yes: the message Ready and close",
+        "near": 256,
+        "requires": [{"flag": "Ready", "is": true}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Ready and close"}]
+      },
+      {
+        "id": "L3",
+        "src": "Crate2",
+        "when": "near",
+        "once": false,
+        "label": "When JC comes near Crate2: the message Back at Crate2",
+        "near": 256,
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Back at Crate2"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {
+        "name": "Crate1",
+        "chain": ["CrateUnbreakableSmall", "Containers", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [0, 0, 0]
+      },
+      {
+        "name": "Crate2",
+        "chain": ["CrateUnbreakableSmall", "Containers", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [1000, 0, 0]
+      }
+    ]
+  },
+  "start": {"jc": [1000, 0, 0]},
+  "inputs": [
+    {"t": 1.2, "set": {"jc": [100, 0, 0]}},
+    {"t": 1.7, "set": {"flags": {"Ready": true}}},
+    {"t": 2.2, "set": {"jc": [1000, 0, 0]}},
+    {"t": 3.2, "set": {"jc": [256, 0, 0]}}
+  ],
+  "expected": [
+    {"t": 1.5, "line": "fire|LogicFixtures|L1|Crate1|near||When JC comes near Crate1: the message Close"},
+    {"t": 1.5, "line": "skip|LogicFixtures|L2|cond|flag|Ready|1"},
+    {"t": 1.6, "line": "act|LogicFixtures|L1|message||Close"},
+    {"t": 2.5, "line": "fire|LogicFixtures|L3|Crate2|near||When JC comes near Crate2: the message Back at Crate2"},
+    {"t": 2.6, "line": "act|LogicFixtures|L3|message||Back at Crate2"},
+    {"t": 3.5, "line": "fire|LogicFixtures|L1|Crate1|near||When JC comes near Crate1: the message Close"},
+    {
+      "t": 3.5,
+      "line": "fire|LogicFixtures|L2|Crate1|near||When JC comes near Crate1, only if Ready is Yes: the message Ready and close"
+    },
+    {"t": 3.6, "line": "act|LogicFixtures|L1|message||Close"},
+    {"t": 3.6, "line": "act|LogicFixtures|L2|message||Ready and close"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L1",
+        "When": "near",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC comes near Crate1: the message Close\"",
+        "Source": "\"Crate1\"",
+        "NearDist": "256.000000",
+        "Act(0)": "\"0|message||Close||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L2",
+        "When": "near",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC comes near Crate1, only if Ready is Yes: the message Ready and close\"",
+        "Source": "\"Crate1\"",
+        "Cond(0)": "\"flag|Ready|1\"",
+        "NearDist": "256.000000",
+        "Act(0)": "\"0|message||Ready and close||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L3",
+        "When": "near",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC comes near Crate2: the message Back at Crate2\"",
+        "Source": "\"Crate2\"",
+        "NearDist": "256.000000",
+        "Act(0)": "\"0|message||Back at Crate2||\""
+      }
+    }
+  ]
+}

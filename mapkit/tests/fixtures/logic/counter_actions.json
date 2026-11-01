@@ -1,0 +1,95 @@
+{
+  "id": "counter_actions",
+  "title": "Counters: set and add, read by another rule",
+  "behaviour": "The action count sets a counter (c = set) or adds to it, a negative number too; the log names only the counter, the state at the end shows the value.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [613, 623], "has": "function Count(name counter, int n, bool bSet)"},
+    {"file": "UCLink.uc", "lines": [578, 579], "has": "else if (verb == \"count\")"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 3.0,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: set the counter Levers to 5, after 1 s add -2 to it",
+        "do": [
+          {"id": "a1", "verb": "count", "target": "", "delay": 0, "a": "Levers", "b": "5", "c": "set"},
+          {"id": "a2", "verb": "count", "target": "", "delay": 1, "a": "Levers", "b": "-2"}
+        ]
+      },
+      {
+        "id": "L2",
+        "src": "Button2",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button2, only if the counter Levers is exactly 3: the message Three",
+        "requires": [{"type": "counter", "counter": "Levers", "op": "==", "value": 3}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Three"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Button2", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [64, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "fire": {"thing": "Button2", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.5, "fire": {"thing": "Button2", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: set the counter Levers to 5, after 1 s add -2 to it"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|count||Levers"},
+    {"t": 1.5, "line": "skip|LogicFixtures|L2|cond|count|Levers|==|3"},
+    {"t": 2.1, "line": "act|LogicFixtures|L1|count||Levers"},
+    {
+      "t": 2.5,
+      "line": "fire|LogicFixtures|L2|Button2|used|JCDentonMale0|When JC uses Button2, only if the counter Levers is exactly 3: the message Three"
+    },
+    {"t": 2.6, "line": "act|LogicFixtures|L2|message||Three"}
+  ],
+  "end": {"counters": {"Levers": 3}},
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: set the counter Levers to 5, after 1 s add -2 to it\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|count||Levers|5|set\"",
+        "Act(1)": "\"1|count||Levers|-2|\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button2",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Button2, only if the counter Levers is exactly 3: the message Three\"",
+        "Source": "\"Button2\"",
+        "Cond(0)": "\"count|Levers|==|3\"",
+        "Act(0)": "\"0|message||Three||\""
+      }
+    }
+  ]
+}

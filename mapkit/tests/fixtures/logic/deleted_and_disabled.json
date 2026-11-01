@@ -1,0 +1,125 @@
+{
+  "id": "deleted_and_disabled",
+  "title": "Deleted and disabled objects take their rules and actions with them",
+  "behaviour": "A rule whose object is deleted or disabled is not built; an action on a deleted object is left out, and a rule left with no action is not built either. Nothing listens to what is not in the map.",
+  "derivedFrom": [
+    {"file": "links.py", "lines": [242, 242], "has": "if not valid(link) or link.get('src') in deleted:"},
+    {"file": "links.py", "lines": [253, 258], "has": "and not (a.get('target') and a['target'] in deleted)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 3.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: open Door1",
+        "do": [{"id": "a1", "verb": "open", "target": "Door1", "delay": 0}]
+      },
+      {
+        "id": "L2",
+        "src": "Button2",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button2: open Door1",
+        "do": [{"id": "a1", "verb": "open", "target": "Door1", "delay": 0}]
+      },
+      {
+        "id": "L3",
+        "src": "Button3",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button3: open Door1",
+        "do": [{"id": "a1", "verb": "open", "target": "Door1", "delay": 0}]
+      },
+      {
+        "id": "L4",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: open Door2, the message Left",
+        "do": [
+          {"id": "a1", "verb": "open", "target": "Door2", "delay": 0},
+          {"id": "a2", "verb": "message", "target": "", "delay": 0, "a": "Left"}
+        ]
+      },
+      {
+        "id": "L5",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: open Door2",
+        "do": [{"id": "a1", "verb": "open", "target": "Door2", "delay": 0}]
+      }
+    ],
+    "deleted": {"Button2": {"cls": "Button1"}, "Door2": {"cls": "DeusExMover"}},
+    "disabled": {"Button3": true}
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "Door1", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [128, 0, 0]},
+      {
+        "name": "Button2",
+        "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [64, 0, 0],
+        "absent": "deleted"
+      },
+      {
+        "name": "Button3",
+        "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"],
+        "at": [128, 0, 0],
+        "absent": "disabled"
+      },
+      {"name": "Door2", "chain": ["DeusExMover", "Mover", "Brush", "Actor"], "at": [256, 0, 0], "absent": "deleted"}
+    ]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Button2", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 3.0, "fire": {"thing": "Button3", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: open Door1"},
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L4|Button1|used|JCDentonMale0|When JC uses Button1: open Door2, the message Left"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|open|Door1|"},
+    {"t": 1.1, "line": "act|LogicFixtures|L4|message||Left"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: open Door1\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|open|Door1|||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L4",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L4\"",
+        "Label": "\"When JC uses Button1: open Door2, the message Left\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|message||Left||\""
+      }
+    }
+  ]
+}

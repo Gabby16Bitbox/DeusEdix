@@ -23,6 +23,7 @@ import math
 import re
 
 import geom
+import t3d
 
 PF_INVISIBLE = 1
 PF_TRANSLUCENT = 4
@@ -236,6 +237,58 @@ def cloud_sheet(edits):
     return geom.Brush(faces, 'UCSkyClouds'), {'TexUPanSpeed': '%.6f' % pan, 'TexVPanSpeed': '0.000000'}
 
 
+def _text(props, defaults, key):
+    """A zone actor's property as T3D text: the map's (props), else its class's (defaults: {property: [value]}), else ''."""
+    v = props.get(key)
+    return (defaults.get(key) or [''])[0] if v is None else v
+
+
+def look(props, defaults):
+    """What a zone does to the 3D view's Effects (static/light-effects.js): pan, its Auto U and V Pan in texels a second
+    (TexUPanSpeed, TexVPanSpeed x PAN_RATE); viewFog and viewFlash (JC's view while his head is in the zone); fog
+    (bFogZone: volumetric fog), fogColour (r, g, b: 0-255) and fogDistance. props: the zone actor's in the map (T3D
+    text), defaults: its class's ({property: [value]}: props.defaults()); ZoneInfo's own where neither has one."""
+    def text(key):
+        return _text(props, defaults, key)
+
+    def number(key, fallback):
+        try:
+            return float(text(key) or fallback)
+        except ValueError:
+            return fallback
+
+    def vector(key):
+        try:
+            return [round(v, 4) for v in t3d.vec(text(key))]
+        except ValueError:
+            return [0.0, 0.0, 0.0]
+    colour = t3d.struct(text('FogColor'))
+    try:
+        fog_colour = [int(float(colour.get(c, 0))) for c in 'RGB']
+    except ValueError:
+        fog_colour = [0, 0, 0]
+    return dict(pan=[round(number('TexUPanSpeed', 1.0) * PAN_RATE, 3), round(number('TexVPanSpeed', 1.0) * PAN_RATE, 3)],
+                viewFog=vector('ViewFog'), viewFlash=vector('ViewFlash'), fog=text('bFogZone').lower() == 'true',
+                fogColour=fog_colour, fogDistance=number('FogDistance', 0.0))
+
+
+def ambience(props, defaults):
+    """A zone's own sound (Hear the map, static/ambient-sound.js): {'sound': Package.Group.Name, 'radius', 'volume',
+    'pitch': its SoundRadius, SoundVolume, SoundPitch (0-255)}, None without one. Deus Ex hears it in the whole zone: the
+    player gives the zone his head goes into a SoundRadius of 255 (DeusExPlayer.HeadZoneChange). props, defaults: as
+    look's; Actor's own values where neither has one."""
+    m = re.fullmatch(r"\s*Sound'([\w.]+)'\s*", _text(props, defaults, 'AmbientSound'))
+    if not m:
+        return None
+
+    def byte(key, fallback):
+        try:
+            return max(0, min(255, int(float(_text(props, defaults, key) or fallback))))
+        except ValueError:
+            return fallback
+    return dict(sound=m.group(1), radius=byte('SoundRadius', 32), volume=byte('SoundVolume', 128), pitch=byte('SoundPitch', 64))
+
+
 def packages(edits):
     """Texture and class packages the zones of the map use (OBJ LOAD before the brushes and actors)."""
     out = []
@@ -251,6 +304,23 @@ def packages(edits):
     return out
 
 
+# what a zone does to JC as soon as he is in it (the words of its rows in the Inspector: bKillZone's reads Instant death,
+# app.js INSPECTOR_LABELS): a start of the map in such a zone is worth a word after the build. Its echo, sound, light,
+# fog, rain are not
+AT_ONCE = (('bWaterZone', 'water'), ('bPainZone', 'hurts'), ('bKillZone', 'instant death'), ('bGravityZone', 'own gravity'))
+
+
+def at_once(cls, body):
+    """What a zone does to JC at once (AT_ONCE's words, in that order), from its actor as the build exported it: body,
+    its lines (only what differs from its class), and cls, its class (a WaterZone is water unless it says no)."""
+    out = []
+    for key, word in AT_ONCE:
+        m = re.search(r'(?im)^\s*%s=(\w+)\s*$' % key, body)
+        if (m.group(1).lower() == 'true') if m else (key == 'bWaterZone' and cls == 'WaterZone'):
+            out.append(word)
+    return out
+
+
 def report(t3d_text, edits):
     """After the build: is every zone of the editor closed? A zone actor that is not in a zone of its own
     shares the zone it is in (often the whole map): its water, damage, fog or gravity would be there too."""
@@ -260,11 +330,12 @@ def report(t3d_text, edits):
         mine.add('UCSkyZone')
     if not mine:
         return []
-    region, cls_of = {}, {}
+    region, cls_of, body = {}, {}, {}
     for m in re.finditer(r'Begin Actor Class=(\S+) Name=(\S+)\n(.*?)End Actor', t3d_text, re.S):
         z = re.search(r"Region=\(Zone=\w+'(?:\w+\.)?(\w+)'", m.group(3))
         region[m.group(2)] = z.group(1) if z else None
         cls_of[m.group(2)] = m.group(1)
+        body[m.group(2)] = m.group(3)
     lines = []
     for n in sorted(mine):
         if n not in region:
@@ -272,8 +343,9 @@ def report(t3d_text, edits):
         z = region[n]
         if z == n:
             starts = [a for a, zz in region.items() if zz == n and cls_of.get(a) == 'PlayerStart']
-            if starts and cls_of.get(n) != 'SkyZoneInfo':
-                lines.append('  ZONE %s contains the start of the map (JC starts in its water, damage...)' % n)
+            felt = at_once(cls_of.get(n, '').split('.')[-1], body.get(n, ''))
+            if starts and felt and cls_of.get(n) != 'SkyZoneInfo':      # a zone that only echoes, sounds...: nothing to say
+                lines.append('  ZONE %s contains the start of the map (JC starts in it: %s)' % (n, ', '.join(felt)))
             continue
         lines.append('  ZONE %s is not closed: it is part of the zone of %s (its water, damage, fog or gravity '
                      'would not be there; close the area with walls or zone portals)' % (n, z or 'the map'))

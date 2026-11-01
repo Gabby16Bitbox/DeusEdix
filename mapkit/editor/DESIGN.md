@@ -113,6 +113,12 @@ components:
   status-line:
     textColor: "{colors.text-dim}"
     typography: "{typography.note}"
+  slider:
+    trackHeight: 3px
+    trackColor: "{colors.text} at 13%"
+    fillColor: "{colors.primary} at 62%"
+    thumbSize: 12px
+    thumbColor: "{colors.text} at 42%"
 ---
 
 ## Overview
@@ -195,6 +201,10 @@ Icons are simple 13px SVGs drawn with `currentColor`, the same weight everywhere
 - **Icon button**: 24px square, an SVG icon, a tooltip that names the action and its shortcut
   ("Play / pause (Space)"). Use them for frequent, well-known actions (transport, show/hide, lock).
 - **Input**: `field` background, 22px, placeholder as the label when the meaning is obvious ("Find bone").
+- **Slider**: airy and glassy, the same everywhere (theme.css `input[type=range]`): a thin see-through track lit
+  in the accent up to the value, a small faded round thumb that brightens under the pointer and takes the
+  accent while dragged. The lit part comes from `--fill`, which range-fill.js keeps in step with the value;
+  a slider needs no code of its own and no local thumb or track styles.
 - **Panel header**: title in `heading`, actions on the right; the panel's content scrolls, the header does not.
 - **Status line**: one sentence of feedback in `note` size; `ok`/`warn`/`bad` colour only for the outcome.
 - **Empty state**: one short dim line saying what to do ("New or Copy an animation to edit its bone keys.").

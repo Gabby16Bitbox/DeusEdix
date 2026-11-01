@@ -7,7 +7,9 @@
 // locked and with its icons, and the icons' size: scene-kinds.js), and the Navigation menu: the two layers of navigation each on
 // or off (AI paths, the walkable area), Test route and Fill AI paths, then Isolate the selection (Shift+H),
 // Show hidden with how many objects the eye hid (Unity's scene visibility) and Pilot the selection (Shift+P, Unity's
-// first person control of a camera: view-align.js), each with a flag while it is on.
+// first person control of a camera: view-align.js), each with a flag while it is on. Then the view's lighting or one of
+// the views of the last rebuild (view-modes.js), Effects (Unity's Scene view Effects: the Lit view moving as the game)
+// and Hear the map (Unity's Scene view audio: the map's ambient sounds heard round the camera).
 // The steps are the same as File > Settings (gridMove, gridRotate).
 import { GIZMO_CHOICES, gizmoOption, nextGizmoChoice } from './gizmo-tools.js';
 import { GRID_LIMITS } from './grid-snap.js';
@@ -42,6 +44,10 @@ const PATHS = {
   pivot: '<rect x="3" y="3" width="14" height="14" rx="1.5" stroke-dasharray="2.5 2"/><circle cx="6" cy="14" r="2"/>',
   global: '<circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2.6 2.4 2.6 11.6 0 14M10 3c-2.6 2.4-2.6 11.6 0 14"/>',
   local: '<path d="M10 2.5 16.5 6v8L10 17.5 3.5 14V6z"/><path d="M3.5 6 10 9.5 16.5 6M10 9.5v8"/>',
+  // Effects: a lamp's glow
+  effects: '<circle cx="10" cy="10" r="2.5"/><path d="M10 2v3M10 15v3M2 10h3M15 10h3M4.3 4.3l2.1 2.1M13.6 13.6l2.1 2.1M4.3 15.7l2.1-2.1M13.6 6.4l2.1-2.1"/>',
+  // Hear the map: a speaker and its sound
+  audio: '<path d="M3 7.5h3L10 4v12l-4-3.5H3z"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10"/>',
 };
 // the selection history's arrows: the step each one takes
 const SELECTION_STEPS = { selback: -1, selnext: 1 };
@@ -86,7 +92,7 @@ const CSS = `
 #vptools .vp-flag[hidden] { display:none; }
 #vptools .vp-flag button { width:auto; height:18px; min-height:18px; padding:0 6px; font-size:12px; color:var(--text); }
 #vptools .vp-shading { display:inline-flex; align-items:center; flex:none; height:24px; margin-left:4px; padding-left:8px; border-left:1px solid var(--line); }
-#vptools select.vp-lighting { width:88px; min-height:22px; height:22px; margin:0; padding:0 4px; font:inherit; line-height:18px;
+#vptools select.vp-lighting { width:116px; min-height:22px; height:22px; margin:0; padding:0 4px; font:inherit; line-height:18px;
   border:1px solid var(--line); border-radius:var(--radius-control); background:var(--field); color:var(--text); }
 #vptools select.vp-lighting:focus-visible { border-color:var(--accent-border); }
 
@@ -120,7 +126,9 @@ const CHEVRON = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stro
 
 // api: getMode() / setMode(m), getGizmo() -> {pivot, space} / toggleGizmo('pivot' | 'space'),
 // getSnap() / setSnap(on), getSteps() -> {move, rotate}, setStep(kind, value), getGrid() / setGrid(on) (the 3D view's grid),
-// getIcons() / setIcons(on), getLightMode() / setLightMode(mode), getNav() -> {paths, walk}, setNavLayer('paths' | 'walk'),
+// getIcons() / setIcons(on), getLightMode() / setLightMode(mode), viewModes: [[mode, its name]] (view-modes.js's VIEW_MODES),
+// getEffects() -> {on, shown: the Lit view shows them now} / setEffects(on), getAudio() -> {on} / setAudio(on) (Hear the map),
+// getNav() -> {paths, walk}, setNavLayer('paths' | 'walk'),
 // testRoute(), fillPaths(), stepSelection(dir) / canStepSelection(dir) (dir -1 back, 1 forward),
 // getSceneView() -> {isolated: how many objects Isolate shows (0: off), hidden: how many the eye hid, reveal, canIsolate,
 // pilot: what Pilot takes along ('': off), canPilot}, toggleIsolation(), toggleReveal(), togglePilot(),
@@ -162,9 +170,11 @@ export function createViewportToolbar(api) {
     <button data-vp="pilot" aria-label="Pilot the selection">${icon('pilot')}</button>
     ${Object.entries(VIEW_FLAGS).map(([k, f]) => `<span class="vp-flag" data-flag="${k}" hidden><span></span><button title="${f.tip}">${f.exit}</button></span>`).join('')}
     <span class="vp-shading"><select class="vp-lighting" data-vp="lighting" aria-label="View: lighting, or an UnrealEd view"
-      title="View (L: the lighting): Shaded = editor lights; Lit = game lighting from the last rebuild; Unlit = textures without lighting; UnrealEd's Wireframe, BSP cuts and Zones of the last rebuild">
-      <option value="shaded">Shaded</option><option value="lit">Lit</option><option value="unlit">Unlit</option>
-      <optgroup label="UnrealEd views"><option value="wire">Wireframe</option><option value="cuts">BSP cuts</option><option value="zones">Zones</option></optgroup></select></span>`;
+      title="View (L: the lighting): Shaded = editor lights; Light preview = live lights without baked shadows (nearest 32); Lit = game lighting from the last rebuild; Unlit = textures without lighting; the views of the last rebuild: UnrealEd's Wireframe, BSP cuts and Zones, and Lightmap detail">
+      <option value="shaded">Shaded</option><option value="preview">Light preview</option><option value="lit">Lit</option><option value="unlit">Unlit</option>
+      <optgroup label="Views of the last rebuild">${(api.viewModes || []).map(([k, label]) => `<option value="${k}">${label}</option>`).join('')}</optgroup></select>
+      <button data-vp="effects" aria-label="Effects">${icon('effects')}</button>
+      <button data-vp="audio" aria-label="Hear the map">${icon('audio')}</button></span>`;
   document.body.appendChild(bar);
   // it sits in the 3D view's top left corner, wherever the docked panels put the view, and wraps when narrow
   const view = document.querySelector('#view');
@@ -190,6 +200,8 @@ export function createViewportToolbar(api) {
   const flags = Object.entries(VIEW_FLAGS).map(([k, f]) => ({ f, el: bar.querySelector(`[data-flag="${k}"]`) }));
   for (const { f, el } of flags) el.querySelector('button').onclick = () => { f.end(api); refresh(); };
   $('lighting').onchange = () => { api.setLightMode($('lighting').value); refresh(); };
+  $('effects').onclick = () => { api.setEffects(!api.getEffects().on); refresh(); };
+  $('audio').onclick = () => { api.setAudio(!api.getAudio().on); refresh(); };
   // the Navigation menu: its two layers are ticks (each on or off), then the two actions
   $('nav').onclick = (e) => {
     e.stopPropagation();
@@ -343,6 +355,17 @@ export function createViewportToolbar(api) {
       : `Pilot the selection (${key('pilot', 'Shift+P')}): the view looks through it (a camera, a spotlight, a character) and flying the view takes it along`;
     for (const { f, el } of flags) { el.hidden = !f.on(v); if (!el.hidden) el.firstElementChild.textContent = f.text(v); }
     $('lighting').value = api.getLightMode();
+    const fx = api.getEffects ? api.getEffects() : {};
+    $('effects').setAttribute('aria-pressed', String(!!fx.on));
+    $('effects').title = 'Effects: in the Lit view, lamps pulse, blink, flicker and strobe as the project\'s game draws them (a blink '
+      + 'at random, a flickering lamp dark in Revision), coronas glow, '
+      + 'textures with Auto U / V Pan move, the view fog of the zone the camera is in shows'
+      + (fx.on && !fx.shown ? '. On: choose Lit (L) to see them' : fx.on ? '. On: press to stop' : '');
+    const audio = api.getAudio ? api.getAudio() : {};
+    $('audio').setAttribute('aria-pressed', String(!!audio.on));
+    $('audio').title = 'Hear the map: the ambient sounds of objects, lamps and zones loop where they are, heard from the camera as it '
+      + 'flies (their Heard within, Volume and Pitch; a zone\'s while the camera is in it); the 16 nearest play, never while Play runs'
+      + (audio.on ? '. On: press to stop' : '');
     if (document.activeElement !== $('move')) $('move').value = String(steps.move);
     if (document.activeElement !== $('turn')) $('turn').value = String(steps.rotate);
     for (const c of bar.querySelectorAll('.vp-combo')) c.classList.toggle('off', !on);
@@ -350,3 +373,4 @@ export function createViewportToolbar(api) {
   refresh();
   return { refresh, el: bar };
 }
+

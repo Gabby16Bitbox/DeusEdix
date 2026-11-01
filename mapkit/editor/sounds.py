@@ -5,8 +5,8 @@ machines, crowds) and the sounds of objects.
 
 The user's own sounds (the browser's Import, My sounds): any file the browser can decode (WAV, MP3, OGG,
 FLAC...) arrives here as a WAV, mono 16 bit 44.1 kHz (a sound heard from a place must be mono), is kept in
-tools/mapkit/sounds/<Name>.wav and becomes a sound of the editor's package (settings.SOUNDS_PACKAGE: UCSounds
-in UNATCO Continues, DeusEdixSounds in DeusEdix) made by Deus Ex's own AUDIO IMPORT, in dist\\ and, when the
+tools/mapkit/sounds/<Name>.wav and becomes a sound of the editor's package (settings.SOUNDS_PACKAGE: devmode.json's
+in development mode, DeusEdixSounds in DeusEdix) made by Deus Ex's own AUDIO IMPORT, in dist\\ and, when the
 game is closed, in the game (else at the next Install)."""
 import base64
 import json
@@ -181,7 +181,7 @@ def pack(log=print):
     else:
         settings.PACKAGES_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copy2(DIST, settings.PACKAGES_DIR / (PACKAGE + '.u'))
-        # the game reads its maps folder (UnatcoMaps, where Install puts the mod's packages) before System: a copy
+        # the game reads its maps folder (settings.MAPS_DIR, where Install puts the editor's packages) before System: a copy
         # there would hide the new one (20 Oct 2026: an imported model was not in the game), so it is replaced too
         if (settings.MAPS_DIR / (PACKAGE + '.u')).exists():
             shutil.copy2(DIST, settings.MAPS_DIR / (PACKAGE + '.u'))

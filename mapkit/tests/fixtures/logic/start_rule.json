@@ -1,0 +1,70 @@
+{
+  "id": "start_rule",
+  "title": "The map starts: at the first half-second look, once",
+  "behaviour": "A start rule has no object and no one who set it off; it is told at the first run of its half-second timer and never again, refused or not.",
+  "derivedFrom": [
+    {"file": "UCEditorStory.uc", "lines": [28, 28], "has": "SetTimer(0.5, True);"},
+    {"file": "UCEditorStory.uc", "lines": [1014, 1017], "has": "if (!bStarted)"},
+    {"file": "UCLink.uc", "lines": [301, 305], "has": "function StartStory()"}
+  ],
+  "assumes": ["A8"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.0,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "",
+        "when": "start",
+        "once": false,
+        "label": "When the map starts: the message Welcome",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Welcome"}]
+      },
+      {
+        "id": "L2",
+        "src": "",
+        "when": "start",
+        "once": false,
+        "label": "When the map starts, only if Never is Yes: the message Never",
+        "requires": [{"flag": "Never", "is": true}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Never"}]
+      }
+    ]
+  },
+  "world": {"player": "JCDentonMale0", "actors": []},
+  "start": {},
+  "inputs": [],
+  "expected": [
+    {"t": 0.5, "line": "fire|LogicFixtures|L1||start||When the map starts: the message Welcome"},
+    {"t": 0.5, "line": "skip|LogicFixtures|L2|cond|flag|Never|1"},
+    {"t": 0.6, "line": "act|LogicFixtures|L1|message||Welcome"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L1",
+        "When": "start",
+        "Rule": "\"L1\"",
+        "Label": "\"When the map starts: the message Welcome\"",
+        "Act(0)": "\"0|message||Welcome||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L2",
+        "When": "start",
+        "Rule": "\"L2\"",
+        "Label": "\"When the map starts, only if Never is Yes: the message Never\"",
+        "Cond(0)": "\"flag|Never|1\"",
+        "Act(0)": "\"0|message||Never||\""
+      }
+    }
+  ]
+}

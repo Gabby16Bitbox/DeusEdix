@@ -65,9 +65,20 @@ TOOLS = {
     'place_object': ('place', 60, 'Place a new object of a class (as in the Objects browser: e.g. MedKit, Light, '
                      'TerroristCarcass, PlayerStart). It is cast from `at` along `toward` (default straight down) onto '
                      'the first surface and stands on it as a click would place it; exact: put it at `at` as it is. '
-                     'yaw: its facing. props: its properties. cls "block": a block of size [x, y, z] and texture tex.',
+                     'yaw: its facing. props: its properties. cls "block": a block of size [x, y, z] and texture tex. '
+                     'For a painting or poster use place_picture so its image appears once on the front.',
                      schema({'cls': {'type': 'string'}, 'at': VEC, 'toward': VEC, 'exact': {'type': 'boolean'},
                              'yaw': {'type': 'number'}, 'props': OBJ, 'size': VEC, 'tex': {'type': 'string'}}, ['cls', 'at'])),
+    'place_picture': ('picture', 120, 'Place a painting, poster or image panel with one complete image on its front; '
+                      'edges and back are plain metal. Use this for pictures, not place_object block (which tiles '
+                      'a texture on every face). tex: a game or imported texture from find_textures. Width, height '
+                      'and thickness are world units; height defaults to the image aspect ratio. Face is the outward '
+                      'local normal (-x, +x, -y, +y); omitted: faces out of the clicked wall or toward the camera. '
+                      'at/toward cast onto a surface; exact centres it at at. Resizing keeps a single image. '
+                      'Uses the editable Sign controls; unsaved and undoable.',
+                      schema({'tex': {'type': 'string'}, 'at': VEC, 'toward': VEC, 'exact': {'type': 'boolean'},
+                              'width': {'type': 'number'}, 'height': {'type': 'number'}, 'thickness': {'type': 'number'},
+                              'face': {'type': 'string', 'enum': ['-x', '+x', '-y', '+y']}}, ['tex', 'at'])),
     'move_object': ('move', 30, 'Move, turn or scale an object; a block also takes its size [x, y, z].',
                     schema({'name': {'type': 'string'}, 'loc': VEC, 'yaw': {'type': 'number'},
                             'scale': {'type': 'number'}, 'size': VEC}, ['name'])),
@@ -133,7 +144,7 @@ TOOL_KINDS = dict(editor_state='read', list_maps='read', open_map='destroy', fin
                   select_objects='edit', place_object='edit', move_object='edit', set_properties='edit',
                   delete_objects='destroy', undo='edit', redo='edit', save='destroy', rebuild='destroy', view='read',
                   story_list='read', story_get='read', story_write='destroy', story_play='read', run_js='destroy',
-                  project_api='destroy', find_classes='read', find_textures='read', draw='edit', batch='destroy')
+                  project_api='destroy', find_classes='read', find_textures='read', draw='edit', batch='destroy', place_picture='edit')
 
 
 class EditorUnavailable(RuntimeError):

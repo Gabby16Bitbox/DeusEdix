@@ -10,6 +10,7 @@ const {createRotations}=await import(pathToFileURL(path.join(support,'editor/sta
 const {createTextureScale,stretchOnResize}=await import(pathToFileURL(path.join(support,'editor/static/texture-scale.js')));
 const {defaultFolder,putInFolder}=await import(pathToFileURL(path.join(support,'editor/static/hierarchy-folders.js')));
 const {createHistory,recordStep,travelStep,namedStep}=await import(pathToFileURL(path.join(support,'editor/static/history-names.js')));
+const {freePid,isLibraryVersion,overridesOf,overridesData,putOverrides,replacedOn}=await import(pathToFileURL(path.join(support,'editor/static/prefab-links.js')));
 const rotations=createRotations(THREE),T=a=>new THREE.Vector3(a[0],a[2],a[1]),UE=v=>[v.x,v.z,v.y];
 const source=fs.readFileSync(path.join(kit,'editor/static/app.js'),'utf8');
 const fn=name=>{const i=source.indexOf(`function ${name}(`);assert.ok(i>=0,name);const first=source.slice(i,source.indexOf('\n',i));return first.trimEnd().endsWith('}')?first:source.slice(i,source.indexOf('\n}',i)+2);};
@@ -36,6 +37,17 @@ function setup(){
  vm.runInContext('async '+fn('pasteClipboard'),c);
  vm.runInContext('async '+fn('withMapProps'),c);           // copySelected's map properties (0.1.48)
  vm.runInContext(fn('nextPid'),c);
+ // what a selected structure carries, which Copy does not copy again on its own (a pasted copy's replacing objects too)
+ for(const name of ['replacingOf','carries','carriedBy'])vm.runInContext(fn(name),c);
+ // nextPid's and pasteClipboard's helpers: pids never given again, a copy's overrides taken along (prefab-links.js), a
+ // deleted prefab's copies refused: the server's answer for a version's files (served: its status, 'offline': no answer)
+ Object.assign(c,{freePid,isLibraryVersion,overridesData,putOverrides,replacedOn,viewState:()=>c.view,view:{hidden:new Set(),locked:new Set()},served:{},asked:[],
+  fetch:async url=>{c.asked.push(url);const s=c.served[url.split('/')[2]]??200;if(s==='offline')throw new TypeError('Failed to fetch');return {status:s,ok:s===200,json:async()=>({groups:[]})};}});
+ vm.runInContext('const prefabDisplays = {};\n'+fn('loadPrefabDisplay'),c);      // the previews' cache, as the page has it
+ vm.runInContext('async '+fn('refuseLostPrefabs'),c);
+ vm.runInContext('async '+fn('prefabGone'),c);
+ vm.runInContext(fn('dupStructure'),c);
+ vm.runInContext(fn('removeStructure'),c);
  c.pastePoint=()=>{throw Error('Camera must not be used when pasting in the source map');};
  c.nextName=prefix=>{let n=0;const used=[...c.edits.added,...c.edits.boxes].map(e=>e.name);while(used.includes(prefix+n))n++;return prefix+n;};
  function actor({name='Original',cls='Barrel1',loc=[100,200,30],rot=[2200,18000,-3100],scale=1.4,source='added'}={}){
@@ -78,6 +90,81 @@ test('pasted library Piece keeps full pose, nonuniform scale, explicit tiling an
  await c.copySelected();c.edits.prefabs[0].yaw=0;await c.pasteClipboard();const e=c.edits.prefabs[1];
  assert.equal(requests.length,0);for(const k of ['yaw','pitch','roll','scale','stretch','mover','moverSettings'])assert.deepEqual(clone(e[k]),before[k]);
  assert.deepEqual(clone(e.offset),[68,40,60]);assert.notEqual(e.pid,before.pid);assert.equal(e.prefab,before.prefab);
+});
+test('a copy pasted after another was deleted never takes its pid while the edits name its objects',async()=>{
+ const {c,piece}=setup(),st=piece({name:'paste~p1',paste:true});
+ c.view.hidden.add('s:paste~p2');                                                 // a hidden copy p2 the edits no longer have
+ await c.copySelected();
+ c.edits.moved.UCPfp1A0={cls:'Light',loc:[500,0,64],orig:[110,10,64]};          // an object of p1 moved after the copy
+ c.removeStructure(st);                                                           // p1 deleted: its records stay (Undo)
+ assert.equal(c.edits.prefabs.length,0);
+ await c.pasteClipboard();
+ const e=c.edits.prefabs[0];
+ assert.equal(e.pid,'p3');
+ assert.deepEqual(overridesOf(c.edits,e),[]);
+});
+test('a copy of a deleted prefab whose files are gone is not pasted: the status says why',async()=>{
+ const {c,piece,history,messages}=setup(),V='usr_'+'a'.repeat(32);
+ piece({name:'paste~p1',paste:true});Object.assign(c.edits.prefabs[0],{prefab:V,line:V,version:1,label:'Desk'});
+ await c.copySelected();
+ c.served[V]=404;                                                                 // the project opened again: its files went
+ await c.pasteClipboard();
+ assert.equal(c.edits.prefabs.length,1);assert.equal(history.length,0);
+ assert.match(messages.at(-1)[0],/Nothing pasted: the prefab "Desk" was deleted from the library/);
+ assert.equal(c.asked.at(-1),`/prefabs/${V}/prefab.json`);
+ c.served[V]=200;                                                                 // still on disk (deleted this session): pasted
+ await c.pasteClipboard();
+ assert.equal(c.edits.prefabs.length,2);assert.equal(c.edits.prefabs[1].prefab,V);
+});
+test('a prefab the server could not answer for is pasted, and asked for again at the next paste',async()=>{
+ const {c,piece,messages}=setup(),V='usr_'+'b'.repeat(32);
+ piece({name:'paste~p1',paste:true});Object.assign(c.edits.prefabs[0],{prefab:V,line:V,version:1,label:'Desk'});
+ await c.copySelected();
+ c.served[V]='offline';await c.pasteClipboard();                                   // no answer: no proof its files went
+ c.served[V]=409;await c.pasteClipboard();                                         // the server busy: neither
+ assert.equal(c.edits.prefabs.length,3);
+ c.served[V]=200;await c.pasteClipboard();                                         // the previews' cache kept no "gone"
+ assert.equal(c.edits.prefabs.length,4);
+ c.served[V]=404;await c.pasteClipboard();                                         // asked again: gone now
+ assert.equal(c.edits.prefabs.length,4);assert.match(messages.at(-1)[0],/was deleted from the library/);
+ assert.equal(c.asked.filter(u=>u.includes(V)).length,4);
+});
+// a linked copy (paste~p1) whose objects were changed: moved, deleted, a property, an All properties value, off in game,
+// replaced; and a record of the map's own
+function changedCopy(c){
+ const V='usr_'+'c'.repeat(32);Object.assign(c.edits.prefabs[0],{prefab:V,line:V,version:2,label:'Desk'});
+ Object.assign(c.edits,{moved:{UCPfp1A0:{cls:'Chair1',loc:[110,20,30],rot:[0,16384,0],orig:[100,20,30]},Other1:{cls:'Barrel1',loc:[1,2,3],orig:[0,0,0]}},
+  deleted:{UCPfp1A1:{cls:'Lamp1',orig:[50,60,30]}},props:{UCPfp1A2:{Tag:'Desk'}},rawprops:{UCPfp1A2:{bHidden:'True'}},disabled:{UCPfp1A4:true},
+  added:[{name:'UCPfp1A3',cls:'Plant2',loc:[70,70,30],rot:[0,0,0],props:{},replaces:{cls:'Plant1',orig:[70,70,30]}}]});
+ return clone(c.edits);
+}
+// what the copy pid has, records moved by d (x y z) from paste~p1's
+function hasChanges(c,pid,d){
+ const at=(p)=>p.map((v,i)=>v+d[i]),tag='UCPf'+pid;
+ assert.deepEqual(clone(c.edits.moved[tag+'A0']),{cls:'Chair1',loc:at([110,20,30]),rot:[0,16384,0],orig:at([100,20,30])});
+ assert.deepEqual(clone(c.edits.deleted[tag+'A1']),{cls:'Lamp1',orig:at([50,60,30])});
+ assert.deepEqual([clone(c.edits.props[tag+'A2']),clone(c.edits.rawprops[tag+'A2']),c.edits.disabled[tag+'A4']],[{Tag:'Desk'},{bHidden:'True'},true]);
+ assert.deepEqual(clone(c.edits.added.find(a=>a.name===tag+'A3')),{name:tag+'A3',cls:'Plant2',loc:at([70,70,30]),rot:[0,0,0],props:{},replaces:{cls:'Plant1',orig:at([70,70,30])}});
+ const kinds=(p)=>overridesOf(c.edits,{pid:p}).map(o=>[o.name.slice(('UCPf'+p).length),o.kinds]);
+ assert.deepEqual(kinds(pid),kinds('p1'));
+}
+test('Duplicate of a linked copy keeps what was changed on its objects, moved with it; the original\'s as they were',()=>{
+ const {c,piece}=setup(),st=piece({name:'paste~p1',paste:true}),before=changedCopy(c);
+ assert.equal(c.dupStructure(st,100),'paste~p2');
+ assert.deepEqual(clone(c.edits.prefabs[1].offset),[120,40,60]);
+ hasChanges(c,'p2',[100,0,0]);
+ for(const f of ['moved','deleted','props','rawprops','disabled'])for(const n of Object.keys(before[f]))assert.deepEqual(clone(c.edits[f][n]),before[f][n]);
+ c.edits.moved.UCPfp2A0.loc[0]=0;assert.equal(c.edits.moved.UCPfp1A0.loc[0],110);                // records of its own
+ assert.deepEqual(Object.keys(c.edits.moved).sort(),['Other1','UCPfp1A0','UCPfp2A0']);            // the map's own not taken
+});
+test('Copy and Paste of a linked copy keep what was changed on its objects, moved with the paste',async()=>{
+ const {c,piece}=setup();piece({name:'paste~p1',paste:true});changedCopy(c);
+ await c.copySelected();
+ c.edits.moved.UCPfp1A0.loc=[999,999,999];                                         // after the copy: the paste keeps what was copied
+ await c.pasteClipboard();
+ const e=c.edits.prefabs[1];assert.equal(e.pid,'p2');
+ c.edits.moved.UCPfp1A0.loc=[110,20,30];
+ hasChanges(c,'p2',e.offset.map((v,i)=>v-c.edits.prefabs[0].offset[i]));
 });
 test('built Piece pasted via its existing prefab does not double its baked rotation or scale',async()=>{
  const {c,piece}=setup();const pose={offset:[35,-80,14],yaw:24000,pitch:-1300,roll:4100,scale:[1.7,0.6,2.2],stretch:false};
@@ -182,7 +269,8 @@ test('actual saved rooftop pipes retain the rotated geometry through copy/paste 
 test('real keyboard handler: Ctrl+C / Ctrl+V and one Ctrl+Z restore the selection atomically',async()=>{
  const {c,actor,history,messages}=setup();actor();const before=clone(c.edits);let onKey;
  Object.assign(c,{window:{addEventListener:(type,fn)=>{if(type==='keydown')onKey=fn;}},document:{querySelector:()=>null},
-   projectHub:null,textureTransfer:null,propertySlider:null,inspectorDrag:null,cam:{look:false},undoHistory:createHistory(),travelStep,afterHistory(){},historyChanged(){}});
+   projectHub:null,textureTransfer:null,textureSlip:null,propertySlider:null,inspectorDrag:null,cancelNumberScrub:null,cam:{look:false},undoHistory:createHistory(),travelStep,afterHistory(){},historyChanged(){},
+   surfaceTools:{mode:false}});   // (Face selection off: its Alt keys are not these)
  c.pushUndo=(label)=>{recordStep(c.undoHistory,JSON.stringify(c.edits),label);history.push(clone(c.edits));};
  // the keys' own steps: undo/redo as functions, Ctrl+C/V waiting for the browser's clipboard event (none in node: the fallback at once)
  for(const name of ['travel','historyStep','undoStep','redoStep','buildKeyGate'])vm.runInContext(fn(name),c);   // (buildKeyGate: the keys during a Rebuild)
@@ -195,4 +283,14 @@ test('real keyboard handler: Ctrl+C / Ctrl+V and one Ctrl+Z restore the selectio
  key('z');assert.deepEqual(clone(c.edits),before);assert.equal(c.undoHistory.redo.length,1);
  assert.deepEqual(messages.at(-1),['Undone: Paste Barrel1']);                  // the status says what was undone
  key('v','INPUT');assert.deepEqual(clone(c.edits),before);
+});
+// part B2's #0 (B3, 1 Nov 2026): a pasted copy and its object given another class (Replace with...), copied together:
+// the copy's overrides take that object along, so it is not copied a second time on its own
+test('Copy of a pasted copy with its replacing object selected too copies the copy only',async()=>{
+ const {c,actor,piece,stored}=setup(),plant=actor({name:'UCPfp0A3',cls:'Plant2',loc:[70,0,0],rot:[0,0,0],scale:1});
+ c.edits.added[0].replaces={cls:'Plant1',orig:[70,0,0]};
+ const st=piece({name:'paste~p0',paste:true});
+ c.selection=[plant,st.obj];c.selected=c.groupPivot;
+ assert.equal(await c.copySelected(),true);
+ assert.deepEqual(JSON.parse(stored.get('project:clipboard')).items.map(it=>it.kind),['prefab-entry']);
 });

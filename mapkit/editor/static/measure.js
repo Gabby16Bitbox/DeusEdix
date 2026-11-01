@@ -3,6 +3,16 @@
 // the grid when Grid snap is on); a third click starts a new measure; M or Esc ends. JC is 88 units tall, a door 128.
 import * as THREE from 'three';
 
+// a label floating over the 3D view, hidden at first and never in the pointer's way: the measure's, the Texture Slip's HUD
+export function floatingLabel() {
+  const label = document.createElement('div');
+  label.className = 'measure-label';
+  label.style.cssText = 'position:fixed;z-index:6;pointer-events:none;display:none;padding:2px 6px;border-radius:3px;'
+    + 'background:#0b1625e6;border:1px solid #ffd25a;color:#ffe6a0;font:12px/1.4 "Segoe UI",sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap';
+  document.body.appendChild(label);
+  return label;
+}
+
 export function createMeasure(api) {
   const { scene, camera, canvas } = api;
   const mat = new THREE.LineBasicMaterial({ color: 0xffd25a, depthTest: false, transparent: true });
@@ -13,11 +23,7 @@ export function createMeasure(api) {
   dots.renderOrder = 998;
   dots.visible = false;
   scene.add(line, dots);
-  const label = document.createElement('div');
-  label.className = 'measure-label';
-  label.style.cssText = 'position:fixed;z-index:6;pointer-events:none;display:none;padding:2px 6px;border-radius:3px;'
-    + 'background:#0b1625e6;border:1px solid #ffd25a;color:#ffe6a0;font:12px/1.4 "Segoe UI",sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap';
-  document.body.appendChild(label);
+  const label = floatingLabel();
   let on = false, pts = [];
 
   function draw() {

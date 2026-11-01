@@ -152,9 +152,12 @@ const OPS = {
     return { selected: OPS.state().selected };
   },
   place({ cls, at, toward = [0, 0, -1], exact = false, yaw, props, size, tex }) {
-    const k = needEditable(), ed = E(), block = cls === 'block';
+    const k = needEditable(), ed = E(), block = cls === 'block', found = block ? null : paletteItem(cls);
+    // a palette item places what its own button places (app.js placingOf, through the kit: its class, size, preset or
+    // your character): given as it is, a decoration's mesh made placeWith take it for a model and throw (TrashCan1,
+    // 27 Oct 2026)
     const item = block ? { box: true, size: size || [128, 128, 128], tex: tex || 'ClenGreyCncrt_A' }
-      : paletteItem(cls) || { cls, name: cls, radius: 16, height: 16 };
+      : found ? k.placingOf(found) : { cls, name: cls, radius: 16, height: 16 };
     k.startPlacing(item);
     const r = exact ? { p: k.T(at), n: new THREE.Vector3(0, 1, 0), hit: k.T(at), tex: null }
       : k.placeOnRay(new THREE.Raycaster(k.T(at), k.T(toward).normalize()));
@@ -169,6 +172,33 @@ const OPS = {
       if (props) for (const [key, v] of Object.entries(props)) (e.props = e.props || {})[key] = String(v);
       k.rebuildProxies(); k.select(k.proxyOf(name)); k.setDirty();
     }
+    return OPS.object({ name });
+  },
+  async picture({ tex, at, toward = [0, 0, -1], exact = false, width = 128, height, thickness = 4, face }) {
+    const k = needEditable(), script = E().script;
+    const vector = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+    if (typeof tex !== 'string' || !tex.trim() || !vector(at) || !vector(toward) || !toward.some(v => v !== 0))
+      throw new Error('Give a texture, a finite position and a nonzero placement direction.');
+    if (face !== undefined && !['-x', '+x', '-y', '+y'].includes(face)) throw new Error('Picture face: -x, +x, -y or +y.');
+    const valid = v => Number.isFinite(v) && v > 0 && v <= 16384;
+    if (!valid(width) || !valid(thickness) || (height !== undefined && !valid(height))) throw new Error('Picture dimensions must be positive and at most 16384.');
+    const img = await k.signPicture(tex);
+    if (!img) throw new Error(`Texture "${tex}" could not be loaded; no picture was placed.`);
+    needEditable();
+    if (E().script !== script) throw new Error('The map changed while the picture was loading.');
+    height ??= width * img.height / img.width;
+    if (!valid(height)) throw new Error('The picture height is outside the supported range.');
+    const item = { box: true, sign: true, size: [thickness, thickness, height],
+      picture: { tex, width, height, thickness, face, exact } };
+    k.startPlacing(item);
+    let name;
+    try {
+      const r = exact ? { p: k.T(at), n: new THREE.Vector3(0, 1, 0), hit: k.T(at), tex: null }
+        : k.placeOnRay(new THREE.Raycaster(k.T(at), k.T(toward).normalize()));
+      if (!r) throw new Error('No surface at that position: use exact or another placement ray.');
+      name = await k.placeWith(r, { quiet: true });
+    } finally { if (k.placing === item) k.cancelPlacing(); }
+    if (!name) throw new Error('The picture could not be placed.');
     return OPS.object({ name });
   },
   move({ name, loc, yaw, scale, size }) {

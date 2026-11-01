@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 GAME = settings.GAME
 FOLDERS = list(settings.SYSTEM_DIRS) + [kit.DEV]      # the targeted game's (the original game never reads Revision's)
 # loaded anyway: the engine, the game, Revision, this mod (and what they use)
-BASE = set(kit.EDIT_PACKAGES) | {settings.PACKAGE, 'UnatcoVoices', settings.ANIMS_PACKAGE, 'RevisionMission', 'RevisionPawn',
+BASE = set(kit.EDIT_PACKAGES) | {settings.PACKAGE, settings.VOICES_PACKAGE, settings.ANIMS_PACKAGE, 'RevisionMission', 'RevisionPawn',
                                  'RevisionDeco', 'DeusExCharacters', 'DeusExDeco', 'DeusExItems', 'DeusExSounds'}
 # conversations, voices, texts, translations, network: no objects to place
 NOISE = re.compile(r'Conversations|ConAudio|ConText|Text$|^F[A-Z]|^(IpDrv|IpServer|UBrowser|UWindow|EngineI|DXOgg|RF|RevisionUI)$')

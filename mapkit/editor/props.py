@@ -14,8 +14,10 @@ import settings
 from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
-VERSION = 15               # 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
+VERSION = 17               # 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
                           # 14: timers (UCTimer) 15: effect points (UCEffectPoint)
+                          # 16: a lamp's phase and corona, what a zone does to the view (the 3D view's Effects)
+                          # 17: a zone's echo (the Reverb row) and Revision's OpenAL reverb
                           # 7: patrol points (8: their animation) 9: sounds 10: sound effects, door sounds
 
 # (group, class that has it, property, label, kind, help)
@@ -25,11 +27,15 @@ VERSION = 15               # 2: the Character Creator's classes (UCCustom*) of t
 #        byte (0-255, a slider) lightcolor (LightHue with a colour picker that also sets LightSaturation)
 #        anim (an animation of the characters that use it: PatrolAnim, made real by the editor's UCAnimSet)
 #        sound (a sound of the game, chosen and heard in the sound picker: editor/sounds.py)
+#        playlist (a sound effect's list of sounds, drawn with its order, its variations and its repeats, the
+#        playlistpart fields: static/sound-playlist.js)
 ORDERS = ['Standing', 'Wandering', 'Patrolling', 'Sitting', 'Dancing', 'Idle', 'Following']
 HIDE = {'UCTriggerBox': ('CollisionRadius', 'CollisionHeight', 'TriggerType')}
 # New editor-owned properties remain editable before the first runtime Rebuild.
 # Their defaults are fixed here; no expensive SDK defaults scan is needed on upgrade.
-EDITOR_DEFAULTS = {'UCTriggerBox': {'bCylinder': ['False'], 'CylinderRadius': ['64.000000'], 'CylinderHeight': ['64.000000']}}
+EDITOR_DEFAULTS = {'UCTriggerBox': {'bCylinder': ['False'], 'CylinderRadius': ['64.000000'], 'CylinderHeight': ['64.000000']},
+                   'UCSoundFX': {'FXSounds': ['None'] * 7, 'FXOrder': ['0'], 'RandomPitch': ['0.000000'],
+                                 'RandomVolume': ['0.000000'], 'RepeatMin': ['0.000000'], 'RepeatMax': ['0.000000']}}
 CHOICES = {'DamageType': ['Radiation', 'Burned', 'Shocked', 'PoisonGas', 'Poison', 'TearGas', 'HalonGas', 'Drowned']}
 FIELDS = [
     ('Links', 'Actor', 'Tag', 'Tag', 'name', 'The name other objects use to find it (the door a button opens, a story action...)'),
@@ -111,6 +117,20 @@ FIELDS = [
     ('Zone', 'ZoneInfo', 'ZoneGravity', 'Gravity', 'gravity', 'The pull downwards (with Own gravity): the game -950, -300 floats like on the moon'),
     ('Zone', 'ZoneInfo', 'ZoneGroundFriction', 'Ground friction', 'float', '8 = normal ground; 0.2 = ice'),
     ('Zone', 'ZoneInfo', 'bWaterZone', 'Water (JC swims)', 'bool', ''),
+    # a zone's echo (UE1's ZoneInfo reverb): the Reverb row sets them from a preset, its Values show them
+    # (static/zone-reverb.js); Revision's zones with OpenAL's own reverbs (RevZoneInfo, RevSoundZone, WaterZone,
+    # PrecipitationZone, SnowZone: the classes with ReverbPreset) have it beside them, and a float Gain of OpenAL's
+    # (EFX) that hides ZoneInfo's echo gains: their Gain row is left out (fields_for), a preset sets no echo gains there
+    ('Zone', 'ZoneInfo', 'bReverbZone', 'Reverb', 'reverb', 'How the zone echoes the sounds made in it. A preset sets its '
+     'echoes in one step (in a zone with an OpenAL reverb all but their gains: see OpenAL reverb); Custom: the values '
+     'as they are'),
+    ('Zone', 'ZoneInfo', 'MasterGain', 'Echo loudness', 'reverbpart', ''),
+    ('Zone', 'ZoneInfo', 'CutoffHz', 'Cutoff (Hz)', 'reverbpart', ''),
+    ('Zone', 'ZoneInfo', 'Delay', 'Echo delays', 'reverbpart', ''),
+    ('Zone', 'ZoneInfo', 'Gain', 'Echo gains', 'reverbpart', ''),
+    ('Zone', 'ZoneInfo', 'ReverbPreset', 'OpenAL reverb', 'enum', "The reverb Revision's OpenAL audio uses in this zone "
+     "(EFX). The Reverb presets set it too (a water zone keeps its own, underwater: None puts it back), and leave the "
+     "echo gains to the class (150 and 70, then none): this zone's own Gain is OpenAL's and hides them"),
     ('Rain and snow', 'PrecipitationZone', 'bWeatherActive', 'Falling', 'bool', 'Rain or snow falls in the whole zone, round JC'),
     ('Rain and snow', 'PrecipitationZone', 'PrecipDensity', 'How much', 'byte', 'Drops (flakes) in each batch: 7 = the default'),
     ('Collision box', 'UCTriggerBox', 'bCylinder', 'Shape', 'collision_shape', 'Box or upright cylinder. Tag and interactions stay the same. Rebuild to apply in game.'),
@@ -135,6 +155,13 @@ FIELDS = [
     ('Model', 'UCMeshDeco', 'bPushable', 'JC can push it', 'bool', ''),
     ('Model', 'UCMeshDeco', 'PrePivot', 'Pivot', 'hidden', ''),
     ('Sound effect', 'UCSoundFX', 'FXSound', 'Sound', 'sound', 'The sound effect it plays'),
+    ('Sound effect', 'UCSoundFX', 'FXSounds', 'More sounds', 'playlist', 'A playlist: each time it plays, one of its sounds '
+     '(Sound and these) is picked, at random or in sequence, its pitch and volume varied; it can play again by itself'),
+    ('Sound effect', 'UCSoundFX', 'FXOrder', 'Order', 'playlistpart', ''),
+    ('Sound effect', 'UCSoundFX', 'RandomPitch', 'Pitch varies', 'playlistpart', ''),
+    ('Sound effect', 'UCSoundFX', 'RandomVolume', 'Volume varies', 'playlistpart', ''),
+    ('Sound effect', 'UCSoundFX', 'RepeatMin', 'Repeats every (from)', 'playlistpart', ''),
+    ('Sound effect', 'UCSoundFX', 'RepeatMax', 'Repeats every (to)', 'playlistpart', ''),
     ('Sound effect', 'UCSoundFX', 'bOnTouch', 'Plays when JC walks in', 'bool', 'Off: only when something triggers it (its Tag in the '
      'Event of a door, a button, a keypad, a trigger, a story action)'),
     ('Sound effect', 'UCSoundFX', 'bAtPlayer', "Heard in JC's head", 'bool', 'As a radio or a voice: as loud wherever JC is; '
@@ -164,10 +191,18 @@ FIELDS = [
     ('Light', 'Light', 'LightEffect', 'Effect', 'enum', 'LE_Spotlight: a cone (see Cone); LE_NonIncidence: lights walls at any angle; '
                                                      'LE_TorchWaver, LE_FireWaver: flames...'),
     ('Light', 'Light', 'LightCone', 'Cone', 'byte', 'Width of the cone of a spotlight (LightEffect LE_Spotlight)'),
-    ('Light', 'Light', 'LightPeriod', 'Period', 'byte', 'Speed of pulsing, blinking, flickering'),
+    ('Light', 'Light', 'LightPeriod', 'Period', 'byte', "A pulse's round, in both games: every Period / 35 seconds "
+                                                        "(32: about 0.9 s), and a palette loop's. A blink keeps no time: on or off at "
+                                                        "random whatever its Period, until it stays on for good (in Revision only when "
+                                                        "Period + 1 is a power of two, after 256 s or more; in the original game after "
+                                                        "about 7.3 x (Period + 1) s)"),
+    ('Light', 'Light', 'LightPhase', 'Phase', 'byte', 'Where in its round a pulse starts (256 = a round): pulsing lamps of '
+                                                      'one period out of step. In both games it does nothing for the other types '
+                                                      '(blink, flicker, strobe, palette)'),
     ('Light', 'Light', 'VolumeBrightness', 'Fog brightness', 'byte', 'Light in the fog around it (only in zones with volumetric fog)'),
     ('Light', 'Light', 'VolumeRadius', 'Fog radius', 'byte', ''),
     ('Light', 'Light', 'bSpecialLit', 'Lights only "special lit" surfaces', 'bool', ''),
+    ('Light', 'Light', 'bCorona', 'Corona', 'bool', 'A glow round the lamp where it is seen (its Skin is the texture of the glow)'),
     ('Map link', 'Teleporter', 'URL', 'Leads to', 'mapurl', 'Touching it takes JC to that map, at that arrival point. '
      'Empty: this is an arrival point (other maps lead here with its Tag)'),
     ('Map link', 'Teleporter', 'bEnabled', 'Active', 'bool', 'Off for an arrival point (it must not send JC away)'),
@@ -182,6 +217,8 @@ FIELDS = [
 # the Inspector's Movement of a character (static/behaviours.js): set there, not in the Properties panel
 MOVEMENT = {'GroundSpeed', 'JumpZ', 'MaxStepHeight', 'AirControl'}
 NAMES = sorted({f[2] for f in FIELDS} | {'TextPackage', 'Skin', 'MultiSkins'} | MOVEMENT)
+# read with the class defaults, not in the panel: what a zone does to the 3D view's Effects (zones.look)
+ZONE_LOOK = ('TexUPanSpeed', 'TexVPanSpeed', 'ViewFog', 'ViewFlash', 'bFogZone', 'FogColor', 'FogDistance')
 
 
 def base(key):
@@ -192,7 +229,8 @@ def defaults(log=print):
     """{'classes': {cls: {'parents': [...], 'props': {prop: [value per index]}, 'types': {prop: type}}},
     'enums': {prop: [names]}} from the game, made once."""
     if CACHE.exists():
-        d = json.loads(CACHE.read_text(encoding='utf-8'))
+        import build_cache
+        d = build_cache.json_file(CACHE)
         if d.get('version') == VERSION:
             return d
     CACHE.parent.mkdir(parents=True, exist_ok=True)
@@ -201,7 +239,7 @@ def defaults(log=print):
     try:
         weather = ['OBJ LOAD FILE="Precipitation.u"'] if 'weather' in settings.FEATURES else []  # rain and snow zones (Revision)
         s.batch(['OBJ LOAD FILE="%s.u"' % settings.PACKAGE] + ['OBJ LOAD FILE="%s"' % p for p in settings.GAME_LOADS]
-                + weather + [r'UC_DEFAULTS ..\Output\defaults.jsonl %s' % ','.join(NAMES)])
+                + weather + [r'UC_DEFAULTS ..\Output\defaults.jsonl %s' % ','.join(NAMES + list(ZONE_LOOK))])
         rows = kit.rows(s.folder / 'Output' / 'defaults.jsonl')
     finally:
         s.close()
@@ -222,6 +260,20 @@ def defaults(log=print):
     return d
 
 
+def cached_defaults():
+    """The class defaults as defaults() gives them, only from a cache file of this VERSION; None when there is none (or
+    an older one, after a VERSION change): never a session of the host. For a build, which must not start the game's
+    editor to read them (scene.rested_height, openal_gain: they go by names then)."""
+    if not CACHE.exists():
+        return None
+    import build_cache
+    try:
+        d = build_cache.json_file(CACHE)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) and d.get('version') == VERSION else None
+
+
 def fields_for(cls, log=print):
     """The fields of the Properties panel for a class, with its defaults and the class that declares each."""
     d = defaults(log)
@@ -238,6 +290,11 @@ def fields_for(cls, log=print):
             continue
         if prop in HIDE.get(cls, ()) or any(prop in HIDE.get(p, ()) for p in c['parents']):
             continue                           # fields that mean nothing for this class
+        mine, its = c['types'].get(prop), d['classes'].get(owner, {}).get('types', {}).get(prop)
+        if mine and its and mine != its:
+            continue                           # the class declares its own property of that name (another type), which
+                                               # hides the row's: Revision's RevZoneInfo float Gain (OpenAL's) is not
+                                               # ZoneInfo's byte Gain[6] (the echo gains)
         if group == 'Sound' and owner == 'Actor' and 'AmbientSound' not in seen:
             continue                           # radius and volume only next to a sound field
         seen.add(prop)
@@ -313,17 +370,76 @@ def t3d_props(props):
     return {k: v for k, v in props.items() if base(k) in NAMES}
 
 
-def commands(edits):
-    """UC_PROP for every property changed in the panel."""
+# Revision's zone classes with OpenAL's reverb (RevZoneInfo, RevSoundZone, WaterZone, PrecipitationZone, SnowZone)
+# declare a float Gain of their own, OpenAL's EFX gain (0-1), which hides ZoneInfo's byte Gain[6], the echo gains: a
+# Gain(n) there sets that float (B6 in the game, 28 Oct 2026: an older editor's Hangar preset gave UCEdit1 Gain(0) 120,
+# the map got Gain=120.000000, Gain(1)..Gain(5) were lost). The builds leave such keys out (that preset's edits, the
+# Reverb row's boxes, an added object's own properties) and the build report says so.
+ECHO_GAIN = re.compile(r'Gain\(\d\)')
+# Revision's classes with that float Gain (this PC's class defaults, 28 Oct 2026): openal_gain's answer by the name
+# when the cache file is not there or is older (the original game has none of them: WaterZone is ZoneInfo's there)
+OPENAL_ZONES = ('RevZoneInfo', 'RevSoundZone', 'WaterZone', 'PrecipitationZone', 'SnowZone')
+
+
+def openal_gain(cls, log=print):
+    """Does the class (Class or Package.Class) declare its own float Gain, OpenAL's, so that no Gain(n) reaches its
+    echo gains? By the class defaults' types when the cache file is of this VERSION (cached_defaults; False for a class
+    they do not have), else by its name (OPENAL_ZONES, in Revision): never a session of the host, a build calls it."""
+    name = str(cls or '').split('.')[-1]
+    d = cached_defaults()
+    if d is None:
+        return getattr(settings, 'IS_REVISION', True) and name.lower() in {c.lower() for c in OPENAL_ZONES}
+    c = (d.get('classes') or {}).get(name)
+    return bool(c) and (c.get('types') or {}).get('Gain') == 'FloatProperty'
+
+
+def echo_gains_hidden(cls, values, log=print):
+    """The Gain(n) keys of values (an actor's edits or own properties) its class cannot take (openal_gain), sorted;
+    [] for any other class. The class defaults are read only when there is such a key."""
+    keys = sorted(k for k in values or {} if ECHO_GAIN.fullmatch(k))
+    return keys if keys and openal_gain(cls, log) else []
+
+
+def echo_gains_line(name, cls, keys):
+    """The build report's line for echo gains left out (an EDIT skipped: one of the report's warnings)."""
+    idx = sorted(int(k[5:-1]) for k in keys)
+    which = ('Gain(%d..%d)' % (idx[0], idx[-1]) if len(idx) > 1 and idx == list(range(idx[0], idx[-1] + 1))
+             else ', '.join('Gain(%d)' % i for i in idx))
+    return ("  EDIT skipped %s of %s (echo gains: a %s's Gain is OpenAL's EFX gain, which hides them; its echoes keep "
+            "the class's)" % (which, name, str(cls).split('.')[-1]))
+
+
+def _echo_gains_out(edits, classes):
+    """{actor: its Gain(n) keys commands leaves out} of edits['props'], by classes ({actor name: its class})."""
+    out = {}
+    for name, values in (edits.get('props') or {}).items():
+        if classes and name in classes and isinstance(values, dict):
+            keys = echo_gains_hidden(classes[name], values)
+            if keys:
+                out[name] = keys
+    return out
+
+
+def echo_gains_report(edits, classes):
+    """The build report's lines for the Properties' echo gains commands leaves out (classes as it takes them)."""
+    return [echo_gains_line(name, classes[name], keys) for name, keys in sorted(_echo_gains_out(edits, classes).items())
+            if name not in (edits.get('deleted') or {})]
+
+
+def commands(edits, classes=None):
+    """UC_PROP for every property changed in the panel. classes ({actor name: its class}, the map's and the added
+    ones): the echo gains of a zone whose class cannot take them are left out (echo_gains_report says so)."""
     # string[N] properties (fixed length): the engine's import keeps quotes in them as part of the text, so a map
     # exit's URL "06_X#Start" became a map called '"06_X' the game could not load (Crypt Test, 20 Oct 2026); the
     # quotes go. Other strings keep theirs (the import strips them, and a name with spaces needs them).
     raw_strings = {'URL', 'DestMap'}
-    cmds = []
+    cmds, hidden = [], _echo_gains_out(edits, classes) if classes else {}
     for name, props in sorted((edits.get('props') or {}).items()):
         if name in (edits.get('deleted') or {}) or not re.fullmatch(r'\w+', name):
             continue
         for key, value in sorted(props.items()):
+            if key in hidden.get(name, ()):
+                continue                       # an echo gain its class's float Gain hides (OpenAL's): left out
             if re.fullmatch(r'\w+(\(\d\))?', key) and base(key) in NAMES:
                 value = str(value).replace('\n', ' ')
                 if base(key) in raw_strings and len(value) >= 2 and value[0] == value[-1] == '"':
@@ -332,11 +448,17 @@ def commands(edits):
     return cmds + raw_commands(edits)
 
 
-def report(edits):
+def report(edits, classes=None):
+    """The build report's lines of the panel's edits; classes as commands takes them (the echo gains it leaves out are
+    not among the values, a line of their own says so)."""
+    hidden = _echo_gains_out(edits, classes)
+    shown = {name: {k: v for k, v in props.items() if k not in hidden.get(name, ())}
+             for name, props in (edits.get('props') or {}).items() if props}
     return ['  EDIT %s: %s' % (name, ', '.join('%s=%s' % kv for kv in sorted(props.items())))
-            for name, props in sorted((edits.get('props') or {}).items()) if props and name not in (edits.get('deleted') or {})] + \
+            for name, props in sorted(shown.items()) if props and name not in (edits.get('deleted') or {})] + \
         ['  EDIT %s (All properties): %s' % (name, ', '.join('%s=%s' % kv for kv in sorted(props.items())))
-         for name, props in sorted((edits.get('rawprops') or {}).items()) if props and name not in (edits.get('deleted') or {})]
+         for name, props in sorted((edits.get('rawprops') or {}).items()) if props and name not in (edits.get('deleted') or {})] + \
+        echo_gains_report(edits, classes)
 
 
 # ---------------------------------------------------------------- All properties (the Inspector's last section)

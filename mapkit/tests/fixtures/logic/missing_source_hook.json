@@ -1,0 +1,121 @@
+{
+  "id": "missing_source_hook",
+  "title": "A rule that cannot hook itself says so, when and how depends on its output",
+  "behaviour": "A rule hooked to an event whose object is not in the map says \"missing\" while the map loads; one on an object that uses its event as a list of targets says \"target\"; a watched \"picked\" says \"missing\" at its first look; a watched \"near\" says nothing. None of them ever runs.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [104, 112], "has": "A = ActorCalled(Source);"},
+    {"file": "UCLink.uc", "lines": [150, 159], "has": "function bool AimsItsEvent(Actor A)"},
+    {"file": "UCLink.uc", "lines": [326, 332], "has": "if (!bPolled)"}
+  ],
+  "assumes": ["A6", "A8"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.0,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Ghost1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Ghost1: the message Boo",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Boo"}]
+      },
+      {
+        "id": "L2",
+        "src": "Ghost2",
+        "when": "near",
+        "once": false,
+        "label": "When JC comes near Ghost2: the message Boo",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Boo"}]
+      },
+      {
+        "id": "L3",
+        "src": "Medkit9",
+        "when": "picked",
+        "once": false,
+        "label": "When JC picks up Medkit9: the message Boo",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Boo"}]
+      },
+      {
+        "id": "L4",
+        "src": "AllyTrig1",
+        "when": "any",
+        "once": false,
+        "label": "When AllyTrig1 triggers: the message Boo",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Boo"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Ghost1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "absent": "missing"},
+      {"name": "Ghost2", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "absent": "missing"},
+      {"name": "Medkit9", "chain": ["MedKit", "DeusExPickup", "Pickup", "Inventory", "Actor"], "absent": "missing"},
+      {"name": "AllyTrig1", "chain": ["AllianceTrigger", "Trigger", "Triggers", "Actor"], "at": [0, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [],
+  "expected": [
+    {"t": 0.0, "line": "hook|LogicFixtures|L1|Ghost1|missing"},
+    {"t": 0.0, "line": "hook|LogicFixtures|L4|AllyTrig1|target"},
+    {"t": 0.5, "line": "hook|LogicFixtures|L3|Medkit9|missing"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Ghost1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Ghost1: the message Boo\"",
+        "Source": "\"Ghost1\"",
+        "Act(0)": "\"0|message||Boo||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L2",
+        "When": "near",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC comes near Ghost2: the message Boo\"",
+        "Source": "\"Ghost2\"",
+        "NearDist": "256.000000",
+        "Act(0)": "\"0|message||Boo||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L3",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L3",
+        "When": "picked",
+        "Rule": "\"L3\"",
+        "Label": "\"When JC picks up Medkit9: the message Boo\"",
+        "Source": "\"Medkit9\"",
+        "Act(0)": "\"0|message||Boo||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L4",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_AllyTrig1",
+        "When": "any",
+        "Rule": "\"L4\"",
+        "Label": "\"When AllyTrig1 triggers: the message Boo\"",
+        "Source": "\"AllyTrig1\"",
+        "Act(0)": "\"0|message||Boo||\""
+      }
+    }
+  ]
+}

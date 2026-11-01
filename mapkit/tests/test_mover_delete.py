@@ -64,15 +64,19 @@ class MoverDeleteTests(unittest.TestCase):
 
     def test_original_position_guard_prevents_wrong_actor_deletion(self):
         s = fixture(); before = copy.deepcopy(s.actors)
-        s._apply_actor_edits({'deleted': {'DoorA': {'cls':'DeusExMover', 'orig':[900,0,0]}}})
+        report = s._apply_actor_edits({'deleted': {'DoorA': {'cls':'DeusExMover', 'orig':[900,0,0]}}})
         self.assertEqual(s.actors, before)
         self.assertIn('DoorA', s.movers)
+        # said, as a moved one is: the object the user deleted is still in the map (part B's #8: a linked copy's
+        # deleted object came back after a move of the copy, and the report said nothing)
+        self.assertIn('  EDIT skipped DoorA (not found as DeusExMover at its original place)', report)
 
     def test_same_name_wrong_class_is_not_deleted(self):
         s = fixture(); before = copy.deepcopy(s.actors)
-        s._apply_actor_edits({'deleted': {'DoorA': {'cls':'Light', 'orig':[0,0,0]}}})
+        report = s._apply_actor_edits({'deleted': {'DoorA': {'cls':'Light', 'orig':[0,0,0]}}})
         self.assertEqual(s.actors, before)
         self.assertIn('DoorA', s.movers)
+        self.assertIn('  EDIT skipped DoorA (not found as Light at its original place)', report)
 
     def test_old_delete_list_format_and_original_scene_regeneration(self):
         s = fixture(); original = copy.deepcopy(s.actors)
@@ -104,6 +108,7 @@ class MoverDeleteTests(unittest.TestCase):
         loop = next(n for n in build.body if isinstance(n,ast.For) and "edits.get('deleted')" in ast.unparse(n.iter))
         ns = {'edits': {'deleted': {'DoorA': {'cls':'DeusExMover'}}}, 'cmds': [], 'lines': [],
               'lights': False, 'nav': False, 'NAV': set(), '_cmdname': lambda n:n,
+              'copied': set(),                                            # no pasted copy's objects
               '_light': lambda cls: cls in ('Light', 'Spotlight')}        # dxmaps._light without the game's classes
         exec(compile(ast.Module(body=[loop],type_ignores=[]),'dxmaps-delete','exec'), ns)
         self.assertEqual(ns['cmds'], ['UC_DEL DoorA'])

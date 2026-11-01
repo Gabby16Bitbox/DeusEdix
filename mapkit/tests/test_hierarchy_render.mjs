@@ -12,6 +12,7 @@ import { HIER_FOLDERS, ICON_KINDS, SHOW_KINDS, SHOW_KIND, KIND_STATES, classKind
 import { parseSearch, searchMatcher, folderSearch, typesOf, assetsOf } from '../editor/static/scene-search.js';
 import { defaultFolder } from '../editor/static/hierarchy-folders.js';
 import { DRAW_LABELS } from '../editor/static/draw-tools.js';
+import { linkOf } from '../editor/static/prefab-links.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const stateSource = source.slice(source.indexOf('function keyOf(o)'), source.indexOf('const nestById ='));
@@ -59,8 +60,10 @@ function fixture() {
     ICON: { trash: '', eye: '', eyeoff: '', lock: '', unlock: '' }, IS_TESTS: {}, chainNow: {},
     tagOf: () => '', eventOf: () => '', texturesOf: () => [], meshOf: () => '',
     hierOpen: new Set(), hierItems: [], hierTimer: 0, hierarchyDragging: false, hierRenaming: false, hierFolderOn: null, hierFlash: null,
+    linkOf, prefabBrowser: { cached: () => c.library },       // linked prefabs: the library's list as last read
   });
-  vm.runInContext(stateSource + '\n' + iconSource + '\n' + ['objectLabel', 'hierarchyIcon', 'searchFacts', 'renderHierarchy'].map(body).join('\n'), c);
+  vm.runInContext(stateSource + '\n' + iconSource + '\n' + line('function pasteEntry(') + '\n'
+    + ['objectLabel', 'hierarchyIcon', 'searchFacts', 'prefabOfCopy', 'prefabBadge', 'renderHierarchy'].map(body).join('\n'), c);
   c.draw = (query = '') => { search.value = query; c.renderHierarchy(); return el.innerHTML; };
   return c;
 }
@@ -174,7 +177,7 @@ test('the search ends with its map: another map opened empties the box and the 3
   const calls = [];
   const c = vm.createContext({ mapLoading: false, temporaryTutorial: () => false, tutorialSession: { revision: 0 }, busy() {},
     api: async () => ({ script: 'B', map: 'B' }), TUTORIAL_SCRIPT: 'deusedix_tutorial', isTrainingProject: () => false, projectContext: {},
-    textureTransfer: null, surfaceTexturePreview: null, texturePreviewInfo: new Map(), texturePreviewPending: new Set(), window: {},
+    textureTransfer: null, textureSlip: null, surfaceTexturePreview: null, texturePreviewInfo: new Map(), texturePreviewPending: new Set(), window: {},
     closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {}, soundBrowser: null, endAimPick() {}, script: 'A',
     sceneView: { reset: () => calls.push('isolate ends') }, searchBox: { clear: () => calls.push('box emptied') },
     searchView: { show: (list) => calls.push(['3D view', list]) }, PACKAGE: '', MODELS_PKG: '',
@@ -185,4 +188,23 @@ test('the search ends with its map: another map opened empties the box and the 3
   calls.length = 0;
   await c.loadScene('B');                                           // the same map again (a Rebuild): the search stays
   assert.deepEqual(calls, []);
+});
+
+test('a copy of a prefab of the library has a badge: its version, an older one, a prefab deleted', () => {
+  const c = fixture(), V1 = 'usr_11111111111111111111111111111111', V2 = 'usr_22222222222222222222222222222222';
+  c.edits.prefabs = [{ pid: 'p1', prefab: V1, label: 'Desk' }, { pid: 'p2', prefab: 'obj_pipe', label: 'Pipe' }];
+  for (const pid of ['p1', 'p2']) c.structures['paste~' + pid] = { name: 'paste~' + pid, label: pid, paste: true, category: 'Pasted', pieces: [],
+    obj: { userData: { kind: 'structure', name: 'paste~' + pid }, visible: true } };
+  const badge = (html, pid) => new RegExp(`data-key="s:paste~${pid}"[^>]*>[\\s\\S]*?(<span class="prefab-badge[^"]*"[^>]*>[^<]*</span>)?<small>`).exec(html)[1] || '';
+  c.library = null;                                          // the list is being read: the version, nothing more
+  assert.match(badge(c.draw(), 'p1'), /class="prefab-badge" title="A copy of the prefab Desk, version 1">v1</);
+  assert.equal(badge(c.draw(), 'p2'), '', 'a piece of the Pieces is not linked');
+  c.library = [{ id: V2, line: V1, version: 2, label: 'Office desk' }];
+  assert.match(badge(c.draw(), 'p1'), /class="prefab-badge old" title="A copy of the prefab Office desk, version 1: version 2 is in the library[^"]*">v1 ↑</);
+  c.edits.prefabs[0] = { pid: 'p1', prefab: V2, line: V1, version: 2, label: 'Desk' };
+  assert.match(badge(c.draw(), 'p1'), /class="prefab-badge" title="A copy of the prefab Office desk, version 2">v2</);
+  c.library = [];
+  assert.match(badge(c.draw(), 'p1'), /class="prefab-badge gone" title="A copy of a prefab no longer in the library/);
+  c.edits.prefabs[0].unpacked = true;
+  assert.equal(badge(c.draw(), 'p1'), '', 'unpacked: no badge');
 });

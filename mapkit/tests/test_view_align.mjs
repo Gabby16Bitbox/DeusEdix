@@ -111,7 +111,7 @@ function pilotPage() {
   const c = vm.createContext({ THREE, tc, lamp, camera: { position: new THREE.Vector3() }, cam: { yaw: 0, pitch: 0, look: false, keys: { w: false, shift: false } },
     selected: lamp, mapGeneration: 1, pilot: null, flight: null, drag: null, vpBar: null, undos: 0, ended: [],
     script: 'fixture', gameView: null, projectHub: null, document: { querySelector: () => null }, textureTransfer: null, propertySlider: null, inspectorDrag: null,
-    window: { addEventListener: (type, fn) => { if (type === 'keydown') c.keydown = fn; } },
+    cancelNumberScrub: null, window: { addEventListener: (type, fn) => { if (type === 'keydown') c.keydown = fn; } },
     status: (t) => c.ended.push(t), viewLabel: () => 'Lamp', objectLabel: () => ['Lamp'], namedStep, wake() {}, pushUndo: () => c.undos++, applyObjectVisibility() {}, placeParts() {}, writeParts() {}, viewPlan: () => [], putBack() {} });
   vm.runInContext([lineOf('const viewMoved ='), body('stepPilot'), body('endPilot'), body('resetInput'), body('stepOf'), keys].join('\n'), c);
   // as togglePilot leaves it: the lead looked through, the gizmo off

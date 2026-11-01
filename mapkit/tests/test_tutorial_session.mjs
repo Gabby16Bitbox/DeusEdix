@@ -107,6 +107,10 @@ test('authentication binds same-origin API requests and preserves explicit stale
 
 test('only the training map receives disposable-map behavior', () => {
   for (const kind of ['tutorial', 'training']) assert.equal(isTemporaryTutorial({ id: 'training', kind }, TUTORIAL_SCRIPT), true);
+  assert.equal(isTemporaryTutorial({id:'training-revision',kind:'tutorial'},TUTORIAL_SCRIPT),true);
+  for (const kind of ['tutorial','training']) assert.equal(isTemporaryTutorial({id:'training-vanilla',kind,target:'vanilla'},TUTORIAL_SCRIPT),true);
+  assert.equal(isTemporaryTutorial({id:'training-vanilla',kind:'tutorial',target:'revision'},TUTORIAL_SCRIPT),false);
+  assert.equal(isTemporaryTutorial({id:'training',kind:'tutorial',target:'vanilla'},TUTORIAL_SCRIPT),false);
   for (const kind of ['custom', 'original', 'legacy']) assert.equal(isTemporaryTutorial({ id: 'training', kind }, TUTORIAL_SCRIPT), false);
   assert.equal(isTemporaryTutorial({ id: 'campaign', kind: 'training' }, TUTORIAL_SCRIPT), false);
   assert.equal(isTemporaryTutorial({ id: 'training', kind: 'training' }, 'my_map'), false);

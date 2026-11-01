@@ -2,16 +2,19 @@
 // the story's state (flags, credits, health, skill points, what JC carries) that can be set before and during the run.
 // What the game does outside the conversation (goals, notes, items given, doors and characters moved by actions) is
 // said, not done. Pure: tests/test_story_graph.mjs.
+import { yesOf } from './conditions.js';
 
 const VALUE = { EP_Credits: 'credits', EP_Health: 'health', EP_SkillPoints: 'skillpoints' };
 const COMPARE = { EC_Less: (a, b) => a < b, EC_LessEqual: (a, b) => a <= b, EC_Equal: (a, b) => a === b,
   EC_GreaterEqual: (a, b) => a >= b, EC_Greater: (a, b) => a > b };
 
+// A step's, an answer's or a condition's Yes or No is read as story.py writes it for the game (`is` left out: Yes,
+// else Python's truth: 0, null or '' is No), the same reading as the rules' conditions (conditions.js yesOf)
 // the flags a condition asks for: a list of {flag, is}, or the step's own flag
-export const conditionsOf = (s) => (s.requires?.length ? s.requires : s.flag ? [{ flag: s.flag, is: s.is !== false }] : []);
+export const conditionsOf = (s) => (s.requires?.length ? s.requires : s.flag ? [{ flag: s.flag, is: yesOf(s, 'is') }] : []);
 // an answer shows when its own flag and every flag it requires match (story.py: Answer, then AnswerFlag)
-export const answerConditions = (o) => [...(o.flag ? [{ flag: o.flag, is: o.is !== false }] : []), ...(o.requires || [])];
-export const holds = (conditions, flags) => conditions.every((c) => !!flags[c.flag] === (c.is !== false));
+export const answerConditions = (o) => [...(o.flag ? [{ flag: o.flag, is: yesOf(o, 'is') }] : []), ...(o.requires || [])];
+export const holds = (conditions, flags) => conditions.every((c) => !!flags[c.flag] === yesOf(c, 'is'));
 
 // state: {flags: {name: bool}, credits, health, skillpoints, items: [class names JC carries]}; random(): 0..1
 export function createPlay(steps, state = {}, { random = Math.random } = {}) {
@@ -71,10 +74,10 @@ export function createPlay(steps, state = {}, { random = Math.random } = {}) {
           break;
         }
         case 'flag': {
-          const set = s.requires?.length ? s.requires : [{ flag: s.flag, is: s.is !== false }];
-          for (const f of set) if (f.flag) st.flags[f.flag] = f.is !== false;
+          const set = s.requires?.length ? s.requires : [{ flag: s.flag, is: yesOf(s, 'is') }];
+          for (const f of set) if (f.flag) st.flags[f.flag] = yesOf(f, 'is');      // story.py: SetFlag, LastFlags
           at++;
-          return { type: 'effect', id: s.id, text: set.map((f) => `${f.flag} = ${f.is !== false}`).join(', ') };
+          return { type: 'effect', id: s.id, text: set.map((f) => `${f.flag} = ${yesOf(f, 'is')}`).join(', ') };
         }
         case 'credits': st.credits += +s.amount || 0; at++; return { type: 'effect', id: s.id, text: `Credits ${+s.amount >= 0 ? '+' : ''}${+s.amount || 0}` };
         case 'skillpoints': st.skillpoints += +s.amount || 0; at++; return { type: 'effect', id: s.id, text: `Skill points +${+s.amount || 0}` };

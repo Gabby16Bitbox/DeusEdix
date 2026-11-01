@@ -27,7 +27,8 @@ export function classProps(E, cls) {
 // E: edits, actorProp, pushUndo, setDirty, status, requireUnlocked, section(key, title, body, open), api(path), find(selector)
 // (the Inspector's own lookup: in a Properties window, that window's field),
 // multiField(field, {names, values, apply}), rawField(field, {key, type, def, category, options (an enum's), apply})
-// (its right click: Copy value, Paste value, Reset); actors: the object, or several of one class; p: what is selected
+// (its right click: Copy value, Paste value, Reset), written(actors) (values of theirs were set here: what else the
+// Inspector says of them, a lamp's notes, said again); actors: the object, or several of one class; p: what is selected
 export function allPropsSection(E, actors, p) {
   const a = actors[0], cls = String(a.cls || '').split('.').pop(), many = actors.length > 1, names = actors.map((x) => x.name);
   const html = E.section('allprops', 'All properties', `
@@ -97,6 +98,7 @@ export function allPropsSection(E, actors, p) {
       if (!Object.keys(all).length) delete E.edits.rawprops;
       if (many) render(shown); else f.closest('.ap-row').classList.toggle('ap-set', !!vs[0]);
       E.setDirty();
+      E.written(actors);
       const what = vs.every((v) => !v) ? 'as the map has it' : '= ' + (new Set(vs).size === 1 ? vs[0] : 'a value each');
       E.status(`${many ? actors.length + ' objects' : a.name}: ${key} ${what}. Rebuild puts it in the game.`, 'ok');
       return true;

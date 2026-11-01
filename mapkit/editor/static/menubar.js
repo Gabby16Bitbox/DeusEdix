@@ -24,7 +24,8 @@ const desktop = () => !!(window.pywebview && window.pywebview.api);
 const ed = () => window.__editor;
 
 // ---------------------------------------------------------------- shortcuts
-// [id, what it does, the editor's own key, when it works: edit (the 3D view), fly (right mouse held), cut (cutscene panel)]
+// [id, what it does, the editor's own key, when it works: edit (the 3D view), fly (right mouse held), cut (cutscene panel),
+// faces (Face selection on, over the 3D view's)]
 const ACTIONS = [
   ['save', 'Save', 'Ctrl+S', 'edit'], ['undo', 'Undo', 'Ctrl+Z', 'edit'], ['redo', 'Redo', 'Ctrl+Y', 'edit'], ['copy', 'Copy', 'Ctrl+C', 'edit'],
   ['paste', 'Paste', 'Ctrl+V', 'edit'], ['duplicate', 'Duplicate', 'Ctrl+D', 'edit'], ['delete', 'Delete', 'Delete', 'edit'],
@@ -40,6 +41,7 @@ const ACTIONS = [
   ['pushgrid', 'Push the selection to the grid', 'Ctrl+\\', 'edit'], ['gridless', 'Grid step: half', 'Ctrl+[', 'edit'], ['gridmore', 'Grid step: double', 'Ctrl+]', 'edit'],
   ['block', 'Add a block', 'B', 'edit'], ['paths', 'AI paths', 'P', 'edit'], ['light', 'Lighting of the view', 'L', 'edit'],
   ['faces', 'Face selection on / off', 'Q', 'edit'], ['vertices', 'Edit vertices of a block on / off', 'V', 'edit'],
+  ['faceslip', 'Slip the texture (move: roll it, wheel: size it)', 'Y', 'edit'],
   ['measure', 'Measure distances on / off', 'M', 'edit'], ['isolate', 'Isolate the selection on / off', 'Shift+H', 'edit'],
   ['nest', 'Nest the selection', 'Ctrl+G', 'edit'], ['unnest', 'Un-nest', 'Ctrl+Shift+G', 'edit'],
   ['palette', 'Search everything: commands, objects, assets', 'Ctrl+K', 'edit'],
@@ -51,9 +53,20 @@ const ACTIONS = [
   ['cutkey', 'Cutscene: add a key', 'K', 'cut'], ['cutplay', 'Cutscene: play / pause', 'Space', 'cut'],
   ['studioprevkey', 'Previous keyframe (selected control)', 'Down', 'studio'],
   ['studionextkey', 'Next keyframe (selected control)', 'Up', 'studio'],
+  // Face selection's Grow, and the Surface panel's recent textures in their order (recent-textures.js RECENT_ACTIONS)
+  ['facegrow', 'Grow the face selection (faces in its plane)', 'Alt+G', 'faces'],
+  ['facegrowall', 'Grow the face selection (any angle)', 'Alt+Shift+G', 'faces'],
+  ['facetex1', 'Apply recent texture 1', 'Alt+1', 'faces'], ['facetex2', 'Apply recent texture 2', 'Alt+2', 'faces'],
+  ['facetex3', 'Apply recent texture 3', 'Alt+3', 'faces'], ['facetex4', 'Apply recent texture 4', 'Alt+4', 'faces'],
+  ['facetex5', 'Apply recent texture 5', 'Alt+5', 'faces'], ['facetex6', 'Apply recent texture 6', 'Alt+6', 'faces'],
+  ['facetex7', 'Apply recent texture 7', 'Alt+7', 'faces'], ['facetex8', 'Apply recent texture 8', 'Alt+8', 'faces'],
+  ['facetex9', 'Apply recent texture 9', 'Alt+9', 'faces'], ['facetex10', 'Apply recent texture 10', 'Alt+0', 'faces'],
 ];
 const ACTION = Object.fromEntries(ACTIONS.map(([id, label, def, ctx]) => [id, { id, label, def, ctx }]));
-const CONTEXTS = { edit: 'In the 3D view', fly: 'Flying (right mouse held)', cut: 'Cutscene panel open', studio: 'Animation Studio' };
+const CONTEXTS = { edit: 'In the 3D view', fly: 'Flying (right mouse held)', cut: 'Cutscene panel open', studio: 'Animation Studio',
+  faces: 'Face selection' };
+// the contexts whose keys work at the same time (layersOf): one key can not do two things in them
+const SHARED = { edit: ['cut', 'faces'], cut: ['edit', 'faces'], faces: ['edit', 'cut'] };
 const keyOf = (id) => prefs.keys[id] || ACTION[id].def;
 // the keys as the shortcut helper and the search by key read them (shortcut-help.js)
 const KEYMAP = { keyOf, actions: ACTIONS.map((x) => ACTION[x[0]]), contexts: CONTEXTS };
@@ -107,10 +120,19 @@ function contextNow() {
   if (e && e.cam.look) return 'fly';
   return window.__cutscene && window.__cutscene.isOpen() ? 'cut' : 'edit';
 }
+// the contexts whose keys work now, the first ones first: the cutscene panel's, then Face selection's (while it is on and
+// the Texture Editor, which keeps its own keys, is closed), over the 3D view's
+function layersOf(ctx) {
+  if (ctx !== 'cut' && ctx !== 'edit') return [ctx];
+  const faces = ed()?.surfaceTools?.mode && !window.__texedit?.state?.open ? ['faces'] : [];
+  return [...(ctx === 'cut' ? ['cut'] : []), ...faces, 'edit'];
+}
 function remap(e) {
   if (e.__deusedix) return;
   if (keySearch && dialog?.querySelector('[data-keysearch]')) { searchKey(e); return; }   // over anything: Settings is open
   if (ed()?.playing) return;
+  // a Texture Slip has the keys while it goes on (its own: P, the arrows, Enter, Esc): none turned into another one
+  if (ed()?.textureSlip?.active) return;
   if (window.__projects?.visible) return;
   if (recording) { recordKey(e); return; }
   // Settings (or About) is open: no key reaches the 3D view under it (Delete took the selection away behind it, 26 Oct
@@ -129,10 +151,13 @@ function remap(e) {
   if (!combo) return;
   // a panel's own keys while it has the focus, as its data-keys lists them (the Console's log: Ctrl+C copies its lines)
   if (e.target?.closest?.('[data-keys]')?.dataset.keys.split(' ').includes(combo)) return;
-  for (const c of ctx === 'cut' ? ['cut', 'edit'] : [ctx]) {
+  // the first layer with a command of the user's on the key does it; a key a command gave up (its old default) is
+  // silent in its layer, unless a layer under it has a command of the user's on it
+  const layers = layersOf(ctx);
+  for (const [i, c] of layers.entries()) {
     const a = byUser[c][combo];
     if (a) { e.preventDefault(); e.stopImmediatePropagation(); e.target.dispatchEvent(eventFor(a.def, e)); return; }
-    if (silenced[c].has(combo) && !(c === 'edit' && ctx === 'cut' && byUser.cut[combo])) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (silenced[c].has(combo) && !layers.slice(i + 1).some((l) => byUser[l][combo])) { e.preventDefault(); e.stopImmediatePropagation(); return; }
   }
 }
 window.addEventListener('keydown', remap, true);
@@ -228,6 +253,11 @@ const MENUS = [
     { label: 'Align with view', key: 'alignview', map: true, run: () => press('alignview') },
     { label: 'Move to view', key: 'movetoview', map: true, run: () => press('movetoview') },
     { label: 'Face selection', key: 'faces', checked: () => !!ed()?.surfaceTools.mode, run: () => press('faces') },
+    // as ProBuilder's Grow Selection: the faces next to the selected ones (face-grow.js); its keys work in Face selection
+    { label: 'Grow face selection', key: 'facegrow', map: true, enabled: () => !!ed()?.surfaceTools.hasSelection, run: () => ed()?.surfaceTools.grow(false) },
+    { label: 'Grow face selection (any angle)', key: 'facegrowall', map: true, enabled: () => !!ed()?.surfaceTools.hasSelection, run: () => ed()?.surfaceTools.grow(true) },
+    // as Premiere's slip tool: the selected faces' texture rolled and sized with the pointer, live (texture-slip-ui.js)
+    { label: 'Slip the texture', key: 'faceslip', map: true, enabled: () => !!ed()?.surfaceTools.hasSelection, run: () => press('faceslip') },
     { label: 'Edit vertices', key: 'vertices', map: true, checked: () => !!ed()?.vertexEdit?.active, run: () => press('vertices') },
     { label: 'Select all of this class', map: true, run: () => ed()?.selectAllOfClass() },
     // as Unity's Find References in Scene: the Hierarchy's search shows what points at the selection, what it points at
@@ -259,8 +289,12 @@ const MENUS = [
   ]],
   ['View', [
     lightItem('shaded', 'Shaded'), lightItem('lit', 'Game lighting'), lightItem('unlit', 'Unlit'),
-    viewItem('wire', 'Wireframe'), viewItem('cuts', 'BSP cuts'), viewItem('zones', 'Zones'),
+    viewItem('wire', 'Wireframe'), viewItem('cuts', 'BSP cuts'), viewItem('zones', 'Zones'), viewItem('lightmap', 'Lightmap detail'),
     { label: 'Next lighting', key: 'light', run: () => press('light') },
+    // as Unity's Scene view Effects: the Lit view moves as the game does (lamps, coronas, panning, a zone's view fog)
+    { label: 'Effects', map: true, checked: () => !!ed()?.effectsOn, run: () => ed()?.setEffects(!ed().effectsOn) },
+    // as Unity's Scene view audio: the map's ambient sounds heard round the camera (ambient-sound.js, scene-audio.js)
+    { label: 'Hear the map', map: true, checked: () => !!ed()?.audioOn, run: () => ed()?.setAudio(!ed().audioOn) },
     sep,
     { label: 'AI paths', key: 'paths', checked: () => !!document.getElementById('pathsbtn')?.classList.contains('on'), run: click('pathsbtn') },
     { label: 'Test a route', map: true, run: () => { const p = document.getElementById('pathsbtn'), n = document.getElementById('navbtn'); if (p && n && !p.classList.contains('on') && !n.classList.contains('on')) p.click(); click('routebtn')(); } },
@@ -408,6 +442,7 @@ const alwaysOn = (title, it) => ALWAYS_ON.has(title) && !it.project;
 function runCommand(id) {
   const command = commands.get(id);
   if (!command || !commandEnabled(command.title, command.item) || (nativeModalOpen() && !alwaysOn(command.title, command.item))) return false;
+  ed()?.textureSlip?.cancel();         // a menu's command (the desktop's: no pointer on the page) ends a Texture Slip first
   closeMenus(); command.item.run(); return true;
 }
 function describeMenu() {
@@ -840,7 +875,7 @@ function recordKey(e) {
     warnText = combo + ' is already used by an animation or navigation tool.'; renderSettings(); return;
   }
   const same = ACTIONS.map((x) => ACTION[x[0]]).find((o) => o.id !== a.id && keyOf(o.id) === combo
-    && (o.ctx === a.ctx || (o.ctx === 'edit' && a.ctx === 'cut') || (o.ctx === 'cut' && a.ctx === 'edit')));
+    && (o.ctx === a.ctx || !!SHARED[a.ctx]?.includes(o.ctx)));
   if (same) { warnText = `${combo} already does "${same.label}": change that one first.`; recording = null; renderSettings(); return; }
   if (combo === a.def) delete prefs.keys[a.id]; else prefs.keys[a.id] = combo;
   store();
@@ -868,6 +903,7 @@ async function openAbout() {
 buildBar();
 (function waitEditor() { if (!applyPrefs()) setTimeout(waitEditor, 200); })();
 window.__menubar = { openSettings, prefs, keyOf, comboOf, ACTIONS, setPref, describeMenu, runCommand, closeMenus,
+  press,                                            // a command as its key does it (the Surface panel's Slip: app.js)
   panels: PANELS, settingsPages: SETTINGS_PAGES, modalOpen: nativeModalOpen,        // the command palette (command-palette.js)
   get settingsOpen() { return !!dialog?.classList.contains('open'); } };
 window.addEventListener('pywebviewready', installNativeMenus);

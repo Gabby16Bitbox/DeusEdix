@@ -1,0 +1,49 @@
+{
+  "id": "picked_watch",
+  "title": "Picked up is watched every half second",
+  "behaviour": "An item JC picks up (owned by a pawn, or gone into a stack) is noticed at the next half-second look.",
+  "derivedFrom": [{"file": "UCLink.uc", "lines": [308, 335], "has": "function TickStory()"}],
+  "assumes": ["A8"],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "MedKit1",
+        "when": "picked",
+        "once": false,
+        "label": "When JC picks up MedKit1: the message Taken",
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Taken"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "MedKit1", "chain": ["MedKit", "DeusExPickup", "Pickup", "Inventory", "Actor"], "at": [0, 0, 0]}
+    ]
+  },
+  "start": {},
+  "inputs": [{"t": 1.2, "set": {"owned": ["MedKit1"]}}],
+  "expected": [
+    {"t": 1.5, "line": "fire|LogicFixtures|L1|MedKit1|picked||When JC picks up MedKit1: the message Taken"},
+    {"t": 1.6, "line": "act|LogicFixtures|L1|message||Taken"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCLW_L1",
+        "When": "picked",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC picks up MedKit1: the message Taken\"",
+        "Source": "\"MedKit1\"",
+        "Act(0)": "\"0|message||Taken||\""
+      }
+    }
+  ]
+}

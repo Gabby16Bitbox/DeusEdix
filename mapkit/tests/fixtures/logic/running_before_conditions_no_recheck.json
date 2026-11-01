@@ -1,0 +1,68 @@
+{
+  "id": "running_before_conditions_no_recheck",
+  "title": "Running is checked before the conditions, which are not checked again",
+  "behaviour": "A re-fire while the rule runs is skipped as \"running\" even when a condition no longer holds; the actions already under way still run, because the conditions are checked only when the rule fires.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"},
+    {"file": "UCLink.uc", "lines": [280, 284], "has": "for (i = 0; i < ArrayCount(Cond); i++)"},
+    {"file": "UCLink.uc", "lines": [790, 809], "has": "state Running"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 4.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if Armed is Yes: the message Armed, after 2 s the message Disarmed",
+        "requires": [{"flag": "Armed", "is": true}],
+        "do": [
+          {"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Armed"},
+          {"id": "a2", "verb": "message", "target": "", "delay": 2, "a": "Disarmed"}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {"flags": {"Armed": true}},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "set": {"flags": {"Armed": false}}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 4.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if Armed is Yes: the message Armed, after 2 s the message Disarmed"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||Armed"},
+    {"t": 2.0, "line": "skip|LogicFixtures|L1|running|"},
+    {"t": 3.1, "line": "act|LogicFixtures|L1|message||Disarmed"},
+    {"t": 4.0, "line": "skip|LogicFixtures|L1|cond|flag|Armed|1"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if Armed is Yes: the message Armed, after 2 s the message Disarmed\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"flag|Armed|1\"",
+        "Act(0)": "\"0|message||Armed||\"",
+        "Act(1)": "\"2|message||Disarmed||\""
+      }
+    }
+  ]
+}

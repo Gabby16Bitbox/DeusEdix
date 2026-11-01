@@ -3,7 +3,7 @@
 In Deus Ex a map is left through a Teleporter whose URL is "Map#Tag" (JC touches it and travels) or a
 MapExit (DestMap, when it is triggered), and entered at the Teleporter whose Tag is that #Tag ("Map"
 alone: at its PlayerStart). They are read offline from the .dx files (tools/ue1pkg.py), cached by file
-date: the mod's maps (maps\\), the map scripts' builds (tools/mapkit/out) and the game's maps.
+date: the project's maps (maps\\), the map scripts' builds (tools/mapkit/out) and the game's maps.
 """
 import json
 import re
@@ -21,7 +21,7 @@ DEFAULT_TAGS = ('', 'none', 'teleporter', 'mapexit', 'playerstart')
 
 
 def map_file(map_name):
-    """The .dx the game would load for this map: a script's build, the mod's copy or the original."""
+    """The .dx the game would load for this map: a script's build, the project's copy or the original."""
     if dxmaps.isolated_project() and map_name.casefold() not in {name.casefold() for name in all_maps()}:
         return None
     out = data.OUT / (map_name + '.dx')

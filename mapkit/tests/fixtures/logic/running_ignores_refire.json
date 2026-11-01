@@ -1,0 +1,69 @@
+{
+  "id": "running_ignores_refire",
+  "title": "A running rule ignores a re-fire",
+  "behaviour": "While a rule is still doing its actions (state Running) its output is ignored, with a \"running\" skip; it leaves Running in the tick of its last action, so the same output later in that tick runs it again.",
+  "derivedFrom": [
+    {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"},
+    {"file": "UCLink.uc", "lines": [790, 809], "has": "state Running"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 5.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1: the message Alarm, after 2 s the message All clear",
+        "do": [
+          {"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Alarm"},
+          {"id": "a2", "verb": "message", "target": "", "delay": 2, "a": "All clear"}
+        ]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 3.1, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: the message Alarm, after 2 s the message All clear"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L1|message||Alarm"},
+    {"t": 2.0, "line": "skip|LogicFixtures|L1|running|"},
+    {"t": 3.1, "line": "act|LogicFixtures|L1|message||All clear"},
+    {
+      "t": 3.1,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1: the message Alarm, after 2 s the message All clear"
+    },
+    {"t": 3.2, "line": "act|LogicFixtures|L1|message||Alarm"},
+    {"t": 5.2, "line": "act|LogicFixtures|L1|message||All clear"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1: the message Alarm, after 2 s the message All clear\"",
+        "Source": "\"Button1\"",
+        "Act(0)": "\"0|message||Alarm||\"",
+        "Act(1)": "\"2|message||All clear||\""
+      }
+    }
+  ]
+}

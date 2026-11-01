@@ -1,0 +1,89 @@
+{
+  "id": "condition_item",
+  "title": "Condition: JC carries or does not carry an item",
+  "behaviour": "The item is a class (DeusEx.Multitool); JC carries it when he has one of that class.",
+  "derivedFrom": [
+    {"file": "UCEditorStory.uc", "lines": [851, 852], "has": "if (kind == \"item\")"},
+    {"file": "UCEditorStory.uc", "lines": [966, 974], "has": "function bool HasItem(string className)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if JC carries Multitool: the message Tool ready",
+        "requires": [{"type": "item", "item": "DeusEx.Multitool", "has": true}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Tool ready"}]
+      },
+      {
+        "id": "L2",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if JC does not carry Multitool: the message No tool",
+        "requires": [{"type": "item", "item": "DeusEx.Multitool", "has": false}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "No tool"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [{"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]}]
+  },
+  "start": {"items": []},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "set": {"items": ["DeusEx.Multitool"]}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "skip|LogicFixtures|L1|cond|item|DeusEx.Multitool|1"},
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L2|Button1|used|JCDentonMale0|When JC uses Button1, only if JC does not carry Multitool: the message No tool"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L2|message||No tool"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if JC carries Multitool: the message Tool ready"
+    },
+    {"t": 2.0, "line": "skip|LogicFixtures|L2|cond|item|DeusEx.Multitool|0"},
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||Tool ready"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if JC carries Multitool: the message Tool ready\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"item|DeusEx.Multitool|1\"",
+        "Act(0)": "\"0|message||Tool ready||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Button1, only if JC does not carry Multitool: the message No tool\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"item|DeusEx.Multitool|0\"",
+        "Act(0)": "\"0|message||No tool||\""
+      }
+    }
+  ]
+}
