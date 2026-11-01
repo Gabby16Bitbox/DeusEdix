@@ -30,7 +30,7 @@ test('Check map compares the properties of stacked copies and drops onto what on
 test('the keydown handler asks buildKeyGate before any key that edits', () => {
   const keys = between(app, "if (buildKeyGate(e)) return;", '\n}\n');
   assert.ok(keys.length, 'the handler calls buildKeyGate');
-  const gate = app.indexOf('if (buildKeyGate(e)) return;'), save = app.indexOf("if (e.ctrlKey && k === 's') { e.preventDefault(); save(); return; }");
+  const gate = app.indexOf('if (buildKeyGate(e)) return;'), save = app.indexOf("if (e.ctrlKey && k === 's') { e.preventDefault(); saveFromUser(); return; }");
   assert.ok(gate > 0 && save > gate && save - gate < 400, 'buildKeyGate comes first');
 });
 

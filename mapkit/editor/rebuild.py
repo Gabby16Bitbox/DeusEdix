@@ -7,6 +7,8 @@ Only fixed modes cross the process boundary; no engine command text is accepted.
 import os
 
 MODES = ('auto', 'full', 'lighting', 'paths')
+# The words of the Rebuild menu (menubar.js) for each mode, in every message that names one.
+NAMES = {'auto': 'Automatic', 'full': 'Full', 'lighting': 'Lighting', 'paths': 'AI paths'}
 ENV_MODE = 'DEUSEDIX_REBUILD_MODE'
 
 
@@ -17,7 +19,7 @@ def normalize(options=None):
         raise ValueError('Rebuild options must contain only a mode.')
     mode = options.get('mode', 'auto')
     if not isinstance(mode, str) or mode not in MODES:
-        raise ValueError('Choose Automatic, Full rebuild, Lighting or Paths.')
+        raise ValueError('Choose %s or %s.' % (', '.join(NAMES[m] for m in MODES[:-1]), NAMES[MODES[-1]]))
     return {'mode': mode}
 
 
@@ -49,10 +51,13 @@ def script_stages(light=True, paths=True, env=None):
 
 
 def report(options=None, *, generated=False):
+    """A build's line for a forced mode, named as the Rebuild menu names it (NAMES); none in Automatic."""
     mode = normalize(options)['mode']
     if mode == 'auto':
         return []
     if generated:
-        return ['  REBUILD Generated maps recreate their geometry on every build; requested %s stages are included.' % mode]
-    detail = {'full': 'geometry, BSP, lighting and paths', 'lighting': 'lighting', 'paths': 'paths'}[mode]
-    return ['  REBUILD Forcing %s, including unchanged data; required edits are also rebuilt.' % detail]
+        return ['  REBUILD Generated maps recreate their geometry on every build; the stages a Rebuild in %s adds '
+                'are included.' % NAMES[mode]]
+    detail = {'full': 'geometry, BSP, lighting and AI paths', 'lighting': 'lighting', 'paths': 'AI paths'}[mode]
+    return ['  REBUILD A Rebuild in %s forces %s, including unchanged data; required edits are also rebuilt.'
+            % (NAMES[mode], detail)]

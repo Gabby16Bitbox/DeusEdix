@@ -2,6 +2,7 @@
 counts of the Build report, Cancel stopping only the build's own processes (a map script's host too) and putting the
 previous build back, one build at a time, and the routes the page uses (server.py). The host is a stand-in: a Python
 script behind a batch file that writes a host's log line by line (kit._execute runs it as it runs the real one)."""
+import ast
 import json
 import os
 import sys
@@ -271,6 +272,17 @@ class Jobs(Stand):
         self.assertIn('lights', [s['id'] for s in end['report']['stages']])
         self.assertEqual(end['report']['counts'], {})
 
+    def test_settle_ends_the_time_to_cancel_and_says_whether_it_was_cancelled(self):
+        """Job.settle, as the build ends (server.rebuild asks it for the map's record of Play's preparation, _work for
+        the output it keeps or puts back): was it cancelled? From then on Cancel is too late, so both agree."""
+        job = build_job.Job('dx:Fixture', 'Fixture', 'auto', self.root / 'job')
+        self.assertFalse(job.settle())
+        job.cancel()
+        self.assertEqual((job.stopped, job.state, job.settle()), (False, 'running', False), 'too late')
+        cancelled = build_job.Job('dx:Fixture', 'Fixture', 'lighting', self.root / 'job2')
+        cancelled.cancel()
+        self.assertTrue(cancelled.settle())
+
     def test_one_build_at_a_time(self):
         gate = threading.Event()
 
@@ -345,7 +357,51 @@ class BuildRoutes(unittest.TestCase):
         def build(script, options, watch=None):
             self.gate.wait(10)
             return True, ['built %s' % script]
-        self.namespace.update(build_job=build_job, rebuild_options=rebuild, build=build)
+        # server.rebuild, the job's build: a Rebuild goes through play_prepare.rebuilt
+        self.recorded = []
+
+        def rebuilt(script, map_name, files, action, mode, cancelled=lambda: None):
+            result = action()
+            self.recorded.append((script, mode, cancelled()))       # cancelled: asked as the build ends
+            return result
+        recorder = types.SimpleNamespace(rebuilt=rebuilt)
+        # player_profiles.blocks as the real one decides: a player character only for edits that name one, read by the
+        # real load_edits (test_play_routes; re-test 4 of 31 Oct 2026, #6)
+        player = lambda edits: ([dict(cls='UCPlayerMap', name='UCPlayerMap0')]
+                                if (edits.get('level') or {}).get('player') else [])
+        self.namespace.update(build_job=build_job, rebuild_options=rebuild, build=build, play_prepare=recorder,
+                              map_source=lambda script: self.root / (script + '.py'),
+                              edits_path=lambda script: self.root / (script + '.edits.json'),
+                              player_profiles=types.SimpleNamespace(blocks=player, validate_edits=Mock()))
+        tree = ast.parse(routes.SOURCE.read_text(encoding='utf-8-sig'))
+        exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)
+                                      and n.name in ('rebuild', 'play_files', 'compile_for_player', 'load_edits')],
+                                type_ignores=[]), str(routes.SOURCE), 'exec'), self.namespace)
+
+    def test_a_rebuild_is_recorded_for_play(self):
+        """The job builds with server.rebuild, in any mode through play_prepare.rebuilt: the next Play then leaves the
+        build out (fix-back2, 30 Oct 2026; game re-test #2: a forced mode only adds stages to Play's build)."""
+        for mode, recorded in (('auto', [('my_room', 'auto', False)]), ('full', [('my_room', 'full', False)])):
+            with self.subTest(mode):
+                self.recorded.clear()
+                self.request('/api/build_start?script=my_room', {'mode': mode})
+                self.gate.set()
+                wait_for(self, lambda: not build_job.running(), what='the job to end')
+                self.gate.clear()
+                self.assertEqual(self.request('/api/build_status', method='GET')[1]['lines'], ['built my_room'])
+                self.assertEqual(self.recorded, recorded)
+
+    def test_a_cancelled_rebuild_is_told_to_its_record(self):
+        """server.rebuild gives play_prepare.rebuilt the job's settle(): a Rebuild cancelled while it builds is told so
+        as its build ends, and the job puts the map's earlier output back (cross-check of 31 Oct 2026: the record kept
+        the cancelled Rebuild's mode)."""
+        code, started = self.request('/api/build_start?script=my_room', {'mode': 'lighting'})
+        self.assertEqual(code, 200, started)
+        self.request('/api/build_cancel', {'token': started['token']})
+        self.gate.set()
+        wait_for(self, lambda: not build_job.running(), what='the job to end')
+        self.assertEqual(self.request('/api/build_status', method='GET')[1]['state'], 'cancelled')
+        self.assertEqual(self.recorded, [('my_room', 'lighting', True)])
 
     def test_start_status_and_cancel(self):
         code, started = self.request('/api/build_start?script=my_room', {'mode': 'full'})

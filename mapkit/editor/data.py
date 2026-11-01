@@ -19,6 +19,7 @@ import sizes  # noqa: E402
 import t3d  # noqa: E402
 import activation  # noqa: E402
 import props as props_mod  # noqa: E402
+import build_cpu  # noqa: E402
 
 CACHE = HERE / 'cache'
 OUT = KIT / 'out'
@@ -87,9 +88,12 @@ MESH_VERSION = 11         # 10: stable brush/polygon identities for face selecti
                           # 4: the game's lighting (lightmaps of the surfaces, light on the objects)
                           # 5: the engine's brightness curve in the lighting; 6: overbright lights; 7: objects lit only by the lights that see them
                           # 8: objects at least as bright as the floor under them; 9: per-vertex light on the objects
-ASSEMBLY = 4              # geometry.json only (no SDK pass): 4: exact texture frames for scale previews
+ASSEMBLY = 6              # geometry.json only (no SDK pass): 4: exact texture frames for scale previews
+                          # 5: the zone of every triangle (the 3D view's Effects: its panning speed)
+                          # 6: each face's mapping, its brush's csg and each triangle's BSP polygon (Texture Slip)
 
 
+@build_cpu.performance_work
 def prepare(map_name, force=False, log=print, src=None, analyse=None, lite=False):
     """Geometry + textures + objects of a map (default: the last build of a map script; src: any .dx).
     The SDK editor pass is cached until the .dx changes; geometry.json (polygons split by structure)
@@ -101,7 +105,7 @@ def prepare(map_name, force=False, log=print, src=None, analyse=None, lite=False
         raise FileNotFoundError('no build of %s in %s' % (map_name, OUT))
     folder = map_folder(map_name)
     stamp = folder / 'stamp.txt'
-    key = '%s-%d-%d-m%d' % (src, src.stat().st_mtime_ns, src.stat().st_size, MESH_VERSION)
+    key = _stamp(src)
     if force or not stamp.exists() or stamp.read_text() != key or not (folder / 'polys.json').exists():
         _dump(map_name, src, folder, log, lite)
         stamp.write_text(key)
@@ -119,13 +123,39 @@ def prepare(map_name, force=False, log=print, src=None, analyse=None, lite=False
     return folder
 
 
+def _stamp(src):
+    """What the SDK editor pass of a map is kept for (its folder's stamp.txt): the .dx, its time and size, MESH_VERSION."""
+    return '%s-%d-%d-m%d' % (src, src.stat().st_mtime_ns, src.stat().st_size, MESH_VERSION)
+
+
+def dumped_from(map_name, src):
+    """Whether the map's cache holds the SDK editor pass (prepare) of the .dx src as it is now."""
+    try:
+        return (map_folder(map_name) / 'stamp.txt').read_text() == _stamp(Path(src))
+    except OSError:
+        return False
+
+
 def _dump(map_name, src, folder, log, lite=False):
+    import preview_bundle
+    cached = None if lite else preview_bundle.open_session(src)
+    if cached is not None:
+        try:
+            _dump_session(map_name, src, folder, log, lite, cached)
+            log('preview reused from the completed build')
+            return
+        except (preview_bundle.Unavailable, OSError, ValueError, KeyError, IndexError):
+            log('build preview unavailable; reading the saved map')
+    _dump_session(map_name, src, folder, log, lite)
+
+
+def _dump_session(map_name, src, folder, log, lite=False, cached=None):
     """The SDK editor pass: BSP polygons, brushes, real objects, actors, textures (lite: no lighting and
     no object models, a third of the time of a big map)."""
     shutil.rmtree(folder, ignore_errors=True)
     (folder / 'tex').mkdir(parents=True)
     log('loading %s in the SDK editor' % map_name)
-    s = kit.Session([src], 'editor-' + map_name)
+    s = cached or kit.Session([src], 'editor-' + map_name)
     try:
         s.cmd(r'MAP LOAD FILE="..\Input\%s"' % src.name)
         dump = s.folder / 'Output' / 'bsp.bin'
@@ -247,25 +277,41 @@ def _assemble(map_name, folder):
     lm = json.loads((folder / 'lightmap.json').read_text(encoding='utf-8')) if (folder / 'lightmap.json').exists() else None
     psurf = json.loads((folder / 'psurf.json').read_text(encoding='utf-8')) if (folder / 'psurf.json').exists() else []
     pface = json.loads((folder / 'pface.json').read_text(encoding='utf-8')) if (folder / 'pface.json').exists() else []
+    # the zone in front of each polygon (none from a pass before the bridge dumped zones)
+    pzone = (json.loads((folder / 'pzone.json').read_text(encoding='utf-8')).get('zone') or []) if (folder / 'pzone.json').exists() else []
     faces, face_ids = [], {}
+    import geometry_compute
+    computed = geometry_compute.prepare(polys, lm, psurf)
     for pi, (tex, flags, nums, verts, brush) in enumerate(polys):
         b, u, v = nums[0:3], nums[3:6], nums[6:9]
         pu, pv, tw, th = nums[9], nums[10], nums[11] or 128, nums[12] or 128
         st = owner.get(brush, '')
         key = '%s|%s|%d' % (st, tex, flags & (PF['masked'] | PF['translucent'] | PF['modulated'] | PF['unlit'] | PF['fakebackdrop']))
-        g = groups.setdefault(key, dict(tex=tex, flags=flags, structure=st, pos=[], uv=[], uv2=[], faces=[], uvFrames=[]))
+        g = groups.setdefault(key, dict(tex=tex, flags=flags, structure=st, pos=[], uv=[], uv2=[], faces=[], piece=[], uvFrames=[], zones=[]))
         face_id = -1
         if 0 <= brush < len(brushes) and pi < len(pface) and pface[pi] >= 0:
             source = (brushes[brush]['name'], pface[pi])
             if source not in face_ids:
                 face_ids[source] = len(faces)
-                faces.append(dict(brush=source[0], poly=source[1], tex=tex, flags=flags, structure=st, ord=brush))
+                # map: the face's 13 numbers (its mapping, texture-slip.js mappingOf) while all its BSP pieces share
+                # them, else None (only a Rebuild shows what a row does to it); csg: its brush's (2 a hole: its source
+                # polygon faces the other way)
+                faces.append(dict(brush=source[0], poly=source[1], tex=tex, flags=flags, structure=st, ord=brush,
+                                  map=nums, csg=brushes[brush].get('csg')))
+            elif faces[face_ids[source]]['map'] != nums:
+                faces[face_ids[source]]['map'] = None
             face_id = face_ids[source]
         pts = [verts[i:i + 3] for i in range(0, len(verts), 3)]
         uvs, lmuv = [], []
         rect = lm['surfs'].get(str(psurf[pi])) if lm and pi < len(psurf) else None
         aw, ah = lm['size'] if lm else (1, 1)
-        for p in pts:
+        for vi, p in enumerate(pts):
+            if computed is not None:
+                values, offsets = computed
+                at = (offsets[pi] + vi) * 4
+                uvs.append((values[at], values[at+1]))
+                lmuv.append((values[at+2], values[at+3]))
+                continue
             d = (p[0] - b[0], p[1] - b[1], p[2] - b[2])
             du, dv = d[0] * u[0] + d[1] * u[1] + d[2] * u[2], d[0] * v[0] + d[1] * v[1] + d[2] * v[2]
             uvs.append(((du + pu) / tw, (dv + pv) / th))
@@ -276,14 +322,22 @@ def _assemble(map_name, folder):
                 lmuv.append(((x0 + 1 + lu + 0.5) / aw, (y0 + 1 + lv + 0.5) / ah))
             else:           # no lightmap (unlit, sky...): the full-bright corner of the atlas
                 lmuv.append((1.5 / aw, 1.5 / ah))
+        # A polygon's vertices appear in several fan triangles. Quantize once
+        # per vertex, retaining exactly the old rounding and triangle order.
+        rounded_pos = [[round(c, 2) for c in p] for p in pts]
+        rounded_uv = [[round(u, 4), round(v, 4)] for u, v in uvs]
+        rounded_lm = [[round(u, 5), round(v, 5)] for u, v in lmuv]
+        uv_frame = frame(nums) if st else None
         for k in range(1, len(pts) - 1):          # triangle fan
             g['faces'].append(face_id)
+            g['piece'].append(pi)                 # its BSP polygon: the face's pieces put together again (the slip's normal)
+            g['zones'].append(pzone[pi] if pi < len(pzone) else 0)
             if st:
-                g['uvFrames'].append(frame(nums))
+                g['uvFrames'].append(uv_frame)
             for j in (0, k, k + 1):
-                g['pos'] += [round(c, 2) for c in pts[j]]
-                g['uv'] += [round(uvs[j][0], 4), round(uvs[j][1], 4)]
-                g['uv2'] += [round(lmuv[j][0], 5), round(lmuv[j][1], 5)]
+                g['pos'] += rounded_pos[j]
+                g['uv'] += rounded_uv[j]
+                g['uv2'] += rounded_lm[j]
     (folder / 'geometry.json').write_text(json.dumps(dict(textures=tex_info, groups=list(groups.values()), faces=faces,
                                                           texflags=json.loads((folder / 'texflags.json').read_text(encoding='utf-8')) if (folder / 'texflags.json').exists() else {},
                                                           lightmap='lightmap.png' if lm else None,
@@ -335,6 +389,31 @@ def views(map_name):
     result = dict(key=key, zoned=bool(pzone.get('zones')), zones=pzone.get('zones') or [''], structures=out)
     cached.write_text(json.dumps(result), encoding='utf-8')
     return result
+
+
+def zone_looks(map_name):
+    """What each zone of the map's last SDK pass does to the 3D view's Effects (zones.look), in the order of its zones
+    (pzone.json): its ZoneInfo's, the level's (its LevelInfo) for zone 0 and a zone without one; with that actor's name,
+    its place (at: x, y, z) and its own sound (zones.ambience: Hear the map). [] for a pass made before the bridge
+    dumped zones."""
+    import zones
+    folder = map_folder(map_name)
+    names = json.loads((folder / 'pzone.json').read_text(encoding='utf-8')).get('zones') if (folder / 'pzone.json').exists() else None
+    if not names or not (folder / 'scene.t3d').exists():
+        return []
+    found = {a['name']: a for a in t3d.actors((folder / 'scene.t3d').read_text(encoding='latin1', errors='replace'))}
+    level = next((a for a in found.values() if a['cls'] == 'LevelInfo'), None)    # not DeusExLevelInfo (an Info)
+    try:
+        classes = props_mod.defaults(log=lambda *a: None).get('classes', {})
+    except Exception:
+        classes = {}
+    out = []
+    for name in names:
+        a = found.get(name) or level
+        own, cls = (a['props'] if a else {}), (((classes.get(a['cls']) or {}).get('props') if a else None) or {})
+        out.append(dict(zones.look(own, cls), name=a['name'] if a else '', at=list(t3d.vec(own.get('Location'))),
+                        sound=zones.ambience(own, cls)))
+    return out
 
 
 def lightmap_atlas(path, folder, log=print):
@@ -430,13 +509,19 @@ def texture_flags(log=print):
 
 def export_textures(session, textures, folder, log=print):
     """Textures (full package paths) as PNGs of at most 256 pixels in folder/tex."""
+    files = getattr(session, 'texture_files', None)
+    if files is not None and any(t != 'none' and t not in files for t in textures):
+        import preview_bundle
+        raise preview_bundle.Unavailable('texture missing from the build preview')
     bmp_dir = session.folder / 'Output' / 'tex'
-    bmp_dir.mkdir(exist_ok=True)
+    if files is None:
+        bmp_dir.mkdir(exist_ok=True)
     (folder / 'tex').mkdir(parents=True, exist_ok=True)
     cmds = [r'OBJ EXPORT TYPE=Texture NAME=%s FILE="..\Output\tex\%s.bmp"' % (tex, _safe(tex))
             for tex in textures if tex != 'none']
     try:
-        session.batch(cmds, timeout=1800)
+        if files is None:
+            session.batch(cmds, timeout=1800)
     except RuntimeError as e:      # a texture that cannot be exported keeps a flat colour
         log('some textures were not exported: %s' % str(e)[:200])
     # compressed (DXT1) and true-colour textures come out of OBJ EXPORT as empty files: decoded by the host
@@ -444,49 +529,66 @@ def export_textures(session, textures, folder, log=print):
         f = bmp_dir / (_safe(tex) + '.bmp')
         return not f.exists() or f.stat().st_size == 0
     raw = [tex for tex in textures if tex != 'none' and empty(tex)]
-    if raw:
+    if raw and files is None:
         try:
             session.batch([r'UC_TEXDUMP %s ..\Output\tex\%s.raw' % (tex, _safe(tex)) for tex in raw], timeout=600)
         except RuntimeError as e:
             log('some textures were not decoded: %s' % str(e)[:200])
-    from PIL import Image
+    from texture_cache import TexturePreviews
+    previews = TexturePreviews(folder.parent / '_texture_previews' / folder.name)
     tex_info = {}
     for tex, (w, h) in textures.items():
-        bmp = bmp_dir / (_safe(tex) + '.bmp')
-        rawf = bmp_dir / (_safe(tex) + '.raw')
+        stem = files.get(tex, '_none') if files is not None else _safe(tex)
+        bmp = bmp_dir / (stem + '.bmp')
+        rawf = bmp_dir / (stem + '.raw')
         png = None
         if rawf.exists():
-            data_ = rawf.read_bytes()
-            head, _, pix = data_.partition(b'\n')    # a JSON line {width, height}, then the RGBA pixels
-            try:
-                size = json.loads(head)
-                rw, rh = int(size['width']), int(size['height'])
-            except (ValueError, KeyError, TypeError):
-                rw = rh = 0
-            if rw and rh:
-                if len(pix) >= rw * rh * 4:
-                    im = Image.frombytes('RGBA', (rw, rh), pix[:rw * rh * 4])
-                    if max(im.size) > 256:
-                        k = 256.0 / max(im.size)
-                        im = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))), Image.LANCZOS)
-                    png = 'tex/%s.png' % _safe(tex)
-                    im.save(folder / png)
+            name = 'tex/%s.png' % _safe(tex)
+            if previews.convert(tex, 'raw', rawf.read_bytes(), folder / name, _preview_raw):
+                png = name
         if png is None and bmp.exists() and bmp.stat().st_size:
-            try:
-                im = Image.open(bmp)
-                if im.mode == 'P' and 'transparency' not in im.info:
-                    # masked textures use palette index 0 as transparent
-                    im.info['transparency'] = 0
-                im = im.convert('RGBA')
-                if max(im.size) > 256:
-                    k = 256.0 / max(im.size)
-                    im = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))))
-                png = 'tex/%s.png' % _safe(tex)
-                im.save(folder / png)
-            except OSError:
-                png = None
+            name = 'tex/%s.png' % _safe(tex)
+            if previews.convert(tex, 'bmp', bmp.read_bytes(), folder / name, _preview_bmp):
+                png = name
         tex_info[tex] = dict(png=png, w=w, h=h)
+    previews.finish()
     return tex_info
+
+
+def _preview_raw(data, destination):
+    from PIL import Image
+    head, _, pix = data.partition(b'\n')
+    try:
+        size = json.loads(head)
+        rw, rh = int(size['width']), int(size['height'])
+    except (ValueError, KeyError, TypeError):
+        return False
+    if rw <= 0 or rh <= 0 or len(pix) < rw * rh * 4:
+        return False
+    im = Image.frombytes('RGBA', (rw, rh), pix[:rw * rh * 4])
+    if max(im.size) > 256:
+        k = 256.0 / max(im.size)
+        im = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))), Image.LANCZOS)
+    im.save(destination, compress_level=1)
+    return True
+
+
+def _preview_bmp(data, destination):
+    import io
+    from PIL import Image
+    try:
+        with Image.open(io.BytesIO(data)) as source:
+            if source.mode == 'P' and 'transparency' not in source.info:
+                # Match the game's masked palette: index zero is transparent.
+                source.info['transparency'] = 0
+            im = source.convert('RGBA')
+        if max(im.size) > 256:
+            k = 256.0 / max(im.size)
+            im = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))))
+        im.save(destination, compress_level=1)
+    except OSError:
+        return False
+    return True
 
 
 def parse_brushes(path):
@@ -588,6 +690,33 @@ def _publish_palette(folder, result):
         have.append(cls)
     (folder / 'index.json').write_text(json.dumps(dict(classes=sorted(have), _textures=result.get('_textures', {}))),
                                        encoding='utf-8')
+
+
+def built_surfaces(map_name, edits_file=None):
+    """The surface rows (edits.surfaces) a map script's last build was made with: scene.py keeps them next to it
+    (out/<map>.surfaces.json), so the 3D view knows which queued rows it does not show yet. For a build made before
+    they were kept (or rows older than it), the edits' (edits_file: maps/<script>.edits.json) when they were saved
+    before it (none saved: none); None when that is not known, or the map has no build."""
+    p, built = OUT / (map_name + '.surfaces.json'), OUT / (map_name + '.dx')
+    if not built.exists():
+        return None
+    if p.exists() and p.stat().st_mtime_ns >= built.stat().st_mtime_ns:
+        source = p
+    elif edits_file is None:
+        return None
+    elif not Path(edits_file).exists():
+        return []
+    elif Path(edits_file).stat().st_mtime_ns <= built.stat().st_mtime_ns:
+        source = Path(edits_file)
+    else:
+        return None
+    try:
+        rows = json.loads(source.read_text(encoding='utf-8'))
+    except ValueError:
+        return None
+    if source != p:                                  # the edits: their rows
+        rows = (rows.get('surfaces') or []) if isinstance(rows, dict) else None
+    return rows if isinstance(rows, list) else None
 
 
 def structures(map_name):

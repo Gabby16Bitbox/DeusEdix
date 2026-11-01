@@ -54,6 +54,9 @@ function page(srv) {
     cancelPlacing: () => calls.push('cancelPlacing'), applyObjectVisibility() {}, buildHierarchy() {}, showDetails() {}, select() {},
     rebuildProxies: () => calls.push('rebuildProxies'), recordStep: () => calls.push('step'), historyChanged() {}, undoHistory: {},
     forgetGoneDefault() {}, editRevision: 0, dirty: false, showChanges() {}, buildStructList() {},
+    // the Texture Slip (ended first), what the preview says the Rebuild would fail on, the question asked then
+    textureSlip: { cancel: () => calls.push('slip ends') }, surfacePreview: { later: [], refused: [] },
+    confirm: (text) => { calls.push(['confirm', text]); return c.answer; }, answer: true,
   });
   vm.runInContext(block + '\n' + body('pushUndo') + '\n' + line('function setDirty()') + '\n' + line('function closeMap()'), c);
   return { c, calls, rows, chip, classes };
@@ -72,7 +75,7 @@ test('a Rebuild: saved, its walkable area, the job started and followed to its e
   assert.ok(!classes.has('map-building'));
   assert.deepEqual(plain(srv.calls[0]), ['/api/build_start?script=dx%3A01_Lab', { mode: 'full' }]);
   assert.equal(srv.calls.filter((x) => x[0] === '/api/build_status').length, 4);
-  assert.deepEqual(calls.filter((x) => typeof x === 'string'), ['cancelPlacing', 'save', 'navmesh', 'loadScene', 'navcheck']);
+  assert.deepEqual(calls.filter((x) => typeof x === 'string'), ['slip ends', 'cancelPlacing', 'save', 'navmesh', 'loadScene', 'navcheck']);
   assert.ok(chip.shown.some((v) => v.stage === 'lights' && /last time 0:40/.test(v.time)));
   assert.ok(chip.hidden >= 1);
   assert.match(rows[0].text, /^Build report · 01_Lab: Full rebuild in 0:12/);
@@ -139,6 +142,24 @@ test('Close map waits for the build; the end of a build loads the map again only
   c.script = 'dx:01_Lab';
   assert.equal(c.closeMap(), true);                   // no build: it closes
   assert.ok(calls.includes('closeMap'));
+});
+
+test('a queued surface row the host refuses: the Rebuild asks first, and stops when told to', async () => {
+  const srv = server(), { c, calls } = page(srv);
+  c.surfacePreview.refused = [{ id: 3, stage: 'rebuild', refused: "Pan exceeds the engine's signed 16-bit range" },
+    { id: 4, stage: 'rebuild', refused: "Pan exceeds the engine's signed 16-bit range" }, { id: 5, stage: 'save', refused: 'Pan uses whole texels.' }];
+  const said = "The Rebuild would fail: Pan exceeds the engine's signed 16-bit range (2 faces). Undo or fix that change.";
+  assert.equal(c.rebuildRefusal(), said);
+  c.answer = false;
+  await c.rebuildMap();
+  assert.deepEqual(plain(calls.filter((x) => x[0] === 'confirm')), [['confirm', `${said}\n\nRebuild anyway?`]]);
+  assert.deepEqual([srv.calls.length, calls.includes('save'), c.buildJob], [0, false, null]);
+  assert.deepEqual(plain(calls.filter((x) => x[0] === 'status').at(-1)), ['status', said, 'warn']);
+  c.answer = true;                                    // anyway: it goes on as always (the host says it again)
+  await c.rebuildMap();
+  assert.ok(calls.includes('save') && srv.calls.length > 0);
+  c.surfacePreview.refused = [c.surfacePreview.refused[2]];      // a row Save refuses: its save stops it, no question
+  assert.equal(c.rebuildRefusal(), '');
 });
 
 test('a save that fails stops the Rebuild before the server builds anything, and says so', async () => {

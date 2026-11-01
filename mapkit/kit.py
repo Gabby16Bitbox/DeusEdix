@@ -14,6 +14,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from contextlib import contextmanager, nullcontext
 
 import atomicfile
 import settings
@@ -154,6 +155,9 @@ def prune(keep=20):
         return
     runs = sorted((d for d in RUNS.iterdir() if d.is_dir()), key=lambda d: d.name)
     for d in runs[:-keep]:
+        import resident_build
+        if resident_build.run_in_use(d):
+            continue
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -191,6 +195,18 @@ def install_native(system, files=None):
     return written
 
 
+# the kinds of file new_run links from DEV into every run, by suffix (editor/play_prepare.py: a change to one of them
+# builds a map again)
+LINKED = ('.exe', '.dll', '.u', '.int')
+
+
+def editor_packages():
+    """The map editor's own packages: the models and the sounds imported in it, the scripts written in it. new_run links
+    them from dist, never from DEV; a development working copy's compile neither makes nor reads them
+    (editor/play_prepare.py)."""
+    return settings.MODELS_PACKAGE, settings.SOUNDS_PACKAGE, settings.SCRIPTS_PACKAGE
+
+
 def new_run(inputs=(), label='run'):
     """Create a private run. inputs: paths of maps (or other files) copied into Input\\."""
     if not HOST.exists():
@@ -199,15 +215,13 @@ def new_run(inputs=(), label='run'):
     folder = RUNS / (time.strftime('%Y%m%d-%H%M%S-') + label + '-' + uuid.uuid4().hex[:6])
     system = folder / 'System'
     system.mkdir(parents=True)
+    own = [name + '.u' for name in (settings.PACKAGE, settings.VOICES_PACKAGE) + editor_packages()]
     for path in DEV.iterdir():
-        if path.is_file() and path.suffix.lower() in ('.exe', '.dll', '.u', '.int'):
-            if path.name in (settings.PACKAGE + '.u', 'UnatcoVoices.u', settings.MODELS_PACKAGE + '.u', settings.SOUNDS_PACKAGE + '.u',
-                             settings.SCRIPTS_PACKAGE + '.u'):
+        if path.is_file() and path.suffix.lower() in LINKED:
+            if path.name in own:
                 continue
             os.link(path, system / path.name)
-    # UCModels, UCSounds, UCScripts: the models and the sounds imported in the editor, the scripts written in it
-    for name in (settings.PACKAGE + '.u', 'UnatcoVoices.u', settings.MODELS_PACKAGE + '.u', settings.SOUNDS_PACKAGE + '.u',
-                 settings.SCRIPTS_PACKAGE + '.u'):
+    for name in own:
         source = PROJECT / 'dist' / name
         if source.exists():
             os.link(source, system / name)      # a link, not a copy: the voices alone are 37 MB
@@ -236,7 +250,7 @@ def new_run(inputs=(), label='run'):
     return folder
 
 
-def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tries=4, watch=None):
+def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tries=4, watch=None, prepared=None):
     """Run commands in the host. Paths in commands are relative to the run's System folder.
 
     LIGHT APPLY opens a hidden OpenGL viewport; now and then the NVIDIA driver crashes while
@@ -250,7 +264,8 @@ def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tri
         watch = LogNote(os.environ[HOST_LOG_ENV])
     for attempt in range(tries):
         try:
-            return _execute(folder, commands, log_name, timeout, echo and attempt == tries - 1, watch)
+            return _execute(folder, commands, log_name, timeout, echo and attempt == tries - 1, watch,
+                            prepared if attempt == 0 else None)
         except RuntimeError as e:
             text = (Path(folder) / log_name).read_text(encoding='utf-8', errors='replace')
             last = re.findall(r'UCMapKit\|command\|(.*)', text)
@@ -262,19 +277,30 @@ def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tri
             time.sleep(3)
 
 
-def _execute(folder, commands, log_name, timeout, echo, watch=None):
+def _execute(folder, commands, log_name, timeout, echo, watch=None, prepared=None):
     folder = Path(folder)
     command_file = folder / ('commands-' + uuid.uuid4().hex[:8] + '.txt')
     command_file.write_text('\n'.join(commands) + '\n', encoding='utf-8')     # UC_PROP texts may have accents
     log = folder / log_name
     start = time.time()
-    with log.open('wb') as stream:
-        process = subprocess.Popen([str(folder / 'System' / HOST.name), str(command_file)], cwd=folder / 'System',
-                                   stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
-                                   creationflags=subprocess.CREATE_NO_WINDOW)
+    import resident_build
+    if isinstance(prepared, resident_build.RemoteBuild):
+        result = resident_build.execute_remote(folder, command_file, timeout, prepared.endpoint)
+        if result is not None:
+            return result
+        prepared = None
+    with (nullcontext(prepared.stream) if prepared is not None else log.open('wb')) as stream:
+        process = prepared.process if prepared is not None else subprocess.Popen(
+            [str(folder / 'System' / HOST.name), str(command_file)], cwd=folder / 'System',
+            stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW)
         try:
+            import build_cpu
+            build_cpu.prefer_performance(int(process._handle))
             if watch is not None:
                 watch.started(process, log)
+            if prepared is not None:
+                prepared.send(folder, log_name, command_file)
             process.wait(timeout=timeout)
         except BaseException:                       # stopped or too long (as subprocess.run's timeout): never left running
             process.kill()
@@ -293,6 +319,74 @@ def _execute(folder, commands, log_name, timeout, echo, watch=None):
     return text, time.time() - start
 
 
+class _PreparedBuild:
+    def __init__(self, label):
+        self.folder = new_run([], label)
+        self.stream = (self.folder / 'build.log').open('wb')
+        self.sent = False
+        try:
+            self.process = subprocess.Popen(
+                [str(self.folder / 'System' / HOST.name), '--wait-batch'], cwd=self.folder / 'System',
+                stdin=subprocess.PIPE, stdout=self.stream, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW)
+            import build_cpu
+            build_cpu.prefer_performance(int(self.process._handle))
+        except BaseException:
+            if hasattr(self, 'process'):
+                self.close()
+            else:
+                self.stream.close()
+            raise
+
+    def send(self, folder, log_name, command_file):
+        if self.sent or Path(folder) != self.folder or log_name != 'build.log':
+            raise RuntimeError('Prepared build does not match this run')
+        self.sent = True
+        try:
+            self.process.stdin.write((str(command_file.absolute()) + '\n').encode('utf-8'))
+            self.process.stdin.close()
+        except BrokenPipeError:
+            # Let the ordinary log/exit-code validation report an early SDK
+            # failure. Never hide it or silently skip a command.
+            pass
+
+    def close(self):
+        if self.process.poll() is None:
+            self.process.kill()
+            self.process.wait()
+        try:
+            if self.process.stdin:
+                self.process.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        self.stream.close()
+
+
+@contextmanager
+def prewarm_build(label):
+    """Overlap SDK initialization with preparation; one fresh SDK per build.
+
+    This scope owns the child from launch to exit, including preparation errors.
+    Older hosts and DEUSEDIX_BUILD_PREWARM=off retain the ordinary file runner.
+    """
+    ready = None
+    import resident_build
+    if os.environ.get(resident_build.ENDPOINT) and resident_build.supported():
+        yield resident_build.RemoteBuild(label)
+        return
+    try:
+        supported = os.environ.get('DEUSEDIX_BUILD_PREWARM', 'auto') != 'off' and b'--wait-batch\0' in HOST.read_bytes()
+    except OSError:
+        supported = False
+    try:
+        if supported:
+            ready = _PreparedBuild(label)
+        yield ready
+    finally:
+        if ready is not None:
+            ready.close()
+
+
 class Session:
     """A live host: the SDK editor stays open with its level, commands go one at a time.
 
@@ -302,7 +396,7 @@ class Session:
     drains its output so large batches never block the pipe.
     """
 
-    def __init__(self, inputs=(), label='session', folder=None):
+    def __init__(self, inputs=(), label='session', folder=None, wait_ready=True):
         import queue
         import threading
         self.folder = Path(folder) if folder else new_run(inputs, label)
@@ -310,6 +404,8 @@ class Session:
         self.proc = subprocess.Popen([str(self.folder / 'System' / HOST.name), '-'], cwd=self.folder / 'System',
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      creationflags=subprocess.CREATE_NO_WINDOW)
+        import build_cpu
+        build_cpu.prefer_performance(int(self.proc._handle))
         self.lines = queue.Queue()
 
         def pump():
@@ -317,7 +413,19 @@ class Session:
                 self.lines.put(raw.decode('utf-8', errors='replace').rstrip('\r\n'))
             self.lines.put(None)
         threading.Thread(target=pump, daemon=True).start()
-        self._collect(1, 300)          # the SDK is up
+        self._pending_ready = True
+        if wait_ready:
+            self.wait_ready()          # the SDK is up
+
+    def wait_ready(self, timeout=300):
+        """Consume startup exactly once before any command is sent.
+
+        Deferred startup lets private callers copy/hash their inputs while the
+        SDK initializes. It never reuses an engine from another map or job.
+        """
+        if self._pending_ready:
+            self._collect(1, timeout)
+            self._pending_ready = False
 
     def _collect(self, n, timeout):
         import queue
@@ -339,6 +447,7 @@ class Session:
     def batch(self, commands, timeout=3600):
         """Send many commands, return the whole output; raises if one failed."""
         commands = [c for c in commands]
+        self.wait_ready()
         self.proc.stdin.write(''.join(c + '\n' for c in commands).encode('utf-8'))   # the host reads UC_PROP values as UTF-8
         self.proc.stdin.flush()
         text = self._collect(len(commands), timeout)

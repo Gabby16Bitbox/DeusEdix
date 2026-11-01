@@ -32,9 +32,10 @@ export function chipView({ label, elapsed, estimate = null, cancelling = false }
 
 // The keys that only look while a Rebuild runs, as app.js gets them (menubar.js turns a key the user rebound into its
 // default, comboOf writes it): the view, the selection, the panels. Any other key edits and waits for the build; the
-// digits (views kept, selection slots) look too.
+// digits (views kept, selection slots) look too (Face selection's Alt+1…9 edit: app.js refuses them itself).
 export const LOOK_KEYS = new Set(['F', 'Shift+F', 'H', 'Shift+H', 'P', 'L', 'M', 'W', 'E', 'R', 'G', 'Z', 'X', 'Esc',
-  'Ctrl+A', 'Ctrl+I', 'Shift+D', 'Ctrl+C', 'Ctrl+K', 'Ctrl+U', 'Ctrl+[', 'Ctrl+]', 'Ctrl+Shift+[', 'Ctrl+Shift+]', 'Shift+Space']);
+  'Ctrl+A', 'Ctrl+I', 'Shift+D', 'Ctrl+C', 'Ctrl+K', 'Ctrl+U', 'Ctrl+[', 'Ctrl+]', 'Ctrl+Shift+[', 'Ctrl+Shift+]', 'Shift+Space',
+  'Alt+G', 'Alt+Shift+G']);
 export const waitsForBuild = (combo) => !!combo && !LOOK_KEYS.has(combo) && !/^(Ctrl\+|Alt\+|Shift\+|Ctrl\+Alt\+)?[1-9]$/.test(combo);
 // The browser's own keys go on too, the editor does nothing with them: Tab and Shift+Tab move the focus, Enter and Space
 // press what has it when that is a button, a link or a fold (onControl: the key's target is in one of PRESSABLE), so
@@ -64,9 +65,11 @@ export function countRows(c = {}) {
 // The Build report for Messages, in reading order: [{ text, cls, check }] (check: a Check map link after the text).
 // r: { map, mode, state: 'done' | 'failed' | 'cancelled', page: the page's stages [{ label, seconds }], report: the
 // server's ({ stages: [{ label, seconds }], counts }), lines: the build's output }
-export function buildReport({ map, mode, state, page = [], report = {}, lines = [] }) {
-  const stages = [...page, ...(report.stages || [])].filter((s) => s.seconds >= 0.05);
-  const total = stages.reduce((sum, s) => sum + s.seconds, 0), name = MODE_NAMES[mode] || MODE_NAMES.auto;
+export function buildReport({ map, mode, state, page = [], after = [], elapsed, report = {}, lines = [] }) {
+  const stages = [...page, ...(report.stages || []), ...after].filter((s) => s.seconds >= 0.05);
+  const measured = stages.reduce((sum, s) => sum + s.seconds, 0);
+  // The browser's elapsed time includes request/polling waits and reopening the map.
+  const total = Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : measured, name = MODE_NAMES[mode] || MODE_NAMES.auto;
   const head = { done: [`Build report · ${map}: ${name} in ${clock(total)}`, 'ok'],
     failed: [`Build report · ${map}: ${name} failed after ${clock(total)}`, 'bad'],
     cancelled: [`Build report · ${map}: ${name} cancelled after ${clock(total)}, the map is as it was before it`, 'warn'] }[state];

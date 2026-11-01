@@ -37,6 +37,9 @@ test('keys that only look go on during a build, the others wait', () => {
     assert.equal(waitsForBuild(combo), true, combo);
   assert.equal(waitsForBuild(''), false);                  // a modifier alone
   assert.ok(LOOK_KEYS.has('Ctrl+U'));
+  // Face selection's Grow selects (it goes on); Alt+0 puts a recent texture on faces (it waits)
+  for (const combo of ['Alt+G', 'Alt+Shift+G']) assert.equal(waitsForBuild(combo), false, combo);
+  assert.equal(waitsForBuild('Alt+0'), true);
 });
 
 test('the browser\'s own keys go on during a build: Tab always, Enter and Space on a button, a link or a fold', () => {
@@ -71,6 +74,15 @@ test('the counts of the output, one row each', () => {
   assert.deepEqual(countRows({ kept: 3 }), ["AI paths: 3 of the map's own put back"]);
   assert.deepEqual(countRows({}), []);
   assert.deepEqual(countRows(undefined), []);
+});
+
+test('total elapsed includes opening the map and request waits without double counting stages', () => {
+  const rows = buildReport({ map: 'Example', mode: 'full', state: 'done', elapsed: 23.4,
+    page: [{ label: 'Saving', seconds: 0.2 }], report: { stages: [{ label: 'Geometry', seconds: 17 }] },
+    after: [{ label: 'Opening map', seconds: 4 }] });
+  assert.match(rows[0].text, /in 0:23$/);
+  assert.match(rows.at(-1).text, /Opening map: 4.0 s/);
+  assert.match(rows[2].text, /Geometry/);
 });
 
 const page = [{ label: 'Saving', seconds: 0.4 }, { label: 'Walkable area', seconds: 0.02 }];

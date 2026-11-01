@@ -157,9 +157,27 @@ def built_current(map_name):
         b['source']['sha1'] == stamp(src)['sha1']
 
 
-def shown(map_name):
-    """What the editor shows: the private build when it is current, otherwise the source."""
-    return OUT / (map_name + '.dx') if built_current(map_name) else source(map_name)
+def shown(map_name, current=None):
+    """What the editor shows: the private build when it is current, otherwise the source. current: built_current's
+    answer when the caller has it already (it reads and hashes the whole source map)."""
+    if current is None:
+        current = built_current(map_name)
+    return OUT / (map_name + '.dx') if current else source(map_name)
+
+
+def built_surfaces(map_name, current=None):
+    """The surface rows (edits.surfaces) in the map the editor shows (shown), so the 3D view knows which queued rows it
+    does not show yet: none when it shows the source, the build's own, or for a build made before they were kept the
+    edits' while the build was made from them (its fingerprint); None when that is not known. current: as shown's."""
+    if current is None:
+        current = built_current(map_name)
+    if not current:
+        return []
+    built = json.loads(_info_path(map_name).read_text(encoding='utf-8')).get('built') or {}
+    if 'surfaces' in built:
+        return built['surfaces'] or []
+    edits = load_edits(map_name)
+    return (edits.get('surfaces') or []) if built.get('edits') == _edits_fingerprint(edits) else None
 
 
 # ------------------------------------------------------------------------------------------ structures
@@ -324,9 +342,12 @@ def reference(map_name, log=print):
     import data
     key = 'ref_' + map_name
     src = GAME_MAPS / (map_name + '.dx')
-    folder = data.prepare(key, src=src, log=log, lite=True,
-                          analyse=lambda f: structures(key, f, data.actors(key), src=src))
-    return key, folder, data.structures(key)
+    import build_cache
+    def load():
+        folder = data.prepare(key, src=src, log=log, lite=True,
+                              analyse=lambda f: structures(key, f, lambda: data.actors(key), src=src))
+        return key, folder, data.structures(key)
+    return build_cache.reference(map_name, src, load)
 
 
 def structures(map_name, cache_folder=None, actors=None, src=None):
@@ -342,6 +363,10 @@ def structures(map_name, cache_folder=None, actors=None, src=None):
         built = info.get('built')       # a build made before the first analysis stays valid for the same source
         if not (built and built.get('source', {}).get('sha1') == st['sha1']):
             built = None
+        # Reference actors are expensive to read. Resolve them only when this
+        # source needs analysis; ordinary callers may still pass a list.
+        if callable(actors):
+            actors = actors()
         info = dict(source=st, structures=analyze(map_name, cache_folder, actors or []), built=built, analysis=ANALYSIS,
                     **({'authoring': info['authoring']} if info.get('authoring') else {}))
         info_p.parent.mkdir(parents=True, exist_ok=True)
@@ -398,6 +423,54 @@ BSP_OPTIMAL = 'BSP REBUILD OPTIMAL BALANCE=15'      # UnrealEd's rebuild options
 MAX_NODES = 65536                                   # UModel's limit (Engine UnModel.h), asserted by Revision's renderer
 
 
+def source_scene(map_name, src, run, watch=None):
+    """The T3D of the map's objects as its source has them (src: source()), which a build decides from: its movers'
+    keys, its movers and lights, the object tags baked into it. Never the editor's dump of the map shown: after a build
+    that is the build's own output, and the next build decided from it (a .dx map's second Rebuild with nothing changed
+    left out UCBoot0 and the sky box: game re-test of 30 Oct 2026). Kept in out\\.sources\\<map> for the source's
+    content (stamp): the editor's dump when it was made from the source as it is now (data.dumped_from, asked again
+    after reading it: the page may dump the map shown meanwhile), else the host's export in the build's run (run;
+    watch: the Rebuild's, as build's). RuntimeError or OSError when it cannot be read: nothing kept."""
+    import data
+    folder = OUT / '.sources' / map_name
+    key = stamp(src)['sha1']
+    try:
+        if (folder / 'stamp.txt').read_text() == key:
+            return (folder / 'scene.t3d').read_text(encoding='latin1')
+    except OSError:
+        pass
+    text = None
+    if data.dumped_from(map_name, src):
+        try:
+            text = (data.map_folder(map_name) / 'scene.t3d').read_text(encoding='latin1')
+        except OSError:
+            pass
+        if not data.dumped_from(map_name, src):
+            text = None
+    if text is None:
+        kit.execute(run, [r'MAP LOAD FILE="..\Input\%s"' % src.name, r'MAP EXPORT FILE="..\Output\source.t3d"'],
+                    'source.log', timeout=600, watch=watch)
+        text = (Path(run) / 'Output' / 'source.t3d').read_text(encoding='latin1')
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'scene.t3d').write_text(text, encoding='latin1')
+    (folder / 'stamp.txt').write_text(key)
+    return text
+
+
+def _classes(path):
+    """The classes of the objects in a map package, read from the package itself (tools\\ue1pkg.py, as mapsettings
+    reads the original maps' songs); none when the reader does not understand it."""
+    tools = str(settings.PROJECT / 'tools')
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    try:
+        from ue1pkg import Pkg
+        pkg = Pkg(str(path))
+        return {pkg.classname(e) for e in pkg.exports}
+    except Exception:            # a map the reader does not understand (or no reader): as if it had none
+        return set()
+
+
 def build(map_name, log=print, options=None, watch=None):
     """Apply the edits to a private copy of the source. Returns (ok, lines). watch: the background Rebuild following the
     host run (build_job.Job, kit.execute's watch)."""
@@ -410,7 +483,7 @@ def build(map_name, log=print, options=None, watch=None):
     surface_cmds = surfaces.commands(edits)
     info = json.loads(_info_path(map_name).read_text(encoding='utf-8')) if _info_path(map_name).exists() else {}
     structs = unnested(info.get('structures', {}), edits.get('unnest'))     # taken apart in the editor (Un-nest)
-    lines = rebuild.report(options)
+    lines = rebuild.report(options) + surfaces.left_out(edits)      # and the Look bits the host does not write yet
     folder = kit.new_run([src], 'dxedit-' + map_name)
     # the editor's package too: objects of its classes (UCTextBlock, UCCustom* characters) are imported later
     cmds = [r'MAP LOAD FILE="..\Input\%s"' % src.name, 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE]
@@ -423,14 +496,16 @@ def build(map_name, log=print, options=None, watch=None):
         lines.append('  EDIT texture %s on %s' % (r.get('tex'), r.get('name') or 'the whole map'))
     geometry = lights = nav = False
     import mover_transform
-    cached_scene = Path(__file__).resolve().parent / 'cache' / map_name / 'scene.t3d'
-    mover_poses = {a['name']: a['props'] for a in t3d.actors(cached_scene.read_text(encoding='latin1', errors='replace'))
-                   if 'Mover' in a['cls']} if cached_scene.exists() else {}
+    try:
+        scene_text = source_scene(map_name, src, folder, watch)        # the map's own objects, never the map shown
+    except (RuntimeError, OSError) as e:
+        return False, lines + ['The map could not be read before its rebuild: %s' % str(e)[:300]]
+    mover_poses = {a['name']: a['props'] for a in t3d.actors(scene_text) if 'Mover' in a['cls']}
     def move_keys(name, location, rotation, cls):
         if 'Mover' not in cls:
             return
         if name not in mover_poses:
-            raise ValueError('Reopen this map before moving its doors or elevators: their motion keys are not cached.')
+            raise ValueError('%s is not a door or elevator of this map any more: undo its move before rebuilding.' % name)
         props = mover_poses[name]
         xf_mover = mover_transform.relocation(props, location, rotation)
         for key, value in mover_transform.properties(props, xf_mover).items():
@@ -478,7 +553,43 @@ def build(map_name, log=print, options=None, watch=None):
         lines.append('  EDIT moved structure %s (%s) by (%g, %g, %g)%s%s' % (
             name, s['label'], off[0], off[1], off[2], ', turned %d deg' % round(yaw * 360 / 65536) if yaw else '',
             ', stretched %s' % '/'.join('%g' % k for k in xf.scale) if xf.scaled else ''))
+    # the copies pasted from prefabs, before the objects' own records: a build starts from the map's source, which has no
+    # copy, so what the editor changed on a copy's objects one by one goes into their blocks (prefabs.edited); UC_SET and
+    # UC_DEL below reach only the objects the map already has
+    blocks, pastes, pasted = [], {}, []
+    copied, unreplaced, grown = set(), set(), {}    # the copies' objects; prefabs.edited's unreplaced and grown
+    for e in edits.get('prefabs') or []:            # structures copied from other maps
+        if e.get('deleted'):
+            continue
+        try:
+            pf = prefabs.load(e['prefab'])
+            pb, brushes, actors = prefabs.place(e)
+        except (OSError, KeyError, ValueError) as err:
+            lines.append('  EDIT skipped paste %s (%s)' % (e.get('pid'), err))
+            continue
+        pb, said, scaled, stay = prefabs.edited(pb, edits)
+        copied.update(brushes + actors)
+        unreplaced |= stay
+        grown.update(scaled)
+        for c in prefabs.package_commands(pf['packages']):
+            if c not in cmds:
+                cmds.insert(1, c)
+        blocks += pb
+        pasted += pb
+        pastes['paste~%s' % e['pid']] = dict(label='%s (from %s)' % (pf['label'], pf['source']), category='Pasted',
+                                              pivot=pf['pivot'], brush_names=brushes, actors=actors, copy_of=None,
+                                              copyable=False, rotatable=pf.get('rotatable', True), gameplay=False,
+                                              deleted=False, placement=dict(offset=list(e.get('offset') or [0, 0, 0]),
+                                                                            yaw=int(e.get('yaw') or 0),
+                                                                            pitch=int(e.get('pitch') or 0), roll=int(e.get('roll') or 0),
+                                                                            scale=list(e.get('scale') or [1, 1, 1]),
+                                                                            stretch=bool(e.get('stretch'))))
+        geometry = lights = nav = True
+        lines.append('  EDIT pasted %s from %s' % (pf['label'], pf['source']))
+        lines += said
     for n, m in (edits.get('moved') or {}).items():
+        if n in copied:                         # an object of a copy: in its block (above)
+            continue
         x, y, z = m['loc']
         r = m.get('rot') or [0, 0, 0]
         cmds.append('UC_SET %s %.3f %.3f %.3f %d %d %d' % (_cmdname(n), x, y, z, int(r[0]), int(r[1]), int(r[2])))
@@ -490,6 +601,8 @@ def build(map_name, log=print, options=None, watch=None):
         nav = nav or cls in NAV
         lines.append('  EDIT moved %s' % n)
     for n, d in (edits.get('deleted') or {}).items():
+        if n in copied:
+            continue
         cmds.append('UC_DEL %s' % _cmdname(n))
         cls = (d.get('cls') or '').split('.')[-1]
         lights = lights or _light(cls)
@@ -498,44 +611,29 @@ def build(map_name, log=print, options=None, watch=None):
     # an object of the map given another class in the editor (Replace with...): the map's own goes, as a deleted one,
     # and the added one comes in under its name with the others
     for a in edits.get('added') or []:
-        if isinstance(a.get('replaces'), dict):
+        if isinstance(a.get('replaces'), dict) and a['name'] not in copied:
             cmds.append('UC_DEL %s' % _cmdname(a['name']))
             cls = (a['replaces'].get('cls') or '').split('.')[-1]
             lights = lights or _light(cls)
             nav = nav or cls in NAV
             lines.append('  EDIT replaced %s (%s)' % (a['name'], cls))
-    blocks, pastes = [], {}
-    for e in edits.get('prefabs') or []:            # structures copied from other maps
-        if e.get('deleted'):
-            continue
-        try:
-            pf = prefabs.load(e['prefab'])
-            pb, brushes, actors = prefabs.place(e)
-        except (OSError, KeyError, ValueError) as err:
-            lines.append('  EDIT skipped paste %s (%s)' % (e.get('pid'), err))
-            continue
-        for c in prefabs.package_commands(pf['packages']):
-            if c not in cmds:
-                cmds.insert(1, c)
-        blocks += pb
-        pastes['paste~%s' % e['pid']] = dict(label='%s (from %s)' % (pf['label'], pf['source']), category='Pasted',
-                                              pivot=pf['pivot'], brush_names=brushes, actors=actors, copy_of=None,
-                                              copyable=False, rotatable=pf.get('rotatable', True), gameplay=False,
-                                              deleted=False, placement=dict(offset=list(e.get('offset') or [0, 0, 0]),
-                                                                            yaw=int(e.get('yaw') or 0),
-                                                                            pitch=int(e.get('pitch') or 0), roll=int(e.get('roll') or 0),
-                                                                            scale=list(e.get('scale') or [1, 1, 1]),
-                                                                            stretch=bool(e.get('stretch'))))
-        geometry = lights = nav = True
-        lines.append('  EDIT pasted %s from %s' % (pf['label'], pf['source']))
     movers = re.findall(r'Begin Actor Class=DeusExMover Name=(\w+)', '\n'.join(blocks))
     for a in edits.get('added') or []:
+        if a['name'] in unreplaced:     # the copy's object it replaces is still there: two objects never share a name
+            lines.append('  EDIT %s %s not added (the object it replaces is still there)' % (a['cls'], a['name']))
+            continue
         if a.get('raw'):            # a whole T3D block (a mover copied from an original map: prefabs.original_actor)
             blocks.append(a['raw'] if a['raw'].endswith('\n') else a['raw'] + '\n')
             if _mover(a['cls']):
                 movers.append(a['name'])
         else:
             props_a = dict(a.get('props', {}))
+            # echo gains its class cannot take (a zone whose Gain is OpenAL's, props.py): left out, and said
+            hidden = props.echo_gains_hidden(a['cls'], props_a)
+            for key in hidden:
+                del props_a[key]
+            if hidden:
+                lines.append(props.echo_gains_line(a['name'], a['cls'], hidden))
             if str(a['cls']).endswith('UCCutscene'):     # its keys, lines and options (editor/cutscenes.py)
                 props_a.update(cutscenes.props(edits, a['name']))
             blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], tuple(int(v) for v in a.get('rot', (0, 0, 0))), '',
@@ -563,25 +661,26 @@ def build(map_name, log=print, options=None, watch=None):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += links.report(edits)
     lines += cutscenes.report(edits)
-    # zones: the WaterZone of every pool, a sky box (and its SkyZoneInfo) for sky surfaces in a map without a sky
-    scene_t3d = Path(__file__).resolve().parent / 'cache' / map_name / 'scene.t3d'
-    has_sky = scene_t3d.exists() and 'Class=SkyZoneInfo ' in scene_t3d.read_text(encoding='latin1', errors='replace')
+    # zones: the WaterZone of every pool, a sky box (and its SkyZoneInfo) for sky surfaces in a map whose source has no
+    # sky (its package's own objects: _classes)
+    has_sky = 'SkyZoneInfo' in _classes(src)
     sky_ops, sky_actors = zones.skybox(edits, has_sky)
     for a in zones.actors(edits) + sky_actors:
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
-    # animations (editor/motions.py): moving blocks (movers), a UCMotion per animated object
-    scene_text = scene_t3d.read_text(encoding='latin1', errors='replace') if scene_t3d.exists() else ''
     # the walkable area in the game (navbake.py): the editor's polygons, made again before every Rebuild
     cmds.append('UC_DEL UCNavMesh0')
     for a in navbake.blocks(edits, map_name):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += navbake.report(edits, map_name)
+    # animations (editor/motions.py): moving blocks (movers), a UCMotion per animated object
     scene_actors = list(t3d.actors(scene_text))
     map_movers = {a['name'] for a in scene_actors if _mover(a['cls'])}
     map_lights = {a['name'] for a in scene_actors if _light(a['cls'])}
     map_lights |= {a['name'] for a in edits.get('added') or [] if _light(a['cls'])}
-    if settings.STANDALONE and not re.search(r'Begin Actor Class=(?:\w+\.)?UCBoot ', scene_text):
-        # DeusEdix: the actor that starts the editor's story, texts and characters' fates in the game
+    if settings.STANDALONE:
+        # DeusEdix: the actor that starts the editor's story, texts and characters' fates in the game, made again at
+        # every build as the walkable area is (UCBoot.PostBeginPlay keeps one when the map has another of its own)
+        cmds.append('UC_DEL UCBoot0')
         blocks.append(Scene._block('UCBoot', (0, 0, 0), 'UCBoot0', (0, 0, 0), '', {}))
     for b in edits.get('boxes') or []:
         if b.get('mover') and all(b['hi'][k] > b['lo'][k] for k in range(3)):
@@ -605,13 +704,15 @@ def build(map_name, log=print, options=None, watch=None):
     lines += mapsettings.report(edits)
     if (edits.get('level') or {}).get('ambient'):
         lights = True
-    cmds += ['UC_DEL UCTag_' + name for name in links.object_tags.entries(edits)]
+    tag_blocks = ['UCTag_' + name for name in links.object_tags.entries(edits)]     # made again (links.blocks)
+    cmds += ['UC_DEL ' + name for name in tag_blocks]
     if blocks:
         (folder / 'T3D' / 'added.t3d').write_text(t3d.import_text(blocks), encoding='latin1')
         cmds.append(r'MAP IMPORTADD FILE="..\T3D\added.t3d"')
         cmds += ['UC_MOVER prep %s 1 1 1' % m for m in movers]
         cmds += ['UC_SCALE %s %.4f' % (a['name'], float(a['scale'])) for a in edits.get('added') or []
                  if a.get('scale') and abs(float(a['scale']) - 1) > 1e-3]
+        cmds += ['UC_SCALE %s %.4f' % (n, scale) for n, scale in grown.items()]    # a copy's objects grown on their own
     for i, b in enumerate(edits.get('boxes') or []):
         lo, hi = b['lo'], b['hi']
         if not all(hi[k] > lo[k] for k in range(3)):
@@ -661,8 +762,14 @@ def build(map_name, log=print, options=None, watch=None):
                  'BRUSH SUBTRACT' if op == 'sub' else 'BRUSH ADD FLAGS=%d' % fl if fl else 'BRUSH ADD']
         geometry = lights = True
         lines.append('  EDIT sky box (%s)' % (edits.get('level') or {}).get('sky', 'hongkong'))
-    cmds += textures.actor_commands(edits, map_name)
-    cmds += props.commands(edits)              # the Properties panel (no rebuild needed)
+    # skins of objects: of the editor's last look only the objects the source has (a pasted one is in it only after a
+    # build), the pasted ones, and one of the source's the look lacks, from their own blocks (textures.wearers)
+    cmds += textures.actor_commands(edits, map_name, source={a['name'] for a in scene_actors},
+                                    blocks=scene_actors + list(t3d.actors('\n'.join(pasted))))
+    # the actors' classes, the map's, the added ones, the pools' WaterZones and a sky box's zone (zones.py, above): echo
+    # gains a zone's class cannot take are left out (props.py)
+    classes = {a['name']: a['cls'] for a in scene_actors + list(edits.get('added') or []) + zones.actors(edits) + sky_actors}
+    cmds += props.commands(edits, classes)     # the Properties panel (no rebuild needed)
     cmds += documents.commands(edits, map_name)
     cmds += links.commands(links.object_tags.with_baked(edits,scene_text), {a['name']:a for a in scene_actors+list(edits.get('added') or []) if a['name'] in map_lights})              # lights the interactions turn on and off
     cmds += motions.commands(edits, map_movers, map_lights)   # the keys of animated movers, moving lights
@@ -675,7 +782,7 @@ def build(map_name, log=print, options=None, watch=None):
         lines += ['  EDIT disabled in game: ' + name for name in sorted(disabled)]
     if any(re.match(r'(Light|Volume|bSpecialLit)', k) for p in list((edits.get('props') or {}).values()) + list((edits.get('rawprops') or {}).values()) for k in p):
         lights = True                          # a light changed in the Properties panel: the lighting is made again
-    lines += props.report(edits)
+    lines += props.report(edits, classes)
     stages = rebuild.plan(options, geometry=geometry, lights=lights, paths=nav,
                           keep_paths=edits.get('paths') is False, inactive=bool(disabled))
     if nav and not stages['paths']:
@@ -706,6 +813,8 @@ def build(map_name, log=print, options=None, watch=None):
     if surface_cmds:
         cmds.append('UC_LIGHTSTATS')
     cmds += [r'MAP SAVE FILE="..\Output\%s.dx"' % map_name, r'MAP EXPORT FILE="..\Output\%s.t3d"' % map_name]
+    import preview_bundle
+    cmds += preview_bundle.commands(folder, map_name, enabled=True)
     t0 = time.time()
     try:
         text, _ = kit.execute(folder, cmds, 'build.log', timeout=3600, watch=watch)
@@ -724,16 +833,18 @@ def build(map_name, log=print, options=None, watch=None):
     if surface_cmds and lights:
         lines += surfaces.report(text)
     for m in re.finditer(r'UCMapKit\|(?:set|del)\|missing\|(\S+)', text):
-        if m.group(1) in {documents.tag(map_name, name) for name in documents.validate(edits)} | {'UCNavMesh0'}:
-            continue  # replacing a document block (or the walkable area) that did not exist in the base map yet
+        if m.group(1) in {documents.tag(map_name, name) for name in documents.validate(edits)} | set(tag_blocks) | {'UCNavMesh0', 'UCBoot0'}:
+            continue  # replacing a document block (or an object tag, the walkable area, UCBoot0) that did not exist in the base map yet
         lines.append('  EDIT skipped %s (not in the map any more)' % m.group(1))
     shutil.copy2(out, OUT / (map_name + '.dx'))
     shutil.copy2(folder / 'Output' / (map_name + '.t3d'), OUT / (map_name + '.t3d'))
     activation.save(OUT / (map_name + '.dx'), folder, edits)
+    preview_bundle.publish(OUT / (map_name + '.dx'), folder)
     lines += zones.report((OUT / (map_name + '.t3d')).read_text(encoding='latin1', errors='replace'), edits)
     info['built'] = dict(source=stamp(src), groups=edits.get('groups') or {}, at=time.time(),
                          geometry=geometry, lights=lights, paths=nav, pastes=pastes, unnest=list(edits.get('unnest') or []),
-                         disabled=sorted(disabled), rebuild_mode=options['mode'], edits=edits_fingerprint)
+                         disabled=sorted(disabled), rebuild_mode=options['mode'], edits=edits_fingerprint,
+                         surfaces=edits.get('surfaces') or [])
     _info_path(map_name).write_text(json.dumps(info), encoding='utf-8')
     what = [w for w, f in (('geometry', geometry), ('lighting', lights), ('paths', nav)) if f]
     lines.append('built %s in %.1fs%s' % (map_name, time.time() - t0,

@@ -114,13 +114,44 @@ def _blank_lines_end(text, i):
 
 
 def actors(text):
-    """Yield dicts: cls, name, body (raw text), props (top-level key -> raw value)."""
-    for b in walk(blocks(text)):
-        if b.kind != 'Actor' or b.tail is None or 'Class' not in b.fields or 'Name' not in b.fields:
-            continue
-        props = dict(s.split('=', 1) for s in b.lines if '=' in s)
-        yield dict(cls=b.fields['Class'], name=b.fields['Name'], body=text[_blank_lines_end(text, b.head_end):b.tail_line],
-                   props=props, raw=text[b.start:_blank_lines_end(text, b.end)])
+    """Yield actor dictionaries without constructing their brush/polygon trees.
+
+    All block kinds still participate in nesting and malformed-End recovery,
+    exactly as blocks(). Only Actor metadata and its own properties are kept.
+    Results retain preorder, duplicate-name handling, and original raw text.
+    """
+    stack, found, pos = [], [], 0
+    for line in text.split('\n'):
+        eol = pos + len(line)
+        s = line.strip()
+        if s.startswith('Begin '):
+            words = s.split(None, 2)
+            kind, row = words[1], None
+            if kind == 'Actor':
+                fields = dict(w.split('=', 1) for w in (words[2] if len(words) > 2 else '').split() if '=' in w)
+                if 'Class' in fields and 'Name' in fields:
+                    row = dict(cls=fields['Class'], name=fields['Name'], props={},
+                               start=pos + line.index('Begin'), head_end=eol, tail_line=None, end=None)
+                    found.append(row)
+            stack.append((kind, row))
+        elif s.startswith('End ') and stack:
+            kind = s.split(None, 2)[1]
+            if stack[-1][0] == kind or any(frame[0] == kind for frame in stack):
+                while True:
+                    closed, row = stack.pop()
+                    if closed == kind:
+                        if row is not None:
+                            row['tail_line'], row['end'] = pos, eol
+                        break
+        elif s and stack and stack[-1][1] is not None and '=' in s:
+            key, value = s.split('=', 1)
+            stack[-1][1]['props'][key] = value
+        pos = eol + 1
+    for row in found:
+        if row['end'] is not None:
+            yield dict(cls=row['cls'], name=row['name'], props=row['props'],
+                       body=text[_blank_lines_end(text, row['head_end']):row['tail_line']],
+                       raw=text[row['start']:_blank_lines_end(text, row['end'])])
 
 
 def struct(value):

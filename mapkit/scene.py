@@ -13,6 +13,7 @@ Placement like the modern editors: drop() and snap() are resolved after the BSP 
 line traces in the live SDK editor (kit.Session), using each class's real collision size.
 """
 import math
+import os
 import re
 import shutil
 from pathlib import Path
@@ -21,6 +22,9 @@ import geom
 import kit
 import settings
 import activation
+
+_SOURCE_FILE = Path(__file__).resolve()
+_EDITOR_FOLDER = str(_SOURCE_FILE.parent / 'editor')
 
 PF_INVISIBLE = 1
 PF_MASKED = 2
@@ -61,6 +65,67 @@ def _head(block):
 def _loc(block):
     m = re.search(r'Location=\(X=([-\d.e]+),Y=([-\d.e]+),Z=([-\d.e]+)\)', block)
     return tuple(float(c) for c in m.groups()) if m else None
+
+
+def _editor_props():
+    """The map editor's editor/props.py (its Properties panel, the game's class defaults), from the editor's folder."""
+    import sys as _sys
+    if _EDITOR_FOLDER not in _sys.path:
+        _sys.path.insert(0, _EDITOR_FOLDER)
+    import props as _props
+    return _props
+
+
+# rested_height's reading of the class defaults: the cache file it read ('key': its path, time and props.VERSION, as
+# props.class_tree keeps its tree), their class tree and each class's CollisionHeight (no tree: no cache file of this
+# VERSION), and its answers by class name. A build asks for every walking point of its script, and a 3 MB file read
+# each time cost 1.8 s for a map script's 85 PathNodes (28 Oct 2026)
+_RESTED = {'key': None}
+
+
+def rested_height(cls):
+    """The collision height of a walking point the build rests on the floor (UC_NAVDROP *), None for any other class:
+    by the game's classes when their defaults are here (editor/props.py: a NavigationPoint, not a PlayerStart or a
+    Teleporter; its CollisionHeight), else by its name in any case (RESTED_POINTS). The defaults come only from a cache
+    file of props.VERSION (props.cached_defaults: never a session of the host from a build; an older one goes by the
+    name too), read once per file (_RESTED)."""
+    name = str(cls).split('.')[-1]
+    props = _editor_props()
+    key = (str(props.CACHE), props.CACHE.stat().st_mtime_ns if props.CACHE.exists() else None, props.VERSION)
+    if _RESTED['key'] != key:
+        d = props.cached_defaults() if key[1] is not None else None
+        classes = (d or {}).get('classes') or {}
+        _RESTED.clear()
+        _RESTED.update(key=key, tree=props.tree_of(classes) if d else None, answers={},
+                       heights={c: ((v.get('props') or {}).get('CollisionHeight') or [''])[0] for c, v in classes.items()})
+    answers, tree = _RESTED['answers'], _RESTED['tree']
+    if name not in answers:
+        if tree is None or name not in tree:
+            answers[name] = RESTED_POINTS.get(name.lower())
+        elif not tree.is_a(name, 'NavigationPoint') or tree.is_a(name, 'PlayerStart', 'Teleporter'):
+            answers[name] = None
+        else:
+            try:
+                answers[name] = float(_RESTED['heights'].get(name, ''))
+            except ValueError:
+                answers[name] = NAV_HEIGHT
+    return answers[name]
+
+
+# the walking points a build rests on the floor (host UC_NAVDROP *, dropNavPoints: every NavigationPoint but PlayerStart
+# and Teleporter, at the floor below it plus its collision height, the floor looked for up to FloorSearch, 512, below
+# it; one closer than FloorTolerance, 2, stays: host/UCEngineBridge.ini [Navigation]): the editor sees and records one
+# there, not where the script put it (_apply_actor_edits). Decided by the game's classes (rested_height); a class they
+# do not have by its name in any case: RESTED_POINTS, the game's walking points with their collision height (this PC's
+# class defaults; the game spells it Ambushpoint)
+RESTED_POINTS = {'pathnode': 15, 'patrolpoint': 15, 'wanderpoint': 15, 'hidepoint': 15, 'ambushpoint': 15, 'mapexit': 15,
+                 'guardpoint': 15, 'spawnpoint': 15, 'homebase': 15, 'liftcenter': 15, 'liftexit': 15, 'buttonmarker': 15,
+                 'triggermarker': 15, 'inventoryspot': 40, 'warpzonemarker': 40}
+NAV_HEIGHT, NAV_TOLERANCE = 15, 2       # NavigationPoint's collision height, the host's FloorTolerance
+# how far under the script's place a rested point's recorded one may be: New map rooms before 28 Oct 2026 put PathNode0
+# 48 over the floor, rested at 15.5 (32.5 lower). Not FloorSearch's 512: a point over an upper floor would take a ground
+# floor point's record, after a script change that shifts the automatic names
+NAV_REST_BELOW = 64
 
 
 BRUSH_MODEL = 'UCBrushModel'           # the models of the script's brushes (Scene.brush_blocks)
@@ -173,13 +238,21 @@ class Scene:
             self.actor_group[name] = g
             self.actor_note[name] = self._note()
 
+    def _is_scene_source(self, filename):
+        """Resolve each script filename once per Scene, just like its source text."""
+        paths = getattr(self, '_source_paths', None)
+        if paths is None:
+            paths = self._source_paths = {}
+        if filename not in paths:
+            paths[filename] = Path(filename).resolve() == _SOURCE_FILE
+        return paths[filename]
+
     def _note(self):
         """The comment of the map script above the line being run: (its line, its first line of text).
         Un-nesting a structure in the map editor keeps the things under one comment together."""
         import sys
-        here = Path(__file__).resolve()
         f = sys._getframe(1)
-        while f is not None and (f.f_code.co_name != '<module>' or Path(f.f_code.co_filename).resolve() == here):
+        while f is not None and (f.f_code.co_name != '<module>' or self._is_scene_source(f.f_code.co_filename)):
             f = f.f_back
         if f is None:
             return None
@@ -216,9 +289,8 @@ class Scene:
         if self._group or not getattr(self, 'auto_groups', True):
             return self._group
         import sys
-        here = Path(__file__).resolve()
         f = sys._getframe(1)
-        while f is not None and (f.f_code.co_name != '<module>' or Path(f.f_code.co_filename).resolve() == here):
+        while f is not None and (f.f_code.co_name != '<module>' or self._is_scene_source(f.f_code.co_filename)):
             f = f.f_back
         if f is None:
             return None
@@ -458,6 +530,8 @@ class Scene:
             else:
                 self.add(br, semisolid=True)
         self.zone_actors += _zones.actors(edits)
+        import copy
+        self.preview_boxes = {}
         for b in edits.get('boxes', []):
             lo, hi = b['lo'], b['hi']
             turn = lambda br, inside=False: geom.rotate_brush(br, [(lo[k]+hi[k])/2 for k in range(3)], b.get('rot'), inside)
@@ -487,14 +561,19 @@ class Scene:
                     self.sub(turn(br, True))
                 continue
             for br in _blocks.brushes(b, mat, b.get('name', 'EditBox')):     # a hollow one: its convex pieces
-                self.add(turn(br), semisolid=not b.get('solid', False))
+                br = turn(br)
+                br.preview_box = b['name']
+                self.preview_boxes[b['name']] = copy.deepcopy(b)
+                self.add(br, semisolid=not b.get('solid', False))
         # walls, roads, floors and roofs drawn in the editor (Map > Draw ...): editor/drawn.py
         import drawn as _drawn
         for pkg in _drawn.packages(edits):           # their textures' packages, when not among the usual ones
             if pkg not in self.packages and ('OBJ LOAD FILE="%s.utx"' % pkg) not in self.extra_obj:
                 self.extra_obj.append('OBJ LOAD FILE="%s.utx"' % pkg)
         built, report = _drawn.all_brushes(edits)
+        self.preview_drawn = {p['name']: copy.deepcopy(p) for p in edits.get('drawn', [])}
         for _name, br in built:
+            br.preview_drawn = _name
             self.add(br, semisolid=True)
         for line in report:
             print(line)
@@ -514,12 +593,34 @@ class Scene:
             m = re.search(r'Location=\(X=([-\d.]+),Y=([-\d.]+),Z=([-\d.]+)\)', block)
             return tuple(float(c) for c in m.groups()) if m else None
 
+        points = []                        # the script's walking points [(name, place)], read when first needed
+
+        def walking_points():
+            if not points:
+                points.append([(n, loc_of(b)) for b in self.actors for c, n in [head(b)]
+                               if n and loc_of(b) and rested_height(c) is not None])
+            return points[0]
+
+        def rested(cls, at, orig, name):
+            # a walking point the build rested on the floor (rested_height) is seen by the editor there: its original
+            # place is the script's in x and y, and in z from a little under it (NAV_REST_BELOW: New map rooms before 28
+            # Oct 2026 put PathNode0 at z 48, rested at 15.5) up to its collision height over it, with no other walking
+            # point of the script between them (stacked points: one over an upper floor never takes a ground floor's)
+            height = rested_height(cls)
+            if height is None or max(abs(at[0] - orig[0]), abs(at[1] - orig[1])) > 2:
+                return False
+            if not at[2] - NAV_REST_BELOW <= orig[2] <= at[2] + height + NAV_TOLERANCE:
+                return False
+            low, high = sorted((orig[2], at[2]))
+            return not any(n != name and max(abs(p[0] - at[0]), abs(p[1] - at[1])) <= 2 and low <= p[2] <= high
+                           for n, p in walking_points())
+
         def match(block, name, info):
             cls, n = head(block)
-            if n != name or (info.get('cls') and info['cls'].split('.')[-1] != cls.split('.')[-1]):
-                return False
-            orig = info.get('orig')
-            if orig and loc_of(block) and max(abs(a - b) for a, b in zip(loc_of(block), orig)) > 2:
+            if n != name or (info.get('cls') and info['cls'].split('.')[-1].lower() != cls.split('.')[-1].lower()):
+                return False                   # the class in any case (the game's Ambushpoint, a script's AmbushPoint)
+            orig, at = info.get('orig'), loc_of(block)
+            if orig and at and max(abs(a - b) for a, b in zip(at, orig)) > 2 and not rested(cls, at, orig, n):
                 return False
             return True
         deleted = edits.get('deleted', {})
@@ -532,9 +633,11 @@ class Scene:
         keep = []
         for block in self.actors:
             _, n = head(block)
-            if n in deleted and match(block, n, deleted[n]):
-                report.append('  EDIT deleted %s' % n)
-                continue
+            if n in deleted:
+                if match(block, n, deleted[n]):
+                    report.append('  EDIT deleted %s' % n)
+                    continue
+                report.append('  EDIT skipped %s (not found as %s at its original place)' % (n, deleted[n].get('cls')))
             if n in replaced:
                 if match(block, n, replaced[n]):
                     report.append('  EDIT replaced %s' % n)
@@ -573,6 +676,12 @@ class Scene:
                 report.append('  EDIT %s %s not added (the object it replaces is still there)' % (a['cls'], a['name']))
                 continue
             props = dict(a.get('props', {}))
+            # echo gains its class cannot take (a zone whose Gain is OpenAL's, editor/props.py): left out, and said
+            hidden = _editor_props().echo_gains_hidden(a['cls'], props)
+            for key in hidden:
+                del props[key]
+            if hidden:
+                report.append(_editor_props().echo_gains_line(a['name'], a['cls'], hidden))
             if str(a['cls']).endswith('UCCutscene'):  # its keys, lines and options (editor/cutscenes.py)
                 import sys as _sys
                 _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
@@ -624,6 +733,10 @@ class Scene:
         for a in getattr(self, 'zone_actors', None) or []:    # the WaterZones of the pools, the sky zone
             self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
             report.append('  EDIT zone %s %s' % (a['cls'], a['name']))
+        if edits.get('props'):
+            # the Properties' echo gains a zone's class cannot take, the pools' WaterZones' (just above) too: left out of
+            # their UC_PROP (actor_commands), said here
+            report += _editor_props().echo_gains_report(edits, self._classes())
         if edits.get('links') or edits.get('usable') or edits.get('objectTags'):
             # the interactions (when this happens, do that): UCLink actors of the editor's package (editor/links.py),
             # and a UCUsable for every object JC can use (Properties > Usable)
@@ -684,6 +797,7 @@ class Scene:
         for g in [g for g in self.groups if g not in pivots]:       # sections with nothing in them
             self.groups.pop(g)
         self.placement = {}
+        self.copied = {}        # the name of each object a copy makes -> its original's (actor_commands)
         gedits = dict(edits.get('groups') or {})
         copies = list(edits.get('copies') or [])
         # structures taken apart in the editor (Un-nest): before the copies, so a piece can be copied too
@@ -719,6 +833,7 @@ class Scene:
                     new = '%s_%s' % (old, cid)
                     self.actors.append(block.replace('Name=%s\n' % old, 'Name=%s\n' % new, 1))
                     self.actor_group[new] = cname
+                    self.copied[new] = old
                     if old in self.actor_note:
                         self.actor_note[new] = self.actor_note[old]
             for p in list(self.pending):
@@ -726,6 +841,7 @@ class Scene:
                     new = '%s_%s' % (p[3], cid)
                     self.pending.append(p[:3] + (new,) + p[4:])
                     self.actor_group[new] = cname
+                    self.copied[new] = p[3]
                     if p[3] in self.actor_note:
                         self.actor_note[new] = self.actor_note[p[3]]
             report.append('  EDIT copied %s as %s' % (g, cname))
@@ -1005,6 +1121,17 @@ class Scene:
                     actors=[m for m in inside if m not in brush_ord],
                     copyable=not any(m in self.movers or m in self.explicit for m in inside),
                     rotatable=not any(m in self.movers for m in inside)))
+        # Editable block surfaces must follow their live proxy after the build, without a second painted volume.
+        for name, snapshot in getattr(self, 'preview_boxes', {}).items():
+            brushes = [i for i, (_, br, _) in enumerate(self.ops) if getattr(br, 'preview_box', None) == name]
+            if brushes:
+                out['block~' + name] = dict(label=name, category='', brushes=brushes, actors=[],
+                    pivot=[0, 0, 0], placement=dict(offset=[0, 0, 0], yaw=0), previewBox=snapshot)
+        for name, snapshot in getattr(self, 'preview_drawn', {}).items():
+            brushes = [i for i, (_, br, _) in enumerate(self.ops) if getattr(br, 'preview_drawn', None) == name]
+            if brushes:
+                out['drawn~' + name] = dict(label=name, category='', brushes=brushes, actors=[],
+                    pivot=[0, 0, 0], placement=dict(offset=[0, 0, 0], yaw=0), previewDrawn=snapshot)
         for g, s in out.items():
             s['notes'] = {n: self.actor_note[n] for n in s['actors'] if self.actor_note.get(n)}
         return out
@@ -1223,6 +1350,10 @@ class Scene:
     def _mover_names(self):
         return set(self.movers) | {_head(a)[1] for a in self.actors if re.match(r'Begin Actor Class=\w*Mover', a)}
 
+    def _classes(self):
+        """{actor name: its class} of the actors as they are now: the script's and the editor's added ones."""
+        return {n: c for c, n in (_head(a) for a in self.actors) if n}
+
     def actor_commands(self, folder, brushes=()):
         """brushes (brush_blocks): the script's brushes, imported ahead of the actors in the same file."""
         import t3d
@@ -1234,10 +1365,16 @@ class Scene:
                                                               sorted(getattr(self, 'scales', {}).items())]
         if self.tex_edits:                    # skins of objects changed in the map editor
             import textures as _textures
-            cmds += _textures.actor_commands(self.tex_edits, self.map_name)
+            # every block of the build (textures.wearers): the script's own objects (own_names) as the editor's last
+            # look has them (one it lacks from its block), every other one the build imports from its block, a copy as
+            # its original (copied); None: every object of the look (no build)
+            own = getattr(self, 'own_names', None)
+            cmds += _textures.actor_commands(self.tex_edits, self.map_name, source=own,
+                                             blocks=[] if own is None else list(t3d.actors('\n'.join(self.actors))),
+                                             copies=getattr(self, 'copied', None))
         if getattr(self, 'prop_edits', None):   # the Properties panel of the map editor
             import props as _props
-            cmds = cmds + _props.commands(self.prop_edits)
+            cmds = cmds + _props.commands(self.prop_edits, self._classes())
             import documents as _documents
             cmds += _documents.commands(self.prop_edits, self.map_name)
         if getattr(self, 'sound_edits', None):  # the sound packages the edits use (the game's, the imported ones)
@@ -1264,6 +1401,10 @@ class Scene:
         return cmds + activation.commands(getattr(self, 'activation_edits', {}))
 
     def build(self, out_map, light=True, paths=True, label=None, keep_t3d=True, edits=None):
+        with kit.prewarm_build(label or self.map_name) as prepared:
+            return self._build_ready(out_map, light, paths, label, keep_t3d, edits, prepared)
+
+    def _build_ready(self, out_map, light=True, paths=True, label=None, keep_t3d=True, edits=None, prepared=None):
         """drop/snap placements are traced in a live session on the geometry alone; the map itself
         is then built in one fresh run in the proven order (LIGHT APPLY crashed at random when
         actors were imported after a rebuild, or inside the interactive session)."""
@@ -1279,6 +1420,9 @@ class Scene:
         # structure that moved them together and named every added object in the Story's lists.
         self.auto_groups = False
         self._materialize_pastes()
+        # the objects the script makes (its drop/snap placements too): what the edits make from here on is the build's
+        # own (actor_commands: "every object wearing" a texture takes the script's as the editor's last look has them)
+        self.own_names = {_head(b)[1] for b in self.actors} | {p[3] for p in self.pending}
         changes = {}
         if edits and Path(edits).exists():
             changes = json.loads(Path(edits).read_text(encoding='utf-8'))
@@ -1323,7 +1467,7 @@ class Scene:
             import player_profiles
             for a in player_profiles.blocks(changes):
                 self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
-        folder = kit.new_run([], label or self.map_name)
+        folder = prepared.folder if prepared is not None else kit.new_run([], label or self.map_name)
         cmds = self.commands(folder)
         import sys as _sys
         _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
@@ -1336,6 +1480,8 @@ class Scene:
                      'MAP LOAD FILE="..\\Output\\player-base.dx"'] + player_cmds
         import surfaces as _surfaces
         surface_cmds = _surfaces.commands(changes)
+        for line in _surfaces.left_out(changes):     # the Look bits the host does not write yet: left out, said
+            print(line)
         if surface_cmds:
             cmds += _surfaces.load_commands(changes, local_package=self.map_name) + ['UC_LIGHTSTATS'] + surface_cmds
             light = light or _surfaces.needs_lighting(changes)
@@ -1349,7 +1495,9 @@ class Scene:
         cmds.append('UC_CAMERAS clear')
         cmds.append('MAP SAVE FILE="..\\Output\\%s.dx"' % self.map_name)
         cmds.append('MAP EXPORT FILE="..\\Output\\%s.t3d"' % self.map_name)
-        text, _ = kit.execute(folder, cmds, 'build.log', timeout=3600)
+        import preview_bundle
+        cmds += preview_bundle.commands(folder, self.map_name, enabled=os.environ.get('DEUSEDIX_BUILD_PREVIEW') == '1')
+        text, _ = kit.execute(folder, cmds, 'build.log', timeout=3600, prepared=prepared)
         _players.verify_build(folder)
         if surface_cmds and light:
             for line in _surfaces.report(text):
@@ -1365,9 +1513,12 @@ class Scene:
             if exported.exists():
                 shutil.copy2(exported, Path(out_map).with_suffix('.t3d'))   # for plans (mcp_server map_plan)
             activation.save(out_map, folder, changes)
+            preview_bundle.publish(out_map, folder)
             # structures for the map editor (brush order = the order UC_BSPDUMP reports)
             Path(out_map).with_suffix('.groups.json').write_text(json.dumps(self.structures(), indent=0),
                                                                  encoding='utf-8')
+            # the surface rows it was built with: what the editor's view shows of them already (data.built_surfaces)
+            Path(out_map).with_suffix('.surfaces.json').write_text(json.dumps(changes.get('surfaces') or []), encoding='utf-8')
         print('built %s in %.1fs  %s  %s  -> %s' % (self.map_name, sec, world, light_line, out_map or out))
         if getattr(self, 'zone_edits', None) and (folder / 'Output' / (self.map_name + '.t3d')).exists():
             import zones as _zones                 # zones of the editor that leak

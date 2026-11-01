@@ -42,7 +42,7 @@ COMMAND_STAGES = (
     ('MAP REBUILD', 'bsp'), ('BSP REBUILD', 'bsp'), ('UC_WORLD', 'bsp'),
     ('UC_NAVDROP', 'paths'), ('PATHS DEFINE', 'paths'), ('UC_NAVLIFT', 'paths'), ('UC_KEEPPATHS', 'paths'),
     ('LIGHT APPLY', 'lights'), ('UC_LIGHTSTATS', 'lights'), ('UC_CAMERAS', 'lights'),
-    ('MAP SAVE', 'write'), ('MAP EXPORT', 'write'),
+    ('MAP SAVE', 'write'), ('MAP EXPORT', 'write'), ('UC_PREVIEW', 'write'),
 )
 # the host's own lines (kit.execute, tools\mapkit\host)
 COMMAND, COMPLETE, DONE = 'UCMapKit|command|', 'UCMapKit|complete|', 'UCMapKit|done'
@@ -242,6 +242,13 @@ class Job:
             self.stopped, self.state = True, 'cancelling'
             stop_process(self.process)
 
+    def settle(self):
+        """The build is over: too late to cancel it from here on. -> was it cancelled? Asked by _work for the output it
+        keeps or puts back, and by server.rebuild for the map's record of Play's preparation, so both agree."""
+        with self.lock:
+            self.final = True
+            return self.stopped
+
     def finish(self, state, ok, lines, keep_report=None):
         """The build is over: its report (seconds per stage in STAGES order, Preparing until the host started; the
         counts of its output), kept in keep_report when given (the next build's estimate), then its state."""
@@ -342,9 +349,7 @@ def _work(job, options, build, out, turn, operation, guard):
             except kit.Stopped:
                 pass
             finally:
-                with job.lock:
-                    job.final = True               # too late to cancel from here on
-                if job.stopped:
+                if job.settle():                   # too late to cancel from here on
                     put_back(out, job.map, job.before, kept)
                     state = 'cancelled'
             if state != 'cancelled':
