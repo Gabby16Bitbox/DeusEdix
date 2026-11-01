@@ -6,13 +6,16 @@
 // the bone that explains its motion best, then the joints where two bones turn about), poses that
 // skeleton (key frames, or a file of motion capture: BVH, FBX such as Mixamo's, glTF) and bakes the
 // animation into frames of the model like the game's. editor/anims.py keeps the animations
-// (tools/mapkit/anims) and packs the models with them into UCAnims.u; the mod's UCAnimSet gives a
+// (tools/mapkit/anims) and packs the models with them into settings.ANIMS_PACKAGE; the editor's UCAnimSet gives a
 // character that model in the game (its own or the HDTP one).
 //
 // Space: three.js (Y up). The game's actor space (X forward, Y right, Z up) is mapped (x, z, y), so the
 // characters face +x and their right is +z. The swap turns the triangles' winding round: their corners are
 // taken in the other order (buildModel), or the inside of the far side is drawn (the back seen from the front).
 import * as THREE from 'three';
+import { installBlenderBridge } from './studio-blender.js';
+import { mountControlPicker } from './studio-control-picker.js';
+import { preparedRig, bindHumanoid, originalBinding } from './studio-rig-binding.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { sampleCurve, upsertKey, continuousAngle } from './studio-curves.js';
@@ -600,6 +603,7 @@ function sampleIK(data, f, anim) {
   const keys = Array.isArray(data) ? data : data.keys;
   const track = (field, name) => sampleTrack({ keys: keys.map((k) => ({ f: k.f, [field === 'q' ? 'q' : 'v']: k[field], mode: k.mode })) }, f, anim, name);
   const value = { v: track('v', '$root'), q: track('q', ''), pole: track('pole', '$root') };
+  value.twist=sampleTrack({keys:keys.map(k=>({f:k.f,v:k.twist||[0,0],mode:k.mode}))},f,anim,'$root');
   for (const [field, group] of Object.entries(data.curves || {})) {
     const xyz = ['x', 'y', 'z'].map(axis => sampleCurve(group[axis], f, anim));
     value[field] = field === 'q' ? new THREE.Quaternion().setFromEuler(new THREE.Euler(...xyz.map(THREE.MathUtils.degToRad))).toArray() : xyz;
@@ -607,16 +611,26 @@ function sampleIK(data, f, anim) {
   return value;
 }
 // the controller a pose gives a chain: where its end is, how it is turned, the side its middle joint bends to
-// (a limb almost straight bends the way a body does: its own slight bend could point a knee backwards)
+// Keep even a shallow authored bend when switching to IK; only an actually
+// straight limb needs a fallback direction, since its bend plane is undefined.
 function ikFromPose(rig, pose, chain) {
   const [a, b, c] = CHAINS[chain].bones.map((n) => BI[n]), W = worldOf(rig, pose);
   const A = W.Jw[a], B = W.Jw[b], C = W.Jw[c], along = C.clone().sub(A).normalize();
   let n = B.clone().sub(A);
   n.addScaledVector(along, -n.dot(along));
-  const straight = new THREE.Vector3().subVectors(B, A).angleTo(new THREE.Vector3().subVectors(C, B)) < THREE.MathUtils.degToRad(20);
-  n = !straight && n.length() > 0.01 * rig.H ? n.normalize() : bendOf(rig, chain, along);
+  n = n.length() > 0.000001 * rig.H ? n.normalize() : bendOf(rig, chain, along);
   const reach = A.distanceTo(B) + B.distanceTo(C);
-  return { v: C.toArray().map(r2), q: W.Rw[c].toArray().map(r5), pole: B.clone().addScaledVector(n, reach * 0.6).toArray().map(r2) };
+  const target={ v: C.toArray().map(r5), q: W.Rw[c].toArray().map(r5), pole: B.clone().addScaledVector(n, reach * 0.6).toArray().map(r5) };
+  const snapped={rot:pose.rot.map(q=>q.clone()),root:pose.root.clone()};
+  solveChain(rig,snapped,W,chain,target);
+  const canonical=worldOf(rig,snapped);
+  target.twist=[a,b].map((bone,i)=>{
+    const axis=(i ? C.clone().sub(B) : B.clone().sub(A)).normalize();
+    const delta=W.Rw[bone].clone().multiply(canonical.Rw[bone].clone().invert());
+    const angle=2*Math.atan2(new THREE.Vector3(delta.x,delta.y,delta.z).dot(axis),delta.w);
+    return r5(THREE.MathUtils.euclideanModulo(angle+Math.PI,2*Math.PI)-Math.PI);
+  });
+  return target;
 }
 // a turn from the axes (aim, hinge): the bone's direction and the axis its middle joint bends about
 function frameOf(aim, hinge) {
@@ -643,6 +657,9 @@ function solveChain(rig, pose, W, chain, t) {
   const hinge = new THREE.Vector3().crossVectors(along, n).normalize();
   const turn = (restAim, aim) => frameOf(aim, hinge).multiply(frameOf(restAim, restHinge).invert());
   const R1 = turn(J[b].clone().sub(J[a]), M.clone().sub(A)), R2 = turn(J[c].clone().sub(J[b]), E.clone().sub(M));
+  const twist=t.twist||[0,0];
+  R1.premultiply(new THREE.Quaternion().setFromAxisAngle(M.clone().sub(A).normalize(),twist[0]));
+  R2.premultiply(new THREE.Quaternion().setFromAxisAngle(E.clone().sub(M).normalize(),twist[1]));
   const R3 = new THREE.Quaternion().fromArray(t.q).normalize();
   const parent = PARENT[a] >= 0 ? W.Rw[PARENT[a]] : new THREE.Quaternion();
   pose.rot[a] = parent.clone().invert().multiply(R1);
@@ -662,6 +679,7 @@ function writeIKKey(anim, chain, f, t) {
   const keys = anim.ik[chain]?.keys || [], previous = keys.filter((k) => k.f <= f).at(-1);
   const mode = keys.find((k) => k.f === f)?.mode || previous?.mode || (anim.interp === 'linear' || anim.source === 'import' ? 'linear' : 'smooth');
   const key = { f, v: t.v.map(r2), q: t.q.map(r5), pole: t.pole.map(r2), mode };
+  if(t.twist)key.twist=t.twist.map((angle,i)=>r5(angle+Math.round(((previous?.twist?.[i]??angle)-angle)/(2*Math.PI))*2*Math.PI));
   const data = anim.ik[chain] ||= {};
   data.keys = [...keys.filter((k) => k.f !== f), key].sort((x, y) => x.f - y.f);
   for (const [field, group] of Object.entries(data.curves || {})) {
@@ -683,7 +701,10 @@ function setIK(chain, on) {
   if (on) {
     const frames = new Set([Math.max(0, Math.min(a.frames - 1, Math.round(ST.frame)))]);
     for (const n of CHAINS[chain].bones) for (const f of channelFrames(a, n)) frames.add(f);
-    for (const f of [...frames].sort((x, y) => x - y)) writeIKKey(a, chain, f, ikFromPose(ST.rig, fullPose(ST.rig, a, f), chain));
+    // Sample every FK pose before the first IK key enables the solver. Writing
+    // while sampling makes the new first target overwrite all later poses.
+    const targets=[...frames].sort((x,y)=>x-y).map(f=>[f,ikFromPose(ST.rig,fullPose(ST.rig,a,f),chain)]);
+    for(const [f,target] of targets)writeIKKey(a,chain,f,target);
   } else {
     // Curves can change between sparse controller keys: retain every baked pose on FK conversion.
     const frames = a.ik[chain].curves ? Array.from({ length: a.frames }, (_, f) => f) : channelFrames(a, 'ik:' + chain);
@@ -916,6 +937,7 @@ function historyStep(redo = false) {
 }
 function refreshAnimation() {
   if (!ST.anim) return;
+  syncHumanoidBinding();
   ST.timeline = { frames: ST.anim.frames, anim: ST.anim };
   $('#as-frame').max = ST.anim.frames - 1;
   setFrame(Math.min(ST.frame, ST.anim.frames - 1)); drawKeys(); renderPanel();
@@ -1090,6 +1112,7 @@ function ensureDom() {
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = new URL('./studio-channels.css', import.meta.url).href;
   document.head.appendChild(css);
+  const controlsCSS=document.createElement('link');controlsCSS.rel='stylesheet';controlsCSS.href=new URL('./studio-control-picker.css',import.meta.url).href;document.head.append(controlsCSS);
   const el = document.createElement('div');
   el.id = 'studio';
   el.innerHTML = `
@@ -1189,6 +1212,7 @@ function ensureDom() {
   $('#as-new').onclick = () => newAnim();
   $('#as-import').onclick = () => $('#as-file').click();
   $('#as-export').onclick = () => exportGLB();
+  installBlenderBridge($('#as-export').parentElement, ST, { BONES, framePos, seamsOf, gripsOf, facesBySlot, skinMaterial, fullPose, poseAt, sampleIK, stopPlay, beginEdit, commitEdit, showAnim });
   $('#as-file').onchange = () => { const f = $('#as-file').files[0]; $('#as-file').value = ''; if (f) importFile(f); };
   $('#as-play').onclick = () => togglePlay();
   $('#as-frame').oninput = () => { stopPlay(); setFrame(+$('#as-frame').value); };
@@ -1311,7 +1335,7 @@ async function openModel(mesh) {
   frameCamera();
   renderLists();
   if (ST.anim) showAnim(false); else { setPose(restPose()); renderPanel(); curveEditor?.refresh(); }
-  status(`${mesh.split('.').pop()}: ${ST.m.FV} vertices, ${ST.m.seqs.length} animations · skeleton fit ${ST.rig.error} units`);
+  status(`${mesh.split('.').pop()}: ${ST.m.FV} vertices, ${ST.m.seqs.length} animations · ${ST.rig.binding ? 'prepared humanoid binding' : 'skeleton fit '+ST.rig.error+' units'}`);
 }
 // 2: the toes found towards the front, the head's tip straight up; 3: hands of their own (the wrist where the
 // skin begins); 4: a hand found by its shape leaves out the coat beside it. A rig made again is saved; the one
@@ -1320,18 +1344,20 @@ const RIG_VERSION = 4;
 const RIG_SAME_FROM = 3;          // the animations made on a rig from this version on are shown on the current one
 async function rigFor(mesh, m) {
   const r = (await api('/api/studio_rig?mesh=' + encodeURIComponent(mesh))).rig;
-  if (r && r.version === RIG_VERSION) return r;
+  if (r && r.version === RIG_VERSION) return bindHumanoid(r,mesh,m);
   if (r && (r.version || 0) < RIG_SAME_FROM) {  // kept for the animations made with it, before it is replaced
     try { await api('/api/studio_rig_legacy', r); }
     catch (e) { status('Restart DeusEdix to give the skeleton its hands (its server is older than this page).', 'warn'); return r; }
   }
-  const rig = autoRig(m, mesh, (t) => t && status(t));
+  const rig = preparedRig(mesh,m,RIG_VERSION) || autoRig(m, mesh, (t) => t && status(t));
   await api('/api/studio_rig', rig);
-  return rig;
+  return bindHumanoid(rig,mesh,m);
 }
 // an animation made before the hands (no rig version): the skeleton it was made with, so that it stays the same
 const legacyRigs = new Map();
 async function rigOfAnim(anim, mesh, current) {
+  // Existing clips keep their exact weights; the prepared binding is opt-in for new clips.
+  if (anim && anim.binding !== current.binding) current=originalBinding(current);
   if (!anim || (anim.rig || 0) >= RIG_SAME_FROM) return current;
   if (!legacyRigs.has(mesh)) legacyRigs.set(mesh, await api('/api/studio_rig_legacy?mesh=' + encodeURIComponent(mesh)).then((j) => j.rig || null).catch(() => null));
   return legacyRigs.get(mesh) || current;
@@ -1339,6 +1365,11 @@ async function rigOfAnim(anim, mesh, current) {
 async function useRigOf(anim) {               // ST.rig: the skeleton the animation shown is posed on
   const rig = await rigOfAnim(anim, ST.mesh, ST.rigCurrent);
   if (rig !== ST.rig) { ST.rig = rig; if (skel) buildModel(); }
+}
+function syncHumanoidBinding() {
+  if (!ST.anim || (ST.anim.rig || 0) < RIG_SAME_FROM || !ST.rigCurrent) return;
+  const rig=ST.anim.binding===ST.rigCurrent.binding ? ST.rigCurrent : originalBinding(ST.rigCurrent);
+  if (rig!==ST.rig) { ST.rig=rig; if (skel) buildModel(); }
 }
 
 // ---------------------------------------------------------------- the model and its skeleton on screen
@@ -1436,15 +1467,20 @@ function showIK() {
   const W = worldOf(ST.rig, ST.pose);
   for (const c of Object.keys(CHAINS)) {
     const { box, pole, line } = ikGroup.userData[c], on = ikOn(a, c);
-    box.visible = pole.visible = line.visible = on;
-    if (!on) continue;
-    const t = sampleIK(a.ik[c], ST.frame, a), picked = ST.sel === 'ik' && ST.ikChain === c;
+    const picked = ST.sel === 'ik' && ST.ikChain === c;
+    box.visible = on; pole.visible = line.visible = on && picked;
+    const t = on ? sampleIK(a.ik[c], ST.frame, a) : ikFromPose(ST.rig,ST.pose,c);
     box.position.fromArray(t.v); box.quaternion.fromArray(t.q).normalize();
     pole.position.fromArray(t.pole);
     box.material.color.set(picked && ST.ikPart !== 'pole' ? 0xff6b6b : 0xffb347);
     pole.material.color.set(picked && ST.ikPart === 'pole' ? 0xff6b6b : 0xffb347);
     line.geometry.setFromPoints([W.Jw[BI[CHAINS[c].bones[1]]], pole.position.clone()]);
     line.computeLineDistances();
+  }
+  skel.userData.lines.visible=!!ST.showBones;
+  for(const ball of skel.userData.balls) {
+    const chain=chainOfBone(BONES[ball.userData.bone][0]);
+    ball.visible=(!chain || !ikOn(a,chain)) && (!!ST.showBones || [0,2,4].includes(ball.userData.bone));
   }
 }
 function showPositions(P) {
@@ -1528,7 +1564,7 @@ function newAnim(base) {
   const used = new Set((ST.list.anims || []).map((a) => a.name.toLowerCase()));
   let i = 1, name;
   do name = (base || 'MyAnim') + (i > 1 || base ? i : ''); while (used.has(name.toLowerCase()) && ++i);
-  ST.anim = { name, fps: 15, frames: 30, loop: true, interp: 'smooth', source: 'made', made_on: ST.mesh, rig: RIG_VERSION, keys: [keyOf(0, restPose())] };
+  ST.anim = { name, fps: 15, frames: 30, loop: true, interp: 'smooth', source: 'made', made_on: ST.mesh, rig: RIG_VERSION, binding: ST.rigCurrent.binding, keys: [] };
   ST.dirty = true;
   if (ST.rig !== ST.rigCurrent) { ST.rig = ST.rigCurrent; buildModel(); }
   showAnim();
@@ -1543,7 +1579,7 @@ function copySeq(seqName) {
   if (ST.rig !== ST.rigCurrent) { ST.rig = ST.rigCurrent; buildModel(); }
   const keys = [];
   for (let f = 0; f < s.frames; f++) keys.push(keyOf(f, poseFromFrame(ST.rig, ST.m, s.start + f)));
-  ST.anim = { name, fps: s.rate, frames: s.frames, loop: true, interp: 'linear', source: 'copy:' + s.name, made_on: ST.mesh, rig: RIG_VERSION, keys };
+  ST.anim = { name, fps: s.rate, frames: s.frames, loop: true, interp: 'linear', source: 'copy:' + s.name, made_on: ST.mesh, rig: RIG_VERSION, binding: ST.rigCurrent.binding, keys };
   ST.dirty = true;
   showAnim();
   status(`A copy of ${s.name} on the skeleton: change the poses, then Save.`);
@@ -1553,12 +1589,13 @@ async function editAnim(name) {
   ST.anim = await api('/api/studio_anim?name=' + encodeURIComponent(name));
   ST.dirty = false;
   await useRigOf(ST.anim);
-  if (ST.rig !== ST.rigCurrent) status(`${ST.anim.name} was made before the hands had bones: it keeps its old skeleton (hand and forearm move together).`);
+  if (ST.rig !== ST.rigCurrent && (ST.anim.rig || 0) < RIG_SAME_FROM) status(`${ST.anim.name} was made before the hands had bones: it keeps its old skeleton (hand and forearm move together).`);
   showAnim();
 }
 function showAnim(resetHistory = true) {
   keyDrag?.cancel();
   stopPlay();
+  syncHumanoidBinding();
   if (resetHistory) { ST.undo = []; ST.redo = []; ST.pending = null; ST.saved = ST.dirty ? null : JSON.stringify(ST.anim); ST.animationId = (ST.animationId || 0) + 1; }
   ST.graphRevision++; graphCache = null;
   ST.sel = 'bone';
@@ -1755,6 +1792,7 @@ function inbetweenAnimation(anim, rig, scope, f, weight) {
     if (name.startsWith('ik:')) {
       const chain = name.slice(3), a = sampleIK(anim.ik[chain], left, anim), b = sampleIK(anim.ik[chain], right, anim);
       writeIKKey(result, chain, f, { v: a.v.map((v, i) => v + (b.v[i] - v) * weight), pole: a.pole.map((v, i) => v + (b.pole[i] - v) * weight),
+        twist:a.twist.map((v,i)=>v+(b.twist[i]-v)*weight),
         q: new THREE.Quaternion().fromArray(a.q).slerp(new THREE.Quaternion().fromArray(b.q), weight).toArray() });
     } else {
       const a = poseAt(anim, left), b = poseAt(anim, right);
@@ -2065,7 +2103,7 @@ function afterEdit(scope = [ST.sel === 'ik' ? 'ik:' + ST.ikChain : graphKey()]) 
   if (!ST.anim || !ST.pose) return;
   beginEdit();
   const f = Math.max(0, Math.min(ST.anim.frames - 1, Math.round(ST.frame)));
-  writePoseKeys(ST.anim, ST.pose, f, scope.filter((n) => !n.startsWith('ik:')));
+  writePoseKeys(ST.anim, ST.pose, f, scope.filter((n) => !n.startsWith('ik:') && (!chainOfBone(n) || !ikOn(ST.anim,chainOfBone(n)))));
   // the IK controllers keyed where they are (with the whole pose, or the one selected)
   for (const c of Object.keys(CHAINS)) if (ikOn(ST.anim, c) && (scope === CHANNELS || scope.includes('ik:' + c)))
     writeIKKey(ST.anim, c, f, sampleIK(ST.anim.ik[c], f, ST.anim));
@@ -2077,8 +2115,8 @@ function pickBone(e) {
   const ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
   const ik = ikGroup?.visible ? ray.intersectObjects(ikGroup.children.filter((o) => o.visible && o.userData.chain), false)[0] : null;
-  if (ik) { selectIK(ik.object.userData.chain, ik.object.userData.part); return; }
-  const hit = ray.intersectObjects(skel.userData.balls, false)[0];
+  if (ik && ikOn(ST.anim,ik.object.userData.chain)) { selectIK(ik.object.userData.chain,ik.object.userData.part);return; }
+  const hit = ray.intersectObjects(skel.userData.balls.filter(o=>o.visible), false)[0];
   if (hit) { selectBone(hit.object.userData.bone); return; }
   // a prop held by the character (it is picked before the body it is in front of)
   const ph = propPreview?.root.visible ? ray.intersectObject(propPreview.root, true).find((h) => h.object.visible) : null;
@@ -2117,7 +2155,7 @@ function selectBone(b) {
 }
 function onKey(e) {
   if (!ST.open) return;
-  if ($('#as-inbetween')?.open) return;
+  if ($('#as-inbetween')?.open || $('#as-blender-dialog')?.open) return;
   if (window.__menubar?.settingsOpen || e.target.isContentEditable) return;
   if (keyDrag) {
     if (e.key === 'Escape') keyDrag.cancel();
@@ -2216,14 +2254,17 @@ function renderPanel() {
       <label>IK</label>${Object.entries(CHAINS).map(([c, d]) => `<button type="button" data-ik="${c}" aria-label="${d.label}" aria-pressed="${ikOn(a, c)}" class="${ikOn(a, c) ? 'on' : ''}" title="${d.label}: ${ikOn(a, c) ? 'on (click: back to FK, its poses kept)' : 'off (click: move the ' + (c.endsWith('arm') ? 'hand' : 'foot') + ' and the limb follows)'}">${limbIcon(c)}</button>`).join('')}</div>
     ${ikNow ? `<div class="st-prop-transform st-ik-fields"><span>${ST.ikPart === 'pole' ? 'Pole' : 'Controller'} (character space)</span>${['X', 'Y', 'Z'].map((ax, i) => `<label title="Hold and drag, or type">${ax}<input type="number" step="0.5" data-ik-axis="${i}" value="${(ST.ikPart === 'pole' ? ikNow.pole : ikNow.v)[i].toFixed(1)}"></label>`).join('')}</div>` : ''}
     ${gripRow(a, f)}
-    <div class="st-row"><label>Bone</label><select id="as-bone">${BONES.map(([n, , l], k) => `<option value="${k}" ${k === ST.bone ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-    ${ST.anim && ST.pose ? (() => {      // the bone's turn typed in degrees, as the rings turn it (0 0 0: as the model stands)
-      const e = new THREE.Euler().setFromQuaternion(ST.pose.rot[ST.bone] || new THREE.Quaternion(), 'XYZ');
+    <div class="st-row"><label>Control</label><select id="as-bone">${BONES.map(([n, , l], k) => {
+      const chain=chainOfBone(n);
+      return chain && ikOn(a,chain) ? '' : `<option value="${k}" ${!ikNow && k === ST.bone ? 'selected' : ''}>${esc(l)}</option>`;
+    }).join('')}${Object.entries(CHAINS).filter(([c])=>ikOn(a,c)).map(([c,d])=>`<option value="ik:${c}" ${ikNow && ST.ikChain===c ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select></div>
+    ${ST.anim && ST.pose && !(ikNow && ST.ikPart==='pole') ? (() => {      // rotations always edit the active FK bone or IK end control
+      const e = new THREE.Euler().setFromQuaternion(ikNow ? new THREE.Quaternion().fromArray(ikNow.q).normalize() : ST.pose.rot[ST.bone] || new THREE.Quaternion(), 'XYZ');
       const deg = (r) => Math.round(r * 180 / Math.PI * 10) / 10;
-      return `<div class="st-row" title="The selected bone's turn in degrees on its own axes (0 0 0 as the model stands). Typing keys it at this frame."><label>Turn °</label>${['x', 'y', 'z'].map((k, i) => `<input type="number" id="as-r${k}" step="5" value="${deg([e.x, e.y, e.z][i])}" style="width:56px" aria-label="Turn ${k.toUpperCase()}">`).join('')}</div>`;
+      return `<div class="st-row" title="${ikNow ? 'The active hand or foot controller in character space.' : 'The selected FK bone on its own axes.'} Typing keys this control at the current frame."><label>Turn °</label>${['x', 'y', 'z'].map((k, i) => `<input type="number" id="as-r${k}" step="5" value="${deg([e.x, e.y, e.z][i])}" style="width:56px" aria-label="Turn ${k.toUpperCase()}">`).join('')}</div>`;
     })() : ''}
     <div class="hint" style="margin:2px 0 6px">Pick a bone and turn its rings (R), or turn IK on for a limb and move its controller (G). Hips: G moves the body. Changes key only what moved; drag keys to retime.</div>
-    <div class="st-row"><button id="as-resetb" title="Reset only the selected channel">Reset ${channel === '$root' ? 'position' : 'bone'}</button><button id="as-mirror" title="Swap left and right and key the whole pose">Mirror pose</button>
+    <div class="st-row"><button id="as-resetb" title="Reset only the selected channel">Reset ${channel === '$root' ? 'position' : ikNow ? 'control' : 'bone'}</button><button id="as-mirror" title="Swap left and right and key the whole pose">Mirror pose</button>
       <button id="as-delkey" ${canDeleteChannelKey(a, channel, f) ? '' : 'disabled'} title="Delete only this channel's key (Delete); keep its final key">Delete key</button></div>
     <div class="st-row"><label>From game</label><select id="as-fromseq">${seqs.map((s) => `<option>${esc(s.name)}</option>`).join('')}</select>
       <input type="number" id="as-fromf" value="1" min="1" style="width:46px" title="frame of that animation"><button id="as-frompose" title="This frame takes the pose of that frame of the game">Pose</button></div>
@@ -2243,7 +2284,10 @@ function renderPanel() {
   };
   $('#as-fps').onchange = () => { beginEdit(); a.fps = Math.max(1, Math.min(60, Math.round(+$('#as-fps').value || 15))); commitEdit(); };
   $('#as-loop').onchange = () => { beginEdit(); a.loop = $('#as-loop').checked; commitEdit(); };
-  $('#as-bone').onchange = () => selectBone(+$('#as-bone').value);
+  $('#as-bone').onchange = () => {
+    const value=$('#as-bone').value;
+    if(value.startsWith('ik:'))selectIK(value.slice(3));else selectBone(+value);
+  };
   for (const k of ['x', 'y', 'z']) {
     const inp = $('#as-r' + k);
     if (!inp) continue;
@@ -2251,6 +2295,11 @@ function renderPanel() {
       if (!ST.anim || !ST.pose) return;
       const r = (id) => (+$('#as-r' + id).value || 0) * Math.PI / 180;
       beginEdit();
+      if(ST.sel==='ik' && ikOn(ST.anim,ST.ikChain)) {
+        const t=sampleIK(ST.anim.ik[ST.ikChain],Math.round(ST.frame),ST.anim);
+        t.q=new THREE.Quaternion().setFromEuler(new THREE.Euler(r('x'),r('y'),r('z'),'XYZ')).toArray();
+        writeIKKey(ST.anim,ST.ikChain,Math.round(ST.frame),t);commitEdit();return;
+      }
       ST.pose.rot[ST.bone] = new THREE.Quaternion().setFromEuler(new THREE.Euler(r('x'), r('y'), r('z'), 'XYZ'));
       solveIK(ST.rig, ST.pose, ST.anim, ST.frame);
       setPose(ST.pose);
@@ -2265,7 +2314,16 @@ function renderPanel() {
     input.onchange = () => { const t = value(); if (!t) return; beginEdit(); writeIKKey(a, ST.ikChain, Math.round(ST.frame), t); commitEdit(); };
   }
   wireGrip(a);
-  $('#as-resetb').onclick = () => { if (channel === '$root') ST.pose.root.set(0, 0, 0); else ST.pose.rot[ST.bone] = new THREE.Quaternion(); setPose(ST.pose); afterEdit([channel]); attachGizmo(); };
+  $('#as-resetb').onclick = () => {
+    if(ikNow) {
+      beginEdit();const t=ikFromPose(ST.rig,poseAt(a,ST.frame),ST.ikChain);
+      if(ST.ikPart==='pole') {const current=sampleIK(a.ik[ST.ikChain],ST.frame,a);current.pole=t.pole;writeIKKey(a,ST.ikChain,f,current);}
+      else writeIKKey(a,ST.ikChain,f,t);
+      commitEdit();attachGizmo();return;
+    }
+    if (channel === '$root') ST.pose.root.set(0, 0, 0); else ST.pose.rot[ST.bone] = new THREE.Quaternion();
+    setPose(ST.pose); afterEdit([channel]); attachGizmo();
+  };
   $('#as-mirror').onclick = () => mirrorPose();
   $('#as-delkey').onclick = () => deleteKey();
   $('#as-frompose').onclick = () => {
@@ -2280,6 +2338,7 @@ function renderPanel() {
   $('#as-test').onclick = () => save(true);
   renderPropPanel($('#as-props-host'), ST, BONES, change => { stopPlay(); beginEdit(); change(); commitEdit(); }, status,
     { world: () => worldOf(ST.rig, ST.pose), begin: () => { stopPlay(); beginEdit(); }, preview: () => { setPose(ST.pose); if (ST.sel === 'prop') attachGizmo(); } });
+  mountControlPicker(el,ST,{setIK,selectIK,selectBone,moveMode,frameSelected,refresh:()=>{setPose(ST.pose);renderPanel();}});
 }
 
 // the grip of the hand selected: 0 open, 100 closed as the game closes this model's hands
@@ -2422,7 +2481,7 @@ async function importFile(file) {
     name = name.slice(0, 32);
     let n = name, i = 2;
     while (used.has(n.toLowerCase())) n = name + i++;
-    ST.anim = { name: n, fps, frames, loop: true, interp: 'linear', source: 'import', file: file.name, made_on: ST.mesh, rig: RIG_VERSION, keys };
+    ST.anim = { name: n, fps, frames, loop: true, interp: 'linear', source: 'import', file: file.name, made_on: ST.mesh, rig: RIG_VERSION, binding: ST.rigCurrent.binding, keys };
     ST.dirty = true;
     showAnim();
     status(`Imported ${file.name}: ${frames} frames at ${fps} fps${missing.length ? ' · not in the file (they follow their parent): ' + missing.join(', ') : ''}. Save to put it in the game.`, missing.length > 4 ? 'warn' : '');
@@ -2444,7 +2503,7 @@ function b64(bytes) {
   for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
   return btoa(s);
 }
-// bake one animation on the models of a character class (its own and HDTP's), then pack UCAnims.u
+// bake one animation on the models of a character class (its own and HDTP's), then pack the animations package (settings.ANIMS_PACKAGE)
 async function bakeFor(models, anim, log = status) {
   for (const mesh of models) {
     const m = mesh === ST.mesh && ST.m ? ST.m : await loadModel(mesh);
@@ -2527,17 +2586,18 @@ Deus Ex animates its characters frame by frame. The Studio gives each model a sk
 - make a new one: pick a bone in the channel list or viewport, turn its rings, move to another frame and pose again. Each bone has independent keys. Space plays, the arrows step frame by frame, K keys the selected bone, Shift+K keys the whole pose, Delete removes only the selected bone's key;
 - Import a file: BVH (motion capture), FBX (Mixamo: download "Without skin", or with skin), glTF/GLB.
 
-IK: the buttons L hand, R hand, L foot, R foot turn IK on for an arm or a leg. A box at the hand or foot is then its controller: G moves it and the limb follows, R turns the hand or foot; the diamond (the pole) is where the elbow or knee points. The controller has keys of its own (its row in the list). A foot on IK stays where it is while the body moves. Click the button again to go back to FK: the bones get keys with the IK's poses.
+Body controls: use the small body diagram to select the head, chest or hips, or select a hand/foot. Use its IK button to switch modes. Bones shows the technical skeleton; Focus frames the selected control. G moves hips or IK targets; R rotates the selected control.
+IK: the hand and foot buttons turn IK on for an arm or a leg. Only the active mode's controls are shown; switch IK off to use that limb's FK joints. A box at the hand or foot is its controller: G moves it and the limb follows, R turns the hand or foot. Select that controller to show its bend direction (the diamond). The controller has keys of its own (its row in the list). A foot on IK stays where it is while the body moves. Click the IK button again to go back to FK: the bones get keys with the IK's poses.
 
 Export .glb: the character, its skeleton and the animation open, for Blender (set the scene to the animation's fps, then File > Import > glTF 2.0) or any program that reads glTF. Animate there, export glTF again and Import file here: the animation comes back as it was made, at its frame rate.
 
-Keys: expand or collapse bone groups, search, or filter to the selected bone. Drag a key to change its frame. Body position is a separate track. Mirror pose and From game > Pose key the whole body.
+Keys: New starts with an empty timeline. Key pose adds all bone and body-position keys at the current frame; Key bone adds just the selected control. Expand or collapse bone groups, search, or filter to the selected bone. Drag a key to change its frame. Body position is a separate track. Mirror pose and From game > Pose key the whole body.
 
 Props: + Add prop finds bottles, cigarettes and other game objects. Choose In scene for a stationary object beside the character, or Attached to bone for a grip. Placement can be changed later without moving the object; Snap to bone resets the grip. Adjust Position/Offset, Rotation and Scale with numbers or the gizmo. Scene props stay at the actor's starting position during this animation, even while the actor moves. Props are visual only, with no collision or inventory changes, and exist for the duration of the animation. Save and Rebuild to use them in game. Pickup/drop keys are not supported yet.
 
 Graph: show or hide it beside the playback controls; Ctrl+Space (or Maximize) fills the Studio with it. Pick a bone and click its curves to edit X/Y/Z rotation, or select Body position. Existing game-frame poses are retained when curves are enabled. The eyes hide curves only; they never mute motion. Select and drag keys, or enter Frame and Value. Smooth eases between poses, Linear keeps a constant speed, Hold keeps a pose until the next key. Fit frames the curve; the mouse wheel zooms. Ctrl+Z undoes; Ctrl+Shift+Z or Ctrl+Y redoes.
 
-Save bakes it into frames of the model for the game (the original model and the HDTP one), in UCAnims.u. Then in the map, a character's Properties > Animation > When idle: your animation.
+Save bakes it into frames of the model for the game (the original model and the HDTP one), in the editor's animations package. Then in the map, a character's Properties > Animation > When idle: your animation.
 
 Skeleton: every human has the same 17 bones, with the joints where a body has them (shoulders, elbows, hips, knees, ankles at their usual heights) fitted to the model's own motion; children are the same, smaller. The hands start where the skin of the wrist begins. Animations made before keep their old skeleton (hand and forearm together).
 
@@ -2548,6 +2608,8 @@ Keys (as Blender): G move (the body, or a prop), R rotate, S scale (props), Alt+
 Navigation: MMB orbit, Shift+MMB pan, Ctrl+MMB or wheel zoom; Numpad 2/4/6/8 orbit (Ctrl pans), 5 perspective/orthographic, 9 opposite view, +/− zoom. Home over the viewport frames everything; Numpad . or F frames the selection. Shift+Backquote enters walk: mouse looks, WASD moves, Q/E down/up, Shift faster, click or Enter confirms, Esc/right-click restores the view.
 
 Inbetween: put the playhead between two keys, choose Inbetween, adjust Weight toward the previous or next pose, then Create key. Selected control and Whole pose support FK and IK; Cancel changes nothing and Undo restores the previous animation.
+
+Blender: use the Blender button beside Export .glb to continue the current draft there. Include existing animation keys keeps your motion; switch it off to send only the current pose with an empty timeline. New drafts start without keys. The character stands on Blender's grid without changing its game coordinates. In the DeusEdix sidebar, select body controls and choose IK or FK per limb. Bend direction selects its elbow/knee control; the grip sliders open or close the hands. More controls shows the other FK controls. Only the active FK or IK controls are shown and selectable. Key control keys the selection; Key pose keys the active controls without adding keys to the inactive mode. Choose Send to DeusEdix, then Bring changes back here: hand/foot targets remain editable. Changed channels return as sampled keys; Undo restores the previous draft. Props and hand grips travel with the character. Move Hips in Pose Mode; keep the rig object and deformation skeleton in place. Save in the Studio when ready. The bridge is bundled and only loaded in this separate Blender session; original humanoid bindings are prepared in advance and need no AI runtime.
 
 Graph follows the selected bone or IK controller. IK offers Position, Rotation and Pole curves. Previous/next key shortcuts can be changed under Settings > Keyboard shortcuts > Animation Studio.
 
@@ -2563,7 +2625,7 @@ window.__studio = { open, close, ensure, store, rigFor, RIG_VERSION, retarget, a
     selectProp, propFromHandle, moveMode, clearTransform, copyPose, pastePose, toggleGraphMax, frameSelected, frameAll, viewFrom,
     gripsOf, setGripKey, gripAt, handSide,
     CHAINS, setIK, selectIK, ikFromHandle, ikFromPose, solveIK, fullPose, sampleIK, writeIKKey, ikCurveGroup, setGraphTarget, previewGraph, characterScene, facesBySlot, exportGLB, skin, seamsOf,
-    get gizmo() { return gizmo; }, get handle() { return handle; }, get camera() { return camera; }, get orbit() { return orbit; }, get curveEditor() { return curveEditor; } },
+    get skeleton() { return skel; }, get ikControls() { return ikGroup; }, get gizmo() { return gizmo; }, get handle() { return handle; }, get camera() { return camera; }, get orbit() { return orbit; }, get curveEditor() { return curveEditor; } },
   // for tests and videos: the camera at an angle around the model (degrees from the front), at a distance (heights)
   // (bone: the joint looked at, where the pose has it; the hips by default)
   view(deg = 0, dist = 1.9, up = 0.15, bone = 0) {

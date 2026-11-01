@@ -5,9 +5,9 @@
   <model>.json (the header read: sequences, counts, mapping). The 3D view plays them on the characters.
 - What the editor's choices become in the map: edits['anims'] = {character name: {'idle': sequence,
   'rate': speed, 'own': True when it uses an animation of the Animation Studio, 'loc': [x, y, z]}} and
-  the PatrolAnim of the patrol points (Properties) -> UCAnimSet actors of the mod (one per character,
+  the PatrolAnim of the patrol points (Properties) -> UCAnimSet actors of the editor's package (one per character,
   one for every patrol point). 'own': the character takes, in the game, the copy of its model in
-  UCAnims.u (the Studio's animations added to it), whatever model the game gave it (HDTP or not).
+  settings.ANIMS_PACKAGE (the Studio's animations added to it), whatever model the game gave it (HDTP or not).
   'still': True (Inspector > Behaviour > Stays put): the character never turns while standing or talking,
   animated or not (UCAnimSet.bStayPut); only its head follows JC.
 """
@@ -31,7 +31,7 @@ def _safe(name):
 
 
 def class_info(refresh=False, log=print):
-    """{class: {'mesh', 'pkg', 'parents'}} of every actor class of the game and the mod with a model
+    """{class: {'mesh', 'pkg', 'parents'}} of every actor class of the game and the editor's package with a model
     (UC_CLASSES), made once."""
     path = CACHE / 'classes.json'
     if path.exists() and not refresh:
@@ -174,7 +174,7 @@ def for_class(cls, log=print):
 # tools/mapkit/anims: <name>.json the animations (bone rotations by frame), rigs/<model>.json the skeleton
 # of each model (joints, the bones of each vertex: made by the Studio from the game's own animations),
 # baked/<model>/<name>.bin + .json the animation as the model's frames (made by the Studio), packed by
-# pack() into UCAnims.u: a copy of each model with its animations added.
+# pack() into settings.ANIMS_PACKAGE: a copy of each model with its animations added.
 STUDIO = kit.PROJECT / 'tools' / 'mapkit' / 'anims'
 
 
@@ -278,7 +278,8 @@ def _studio_validate(anim):
                 if not 0 <= key['v'][0] <= 1:
                     raise ValueError('%s grip must be from 0 to 1' % side)
     keys = anim.get('keys')
-    _studio_key_frames(keys, frames, 'Pose')
+    # A new draft can remain at rest without inserting a mandatory pose key.
+    _studio_key_frames(keys, frames, 'Pose', allow_empty=True)
     for key in keys:
         rotations = key.get('rot')
         if not isinstance(rotations, dict):
@@ -328,6 +329,7 @@ def _studio_validate(anim):
                 _studio_vector(key.get('v'), 3, label + ' position')
                 _studio_vector(key.get('q'), 4, label + ' turn')
                 _studio_vector(key.get('pole'), 3, label + ' pole')
+                if 'twist' in key:_studio_vector(key['twist'], 2, label + ' twist')
                 if 'mode' in key and (not isinstance(key['mode'], str) or key['mode'] not in _STUDIO_CURVE_MODES):
                     raise ValueError('%s interpolation must be smooth, linear or hold' % label)
             if 'curves' in data:
@@ -456,7 +458,7 @@ def baked_for(mesh):
 
 
 def pack(log=print):
-    """UCAnims.u: a copy of every model with Studio animations, the animations after its own frames
+    """settings.ANIMS_PACKAGE: a copy of every model with Studio animations, the animations after its own frames
     (host UC_ANIMNEW), in dist\ and, when the game is closed, in the game (else at the next install)."""
     import live
     lines = []
@@ -496,7 +498,7 @@ def pack(log=print):
     else:
         settings.PACKAGES_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copy2(dist, settings.PACKAGES_DIR / dist.name)
-        # the game reads its maps folder (UnatcoMaps, where Install puts the mod's packages) before System: a copy
+        # the game reads its maps folder (settings.MAPS_DIR, where Install puts the editor's packages) before System: a copy
         # there would hide the new one (20 Oct 2026: an imported model was not in the game), so it is replaced too
         if (settings.MAPS_DIR / dist.name).exists():
             shutil.copy2(dist, settings.MAPS_DIR / dist.name)

@@ -45,7 +45,7 @@ class TestProps(unittest.TestCase):
         self.assertNotIn('props',anims.baked_for('DeusExCharacters.GM_Suit')[0])
 
     def test_unrelated_map_no_controllers(self):
-        self.save_bake(); self.assertEqual(props.blocks(self.root,{'anims':{'Bob':{'idle':'Other'}}},lambda:INFO,'UCAnims'),[])
+        self.save_bake(); self.assertEqual(props.blocks(self.root,{'anims':{'Bob':{'idle':'Other'}}},lambda:INFO,'DevAnims'),[])
 
     def test_invalid_schema_without_partial_save(self):
         for key,value in [('bone','missing'),('scale',float('nan')),('scale',-1),('position',[1,2]),('rotation',[0,float('inf'),0]),('cls',"Bottle'Injected"),('enabled','yes')]:
@@ -70,12 +70,12 @@ class TestProps(unittest.TestCase):
 
     def test_stale_props_require_save(self):
         self.save_bake();a=animation();a['props'][0]['position'][0]=10;anims.studio_save(a)
-        with self.assertRaisesRegex(ValueError,'Save Drink'):props.blocks(self.root,{'anim':'Drink'},lambda:INFO,'UCAnims')
+        with self.assertRaisesRegex(ValueError,'Save Drink'):props.blocks(self.root,{'anim':'Drink'},lambda:INFO,'DevAnims')
 
     def test_disable_then_remove_clears_tracks(self):
         self.save_bake();a=animation();a['props'][0]['enabled']=False;anims.studio_save(a)
         anims.bake_save('DeusExCharacters.GM_Suit','Drink',130,15,b'\0'*1560,props=[])
-        self.assertEqual(props.blocks(self.root,{'anim':'Drink'},lambda:INFO,'UCAnims'),[])
+        self.assertEqual(props.blocks(self.root,{'anim':'Drink'},lambda:INFO,'DevAnims'),[])
         anims.studio_delete('Drink');self.assertFalse(list((self.root/'baked').rglob('Drink*')))
 
     def test_old_animations_need_no_new_fields(self):

@@ -1,0 +1,15 @@
+body #studio #as-blender { padding:0 6px; height:22px; min-height:22px; display:inline-flex; align-items:center; justify-content:center; }
+body #studio #as-blender img { width:62px; height:19px; object-fit:contain; }
+body #studio #as-blender-dialog { width:min(460px,calc(100vw - 32px)); max-height:calc(100vh - 32px); box-sizing:border-box; overflow:auto; padding:12px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius,4px); box-shadow:0 14px 30px #0009; }
+body #studio #as-blender-dialog::backdrop { background:#0008; }
+body #studio #as-blender-dialog h3 { margin:0 0 12px; font-size:13px; color:var(--heading); }
+body #studio #as-blender-dialog label { display:flex; flex-direction:column; gap:4px; margin:8px 0; min-width:0; }
+body #studio #as-blender-dialog :is(button,input,select) { height:22px; min-height:22px; padding:0 8px; box-sizing:border-box; line-height:18px; font-size:12px; }
+body #studio #as-blender-dialog :is(input,select) { width:100%; min-width:0; }
+body #studio #as-blender-dialog .st-blender-actions { display:flex; flex-wrap:wrap; gap:4px; }
+body #studio #as-blender-dialog p { margin:8px 0; line-height:1.45; overflow-wrap:anywhere; font-size:12px; }
+body #studio #as-blender-dialog [role=status] { min-height:18px; color:var(--dim); }
+body #studio #as-blender-dialog footer { display:flex; justify-content:flex-end; margin-top:12px; }
+body #studio #as-blender-dialog details { border-top:1px solid var(--line); padding-top:8px; }
+body #studio #as-blender-dialog label.st-blender-keys { flex-direction:row; align-items:center; gap:4px; }
+body #studio #as-blender-dialog .st-blender-keys input { width:auto; height:auto; min-height:0; padding:0; flex:none; }

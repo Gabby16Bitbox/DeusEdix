@@ -148,6 +148,75 @@ class StudioValidation(unittest.TestCase):
             value['extra'] = bad
             self.assert_rejected_without_changes(value, 'valid JSON data')
 
+    def test_independent_tracks_round_trip_without_normalizing_or_touching_legacy_keys(self):
+        value = animation()
+        value['tracks'] = {bone: {'keys': [dict(f=0, q=[0, 0.2, 0, 0.9797959]),
+                                         dict(f=11, q=[0, 0, 0, 1], mode='hold')]}
+                           for bone in anims._STUDIO_BONES}
+        value['tracks']['$root'] = {'keys': [dict(f=3, v=[1, -2.5, 3], mode='linear'),
+                                            dict(f=9, v=[0, 1, 0], mode='smooth')],
+                                    'extra': 'Preserved track note'}
+        before = copy.deepcopy(value)
+        anims.studio_save(value)  # No curves: validates before the legacy early return.
+        self.assertEqual(anims.studio_get(value['name']), before)
+        self.assertEqual(value, before)
+        value['tracks']['head']['keys'] = []  # Explicit rest, not legacy fallback.
+        value['tracks']['$root']['keys'] = []
+        anims.studio_save(value)
+        self.assertEqual(anims.studio_get(value['name']), value)
+        value['tracks'] = {}
+        anims.studio_save(value)
+        self.assertEqual(anims.studio_get(value['name']), value)
+
+    def test_invalid_track_shape_names_and_frames_never_replace_saved_file(self):
+        anims.studio_save(animation())
+        cases = [
+            (None, 'tracks must be an object'),
+            ([], 'tracks must be an object'),
+            ({'unknown': {'keys': []}}, 'Unknown track bone'),
+            ({'head': []}, 'track must be an object'),
+            ({'head': {}}, 'keys must be an array'),
+            ({'head': {'keys': None}}, 'keys must be an array'),
+            ({'head': {'keys': [None]}}, 'keys must be objects'),
+        ]
+        for frames, message in (((0, 0), 'sorted, unique'), ((7, 2), 'sorted, unique'),
+                                ((-1,), 'integers'), ((12,), 'integers'),
+                                ((True,), 'integers'), ((2.5,), 'integers')):
+            cases.append(({'head': {'keys': [dict(f=f, q=[0, 0, 0, 1]) for f in frames]}}, message))
+        for tracks, message in cases:
+            with self.subTest(tracks=tracks):
+                value = animation()
+                value['tracks'] = tracks
+                self.assert_rejected_without_changes(value, message)
+
+    def test_invalid_track_values_and_modes_never_replace_saved_file(self):
+        anims.studio_save(animation())
+        for bone, field, vector in (('head', 'q', [0, 0, 0, 1]), ('$root', 'v', [0, 0, 0])):
+            for invalid in (None, vector[:-1], vector + [0], 'not a vector'):
+                with self.subTest(bone=bone, invalid=invalid):
+                    value = animation()
+                    value['tracks'] = {bone: {'keys': [dict(f=0, **{field: invalid})]}}
+                    self.assert_rejected_without_changes(value, '%d numbers' % len(vector))
+            for bad in (float('nan'), float('inf'), -float('inf'), True, '5', 10 ** 400):
+                with self.subTest(bone=bone, bad=str(bad)):
+                    invalid = vector.copy()
+                    invalid[0] = bad
+                    value = animation()
+                    value['tracks'] = {bone: {'keys': [dict(f=0, **{field: invalid})]}}
+                    self.assert_rejected_without_changes(value, 'finite number')
+            for mode in ('bezier', None, True, []):
+                with self.subTest(bone=bone, mode=mode):
+                    value = animation()
+                    value['tracks'] = {bone: {'keys': [dict(f=0, mode=mode, **{field: vector})]}}
+                    self.assert_rejected_without_changes(value, 'interpolation')
+
+    def test_tracks_do_not_relax_legacy_keys_validation(self):
+        value = animation()
+        value['tracks'] = {'head': {'keys': []}}
+        value['keys'] = []
+        self.assert_rejected_without_changes(value, 'at least one key')
+        self.assertFalse(self.root.exists())
+
     def test_failed_atomic_replace_leaves_saved_animation_and_no_temporary_file(self):
         anims.studio_save(animation())
         before = (self.root / 'SyntheticMotion.json').read_bytes()

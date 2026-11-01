@@ -1,15 +1,15 @@
 """3D models in the map editor (the Models tab of the browser).
 
 - Every model the game can load: the game's, Revision's, HDTP's, the packages of other mods (Packages
-  panel) and the mod's own UCModels (host UC_MESHLIST, cache/_models/list.json). The models of a package
+  panel) and the editor's own settings.MODELS_PACKAGE (host UC_MESHLIST, cache/_models/list.json). The models of a package
   are exported for the browser the first time it is opened (UC_MESHES on one UCMeshDeco per mesh:
   cache/_models/<package>/).
-- A model is placed as a UCMeshDeco of the mod (src/UnatcoContinues/Classes/UCMeshDeco.uc): its Mesh, a
+- A model is placed as a UCMeshDeco of the editor's package (src/<settings.PACKAGE>/Classes/UCMeshDeco.uc): its Mesh, a
   collision cylinder around it and a PrePivot that centres it on the cylinder.
 - Import: a model from a file (OBJ, FBX, glTF/GLB: read in the browser by three.js, sent here as triangles,
-  UVs and pictures) becomes a mesh of the mod's package UCModels, made by Deus Ex's own mesh importer
+  UVs and pictures) becomes a mesh of the package settings.MODELS_PACKAGE, made by Deus Ex's own mesh importer
   (host UC_MESHIMPORT = UEditorEngine::meshImport, 16-bit vertices) and TEXTURE IMPORT. The sources stay in
-  tools/mapkit/models/<name>/; UCModels.u is made again from all of them, in dist\\ and, when the game is
+  tools/mapkit/models/<name>/; settings.MODELS_PACKAGE is made again from all of them, in dist\\ and, when the game is
   closed, in the game (else at the next Install).
 - Animated models (Gabby, 20 Oct 2026): a file with a skeleton or shape keys and animations (glTF/GLB, FBX,
   DAE) is played in the browser and every chosen clip baked into frames of positions, as the game keeps its
@@ -45,7 +45,7 @@ MAX_FRAMES = 4000
 MAX_FRAME_VERTICES = 3000000   # frames x vertices: 24 MB of _a.3d at most
 LIST_VERSION = 2
 # loaded by every run from its own System folder (dist\): not again from the game's copy
-OWN = (settings.PACKAGE, 'UnatcoVoices', settings.ANIMS_PACKAGE, PACKAGE)
+OWN = (settings.PACKAGE, settings.VOICES_PACKAGE, settings.ANIMS_PACKAGE, PACKAGE)
 SKIP = ('Core', 'Editor', 'IpDrv', 'IpServer', 'UWindow', 'UBrowser', 'Fire', 'DXOgg', 'RF', 'ConSys', 'Extension')
 MESH_REF = re.compile(r"(\w+)'(\w+)\.([\w.]+)'")
 
@@ -229,7 +229,7 @@ def load_commands(edits):
     return [_load_cmd(n, files) for n in sorted(used) if n in files or n in OWN]
 
 
-# ---------------------------------------------------------------- imported models (UCModels)
+# ---------------------------------------------------------------- imported models (settings.MODELS_PACKAGE)
 def _name(s):
     s = re.sub(r'\W', '', str(s or '').strip().replace(' ', '_'))[:28]
     return s if s and not s[0].isdigit() else ('M' + s)[:28]
@@ -413,7 +413,7 @@ def _publish_package(made, destinations):
 
 
 def pack(log=print):
-    """UCModels.u made again from every imported model: (ok, lines)."""
+    """settings.MODELS_PACKAGE made again from every imported model: (ok, lines)."""
     import live
     models = [d for d in sorted(SOURCES.iterdir()) if (d / 'model.json').exists()] if SOURCES.exists() else []
     s = kit.Session([], 'editor-models-pack')
@@ -462,7 +462,7 @@ def pack(log=print):
         destinations = [DIST]
         if install:
             destinations.append(settings.PACKAGES_DIR / (PACKAGE + '.u'))
-            # the game reads its maps folder (UnatcoMaps, where Install puts the mod's packages) before System: a copy
+            # the game reads its maps folder (settings.MAPS_DIR, where Install puts the editor's packages) before System: a copy
             # there would hide the new one (20 Oct 2026: an imported model was not in the game), so it is replaced too
             maps = getattr(settings, 'MAPS_DIR', None)
             if maps is not None and (maps / (PACKAGE + '.u')).exists():
