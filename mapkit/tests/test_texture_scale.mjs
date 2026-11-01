@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {createTextureScale, stretchOnResize} from '../editor/static/texture-scale.js';
 import {createRotations} from '../editor/static/rotation.js';
+import {overridesOf, replacedOn} from '../editor/static/prefab-links.js';
 const rotations = createRotations(THREE), textures = createTextureScale(THREE);
 const app = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const body = name => {const at=app.indexOf(`function ${name}(`);return app.slice(at,app.indexOf('\n}',at)+2);};
@@ -91,8 +92,11 @@ function transformFixture(piece=true) {
     structures:{sign:st},edits:{groups:{},prefabs:[],copies:[],moved:{},deleted:{}},proxies:new THREE.Group(),actorStruct:{},moveStart:null,selected:obj,
     objectHidden:()=>false,movedPose:p=>p.offset.some(Boolean)||p.yaw||p.pitch||p.roll||p.scale.some(v=>v!==1),
     setDirty(){},showDetails(){render();},log(){},$:(id)=>fields[id],pushUndo:()=>history.push(JSON.stringify(c.edits)),stepOf:(verb)=>verb,p:obj,st,pose:{scale:[1,1,1]},
+    // with queued surface rows, their preview drawn again at the next frame (commitStructure): previews counts it
+    surfaceFrame:0,frames:[],requestAnimationFrame:fn=>c.frames.push(fn),previews:0,refreshSurfaceTexturePreview:()=>c.previews++,wake(){},
+    overridesOf,replacedOn,          // a pasted copy's overrides and replacing objects go with it (commitStructure, beginStructMove)
   });
-  for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','beginStructMove','followStructure','keptPlaces','commitStructure']) vm.runInContext(body(name),c);
+  for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','beginStructMove','followStructure','keptPlaces','replacingOf','carries','commitStructure']) vm.runInContext(body(name),c);
   function render(){for(const [id,value] of Object.entries({px:0,py:0,pz:0,spitch:0,pyaw:0,sroll:0,ssx:100,ssy:100,ssz:100})) fields['#'+id]={value};fields['#sstretch']={checked:!!c.poseOf(st).stretch};}
   render();
   const start=app.lastIndexOf('const apply = (ev) => {',app.indexOf('const textureChoice = ev?.target?.id'));
@@ -123,4 +127,29 @@ test('actual gizmo path: live preview and committed choice match; Undo restores 
   c.commitStructure();assert.equal(c.edits.groups.sign.stretch,true);
   c.edits.groups={};c.showPose(st,c.poseOf(st));assert.equal(c.poseOf(st).stretch,undefined);
   near(obj.children[0].geometry.attributes.uv.getX(1),1.125);
+});
+
+test('saved user Prefabs keep their images on resize, just like game Pieces; explicit Off is kept',()=>{
+  for (const prefab of ['obj_game_picture','usr_saved_picture']) {
+    const {c,st,obj}=transformFixture(false);
+    st.paste=true;
+    c.edits.prefabs.push({pid:'picture',prefab,offset:[0,0,0]});
+    // The real paste identity is used by poseOf/commitStructure.
+    delete c.structures.sign;st.name='paste~picture';obj.userData.name=st.name;c.structures[st.name]=st;
+    c.beginStructMove(obj);obj.scale.set(2,2,2);c.followStructure();
+    assert.equal(c.livePose(st).stretch,true);
+    near(obj.children[0].geometry.attributes.uv.getX(1),1.125);
+    c.commitStructure();assert.equal(c.edits.prefabs[0].stretch,true);
+    c.edits.prefabs[0].stretch=false;c.showPose(st,c.poseOf(st));
+    c.beginStructMove(obj);obj.scale.set(3,3,3);c.followStructure();c.commitStructure();
+    assert.equal(c.edits.prefabs[0].stretch,false);
+    near(obj.children[0].geometry.attributes.uv.getX(1),3.125);
+  }
+});
+test('a resized structure with queued surface rows: texture-scale.js first, their preview drawn again at the next frame',()=>{
+  const {c,obj}=transformFixture();c.edits.surfaces=[{op:'pan',args:[4,0],targets:[{brush:'Brush1',poly:0}]}];
+  c.beginStructMove(obj);obj.scale.set(1.5,1.5,1.5);c.followStructure();c.commitStructure();
+  near(obj.children[0].geometry.attributes.uv.getX(1),1.125);assert.equal(c.previews,0);
+  for(const fn of c.frames.splice(0))fn();
+  assert.equal(c.previews,1);assert.equal(c.surfaceFrame,0);
 });

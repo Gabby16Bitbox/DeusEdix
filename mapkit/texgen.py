@@ -9,9 +9,37 @@ import random
 import shutil
 import subprocess
 from pathlib import Path
+from functools import wraps
+import inspect
+import texture_cache
 
 OUT = Path(__file__).resolve().parent / 'gen'
 FF = shutil.which('ffmpeg') or r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe'
+
+
+def _cached_texture(function):
+    """Only these seeded generators are deterministic; signs' random wear isn't."""
+    signature = inspect.signature(function)
+
+    @wraps(function)
+    def draw(name, *args, **kwargs):
+        values = signature.bind(name, *args, **kwargs)
+        values.apply_defaults()
+        path = OUT / (name + '.pcx')
+        if values.arguments.get('seed', 0) is None:
+            return function(path, *args, **kwargs)
+        # Fingerprint the source on every call (small), and the encoder's file
+        # identity/date/size. A different installed encoder invalidates reuse.
+        try:
+            stat = Path(FF).stat()
+            recipe = dict(generator=function.__name__, arguments=values.arguments,
+                          source=texture_cache.digest(Path(__file__).read_bytes()),
+                          encoder=[str(Path(FF).absolute()), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns],
+                          palettes=[WARM, COOL, FLUO, TV, CURTAIN])
+        except OSError:
+            return function(path, *args, **kwargs)
+        return texture_cache.generated(path, recipe, lambda temporary: function(temporary, *args, **kwargs))
+    return draw
 
 
 def clamp(v):
@@ -78,6 +106,7 @@ TV = [(110, 140, 230), (90, 170, 210), (150, 120, 220)]
 CURTAIN = [(180, 70, 60), (90, 120, 80), (200, 170, 120), (80, 90, 150), (170, 150, 160)]
 
 
+@_cached_texture
 def facade(name, w=512, h=1024, cols=8, floors=12, wall=(30, 30, 36), lit=0.3, warm=0.8, seed=1,
            style='residential', ac=0.35, balcony=0.2):
     """A night facade module of `floors` storeys x `cols` windows (seamless tile)."""
@@ -166,13 +195,15 @@ def facade(name, w=512, h=1024, cols=8, floors=12, wall=(30, 30, 36), lit=0.3, w
                 img.rect(x0 + 2, by - 10, x0 + cw - 2, by - 9, (55, 56, 60))
                 for bx in range(int(x0 + 4), int(x0 + cw - 2), 5):
                     img.rect(bx, by - 10, bx + 1, by, (48, 49, 52))
-    return img.save_pcx(OUT / (name + '.pcx'))
+    return img.save_pcx(name)
 
 
+@_cached_texture
 def solid(name, colour, w=16, h=16):
-    return Img(w, h, colour).save_pcx(OUT / (name + '.pcx'), dither='none')
+    return Img(w, h, colour).save_pcx(name, dither='none')
 
 
+@_cached_texture
 def gradient(name, stops, w=8, h=256):
     """Vertical gradient; stops = [(pos 0..1 from top, (r, g, b)), ...]."""
     img = Img(w, h)
@@ -187,9 +218,10 @@ def gradient(name, stops, w=8, h=256):
                 c = tuple(c0[j] + (c1[j] - c0[j]) * k for j in range(3))
                 break
         img.rect(0, y, w, y + 1, c)
-    return img.save_pcx(OUT / (name + '.pcx'), dither='none')
+    return img.save_pcx(name, dither='none')
 
 
+@_cached_texture
 def clouds(name, w=256, h=256, seed=3, colour=(70, 60, 80)):
     """Soft, tileable cloud wisps on black (for a translucent layer)."""
     rnd = random.Random(seed)
@@ -211,4 +243,4 @@ def clouds(name, w=256, h=256, seed=3, colour=(70, 60, 80)):
             v = smooth(x, y) * 0.7 + smooth((x * 2) % w, (y * 2) % h) * 0.3
             v = max(0.0, (v - 0.45) / 0.55)
             img.set(x, y, tuple(c * v for c in colour))
-    return img.save_pcx(OUT / (name + '.pcx'))
+    return img.save_pcx(name)

@@ -253,44 +253,97 @@ def import_commands(edits, run_folder):
     return cmds
 
 
-def wearers(map_name, edits, old):
-    """[(actor name, skin slot)] of every object of the map whose model wears texture old (the editor's
-    last look at the map, cache/<map>/meshes.json, and the objects added since: their class's model)."""
+def _skins(props):
+    """{skin slot: texture} of an object's own T3D properties: MultiSkins(slot), and Skin on slot 0 unless
+    MultiSkins(0) is given (the game draws them over its model's own textures)."""
+    skins = {int(m.group(1)): value for key, value in props.items()
+             for m in [re.fullmatch(r'MultiSkins\((\d+)\)', key)] if m}
+    if props.get('Skin'):
+        skins.setdefault(0, props['Skin'])
+    return {slot: re.sub(r"^\w+'(.*)'$", r'\1', value) for slot, value in skins.items()}
+
+
+def wearers(map_name, edits, source=None, blocks=(), copies=None):
+    """{(actor name, skin slot): texture} of every part of the map's objects, each by the texture it wears before
+    the map's imported textures replace it (its short name in lower case; actor_commands takes the retextures in order
+    from there). The map's own objects (source: their names, a .dx map's source's or the objects a map script makes;
+    None: every one of the look, for a Scene its build did not make) from the editor's last look at the map
+    (cache/<map>/meshes.json), each texture there followed back through the 'from' of the map's textures (the one the
+    Texture Editor painted over): after a build that look is the build's own, where they wear what replaced it (re-test
+    4 of 31 Oct 2026, #0: a part still wearing there a "this object" texture taken away since kept it, and only the
+    next build retextured it); one the look lacks (written into a script since its last build) from its block, unless
+    the block gives it a Mesh of its own, whose parts only a look knows. The objects added since and the others the
+    build imports (blocks: t3d.actors of every block it imports, the map's own too: the pasted structures', a script
+    map's structure copies) from their class's model, an imported one's own skins on it (_skins); a copy (copies: {its
+    name: its original's}) as its original looks, when the original is one of the map's own. An object deleted in the
+    editor, or replaced by an added one of its name, never from its block."""
     from data import CACHE, GAME_CACHE
-    want = short(old).lower()
-    out, seen = [], set()
+    imported = {name.lower(): t for name, t in (edits.get('textures') or {}).items()}
     deleted = edits.get('deleted') or {}
+    worn, models = {}, {}
+
+    def before(tex):
+        name, seen = short(tex).lower(), set()
+        while name not in seen and (imported.get(name) or {}).get('from'):
+            seen.add(name)
+            name = short(imported[name]['from']).lower()
+        return name
 
     def take(name, model):
         for part in (model or {}).get('parts') or []:
             slot = part.get('slot', -1)
-            if slot is not None and slot >= 0 and short(part.get('tex')).lower() == want and (name, slot) not in seen:
-                seen.add((name, slot))
-                out.append((name, slot))
+            if slot is not None and slot >= 0:
+                worn.setdefault((name, slot), before(part.get('tex')))
+
+    def class_model(cls):
+        cls = cls.split('.')[-1]
+        if cls not in models:
+            models[cls] = load_json(GAME_CACHE / '_palette' / 'models' / (cls + '.json')) or {}
+        return models[cls]
     meshes = load_json(CACHE / map_name / 'meshes.json') if map_name else {}
     added = {a['name']: a for a in edits.get('added') or []}
-    for name, m in meshes.items():
-        if name not in deleted and name not in added:
-            take(name, m)
+    own = {name: m for name, m in meshes.items()
+           if name not in deleted and name not in added and (source is None or name in source)}
+    for name, m in own.items():
+        take(name, m)
     for name, a in added.items():
-        take(name, load_json(GAME_CACHE / '_palette' / 'models' / (a['cls'].split('.')[-1] + '.json')))
-    return out
+        take(name, class_model(a['cls']))
+    for a in blocks:
+        name = a['name']
+        if name in own or name in added or name in deleted or (source and name in source and a['props'].get('Mesh')):
+            continue
+        original = (copies or {}).get(name)
+        if original in own:
+            take(name, own[original])
+            continue
+        skins = _skins(a['props'])
+        take(name, {'parts': [dict(part, tex=skins.get(part.get('slot'), part.get('tex')))
+                              for part in class_model(a['cls']).get('parts') or []]})
+    return worn
 
 
-def actor_commands(edits, map_name=None):
-    """Skins of objects: MultiSkins(slot) = the imported texture (one object, or every object wearing
-    the old texture)."""
+def actor_commands(edits, map_name=None, source=None, blocks=(), copies=None):
+    """Skins of objects: MultiSkins(slot) = the imported texture, on one object, or on every object wearing the old
+    texture as the retextures before it leave each part (wearers: what each part wears before them, with the map's own
+    objects, the others its build imports and their copies, as both builds pass them: dxmaps.build,
+    Scene.actor_commands). A texture of the map with no 'from' (edits older than it) also takes a part wearing it
+    already."""
     cmds = []
     textures = edits.get('textures') or {}
-    for r in edits.get('retexture') or []:
-        if r.get('tex') not in textures:
-            continue
+    rules = [r for r in edits.get('retexture') or [] if r.get('tex') in textures]
+    worn = wearers(map_name, edits, source, blocks, copies) if any(r.get('kind') == 'actors' for r in rules) else {}
+    for r in rules:
+        tex = short(r['tex']).lower()
         if r.get('kind') == 'actor':
-            cmds.append('UC_PROP %s MultiSkins(%d) %s' % (r['name'], max(0, int(r.get('slot') or 0)), ref(r['tex'])))
+            slot = max(0, int(r.get('slot') or 0))
+            cmds.append('UC_PROP %s MultiSkins(%d) %s' % (r['name'], slot, ref(r['tex'])))
+            worn[(r['name'], slot)] = tex
         elif r.get('kind') == 'actors':
-            for name, slot in wearers(map_name, edits, r.get('old')):
-                if re.fullmatch(r'\w+', name):
+            want = {short(r.get('old')).lower()} | (set() if textures[r['tex']].get('from') else {tex})
+            for (name, slot), now in worn.items():
+                if now in want and re.fullmatch(r'\w+', name):
                     cmds.append('UC_PROP %s MultiSkins(%d) %s' % (name, slot, ref(r['tex'])))
+                    worn[(name, slot)] = tex
     return cmds
 
 

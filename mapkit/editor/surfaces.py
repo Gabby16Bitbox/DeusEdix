@@ -94,10 +94,18 @@ def load_commands(edits, local_package=None):
 
 MODES = {'floor', 'wall', 'tile', 'tile-u', 'tile-v', 'cylinder', 'pan', 'scale',
          'rotate', 'flip-u', 'flip-v', 'texture', 'shadows', 'flags'}
-# flags [set, clear]: the Surface panel's Look (UnrealEd's surface properties); the host takes these bits only
+# flags [set, clear]: the Surface panel's Look (UnrealEd's surface properties: the engine's EPolyFlags, the Deus Ex
+# SDK's UnObj.h; the original maps' cloud banks and some of their water pan by themselves: auto_u_pan, auto_v_pan)
 FLAGS = {'invisible': 0x1, 'masked': 0x2, 'translucent': 0x4, 'modulated': 0x40, 'fake_backdrop': 0x80, 'two_sided': 0x100,
-         'no_smooth': 0x800, 'special_lit': 0x100000, 'unlit': 0x400000, 'mirror': 0x8000000}
+         'auto_u_pan': 0x200, 'auto_v_pan': 0x400, 'no_smooth': 0x800, 'special_lit': 0x100000,
+         'unlit': 0x400000, 'mirror': 0x8000000}
 FLAG_MASK = sum(FLAGS.values())
+# the Look bits the host's UC_SURFACE flags does not write yet, by their names in the Surface panel (the `allowed` of
+# host/UCEngineBridge.cpp editSurface: it refuses a line with any other bit; tests/test_surface_flags.py checks the two
+# agree): the edits keep them, a build leaves them out of the host's line and says so (left_out). None since 1 Nov 2026,
+# when the host took Auto U Pan and Auto V Pan too.
+NOT_IN_HOST = {}
+HOST_FLAGS = FLAG_MASK & ~sum(NOT_IN_HOST)
 
 
 def commands(edits):
@@ -129,6 +137,7 @@ def commands(edits):
             if (len(args) != 2 or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in args)
                     or (args[0] | args[1]) & ~FLAG_MASK or args[0] & args[1]):
                 raise ValueError('Surface flags: set and clear are bits of the Look list, never the same one.')
+            args = [v & HOST_FLAGS for v in args]       # what the host writes (the rest: left_out)
         elif mode == 'texture':
             if len(args) != 1 or not isinstance(args[0], str) or not re.fullmatch(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*', args[0]) or len(args[0]) > 240:
                 raise ValueError('Choose a loaded texture by its package and name.')
@@ -144,8 +153,31 @@ def commands(edits):
                 raise ValueError('Invalid source face index.')
             if mode == 'cylinder' and poly != '*':
                 raise ValueError('Cylinder alignment applies to all the brush side faces.')
+            if mode == 'flags' and not any(args):
+                continue                                # only bits the host does not write: no line (left_out)
             out.append('UC_SURFACE %s %s %s%s' % (brush, poly, mode, ''.join(' ' + str(a) for a in args)))
     return out
+
+
+def _faces(targets, most=3):
+    """A row's faces as a build report names them: 'Brush3 face 1, Brush5 all faces and 2 more'."""
+    named = ['%s %s' % (t['brush'], 'all faces' if t['poly'] == '*' else 'face %d' % t['poly']) for t in targets[:most]]
+    return ', '.join(named) + (' and %d more' % (len(targets) - most) if len(targets) > most else '')
+
+
+def left_out(edits):
+    """The build report's lines for the Look bits of the edits that the host does not write yet (NOT_IN_HOST): a line
+    for each such bit a row turns on or off, with the row's faces."""
+    lines = []
+    for row in edits.get('surfaces') or []:
+        if row['op'] != 'flags':
+            continue
+        for bit, label in NOT_IN_HOST.items():
+            for value, word in zip(row['args'], ('on', 'off')):
+                if value & bit:
+                    lines.append('  EDIT skipped %s (%s) for %s: the host that builds the map cannot write it yet'
+                                 % (label, word, _faces(row['targets'])))
+    return lines
 
 
 def needs_lighting(edits):
