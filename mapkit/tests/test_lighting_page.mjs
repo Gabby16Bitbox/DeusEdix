@@ -34,7 +34,7 @@ function viewPage({ effects = true } = {}) {
     viewModes: { mode: null, set(mode) { this.mode = mode; return Promise.resolve(); } },
     applyLighting() { c.lit++; }, wake() {},
     // drawEveryFrame's
-    awakeUntil: 0, cam: { look: false }, previewing: null, tc: { dragging: false }, anim: null, effectPreviewsActive: () => false,
+    awakeUntil: 0, cam: { look: false }, previewing: null, tc: { dragging: false }, anim: null, effectPreviewsActive: () => false, particlePreviewsActive: () => false,
     showPaths: false, gameView: { active: false },
   });
   vm.runInContext(['effectsShown', 'setViewMode', 'setLightMode', 'drawEveryFrame'].map(body).join('\n'), c);

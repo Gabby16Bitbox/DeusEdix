@@ -114,6 +114,7 @@
     "Button1": "switch button",
     "MedKit": "health medkit medikit cure kit",
     "Light": "lamp",
-    "Spotlight": "spot lamp"
+    "Spotlight": "spot lamp",
+    "ParticleGenerator": "particles particle emitter effect effects fx vfx smoke steam mist sparks dust vapor fog"
   }
 }

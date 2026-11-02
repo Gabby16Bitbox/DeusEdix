@@ -29,7 +29,7 @@ function fixture() {
     closeAnim: () => { c.anim = null; calls.push('closeAnim'); },
     setDirty: () => calls.push('dirty'), showDetails: () => calls.push('details'), log: (...args) => calls.push(['log', ...args]),
     tc: {detach: () => calls.push('detach')}, select: p => { c.selected = p; },
-    syncStructures: () => {}, disposeEffectPoint: () => {}, disposeViewportIcons: () => {},
+    syncStructures: () => {}, disposeEffectPoint: () => {}, disposeParticleGizmo: () => {}, disposeViewportIcons: () => {},
     applyTextureOverrides: () => {}, applyLighting: () => {}, applyObjectVisibility: () => {},
     selectKeys: () => {}, selectNest: () => {}, showChanges: () => {}, buildStructList: () => {}, buildHierarchy: () => {},
     logicBox: {style: {display: 'none'}}, renderLogic: () => {}, YAW:65536, rotations: {carry: rot => rot},   // the structure does not turn here

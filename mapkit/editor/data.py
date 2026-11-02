@@ -881,7 +881,32 @@ def items():
             and not PLACEHOLDER_NAME.search(c['name'])]
 
 
-ORDER = ['Most used', 'Level', 'Triggers', 'AI', 'Sounds', 'Zones', 'Decorations', 'Pickups', 'Weapons', 'Ammo', 'Characters', 'Bodies', 'Lights']
+# The Effects of the Objects browser: a ParticleGenerator each, set as the game sets its own (UCEffect's mist, smoke and
+# sparks; the textures are the game's Effects package's). Values as the map writes them.
+_SMOKE = "Texture'Effects.Smoke.SmokePuff1'"
+_SPARK = "Texture'Effects.Fire.SparkFX1'"
+PARTICLE_PRESETS = [
+    ('Smoke (rising)', {'particleTexture': _SMOKE, 'particleDrawScale': '1.500000', 'frequency': '0.900000', 'checkTime': '0.120000',
+                        'riseRate': '90.000000', 'ejectSpeed': '40.000000', 'bRandomEject': 'True'}),
+    ('Steam jet (a vent)', {'particleTexture': _SMOKE, 'particleDrawScale': '0.500000', 'frequency': '1.000000', 'checkTime': '0.080000',
+                            'riseRate': '20.000000', 'ejectSpeed': '160.000000', 'particleLifeSpan': '1.500000', 'numPerSpawn': '2',
+                            'bRandomEject': 'True'}),
+    ('Cold mist (sinking)', {'particleTexture': _SMOKE, 'particleDrawScale': '0.500000', 'riseRate': '-4.000000', 'ejectSpeed': '70.000000',
+                             'particleLifeSpan': '3.000000', 'checkTime': '0.080000', 'numPerSpawn': '2', 'bRandomEject': 'True'}),
+    ('Sparks', {'particleTexture': _SPARK, 'particleDrawScale': '0.100000', 'bRandomEject': 'True', 'ejectSpeed': '120.000000',
+                'bGravity': 'True', 'bParticlesUnlit': 'True', 'frequency': '0.600000', 'checkTime': '0.250000', 'numPerSpawn': '6',
+                'particleLifeSpan': '1.200000', 'riseRate': '10.000000'}),
+    ('Electric sparks (short bursts)', {'particleTexture': _SPARK, 'particleDrawScale': '0.080000', 'bRandomEject': 'True',
+                                        'ejectSpeed': '260.000000', 'bGravity': 'True', 'bParticlesUnlit': 'True', 'frequency': '0.300000',
+                                        'checkTime': '0.100000', 'numPerSpawn': '10', 'particleLifeSpan': '0.500000', 'riseRate': '0.000000'}),
+    ('Falling dust', {'particleTexture': _SMOKE, 'particleDrawScale': '0.300000', 'riseRate': '-30.000000', 'ejectSpeed': '10.000000',
+                      'particleLifeSpan': '4.000000', 'frequency': '0.500000', 'checkTime': '0.300000', 'numPerSpawn': '1',
+                      'bRandomEject': 'True'}),
+    ('Particles (as the game makes them)', {}),
+]
+
+
+ORDER = ['Most used', 'Level', 'Triggers', 'AI', 'Sounds', 'Zones', 'Effects', 'Decorations', 'Pickups', 'Weapons', 'Ammo', 'Characters', 'Bodies', 'Lights']
 
 
 def palette():
@@ -938,6 +963,11 @@ def palette():
                     dict(cls='PatrolPoint', radius=12, height=14.5, name='Patrol point (see Patrol route of a character)', sub=''),
                     dict(cls='WanderPoint', radius=12, height=14.5, name='Wander point (wandering characters stop and look here)', sub=''),
                     dict(cls='HidePoint', radius=12, height=14.5, name='Hide point (where scared characters hide)', sub='')]
+    # particles: the game's ParticleGenerator (its steam vents' and smoke's), set as UCEffect sets its mist, smoke and
+    # sparks; placed with its arrow out of the surface clicked (the way they are thrown), shown and set in the 3D view
+    # and the Inspector's Particles section (static/particles.js)
+    groups['Effects'] = [dict(cls='ParticleGenerator', radius=8, height=8, name=name, sub='particles', preset=preset)
+                         for name, preset in PARTICLE_PRESETS]
     # more words the search finds them by (palette.json searchAliases: the game's sink is Faucet)
     for items in groups.values():
         for it in items:

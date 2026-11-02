@@ -32,6 +32,10 @@ const PATHS = Object.freeze({
   wander: 'M10 64Q64 12 118 64Q64 116 10 64ZM50 64A14 14 0 1 0 78 64A14 14 0 1 0 50 64',
   hide: 'M64 14L104 28V60C104 88 86 104 64 114C42 104 24 88 24 60V28ZM46 62Q64 76 82 62',
   arrive: 'M22 96A42 14 0 1 0 106 96A42 14 0 1 0 22 96M64 16V82M44 62L64 82L84 62',
+  // particles (Objects > Effects): rising smoke, drifting mist or steam, a burst of sparks
+  smoke: 'M40 110C22 90 58 78 40 58C26 42 46 32 40 18M74 110C56 90 92 78 74 58C60 42 80 32 74 18M104 104C94 92 110 84 102 72',
+  mist: 'M14 44Q34 30 54 44T94 44T114 44M14 68Q34 54 54 68T94 68T114 68M14 92Q34 78 54 92T94 92T114 92',
+  sparks: 'M64 64L64 18M64 64L102 30M64 64L112 70M64 64L92 106M64 64L36 106M64 64L16 70M64 64L26 30',
 });
 const textures = new Map();
 let iconSize = 32;          // units across: the 3D view's Show menu sets it (scene-kinds.js ICON_SIZE)
@@ -48,7 +52,7 @@ export function viewportIconKind(actor) {
   const own = classKind(cls, actor.kind);
   if (own === 'zone') return makes(cls);
   if (own) return own;
-  if (/effectpoint/.test(cls)) return 'effect';
+  if (/effectpoint|particle/.test(cls)) return 'effect';
   if (/triggerbox/.test(cls)) return 'box';
   if (actor.kind === 'path' || /^(pathnode|patrolpoint|wanderpoint|hidepoint|liftcenter|liftexit|jumpdest)$/.test(cls)) return 'walk';
   if (/teleport|mapexit|levelchange/.test(cls)) return 'exit';
@@ -83,6 +87,10 @@ export function iconGlyph(cls, kind, prop = () => undefined) {
   if (kind === 'sound') return /soundfx/.test(n) ? (isTrue(prop('bOnTouch')) ? 'soundzone' : 'soundfx') : 'sound';
   if (kind === 'weather') return /snow/.test(n) ? 'snow' : /skyzone/.test(n) ? 'sky' : 'rain';
   if (kind === 'walk') return AI_POINTS[n] || 'walk';
+  if (kind === 'effect' && /particle/.test(n)) {          // particles: by their texture and the way they go
+    if (/spark|fire|flare/i.test(String(prop('particleTexture') ?? ''))) return 'sparks';
+    return Number(String(prop('riseRate') ?? '1').replace(/"/g, '')) < 0 ? 'mist' : 'smoke';
+  }
   if (kind === 'exit' && /teleport/.test(n) && isFalse(prop('bEnabled'))) return 'arrive';     // where one arrives
   return PATHS[kind] ? kind : 'logic';
 }

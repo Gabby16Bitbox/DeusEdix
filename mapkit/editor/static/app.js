@@ -67,6 +67,8 @@ import { createTexturePicker } from './texture-picker.js';
 import { createFavourites } from './browser-favourites.js';
 import { favouriteShelf, installStars, mountTileSize } from './browser-tiles.js';
 import { createSearch, rank as rankSearch } from './search-rank.js';
+import { isParticleClass, PARTICLE_FIELDS, particleSettings, defaultsFrom, fieldsOf, parseValue, formatValue, clampValue } from './particles.js';
+import { createParticleGizmo, stepParticlePreviews, particlePreviewsActive, disposeParticleGizmo } from './particles-view.js';
 import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions, blockPoints } from './block-shapes.js';
 import { createVertexEditor } from './vertex-edit.js';
 import { createDragHandles } from './drag-handles.js';
@@ -433,7 +435,7 @@ for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown',
   window.addEventListener(ev, () => wake(), { capture: true, passive: true });
 // what has the view drawn every frame now (else 4 times a second); Effects not while Play runs: the game lies over the view
 function drawEveryFrame(now) {
-  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || showPaths
+  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || particlePreviewsActive() || showPaths
     || (effectsShown() && !gameView?.active);
 }
 function animate(now) {
@@ -457,6 +459,7 @@ function animate(now) {
   if (cam.roll) camera.rotateZ(-cam.roll);          // looking through a cutscene camera with a roll (cutscene.js)
   stepPreview(dt);
   stepEffectPreviews(proxies, dt, fxWant);
+  stepParticlePreviews(proxies, dt, particleWant);
   if (showPaths) stepPathView(dt);
   liveBlocks.sync(proxies.children);
   stepLiveLighting();
@@ -595,7 +598,7 @@ async function clearMap() {
   closeAnim(); stopPreview(); resetInput(); cancelPlacing(); select(null); clearLinks();
   disposeGroup(pathLines); disposeGroup(routeLines); disposeGroup(multiBoxes);
   world.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-  world.clear(); for (const q of proxies.children) disposeEffectPoint(q); disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
+  world.clear(); for (const q of proxies.children) { disposeEffectPoint(q); disposeParticleGizmo(q); } disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
   script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); clearHistory(undoHistory); historyChanged(); dirty = false;
   mapGeneration++;
   publishedLayout = null;
@@ -3218,7 +3221,8 @@ function makeProxy(a, source) {
   const color = kind === 'light' ? lightColor(liveLight(a)) : KIND_COLOR[kind];
   const model = (kind === 'light' || kind === 'path' || kind === 'logic') ? null : modelFor(a, source);
   let body;
-  if (kind === 'light' || kind === 'path' || kind === 'logic') body = isEffectPoint(a) ? createEffectPointGizmo() : createViewportIcon(a, color, (key) => actorProp(a, key));
+  if (isParticleClass(a.cls)) body = createParticleGizmo();      // particles: their arrow, their preview (particles-view.js)
+  else if (kind === 'light' || kind === 'path' || kind === 'logic') body = isEffectPoint(a) ? createEffectPointGizmo() : createViewportIcon(a, color, (key) => actorProp(a, key));
   else {
     const r = Math.max(4, a.radius || 16), h = Math.max(4, a.height || 16);
     const geo = new THREE.CylinderGeometry(r, r, 2 * h, 18);
@@ -3235,6 +3239,7 @@ function makeProxy(a, source) {
   g.rotation.y = yawToRad((a.rot || [0, 0, 0])[1]);
   g.userData = { actor: a, source, kind, body, model };
   if (isEffectPoint(a)) g.userData.fxGizmo = body;
+  if (isParticleClass(a.cls)) g.userData.particleGizmo = body;
   g.userData.tilt = signedRot((a.rot || [0])[0] || 0);        // its pitch (Stick to surface, Pitch in the Inspector)
   g.userData.roll = signedRot((a.rot || [0, 0, 0])[2] || 0);  // and its roll (E, Roll in the Inspector)
   applyTilt(g);
@@ -3562,7 +3567,7 @@ function rebuildProxies() {
   const keep = selected && selected.userData;
   const keepGroup = selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
   tc.detach();
-  for (const q of proxies.children) disposeEffectPoint(q);
+  for (const q of proxies.children) { disposeEffectPoint(q); disposeParticleGizmo(q); }
   disposeViewportIcons(proxies);
   proxies.clear();
   selected = null;
@@ -4729,7 +4734,7 @@ function stickTarget(p, ignored = new Set([p])) {
 // how far the object reaches behind its pivot (its back), in units
 function backDepth(p) {
   const d = p.userData;
-  if (d.fxGizmo) return 1.5;
+  if (d.fxGizmo || d.particleGizmo) return 1.5;
   if (d.kind === 'light' || d.kind === 'path' || d.kind === 'logic') return 4;
   const m = d.model;
   if (m) {
@@ -5076,6 +5081,108 @@ function fxWant(p) {
   if (kind === 'none') return null;
   const light = fxEffectsOn(edits.links, a.name).find((e) => e.kind === 'blinklight' || e.kind === 'pulse');
   return { kind, colour: light ? light.colour : 'red' };
+}
+// ---------------------------------------------------------------- particles (Objects > Effects; particles.js)
+// A generator's settings now: what the Particles section and All properties set (edits.props, edits.rawprops), else
+// the map's, else the class's defaults as the game says them (read once a class: classProps), else particles.js's.
+const particleDefaults = {};               // class -> {key: value}, or a Promise while it is read
+function particleDefaultsOf(cls) {
+  const name = String(cls || '').split('.').pop();
+  if (!(name in particleDefaults)) {
+    particleDefaults[name] = classProps(behaveApi, name).then((d) => { particleDefaults[name] = { props: d, values: defaultsFrom(d) }; wake(); return particleDefaults[name]; })
+      .catch(() => { particleDefaults[name] = { props: null, values: {}, failed: true }; });
+  }
+  const d = particleDefaults[name];
+  return d && !(d instanceof Promise) ? d : { props: null, values: {} };
+}
+const particleRead = (a) => (key) => edits.rawprops?.[a.name]?.[key] ?? actorProp(a, key);
+function particleSettingsOf(a) { return particleSettings(particleRead(a), particleDefaultsOf(a.cls).values); }
+// a texture's picture and width in units (the texture picker's), read once a texture
+const particleTextures = {};
+function particleTexture(name) {
+  if (!name) return { url: '', size: 64 };
+  if (!particleTextures[name]) {
+    particleTextures[name] = { url: '', size: 64 };
+    Promise.all([texturePicker.pictureOf(name).catch(() => ''), texturePicker.index().catch(() => null)]).then(([url, ix]) => {
+      const short = name.split('.').pop().toLowerCase();
+      const t = ix && ix.packages.flatMap((p) => p.textures).find((x) => x[1].toLowerCase() === name.toLowerCase() || x[0].toLowerCase() === short);
+      particleTextures[name] = { url: url || '', size: t ? t[2] : 64 };
+      wake();
+    });
+  }
+  return particleTextures[name];
+}
+// the preview of a generator this frame (particles-view.js): while it is selected, or always (its section says)
+function particleWant(p) {
+  const a = p.userData.actor;
+  if (!a || !edits) return null;
+  if (p !== selected && !edits.particlepreview?.[a.name]?.always) return null;
+  const settings = particleSettingsOf(a), tex = particleTexture(settings.particleTexture);
+  return { settings, url: tex.url, size: tex.size };
+}
+// the Particles section of its Properties: the settings that matter, by name, each a field; the preview's own switch
+function particleSection(a, redraw) {
+  const d = particleDefaultsOf(a.cls), s = particleSettingsOf(a), fields = fieldsOf(d.props), read = particleRead(a);
+  let h = '<div class="hint" style="margin:2px 0">The cyan arrow is the way the particles are thrown: turn it with E, Rotation and Pitch. The preview plays while it is selected; it follows the game\'s rules closely, Rebuild and Play show it for sure.</div>';
+  for (const f of fields) {
+    const own = read(f.key) !== undefined, v = s[f.key];
+    const title = escapeHtml(f.tip + (own ? '' : ' (the class\'s own value)'));
+    if (f.type === 'bool') h += `<div class="row"><label style="width:auto" title="${title}"><input type="checkbox" data-pt="${f.key}" ${v ? 'checked' : ''}> ${escapeHtml(f.label)}</label></div>`;
+    else if (f.type === 'texture') h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><input data-pt="${f.key}" list="texlist" value="${escapeHtml(String(v || '').split('.').pop())}" title="${escapeHtml(v || '')}" style="flex:1;min-width:0"></div>`;
+    else h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><input type="range" data-ptr="${f.key}" min="${f.min}" max="${Math.min(f.max, f.key === 'ejectSpeed' ? 600 : f.key === 'riseRate' ? 300 : f.max)}" step="${f.step}" value="${v}" style="flex:1;min-width:0"><input type="number" data-pt="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}" style="width:64px"></div>`;
+  }
+  if (!d.props) h += `<div class="hint" style="margin:2px 0">${d.failed ? 'The class could not be read from the game: every setting is offered, with the usual defaults.' : 'Reading the class from the game…'}</div>`;
+  h += `<div class="row"><label style="width:auto" title="Off: only while it is selected (editor only: the game does not read it)"><input type="checkbox" data-ptp="always" ${edits.particlepreview?.[a.name]?.always ? 'checked' : ''}> always play the preview</label></div>`;
+  const wire = () => {
+    const root = $('#propsec');
+    if (!root) return;
+    if (!d.props) particleDefaults[String(a.cls).split('.').pop()]?.then?.(() => { if (selected?.userData.actor === a) showDetails(); });
+    const put = (f, value) => {
+      const v = clampValue(f, value);
+      if (v === null) return;
+      setProp(a, f.key, formatValue(f, v));
+      storeProp('rawprops', a.name, f.key, null);      // the section's value, not an older one of All properties
+      wake();
+    };
+    for (const input of root.querySelectorAll('[data-pt]')) {
+      const f = PARTICLE_FIELDS.find((x) => x.key === input.dataset.pt);
+      input.onchange = async () => {
+        if (f.type === 'bool') return put(f, input.checked);
+        if (f.type === 'texture') {                  // the picker gives its short name: the full one is what the map needs
+          const typed = input.value.trim(), ix = await texturePicker.index().catch(() => null);
+          const t = ix && ix.packages.flatMap((p) => p.textures).find((x) => x[0].toLowerCase() === typed.toLowerCase() || x[1].toLowerCase() === typed.toLowerCase());
+          if (!t && !typed.includes('.')) { status(`No texture of the game is called ${typed}: pick one with its picture.`, 'warn'); return; }
+          return put(f, t ? t[1] : typed);
+        }
+        put(f, input.value);
+        const r = root.querySelector(`[data-ptr="${f.key}"]`);
+        if (r) r.value = input.value;
+      };
+    }
+    // a slider: the preview follows it as it moves; one Ctrl+Z step when it is let go
+    for (const r of root.querySelectorAll('[data-ptr]')) {
+      const f = PARTICLE_FIELDS.find((x) => x.key === r.dataset.ptr), n = root.querySelector(`[data-pt="${f.key}"]`);
+      // (dragged: the value shown through All properties' store, what it had there put back when it is let go)
+      r.oninput = () => {
+        if (!('orig' in r.dataset)) r.dataset.orig = JSON.stringify(edits.rawprops?.[a.name]?.[f.key] ?? null);
+        n.value = r.value;
+        storeProp('rawprops', a.name, f.key, formatValue(f, clampValue(f, r.value)));
+        wake();
+      };
+      r.onchange = () => {
+        if ('orig' in r.dataset) { storeProp('rawprops', a.name, f.key, JSON.parse(r.dataset.orig)); delete r.dataset.orig; }
+        put(f, r.value);
+      };
+    }
+    const always = root.querySelector('[data-ptp]');
+    if (always) always.onchange = () => {
+      edits.particlepreview = edits.particlepreview || {};
+      if (always.checked) edits.particlepreview[a.name] = { always: true }; else delete edits.particlepreview[a.name];
+      if (!Object.keys(edits.particlepreview).length) delete edits.particlepreview;
+      setDirty(); wake();
+    };
+  };
+  return { html: inspectorSection('particles', 'Particles', h, true), wire };
 }
 // the Effect point section of its Properties: the preview (editor only) and the rules that use it
 function fxPointSection(a, redraw) {
@@ -6030,7 +6137,7 @@ function replacementPlan(p, item, has, story) {
   const fits = { output: (u) => outputs.includes(lkWhenKey(u.rule)), input: (u) => u.action.verb === 'sound' || inputs.includes(lkVerbKey(u.action)),
     character, talker: character || chain.includes('DeusExDecoration'), door: chain.some((c) => /Mover$/.test(c)),
     computer: chain.includes('Computers'), text: (propSchema[item.cls] || []).some((f) => f.kind === 'text'),
-    cutscene: item.cls === 'UCCutscene', effect: isEffectPoint(now), patrol: item.cls === 'PatrolPoint' };
+    cutscene: item.cls === 'UCCutscene', effect: isEffectPoint(now), patrol: item.cls === 'PatrolPoint', particles: isParticleClass(item.cls) };
   const uses = usesOf(a.name, { links: lkList(), story, edits, routes: a.cls === 'PatrolPoint' ? routeUsers(a).map(hierLabel) : [] });
   return { p, e, raw: raw.props, lost: [...lost, ...raw.lost], misfits: misfits(uses, fits) };
 }
@@ -8574,7 +8681,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     const isLight = placing.cls === 'Light' || placing.cls === 'Spotlight', spot = placing.cls === 'Spotlight';
     const e2 = { name: nextName('UCEdit'), cls: placing.cls, loc: UE(r.p), rot: [spot ? -16384 : 0, facing, 0], radius: placing.radius, height: placing.height,
                  props: itemProps(placing) };
-    if (placing.cls === 'UCEffectPoint') {     // its arrow out of the wall, floor or ceiling clicked
+    if (placing.cls === 'UCEffectPoint' || isParticleClass(placing.cls)) {     // its arrow out of the wall, floor or ceiling clicked
       const fr = normalToRotation([r.n.x, r.n.z, r.n.y], facing);
       e2.rot = [fr.pitch, fr.yaw, 0];
     }
@@ -11307,6 +11414,11 @@ function drawProps(p, fields, box) {
     const fx = fxPointSection(a, redraw);
     html += fx.html;
     wires.push(fx.wire);
+  }
+  if (isParticleClass(a.cls)) {
+    const ps = particleSection(a, redraw);
+    html += ps.html;
+    wires.push(ps.wire);
   }
   if (tagCategoryOf(a) === 'object') {             // any object JC can use (the kinds as they always were)
     const us = usableSection(a, redraw);

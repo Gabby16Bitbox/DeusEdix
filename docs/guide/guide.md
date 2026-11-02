@@ -737,6 +737,28 @@ Objects scale all together (in Deus Ex an object has a single size, and its coll
 Objects whose name starts with `UC` are the editor's own (interactions, the map's `UCBoot`...): you can
 move them, but keep them in the same room.
 
+### Particles: smoke, steam, sparks, dust
+
+**Objects > Effects** has the game's particles, ready to place: rising smoke, a steam jet, cold mist that sinks,
+sparks, short bursts of electric sparks and falling dust (each a `ParticleGenerator`, the class of the game's steam
+vents, set as the game sets its own). Click one, then a floor, wall or ceiling: its **cyan arrow** comes out of the
+surface clicked, and that is the way the particles are thrown. Turn it with `E`, Rotation and Pitch.
+
+While it is selected the particles play in the 3D view, with their texture: thrown along the arrow, rising or
+sinking, falling with gravity, growing and fading as the game does it. The **Particles** section of the right panel
+has its settings by name, each with a slider; the preview follows them as you drag:
+
+- **Texture**: the picture of each particle (its small picture opens the texture picker: the game's *Effects*
+  package has its smoke, sparks and flames; the dropper takes one from the 3D view);
+- **Chance** and **Every (s)**: how often it throws a puff; **Particles each time**: how many in a puff;
+- **Speed** along the arrow, **Rise** (below 0 they sink), **Life (s)**, **Size**;
+- **Spread out**, **Gravity**, **Grow**, **Fade out**, **Glow (unlit)**, **Darkens (modulated)**.
+
+Only the settings the game's class has are shown (read from the game the first time). **always play the preview**
+keeps it playing when it is not selected (the editor's only: the game does not read it). Generators already in a map
+(an original map's steam vents) have the same arrow, preview and section. The preview follows the game's rules
+closely, but it is not the game: Rebuild and Play show the particles for sure.
+
 ### Several objects at once
 
 **Ctrl+click** or **Shift+click** adds an object to the selection (or takes it away) in the 3D
