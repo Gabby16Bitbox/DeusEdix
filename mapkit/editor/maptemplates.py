@@ -52,6 +52,8 @@ KEEP = {
     'disabled': 'objects that are off in the game',
     'props': "the properties set (not the Story's names: PROPS_DROP)",
     'rawprops': 'All properties',
+    'particlepreview': 'the particles that always play their preview (editor only)',
+    'fpmoments': "the first-person moments (the weapon JC holds: its clips, moves, sounds)",
     'textures': 'the pictures imported (their files are copied with the template)',
     'retexture': 'what wears them',
     'surfaces': 'the textures and alignment of faces',
@@ -88,7 +90,7 @@ TEXTS_PROPS = ('TextPackage', 'bulletinTag')
 # a tag inside the map (False), and a MapExit's DestMap, a bare value a map (True)
 EXITS = {'URL': False, 'DestMap': True}
 # the edits by object name, where what is left out with its object goes too
-NAMED = ('props', 'rawprops', 'disabled', 'motions', 'anims')
+NAMED = ('props', 'rawprops', 'disabled', 'motions', 'anims', 'particlepreview')
 
 
 def root():

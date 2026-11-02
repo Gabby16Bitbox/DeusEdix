@@ -28,6 +28,7 @@ import geom  # noqa: E402
 import kit  # noqa: E402
 import settings  # noqa: E402
 import prefabs  # noqa: E402
+import fpmoments  # noqa: E402
 import textures  # noqa: E402
 import props  # noqa: E402
 import comptexts  # noqa: E402
@@ -481,6 +482,22 @@ def _classes(path):
         return set()
 
 
+_TEXTURE_REF = re.compile(r"Texture'([A-Za-z_][A-Za-z0-9_]*)\.")
+
+
+def property_texture_packages(edits):
+    """The texture packages named by the values of the objects placed and of the properties set (Properties, All
+    properties): the game's ones, never the map's own (MyLevel)."""
+    values = []
+    for a in edits.get('added') or []:
+        values += [str(v) for v in (a.get('props') or {}).values()]
+    for store in ('props', 'rawprops'):
+        for own in (edits.get(store) or {}).values():
+            if isinstance(own, dict):
+                values += [str(v) for v in own.values()]
+    return sorted({m.group(1) for v in values for m in _TEXTURE_REF.finditer(v)} - {'MyLevel'})
+
+
 def build(map_name, log=print, options=None, watch=None):
     """Apply the edits to a private copy of the source. Returns (ok, lines). watch: the background Rebuild following the
     host run (build_job.Job, kit.execute's watch)."""
@@ -499,6 +516,14 @@ def build(map_name, log=print, options=None, watch=None):
     cmds = [r'MAP LOAD FILE="..\Input\%s"' % src.name, 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE]
     if any(b.get('sign') for b in edits.get('boxes') or []):
         cmds.append('OBJ LOAD FILE="CoreTexMetal.utx"')     # the iron frame of the signs (textures.SIGN_FRAME)
+    # the texture packages the objects' properties name (a particle's Texture'Effects.Smoke.SmokePuff1'), loaded before
+    # the objects come in: a reference to a package that is not loaded is lost
+    cmds += prefabs.package_commands(property_texture_packages(edits))
+    for package in fpmoments.packages(edits):            # the sounds of the first-person moments (fpmoments.py)
+        try:
+            cmds += prefabs.package_commands([package])
+        except ValueError as exc:
+            lines.append('  First-person moment: %s' % exc)
     # pictures imported in the editor: into the map, then on the faces (no rebuild) and on the objects
     cmds += textures.import_commands(edits, folder)
     cmds += textures.surface_commands(edits, structs)
@@ -670,6 +695,10 @@ def build(map_name, log=print, options=None, watch=None):
     for a in links.blocks(edits):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += links.report(edits)
+    # the first-person moments the rules play: UCViewMoment actors (fpmoments.py)
+    for a in fpmoments.blocks(edits):
+        blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
+    lines += fpmoments.report(edits)
     lines += cutscenes.report(edits)
     # zones: the WaterZone of every pool, a sky box (and its SkyZoneInfo) for sky surfaces in a map whose source has no
     # sky (its package's own objects: _classes)

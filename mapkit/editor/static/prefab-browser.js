@@ -1,4 +1,4 @@
-import { catalogMatches, editCatalogDetails } from './asset-catalog.js';
+import { catalogMatches, rankCatalog, editCatalogDetails } from './asset-catalog.js';
 // Project-local, baked prefabs. Placement and capturing map edits stay with app.js.
 // favourites: the stars of the cards and their group at the top (browser-tiles.js favouriteShelf), or none.
 // Linked prefabs (prefab-links.js): a card is a prefab (its line), placed as its newest version; its ⋯ (or a right
@@ -7,11 +7,15 @@ import { catalogMatches, editCatalogDetails } from './asset-catalog.js';
 // open map (null with none open); placedHere: the versions the open map places (kept by a Delete); menu(x, y, items):
 // the editor's right-click menu; onSelect/onUpdate(item): Select instances, Update instances; onChange: the list was
 // read again or changed (the Hierarchy's badges, the Inspector).
+// warm(item): get a prefab ready before Place is clicked (its preview and textures), so its ghost shows at once: asked
+// when the pointer or the focus reaches its card, and for the cards in view, one at a time while the page is idle.
+import { createSearch, rank } from './search-rank.js';
+
 export function createPrefabBrowser({
   api, escapeHtml, onPlace, onSave, getDefaultName = () => '',
   canSave = () => true, isTemporary = () => false, status = () => {}, onSaved = () => {}, favourites = null,
   capture = () => null, copiesHere = () => null, placedHere = () => [], menu = null, onSelect = () => {}, onUpdate = () => {},
-  onChange = () => {},
+  onChange = () => {}, warm = () => null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
@@ -27,6 +31,30 @@ export function createPrefabBrowser({
   }
 
   function invalidate() { items = null; loading = null; generation++; failed = false; onChange(); }
+
+  // Getting prefabs ready before their Place: those asked for once are not asked for again (warm keeps what it made)
+  const warmed = new Set(), waiting = [];
+  let warming = false, observer = null;
+  const idle = callback => (window.requestIdleCallback ? window.requestIdleCallback(callback, { timeout: 1500 }) : setTimeout(callback, 200));
+  function warmNow(item) {
+    if (!item || warmed.has(item.id)) return;
+    warmed.add(item.id);
+    Promise.resolve().then(() => warm(item)).then(ready => { if (!ready) warmed.delete(item.id); }, () => warmed.delete(item.id));
+  }
+  function warmLater(item) {
+    if (!item || warmed.has(item.id) || waiting.includes(item)) return;
+    waiting.push(item);
+    if (warming) return;
+    warming = true;
+    const next = () => idle(() => {
+      const it = waiting.shift();
+      if (!it) { warming = false; return; }
+      if (warmed.has(it.id)) { next(); return; }
+      warmed.add(it.id);
+      Promise.resolve().then(() => warm(it)).then(ready => { if (!ready) warmed.delete(it.id); }, () => warmed.delete(it.id)).finally(next);
+    });
+    next();
+  }
   favourites?.subscribe(() => { void render(); });   // a star clicked: drawn again from the list it has
 
   function list() {
@@ -60,7 +88,7 @@ export function createPrefabBrowser({
     const ticket = ++rendered, revision = generation;
     const search = $('#pfsearch');
     if (search) search.oninput = () => { void render(); };
-    const query = String(search?.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const query = createSearch(search?.value || '');
     container.setAttribute('aria-busy', 'true');
     container.innerHTML = '<div class="hint" role="status">Loading project prefabs…</div>';
     let entries;
@@ -73,12 +101,13 @@ export function createPrefabBrowser({
       return;
     }
     if (ticket !== rendered || revision !== generation) return;
-    const matches = text => query.every(word => text.toLowerCase().includes(word));
-    const shown = entries.filter(item => catalogMatches(item, query.join(' ')));
+    // the search (search-rank.js): its name first, then its source map; best match first
+    const matches = text => !query || query.score([{ text, weight: 1 }]) > 0;
+    const shown = query ? rankCatalog(entries, search?.value || '', item => [{ text: item.label || '', weight: 3 }, { text: [item.original_label, ...(item.keywords || []), ...(item.materials || [])].join(' '), weight: 2 }, { text: sourceName(item.source), weight: 1 }]) : entries;
     // Favourites first (kept per project, by prefab: a new version keeps its star); a prefab deleted from the library
     // shows as missing
     const favs = (favourites?.entries(id => entries.find(item => lineOf(item) === id)) || [])
-      .filter(({ fav, item }) => item ? catalogMatches(item, query.join(' ')) : matches(fav.label));
+      .filter(({ fav, item }) => item ? (!query || shown.includes(item)) : matches(fav.label));
     const reason = unavailable();
     const intro = `<div class="prefab-toolbar"><button data-pf-save class="primary" ${reason ? 'disabled' : ''} title="${esc(reason || 'Save the selected structure or nested group')}">Save selection as prefab…</button></div>
       <div class="hint sintro">Project library. Each prefab is a baked structure, including nested groups and their objects. Its copies stay linked to it: Apply to prefab (right click a copy) saves a new version, Update instances brings the others to it. Rebuild the source map before saving to capture the latest geometry. Placing or saving does not change your clipboard.</div>`;
@@ -112,6 +141,19 @@ export function createPrefabBrowser({
       event.preventDefault();
       more(itemOf(article.dataset.pfCard), event.clientX, event.clientY);
     });
+    // ready before Place: at once when the pointer or the focus reaches a card, while idle for the cards in view (asked
+    // again at each drawing: another map may be open, with its own materials; what was read stays with warm)
+    waiting.length = 0; warmed.clear();
+    observer?.disconnect();
+    observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver(seen => {
+      for (const entry of seen) if (entry.isIntersecting) { observer?.unobserve(entry.target); warmLater(itemOf(entry.target.dataset.pfCard)); }
+    }) : null;
+    for (const article of container.querySelectorAll('[data-pf-card]')) {
+      const ready = () => warmNow(itemOf(article.dataset.pfCard));
+      article.addEventListener('pointerenter', ready);
+      article.addEventListener('focusin', ready);
+      observer?.observe(article);
+    }
   }
 
   // a card's menu (its ⋯ or a right click): its copies in the open map, then the prefab itself

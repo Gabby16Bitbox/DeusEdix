@@ -3,7 +3,7 @@
   "title": "A target that is gone fails, the next actions still run",
   "behaviour": "An action on an object no longer in the map writes its act line, then fails with \"missing\".",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [468, 468], "has": "Report(\"act\", verb $ \"|\" $ target $ \"|\" $ a);"},
+    {"file": "UCLink.uc", "lines": [469, 469], "has": "Report(\"act\", verb $ \"|\" $ target $ \"|\" $ a);"},
     {"file": "UCLink.uc", "lines": [469, 472], "has": "if (target != \"\" && T == None)"}
   ],
   "assumes": [],

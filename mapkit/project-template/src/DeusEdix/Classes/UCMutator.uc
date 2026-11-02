@@ -3,6 +3,7 @@
 // from here" and its live view) it starts the runner (UCShotRunner) when its section in
 // RevisionUser.ini asks for it, and the map's UCBoot when the map has none (a map not built with
 // DeusEdix). The runner is transient: back in a map already visited, the Tick makes it again.
+// It also hears the keys of the Interactions ("When JC presses a key": Mutate).
 //=============================================================================
 class UCMutator extends Mutator;
 
@@ -30,6 +31,25 @@ function Ensure()
 			return;
 		Spawn(class'UCShotRunner');
 	}
+}
+
+// A key of the map's Interactions ("When JC presses a key"): Play binds it to "mutate UCKey <key>" in its copy of the
+// player's settings; the rules waiting for it (their Tag UCL_Key_<key>) run. Any other mutate goes on down the chain.
+function Mutate(string MutateString, PlayerPawn Sender)
+{
+	local Actor A;
+	local string k;
+
+	if (Left(MutateString, 6) ~= "UCKey ")
+	{
+		k = Mid(MutateString, 6);
+		foreach AllActors(class'Actor', A)
+			if (string(A.Tag) ~= ("UCL_Key_" $ k))
+				A.Trigger(Self, Sender);
+		return;
+	}
+	if (NextMutator != None)
+		NextMutator.Mutate(MutateString, Sender);
 }
 
 event Tick(float deltaTime)

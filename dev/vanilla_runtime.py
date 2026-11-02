@@ -41,6 +41,10 @@ def _exact(old, new):
 
 
 CHANGES = {
+    'UCCustomSoldier': [
+        _exact('\tbShouldGuardPoints=True\n', ''),
+        _exact('\tProfessionalism=1.200000\n', ''),
+    ],
     'UCBoot': [
         _function('PrepareEditorTexts', """// Books, newspapers and datacubes written in the editor: the original game has no SpecialText (Revision's
 // own text of an object); there the editor gives them their text through textTag and TextPackage, read by

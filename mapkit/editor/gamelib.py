@@ -276,7 +276,8 @@ def prefab(oid, log=print, pid=None):
             if src.exists():
                 shutil.copy2(src, dst / rel)
             textures[g['tex']] = dict(png=rel)
-    (dst / 'display.json').write_text(json.dumps(dict(groups=groups, textures=textures)), encoding='utf-8')
+    # written whole and last: a piece with its display.json is complete (pieces_library.made reads it without a lock)
+    atomicfile.write_text(dst / 'display.json', json.dumps(dict(groups=groups, textures=textures)))
     stored = prefabs.load(pid)
     clip['facing'] = stored.get('facing')
     clip['mover'] = moving_pieces.description(stored)

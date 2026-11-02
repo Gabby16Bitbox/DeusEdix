@@ -143,6 +143,7 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
         _session_inis(display_mode)
         _set_section(runner_lines)
         _set_console()
+        _set_keys(project_keys())
         _set_loadout(commands)
         STATE.update(seq=0, command_written=False, maps=set(), exit_asked=None)
         if live_mode:
@@ -301,6 +302,52 @@ def _set_console():
     project_game.write_file(INI, text.encode('latin1'))
     project_game.write_file(CONSOLE_CMD, b'\r\n')
     STATE['console'] = 0
+
+
+# the player's key bindings (the user ini's [Engine.Input]) and one key's line in it
+_INPUT_SECTION = re.compile(r'(?ms)^\[Engine\.Input\][^\r\n]*\r?\n(.*?)(?=^\[|\Z)')
+KEY_COMMAND = 'mutate UCKey %s'
+
+
+def project_keys():
+    """The keys the rules of the project's maps wait for ("When JC presses a key": links.keys_in)."""
+    import json
+    sys_path = str(Path(__file__).resolve().parent / 'editor')
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    import links
+    keys = set()
+    for path in sorted((Path(__file__).resolve().parent / 'maps').glob('*.edits.json')):
+        try:
+            keys |= set(links.keys_in(json.loads(path.read_text(encoding='utf-8'))))
+        except (OSError, ValueError, AttributeError):
+            continue
+    return sorted(keys)
+
+
+def with_keys(text, keys):
+    """The user ini's text with each key bound to "mutate UCKey <key>" (UCMutator.Mutate tells the rules), in its
+    [Engine.Input] (made when it has none); its other keys as they are."""
+    if not keys:
+        return text
+    m = _INPUT_SECTION.search(text)
+    body = m.group(1) if m else ''
+    lines = [l for l in body.splitlines() if l.strip() and l.split('=', 1)[0].strip().lower() not in {k.lower() for k in keys}]
+    lines += ['%s=%s' % (k, KEY_COMMAND % k) for k in keys]
+    section = '[Engine.Input]\r\n' + '\r\n'.join(lines) + '\r\n'
+    if m:
+        return text[:m.start()] + section + ('\r\n' if text[m.end():] else '') + text[m.end():]
+    return text.rstrip() + '\r\n\r\n' + section
+
+
+def _set_keys(keys):
+    """The keys of the Interactions in the launch's copy of the player's settings (only for this launch: the player's
+    own bindings of those keys are back the next time)."""
+    if not keys:
+        return
+    import project_game
+    project_game.write_file(INI, with_keys(INI.read_bytes().decode('latin1'), keys).encode('latin1'))
 
 
 def _set_loadout(commands):

@@ -4,7 +4,7 @@
   "behaviour": "The editor builds such an action with no name and the game refuses it with \"noname\" after its act line.",
   "derivedFrom": [
     {"file": "UCLink.uc", "lines": [568, 579], "has": "else if (verb == \"goal\" && a == \"\")"},
-    {"file": "UCLink.uc", "lines": [615, 618], "has": "if (counter == '')"}
+    {"file": "UCLink.uc", "lines": [617, 620], "has": "if (counter == '')"}
   ],
   "assumes": ["A5"],
   "map": "LogicFixtures",

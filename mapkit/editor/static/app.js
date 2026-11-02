@@ -4,7 +4,8 @@ import { characterLookControls, wireCharacterLooks } from './character-looks.js'
 // Unreal coordinates (X, Y, Z up, left-handed) <-> three.js (Y up): (x, y, z) -> (x, z, y).
 import { AREA_VERBS, areaMembers, areaRecipients } from './connect-area.js';
 import { BLOCK_WHEN, BLOCK_VERBS, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
-  effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary } from './interaction-blocks.js';
+  effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary, BODY_MODES, bodyHow, bodyHowText, KEYS, BUSY_KEYS } from './interaction-blocks.js';
+import { createFpMoments } from './fp-moments.js';
 import { mountConditions, conditionText, conditionProblem, kindOf } from './conditions.js';
 import { createWeatherPreview, weatherKind, weatherSettings, weatherPreviewControl } from './weather-preview.js';
 import { createEffectPointGizmo, setEffectPointTilt, stepEffectPreviews, effectPreviewsActive, disposeEffectPoint, isEffectPoint,
@@ -70,6 +71,9 @@ import { createViewAxes, createViewNote } from './view-axes.js';
 import { createTexturePicker } from './texture-picker.js';
 import { createFavourites } from './browser-favourites.js';
 import { favouriteShelf, installStars, mountTileSize } from './browser-tiles.js';
+import { createSearch, rank as rankSearch } from './search-rank.js';
+import { isParticleClass, PARTICLE_FIELDS, particleSettings, defaultsFrom, fieldsOf, parseValue, formatValue, clampValue, hurtZone, effectOf } from './particles.js';
+import { createParticleGizmo, stepParticlePreviews, particlePreviewsActive, disposeParticleGizmo } from './particles-view.js';
 import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions, blockPoints } from './block-shapes.js';
 import { createVertexEditor } from './vertex-edit.js';
 import { createDragHandles } from './drag-handles.js';
@@ -436,7 +440,7 @@ for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown',
   window.addEventListener(ev, () => wake(), { capture: true, passive: true });
 // what has the view drawn every frame now (else 4 times a second); Effects not while Play runs: the game lies over the view
 function drawEveryFrame(now) {
-  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || weatherPreview.active || showPaths
+  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || particlePreviewsActive() || weatherPreview.active || showPaths
     || ((effectsShown() || (skyPreview.animating && !viewModes.mode)) && !gameView?.active);
 }
 function animate(now) {
@@ -460,6 +464,7 @@ function animate(now) {
   if (cam.roll) camera.rotateZ(-cam.roll);          // looking through a cutscene camera with a roll (cutscene.js)
   stepPreview(dt);
   stepEffectPreviews(proxies, dt, fxWant);
+  stepParticlePreviews(proxies, dt, particleWant);
   if (showPaths) stepPathView(dt);
   liveBlocks.sync(proxies.children);
   stepWeatherPreview(dt);
@@ -601,7 +606,7 @@ async function clearMap() {
   disposeGroup(pathLines); disposeGroup(routeLines); disposeGroup(multiBoxes);
   skyPreview.clearSurfaces(); skyPreview.setSource(null); weatherPreview.clear();
   world.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-  world.clear(); for (const q of proxies.children) disposeEffectPoint(q); disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
+  world.clear(); for (const q of proxies.children) { disposeEffectPoint(q); disposeParticleGizmo(q); } disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
   script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); clearHistory(undoHistory); historyChanged(); dirty = false;
   skyTool.syncViewport();
   mapGeneration++;
@@ -1788,13 +1793,14 @@ function syncStructures() {
     structures[name] = { name, obj, label: `${e.label} (from ${e.source})`, category: e.mover ? 'Movers' : 'Pasted', pivot: e.pivot,
       placement: { offset: [0, 0, 0], yaw: 0 }, actors: [], rotatable: e.rotatable !== false, copyable: true,
       gameplay: false, paste: true, pendingPaste: true, built: false, prefab: e.prefab };
-    loadPrefabDisplay(e.prefab).then((d) => {
-      if (!d || !obj.parent) return;
-      const base = `/prefabs/${e.prefab}/`;
-      for (const g of d.groups) {
-        const mesh = new THREE.Mesh(geometryUE(g.pos, g.uv, e.pivot), makeMaterial((d.textures[g.tex] || {}).png, tf(g.tex, g.flags), base));
-        textureScale.capture(mesh.geometry, g);
-        mesh.userData.tex = g.tex; mesh.userData.flags = tf(g.tex, g.flags);
+    prefabParts(e.prefab, e.pivot).then((parts) => {
+      if (!parts || !obj.parent) return;
+      for (const part of parts) {
+        // its own copy of the prepared geometry (made once per prefab): the copy's texture scale changes its UVs
+        const geometry = part.geometry.clone();
+        geometry.userData = { ...part.geometry.userData };
+        const mesh = new THREE.Mesh(geometry, prefabMaterial(part));
+        mesh.userData.tex = part.tex; mesh.userData.flags = tf(part.tex, part.flags);
         mesh.userData.world = true;
         obj.add(mesh);
         setMeshLight(mesh);
@@ -1803,7 +1809,7 @@ function syncStructures() {
       if (st?.obj === obj) textureScale.update(obj, st.placement, livePose(st));
       if (selected === obj) outline.setFromObject(obj);
       wake();
-    }).catch
+    }).catch(() => {});
   }
   for (const st of Object.values(structures)) showPose(st, poseOf(st));
   for (const c of edits.copies) {
@@ -3057,6 +3063,7 @@ const prefabBrowser = createPrefabBrowser({
   // linked prefabs: the 3D view for a card's picture (without the editor's marks), the open map's copies, the menu
   capture: () => (script && !gameView?.active ? viewShot({ clean: true }).url : null),
   copiesHere: (item) => (script ? copyCounts(edits.prefabs, item) : null),
+  warm: (item) => warmPrefab(item),
   placedHere: () => (script ? edits.prefabs.map((e) => e.prefab) : []),
   menu: (x, y, items) => openMenu(x, y, items),
   onSelect: (item) => selectInstances(item.line || item.id),
@@ -3234,7 +3241,8 @@ function makeProxy(a, source) {
   const color = kind === 'light' ? lightColor(liveLight(a)) : KIND_COLOR[kind];
   const model = (kind === 'light' || kind === 'path' || kind === 'logic') ? null : modelFor(a, source);
   let body;
-  if (kind === 'light' || kind === 'path' || kind === 'logic') body = isEffectPoint(a) ? createEffectPointGizmo() : createViewportIcon(a, color);
+  if (isParticleClass(a.cls)) body = createParticleGizmo();      // particles: their arrow, their preview (particles-view.js)
+  else if (kind === 'light' || kind === 'path' || kind === 'logic') body = isEffectPoint(a) ? createEffectPointGizmo() : createViewportIcon(a, color, (key) => actorProp(a, key));
   else {
     const r = Math.max(4, a.radius || 16), h = Math.max(4, a.height || 16);
     const geo = new THREE.CylinderGeometry(r, r, 2 * h, 18);
@@ -3251,6 +3259,7 @@ function makeProxy(a, source) {
   g.rotation.y = yawToRad((a.rot || [0, 0, 0])[1]);
   g.userData = { actor: a, source, kind, body, model };
   if (isEffectPoint(a)) g.userData.fxGizmo = body;
+  if (isParticleClass(a.cls)) g.userData.particleGizmo = body;
   g.userData.tilt = signedRot((a.rot || [0])[0] || 0);        // its pitch (Stick to surface, Pitch in the Inspector)
   g.userData.roll = signedRot((a.rot || [0, 0, 0])[2] || 0);  // and its roll (E, Roll in the Inspector)
   applyTilt(g);
@@ -3578,7 +3587,7 @@ function rebuildProxies() {
   const keep = selected && selected.userData;
   const keepGroup = selected === groupPivot ? { nest: groupPivot.userData.nest, keys: selKeys() } : null;
   tc.detach();
-  for (const q of proxies.children) disposeEffectPoint(q);
+  for (const q of proxies.children) { disposeEffectPoint(q); disposeParticleGizmo(q); }
   disposeViewportIcons(proxies);
   proxies.clear();
   selected = null;
@@ -3888,7 +3897,49 @@ function hiddenByView(o) {
   const st = o.userData.kind === 'structure' ? structures[o.userData.name] : null;
   return !!keyOf(o) && objectHidden(o) && (!st || structureInMap(st));
 }
+// The texture picker's dropper (Gabby, 2 Nov 2026: "click an object that has it and it takes you to that texture"): the
+// next click in the 3D view gives the texture of what it hits first: a wall, floor or ceiling (its texture now, a
+// change not rebuilt yet too), a block, a drawing, an object's model. Esc, or a click on nothing with one, cancels.
+let texturePicking = null;
+function startTexturePick(done) {
+  if (!script || gameView?.active) { status('Open a map (and stop Play) to take a texture from the 3D view.', 'warn'); done(null); return; }
+  endTexturePick(null);
+  if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
+  cancelPlacing();
+  texturePicking = done;
+  canvas.style.cursor = 'crosshair';
+  status('Click a wall, floor, block or object in the 3D view to take its texture  (Esc cancels)');
+}
+function endTexturePick(name) {
+  const done = texturePicking;
+  if (!done) return;
+  texturePicking = null; canvas.style.cursor = '';
+  done(name);
+}
+function textureAt(e) {
+  const r = mouseRay(e);
+  const hits = visibleHits(r.intersectObjects(world.children, true)).concat(visibleHits(r.intersectObjects(proxies.children, true)))
+    .filter((h) => h.object.isMesh).sort((a, b) => a.distance - b.distance);
+  for (const h of hits) {
+    const o = h.object, face = surfaceTools.faceAt(h);
+    if (face) return surfaceTools.textureOf(face) || face.tex || '';
+    if (o.userData.drawnSetting !== undefined) { if (o.userData.drawnTex) return o.userData.drawnTex; continue; }
+    let b = o;
+    while (b && !b.userData?.box && b.parent && b.parent !== proxies) b = b.parent;
+    if (b?.userData?.box) { if (b.userData.box.tex) return b.userData.box.tex; continue; }
+    if (typeof o.userData.tex === 'string' && o.userData.tex && o.userData.tex.toLowerCase() !== 'none') return o.userData.tex;
+  }
+  return '';
+}
+function texturePickClick(e) {
+  const name = textureAt(e);
+  if (!name) { status('Nothing with a texture there: click a wall, floor, block or object (Esc cancels).', 'warn'); return; }
+  status(`Texture ${shortTex(name)} taken from the 3D view.`, 'ok');
+  endTexturePick(name);
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && texturePicking) { e.stopPropagation(); e.preventDefault(); endTexturePick(null); status('Taking a texture cancelled.'); } }, true);
 function pick(e) {
+  if (texturePicking) return void texturePickClick(e);           // the texture picker's dropper: a click is a texture
   if (measure?.active) return void measure.click(e);            // Measure: a click is a point
   if (vertexEdit?.active) return void vertexEdit.click(e);      // Edit vertices: a click picks a corner
   if (textureTransfer?.armed) return void textureTransfer.paint(e);
@@ -4768,7 +4819,7 @@ function stickTarget(p, ignored = new Set([p])) {
 // how far the object reaches behind its pivot (its back), in units
 function backDepth(p) {
   const d = p.userData;
-  if (d.fxGizmo) return 1.5;
+  if (d.fxGizmo || d.particleGizmo) return 1.5;
   if (d.kind === 'light' || d.kind === 'path' || d.kind === 'logic') return 4;
   const m = d.model;
   if (m) {
@@ -5116,6 +5167,161 @@ function fxWant(p) {
   const light = fxEffectsOn(edits.links, a.name).find((e) => e.kind === 'blinklight' || e.kind === 'pulse');
   return { kind, colour: light ? light.colour : 'red' };
 }
+// ---------------------------------------------------------------- particles (Objects > Effects; particles.js)
+// A generator's settings now: what the Particles section and All properties set (edits.props, edits.rawprops), else
+// the map's, else the class's defaults as the game says them (read once a class: classProps), else particles.js's.
+const particleDefaults = {};               // class -> {key: value}, or a Promise while it is read
+function particleDefaultsOf(cls) {
+  const name = String(cls || '').split('.').pop();
+  if (!(name in particleDefaults)) {
+    particleDefaults[name] = classProps(behaveApi, name).then((d) => { particleDefaults[name] = { props: d, values: defaultsFrom(d) }; wake(); return particleDefaults[name]; })
+      .catch(() => { particleDefaults[name] = { props: null, values: {}, failed: true }; });
+  }
+  const d = particleDefaults[name];
+  return d && !(d instanceof Promise) ? d : { props: null, values: {} };
+}
+const particleRead = (a) => (key) => edits.rawprops?.[a.name]?.[key] ?? actorProp(a, key);
+function particleSettingsOf(a) { return particleSettings(particleRead(a), particleDefaultsOf(a.cls).values); }
+// a texture's picture and width in units (the texture picker's), read once a texture
+const particleTextures = {};
+function particleTexture(name) {
+  if (!name) return { url: '', size: 64 };
+  if (!particleTextures[name]) {
+    particleTextures[name] = { url: '', size: 64 };
+    Promise.all([texturePicker.pictureOf(name).catch(() => ''), texturePicker.index().catch(() => null)]).then(([url, ix]) => {
+      const short = name.split('.').pop().toLowerCase();
+      const t = ix && ix.packages.flatMap((p) => p.textures).find((x) => x[1].toLowerCase() === name.toLowerCase() || x[0].toLowerCase() === short);
+      particleTextures[name] = { url: url || '', size: t ? t[2] : 64 };
+      wake();
+    });
+  }
+  return particleTextures[name];
+}
+// the preview of a generator this frame (particles-view.js): while it is selected, or always (its section says)
+function particleWant(p) {
+  const a = p.userData.actor;
+  if (!a || !edits) return null;
+  if (p !== selected && !edits.particlepreview?.[a.name]?.always) return null;
+  const settings = particleSettingsOf(a), tex = particleTexture(settings.particleTexture);
+  return { settings, url: tex.url, size: tex.size, hurt: hurtZone(settings) };
+}
+// Your effects (Objects > Effects > Yours): particles kept by name with their settings, in the project
+// [{name, cls, props}] (Save as my effect in a generator's Particles section; right click a tile to delete it)
+const myEffectsKey = () => projectStorageKey('myeffects', projectContext);
+function myEffects() {
+  try {
+    const list = JSON.parse(localStorage.getItem(myEffectsKey()) || '[]');
+    return Array.isArray(list) ? list.filter((e) => e && typeof e.name === 'string' && isParticleClass(e.cls) && e.props && typeof e.props === 'object') : [];
+  } catch { return []; }
+}
+function keepMyEffects(list) {
+  try { localStorage.setItem(myEffectsKey(), JSON.stringify(list)); return true; }
+  catch (e) { status('Your effects could not be kept: ' + e.message, 'bad'); return false; }
+}
+function saveMyEffect(a) {
+  const name = (prompt('Name of this effect (Objects > Effects, yours):', hierLabel(a)) || '').trim().slice(0, 60);
+  if (!name) return;
+  const list = myEffects().filter((e) => e.name.toLowerCase() !== name.toLowerCase());
+  list.push({ name, cls: String(a.cls).split('.').pop(), props: effectOf(particleRead(a)) });
+  if (!keepMyEffects(list)) return;
+  buildPalette();
+  status(`"${name}" is one of your effects now: Objects > Effects, in this project.`, 'ok');
+}
+function deleteMyEffect(name) {
+  if (!confirm(`Delete your effect "${name}"? The particles already placed stay as they are.`)) return;
+  keepMyEffects(myEffects().filter((e) => e.name !== name));
+  buildPalette();
+}
+// the Particles section of its Properties: the settings that matter, by name, each a field; the preview's own switch
+function particleSection(a, redraw) {
+  const d = particleDefaultsOf(a.cls), s = particleSettingsOf(a), fields = fieldsOf(d.props, a.cls), read = particleRead(a);
+  let h = '<div class="hint" style="margin:2px 0">The cyan arrow is the way the particles are thrown: turn it with E, Rotation and Pitch. The preview plays while it is selected; it follows the game\'s rules closely, Rebuild and Play show it for sure.</div>';
+  const heads = { hurt: 'Damage', switch: 'Switching on and off' };
+  let group = '';
+  for (const f of fields) {
+    if ((f.group || '') !== group) { group = f.group || ''; if (heads[group]) h += `<div class="cat" style="margin-top:6px">${heads[group]}</div>`; }
+    const own = read(f.key) !== undefined, v = s[f.key];
+    const title = escapeHtml(f.tip + (own ? '' : ' (the class\'s own value)'));
+    if (f.type === 'bool') h += `<div class="row"><label style="width:auto" title="${title}"><input type="checkbox" data-pt="${f.key}" ${v ? 'checked' : ''}> ${escapeHtml(f.label)}</label></div>`;
+    else if (f.type === 'name') h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><select data-pt="${f.key}" style="flex:1;min-width:0">${f.options.map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select></div>`;
+    else if (f.type === 'texture') h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><input data-pt="${f.key}" list="texlist" value="${escapeHtml(String(v || '').split('.').pop())}" title="${escapeHtml(v || '')}" style="flex:1;min-width:0"></div>`;
+    else h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><input type="range" data-ptr="${f.key}" min="${f.min}" max="${Math.min(f.max, f.key === 'ejectSpeed' ? 600 : f.key === 'riseRate' ? 300 : f.max)}" step="${f.step}" value="${v}" style="flex:1;min-width:0"><input type="number" data-pt="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}" style="width:64px"></div>`;
+  }
+  if (!fields.some((f) => f.own)) h += `<div class="row"><button type="button" data-ptx="upgrade" title="Replace with... UCParticles: the same particles, which can also hurt, start off, be switched on and off by an interaction and stay on for a while">Make it able to hurt and switch on/off</button></div>`;
+  h += `<div class="row"><button type="button" data-ptx="save" title="Keep these settings as an effect of your own, in Objects > Effects of this project">Save as my effect…</button></div>`;
+  if (!d.props) h += `<div class="hint" style="margin:2px 0">${d.failed ? 'The class could not be read from the game: every setting is offered, with the usual defaults.' : 'Reading the class from the game…'}</div>`;
+  h += `<div class="row"><label style="width:auto" title="Off: only while it is selected (editor only: the game does not read it)"><input type="checkbox" data-ptp="always" ${edits.particlepreview?.[a.name]?.always ? 'checked' : ''}> always play the preview</label></div>`;
+  const wire = () => {
+    const root = $('#propsec');
+    if (!root) return;
+    if (!d.props) particleDefaults[String(a.cls).split('.').pop()]?.then?.(() => { if (selected?.userData.actor === a) showDetails(); });
+    const put = (f, value) => {
+      const v = clampValue(f, value);
+      if (v === null) return;
+      setProp(a, f.key, formatValue(f, v));
+      storeProp('rawprops', a.name, f.key, null);      // the section's value, not an older one of All properties
+      wake();
+    };
+    for (const input of root.querySelectorAll('[data-pt]')) {
+      const f = PARTICLE_FIELDS.find((x) => x.key === input.dataset.pt);
+      input.onchange = async () => {
+        if (f.type === 'bool') return put(f, input.checked);
+        if (f.type === 'name') return put(f, input.value);
+        if (f.type === 'texture') {                  // the picker gives its short name: the full one is what the map needs
+          const typed = input.value.trim();
+          // a picture imported into the map (edits.textures): its texture in the map's own package
+          const mine = Object.keys(edits.textures || {}).find((n) => n.toLowerCase() === typed.toLowerCase());
+          if (mine) return put(f, `MyLevel.Imported.${mine}`);
+          const ix = await texturePicker.index().catch(() => null);
+          const t = ix && ix.packages.flatMap((p) => p.textures).find((x) => x[0].toLowerCase() === typed.toLowerCase() || x[1].toLowerCase() === typed.toLowerCase());
+          if (!t && !typed.includes('.')) { status(`No texture of the game is called ${typed}: pick one with its picture.`, 'warn'); return; }
+          return put(f, t ? t[1] : typed);
+        }
+        put(f, input.value);
+        const r = root.querySelector(`[data-ptr="${f.key}"]`);
+        if (r) r.value = input.value;
+      };
+    }
+    // a slider: the preview follows it as it moves; one Ctrl+Z step when it is let go
+    for (const r of root.querySelectorAll('[data-ptr]')) {
+      const f = PARTICLE_FIELDS.find((x) => x.key === r.dataset.ptr), n = root.querySelector(`[data-pt="${f.key}"]`);
+      // (dragged: the value shown through All properties' store, what it had there put back when it is let go)
+      r.oninput = () => {
+        if (!('orig' in r.dataset)) r.dataset.orig = JSON.stringify(edits.rawprops?.[a.name]?.[f.key] ?? null);
+        n.value = r.value;
+        storeProp('rawprops', a.name, f.key, formatValue(f, clampValue(f, r.value)));
+        wake();
+      };
+      r.onchange = () => {
+        if ('orig' in r.dataset) { storeProp('rawprops', a.name, f.key, JSON.parse(r.dataset.orig)); delete r.dataset.orig; }
+        put(f, r.value);
+      };
+    }
+    const save = root.querySelector('[data-ptx="save"]');
+    if (save) save.onclick = () => saveMyEffect(a);
+    const upgrade = root.querySelector('[data-ptx="upgrade"]');
+    if (upgrade) upgrade.onclick = () => { void replaceWith({ cls: 'UCParticles', radius: 8, height: 8, name: '', sub: '' }, [proxyOf(a.name)].filter(Boolean)); };
+    const always = root.querySelector('[data-ptp]');
+    if (always) always.onchange = () => {
+      edits.particlepreview = edits.particlepreview || {};
+      if (always.checked) edits.particlepreview[a.name] = { always: true }; else delete edits.particlepreview[a.name];
+      if (!Object.keys(edits.particlepreview).length) delete edits.particlepreview;
+      setDirty(); wake();
+    };
+  };
+  return { html: inspectorSection('particles', 'Particles', h, true), wire };
+}
+// the rows of "Play a body animation" in a rule (its select is filled when the character's animations are read)
+function bodyRowsHtml(x, j) {
+  const o = bodyHow(x.c), row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
+  const cur = x.a ? `<option value="${escapeHtml((o.own ? 'studio:' : '') + x.a)}" selected>${escapeHtml(x.a)}</option>` : '<option value="">(choose one)</option>';
+  return row(`<label style="width:auto">animation</label><select data-lkbody="${j}" style="flex:1;min-width:0">${cur}</select><button data-lkbodyplay="${j}" title="Play it on the character in the 3D view (the editor only)">▶</button>`)
+    + row(`<select data-lkbmode="${j}" title="How many times">${BODY_MODES.map(([k, l]) => `<option value="${k}" ${k === o.mode ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`
+      + (o.mode === 'time' ? `<input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 0}" min="0" step="0.5" style="width:56px"><span class="hint" style="margin:0">s</span>` : ''))
+    + row(`<label style="width:auto">speed</label><input type="number" data-lkbrate="${j}" value="${o.rate}" min="0.05" max="10" step="0.1" style="width:56px">`
+      + `<label style="width:auto" title="Off: it stands still while it plays (a patrol or a walk goes on afterwards)"><input type="checkbox" data-lkbwalk="${j}" ${o.walk ? 'checked' : ''}> may keep walking</label>`)
+    + (o.mode === 'loop' ? row('<span class="hint" style="margin:0">until "Stop its body animation"</span>') : '');
+}
 // the Effect point section of its Properties: the preview (editor only) and the rules that use it
 function fxPointSection(a, redraw) {
   const pv = fxPreviewOf(edits, a.name);
@@ -5448,6 +5654,38 @@ function focusSelected({ instant = false } = {}) {
 const prefabDisplays = {};
 function loadPrefabDisplay(id) {
   return prefabDisplays[id] || (prefabDisplays[id] = fetch(`/prefabs/${id}/display.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+}
+// a prefab's preview made ready once (its geometry by texture, UVs captured for the texture scale): the ghost while it
+// is placed shares it, each placed copy starts from a copy of it. Before, both made it again from display.json at
+// every click and every copy. Kept by prefab and pivot (a version's files never change), across maps.
+const prefabPartsCache = new Map();
+function prefabParts(id, pivot) {
+  const key = id + '|' + (pivot || [0, 0, 0]).join(',');
+  let parts = prefabPartsCache.get(key);
+  if (!parts) {
+    parts = loadPrefabDisplay(id).then((d) => {
+      if (!d) { prefabPartsCache.delete(key); return null; }
+      const base = `/prefabs/${id}/`;
+      return d.groups.map((g) => {
+        const geometry = geometryUE(g.pos, g.uv, pivot);
+        textureScale.capture(geometry, g);
+        return { geometry, tex: g.tex, flags: g.flags, png: (d.textures[g.tex] || {}).png, base };
+      });
+    });
+    prefabPartsCache.set(key, parts);
+  }
+  return parts;
+}
+// its material in the open map (the map's own texture flags count): made once per texture, in matCache
+function prefabMaterial(part) { return makeMaterial(part.png, tf(part.tex, part.flags), part.base); }
+// a prefab got ready before it is clicked (the pointer on its card or its button, the cards in view): its preview read
+// and made, its textures asked for, so its ghost shows at once. Nothing while Play runs or no map is open.
+function warmPrefab(clip) {
+  if (!clip || typeof clip.id !== 'string' || !script || mapLoading || gameView?.active) return Promise.resolve(null);
+  return prefabParts(clip.id, clip.pivot).then((parts) => {
+    if (parts && script) for (const part of parts) prefabMaterial(part);
+    return parts;
+  }).catch(() => null);
 }
 // a new copy's pid: never one a deleted copy's records, a reference or a hidden or locked object still name (prefab-links.js)
 function nextPid() { const s = viewState(); return freePid(edits, [...s.hidden, ...s.locked]); }
@@ -6104,7 +6342,7 @@ function replacementPlan(p, item, has, story) {
   const fits = { output: (u) => outputs.includes(lkWhenKey(u.rule)), input: (u) => u.action.verb === 'sound' || inputs.includes(lkVerbKey(u.action)),
     character, talker: character || chain.includes('DeusExDecoration'), door: chain.some((c) => /Mover$/.test(c)),
     computer: chain.includes('Computers'), text: (propSchema[item.cls] || []).some((f) => f.kind === 'text'),
-    cutscene: item.cls === 'UCCutscene', effect: isEffectPoint(now), patrol: item.cls === 'PatrolPoint' };
+    cutscene: item.cls === 'UCCutscene', effect: isEffectPoint(now), patrol: item.cls === 'PatrolPoint', particles: isParticleClass(item.cls) };
   const uses = usesOf(a.name, { links: lkList(), story, edits, routes: a.cls === 'PatrolPoint' ? routeUsers(a).map(hierLabel) : [] });
   return { p, e, raw: raw.props, lost: [...lost, ...raw.lost], misfits: misfits(uses, fits) };
 }
@@ -6187,15 +6425,19 @@ function placingOf(it) {
 }
 // what an item of the Objects browser is among its favourites: its class (a preset: its name too), your character's id
 const objectFavId = (it) => (it.custom ? 'character:' + it.custom : it.preset ? `${it.cls}:${it.name}` : it.cls);
-// an item of the Objects browser the search (q, lower case) shows: by its class, its names, its category
-const paletteMatch = (it, category, q) => !q || [it.cls, gameName(it.name), NAMES[it.cls] || '', category, it.sub || ''].some((s) => s.toLowerCase().includes(q));
+// what the search weighs of an item of the Objects browser (search-rank.js): its name first, then the other words it is
+// known by (palette.json searchAliases: the game's sink is Faucet), its class, last its category
+const paletteFields = (it, category) => [{ text: it.custom ? it.name : itemLabel(it), weight: 3 }, { text: gameName(it.name), weight: 3 },
+  { text: it.tags || '', weight: 2 }, { text: it.cls || '', weight: 2 }, { text: `${category} ${it.sub || ''}`, weight: 1 }];
+// an item of the Objects browser the search shows (q: what was typed, or its createSearch)
+const paletteMatch = (it, category, q) => { const s = typeof q === 'string' ? createSearch(q) : q; return !s || s.score(paletteFields(it, category)) > 0; };
 // the tile of an item (shown: the items of the tiles, by data-pi), with its star
 function paletteTile(it, shown) {
   const label = itemLabel(it);
   if (it.custom) {
     return `<button class="item" data-pi="${shown.push(it) - 1}" data-custom="${escapeHtml(it.custom)}" title="${escapeHtml(it.name)}: your character (Characters)"><span class="th" data-th="char:${escapeHtml(it.custom)}|${escapeHtml(window.__characters.stamp(it.custom))}"></span><span class="tl">${escapeHtml(it.name)}</span><small>${escapeHtml(it.sub || '')}</small>${objectFavs.star(objectFavId(it), it.name)}</button>`;
   }
-  return `<button class="item" data-pi="${shown.push(it) - 1}" data-cls="${it.cls}" title="${escapeHtml(label)} · ${escapeHtml(it.cls)}"><span class="th" ${paletteHas.has(it.cls) ? `data-th="cls:${it.cls}"` : ''}>${iconOf(it.cls)}</span><span class="tl">${escapeHtml(label)}</span><small>${label === it.cls ? '' : it.cls}</small>${objectFavs.star(objectFavId(it), label)}</button>`;
+  return `<button class="item" data-pi="${shown.push(it) - 1}" data-cls="${it.cls}" title="${escapeHtml(label)} · ${escapeHtml(it.cls)}"><span class="th" ${paletteHas.has(it.cls) ? `data-th="cls:${it.cls}"` : ''}>${iconOf(it.cls, it.preset)}</span><span class="tl">${escapeHtml(label)}</span><small>${label === it.cls ? '' : it.cls}</small>${objectFavs.star(objectFavId(it), label)}</button>`;
 }
 function buildPalette() {
   const q = $('#search').value.trim().toLowerCase();
@@ -6203,18 +6445,45 @@ function buildPalette() {
   const shown = [];                          // the items of its buttons (data-pi)
   const mine = window.__characters && window.__characters.paletteCategory();
   const categories = (mine && mine.items.length ? [mine] : []).concat(palette);
+  // your effects (saveMyEffect) under the game's
+  const yours = myEffects().map((e) => ({ cls: e.cls, radius: 8, height: 8, name: e.name, sub: 'yours', preset: { ...e.props }, myEffect: true }));
+  if (yours.length) {
+    const fx = categories.findIndex((c) => c.category === 'Effects');
+    if (fx >= 0) categories[fx] = { ...categories[fx], items: categories[fx].items.concat(yours) };
+    else categories.push({ category: 'Effects', items: yours });
+  }
   categories.splice(Math.max(0, categories.findIndex(c => c.category === 'Most used') + 1), 0, { category: 'Movers', items: [], movingLibrary: true });
   // Favourites first (kept per project); a class or a character no longer there shows as missing
   const byFav = new Map();
   if (objectFavs.list().length) for (const c of categories) for (const it of c.items) if (!byFav.has(objectFavId(it))) byFav.set(objectFavId(it), { it, category: c.category });
-  const favs = objectFavs.entries((id) => byFav.get(id))
+  const search = createSearch(q);
+  if (search) {
+    // a search: one list, best match first (Gabby, 2 Nov 2026: "sink" found nothing, and what matched was lost in its
+    // category); each item once (Most used repeats some), weighed with its own category; favourites a little first
+    const each = new Map();
+    for (const c of categories) {
+      if (c.movingLibrary) continue;
+      for (const it of c.items) {
+        const id = objectFavId(it), had = each.get(id);
+        if (!had || had.category === 'Most used') each.set(id, { it, category: c.category });
+      }
+    }
+    const starred = new Set(objectFavs.list().map((fav) => fav.id));
+    const found = rankSearch([...each.values()], search, (x) => paletteFields(x.it, x.category), (x) => (starred.has(objectFavId(x.it)) ? 3 : 0));
+    html += `<details data-cat="Results" open><summary>Best matches <small>${found.length}</small></summary>`;
+    for (const x of found.slice(0, 300)) html += paletteTile(x.it, shown);
+    html += '</details>';
+    html += `<details data-cat="Movers" open><summary>Movers</summary><div id="object-movers"></div></details>`;
+    if (!found.length) html = '<div class="hint">No objects match these words. Try another word (sink, chair, bin…) or look in Pieces and Models.</div>' + html;
+  }
+  const favs = search ? [] : objectFavs.entries((id) => byFav.get(id))
     .filter(({ fav, item }) => (item ? paletteMatch(item.it, item.category, q) : !q || fav.label.toLowerCase().includes(q)));
   if (favs.length) {
     html += `<details data-cat="${escapeHtml(objectFavs.group)}" ${q || openCats.has(objectFavs.group) ? 'open' : ''}><summary>${escapeHtml(objectFavs.group)} <small>${favs.length}</small></summary>`;
     for (const { fav, item } of favs) html += item ? paletteTile(item.it, shown) : objectFavs.missing(fav);
     html += '</details>';
   }
-  for (const c of categories) {
+  for (const c of search ? [] : categories) {
     if (c.movingLibrary) {
       html += `<details data-cat="Movers" ${q || openCats.has('Movers') ? 'open' : ''}><summary>Movers</summary><div id="object-movers"></div></details>`;
       continue;
@@ -6236,12 +6505,16 @@ function buildPalette() {
     if (d.dataset.cat === 'Movers') { if (d.open) void moversBrowser.render(); else moversBrowser.suspend(); }
     observeThumbs();
   });
-  for (const b of document.querySelectorAll('#palette .item[data-pi]')) b.onclick = () => startPlacing(placingOf(shown[+b.dataset.pi]), b);
+  for (const b of document.querySelectorAll('#palette .item[data-pi]')) {
+    b.onclick = () => startPlacing(placingOf(shown[+b.dataset.pi]), b);
+    const it = shown[+b.dataset.pi];
+    if (it?.myEffect) b.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, [{ label: `Delete your effect "${it.name}"…`, run: () => deleteMyEffect(it.name) }]); };
+  }
   if (bottomTab === 'objects') void moversBrowser.render();
   observeThumbs();
 }
-function iconOf(cls) {               // objects without a 3D model: lights, triggers, points...
-  return objectPreviewIcon(cls);
+function iconOf(cls, preset = null) {       // objects without a 3D model: lights, triggers, points... (preset: how it is placed)
+  return objectPreviewIcon(cls, preset);
 }
 
 // ---------------------------------------------------------------- the browser (bottom panel): tabs
@@ -6288,6 +6561,7 @@ const piecesBrowser = createPiecesBrowser({
   onCatalog: catalog => { pieceCat = catalog; },
   onThumbnails: observeThumbs,
   onPlace: (clip, button) => startPlacing({ prefab: clip, radius: 4, height: 0 }, button),
+  warm: (clip) => warmPrefab(clip),
 });
 const moversBrowser = createPiecesBrowser({
   api, escapeHtml, menu: openMenu, containerSelector: '#object-movers', searchSelector: '#search', noun: 'movers', favourites: pieceFavs,
@@ -6298,6 +6572,7 @@ const moversBrowser = createPiecesBrowser({
   canPlace: () => !!script && !gameView?.active, getContext: () => mapGeneration,
   onCatalog: catalog => { pieceCat = catalog; }, onThumbnails: observeThumbs,
   onPlace: (clip, button) => startPlacing({ prefab: clip, radius: 4, height: 0 }, button),
+  warm: (clip) => warmPrefab(clip),
 });
 function buildPieces() { return piecesBrowser.render(); }
 function pieceShapesOf(map, revision = '') {
@@ -6324,9 +6599,9 @@ async function pieceModel(id) {
 }
 // the ghost of a prefab while it is being placed
 async function prefabGhost(clip) {
-  const d = await loadPrefabDisplay(clip.id), g = new THREE.Group();
-  if (!d) return null;
-  for (const grp of d.groups) g.add(new THREE.Mesh(geometryUE(grp.pos, grp.uv, clip.pivot), makeMaterial((d.textures[grp.tex] || {}).png, tf(grp.tex, grp.flags), `/prefabs/${clip.id}/`)));
+  const parts = await prefabParts(clip.id, clip.pivot), g = new THREE.Group();
+  if (!parts) return null;
+  for (const part of parts) g.add(new THREE.Mesh(part.geometry, prefabMaterial(part)));
   return g;
 }
 for (const b of document.querySelectorAll('#bottom .btab')) b.onclick = () => showTab(b.dataset.tab);
@@ -6433,7 +6708,23 @@ function modelReplaceRow(a, id) {
   return `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(cur || a.cls)}">${escapeHtml(cur || 'Class model')}</span><button id="${id}" style="flex:none;padding:0 8px" title="Replace the visual model and its skins; keep the same actor, logic, transform and collision">Replace…</button></div>`;
 }
 // a model the search (q, lower case) shows: by its name, its label, the game's object that has it
-const modelMatch = (m, q) => !q || [m.mesh, m.label || '', m.used || '', ...(m.look_names || [])].some((s) => s.toLowerCase().includes(q));
+// the other words of the class that uses a model (palette.json searchAliases, from the Objects browser's list)
+let paletteTagsOf = null, paletteTagsFor = null;
+function paletteTags(cls) {
+  if (!cls) return '';
+  if (paletteTagsFor !== palette) {
+    paletteTagsFor = palette; paletteTagsOf = new Map();
+    for (const c of palette) for (const it of c.items) if (it.tags) paletteTagsOf.set(it.cls, it.tags);
+  }
+  return paletteTagsOf.get(String(cls).split('.').pop()) || '';
+}
+// what the search weighs of a model (search-rank.js): its name, the class that uses it and that class's other words, its package
+const modelFields = (m) => {
+  const short = m.mesh.split('.').slice(1).join('.');
+  return [{ text: m.label || short, weight: 3 }, { text: short, weight: 2 }, { text: m.used || '', weight: 2 },
+    { text: paletteTags(m.used), weight: 2 }, { text: (m.look_names || []).join(' '), weight: 2 }, { text: m.pkg || '', weight: 1 }];
+};
+const modelMatch = (m, q) => { const s = typeof q === 'string' ? createSearch(q) : q; return !s || s.score(modelFields(m)) > 0; };
 function modelTile(m) {
   const short = m.mesh.split('.').slice(1).join('.');
   return `<button class="item" data-mesh="${escapeHtml(m.mesh)}" title="${escapeHtml(m.mesh)} · ${m.tris} triangles${m.frames > 1 ? ` · ${m.frames} frames` : ''}${m.used ? ` · the game's ${escapeHtml(m.label || m.used)}` : ''}"><span class="th" data-th="mesh:${escapeHtml(m.mesh)}"></span><span class="tl">${escapeHtml(m.label || short)}</span><small>${escapeHtml(m.label ? short : '')}</small>${modelFavs.star(m.mesh, m.label || short)}</button>`;
@@ -6455,15 +6746,21 @@ async function buildModels() {
   }
   const q = $('#msearch').value.trim().toLowerCase(), mine = bottomTab === 'mymodels';
   let html = modelReplace ? `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(modelReplace.name)}">${modelReplace.busy ? 'Loading model for' : 'Replace model of'} ${escapeHtml(modelReplace.name)}</span><button id="model-replace-cancel" style="flex:none;height:var(--ui-control,22px);padding:0 8px;line-height:18px" title="Cancel replacement (Esc)">Cancel</button></div>` : '';
+  const search = createSearch(q);
+  if (search) {                    // a search: one list, best match first, from every package (My models: yours)
+    const starred = new Set(modelFavs.list().map((fav) => fav.id));
+    const found = rankSearch(modelList.meshes.filter((m) => !mine || m.pkg === MODELS_PKG), search, modelFields, (m) => (starred.has(m.mesh) ? 3 : 0));
+    if (found.length) html += `<details data-pkg="Results" open><summary>Best matches <small>${found.length}</small></summary>${found.slice(0, 300).map(modelTile).join('')}</details>`;
+  }
   // Favourites first (kept per project; My models: your own); a model whose package is gone shows as missing
-  const favs = modelFavs.entries(modelNamed)
+  const favs = search ? [] : modelFavs.entries(modelNamed)
     .filter(({ fav, item }) => (item ? (!mine || item.pkg === MODELS_PKG) && modelMatch(item, q) : !q || fav.label.toLowerCase().includes(q)));
   if (favs.length) {
     html += `<details data-pkg="${escapeHtml(modelFavs.group)}" ${q || mine || modelOpen.has(modelFavs.group) ? 'open' : ''}><summary>${escapeHtml(modelFavs.group)} <small>${favs.length}</small></summary>`;
     for (const { fav, item } of favs) html += item ? modelTile(item) : modelFavs.missing(fav);
     html += '</details>';
   }
-  for (const p of modelList.packages) {
+  for (const p of search ? [] : modelList.packages) {
     if (mine && p.name !== MODELS_PKG) continue;              // My models: only the imported ones
     const items = modelList.meshes.filter((m) => !m.hidden && m.pkg === p.name && modelMatch(m, q));
     if (!items.length) continue;
@@ -8661,7 +8958,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     const isLight = placing.cls === 'Light' || placing.cls === 'Spotlight', spot = placing.cls === 'Spotlight';
     const e2 = { name: nextName('UCEdit'), cls: placing.cls, loc: UE(r.p), rot: [spot ? -16384 : 0, facing, 0], radius: placing.radius, height: placing.height,
                  props: itemProps(placing) };
-    if (placing.cls === 'UCEffectPoint') {     // its arrow out of the wall, floor or ceiling clicked
+    if (placing.cls === 'UCEffectPoint' || isParticleClass(placing.cls)) {     // its arrow out of the wall, floor or ceiling clicked
       const fr = normalToRotation([r.n.x, r.n.z, r.n.y], facing);
       e2.rot = [fr.pitch, fr.yaw, 0];
     }
@@ -11413,6 +11710,11 @@ function drawProps(p, fields, box) {
     html += fx.html;
     wires.push(fx.wire);
   }
+  if (isParticleClass(a.cls)) {
+    const ps = particleSection(a, redraw);
+    html += ps.html;
+    wires.push(ps.wire);
+  }
   if (tagCategoryOf(a) === 'object') {             // any object JC can use (the kinds as they always were)
     const us = usableSection(a, redraw);
     html += us.html;
@@ -11751,6 +12053,7 @@ function lkWhenText(l) {
     case 'gone': return `When ${s} is destroyed`;
     case 'near': return `When JC comes within ${+l.near || 256} units of ${s}`;
     case 'start': return 'When the map starts';
+    case 'keypress': return `When JC presses ${l.key || '?'}`;
     case 'leave': return `When JC walks out of ${s}`;
     case 'animdone': return `When the animation of ${s} has finished`;
     case 'cutstart': return `When ${s} starts`;
@@ -12050,7 +12353,7 @@ function lkUpdateAreaMarkers() {
 // one rule: "When ... : then ..." with its actions
 function lkRuleHtml(l, inPanel) {
   const src = lkActor(l.src), cat = lkCatOf(src), cur = lkWhenKey(l);
-  const evs = l.when === 'start' ? ['start'] : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
+  const evs = l.when === 'start' ? ['start'] : l.when === 'keypress' ? ['keypress'] : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
   const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(l.src, w)}"` : LK_WHEN[w] || w);
   let h = `<div class="lk-rule" data-lk="${escapeHtml(l.id)}">`;
   h += `<div class="row"><b>When</b>${inPanel && l.src ? `<a href="#" data-lkgo="${escapeHtml(l.src)}" title="Go to it">${escapeHtml(lkName(l.src))}</a>` : ''}
@@ -12062,6 +12365,11 @@ function lkRuleHtml(l, inPanel) {
     h += `<div class="row" style="padding-left:12px"><label style="width:auto">Button</label><select data-lkopt>${opts.map((o) => `<option value="${o.i}" ${o.i === (+l.option || 0) ? 'selected' : ''}>${o.i + 1}: ${escapeHtml(unquote(new Map(o.pairs).get('Text') || '') || '(empty)')}</option>`).join('')}</select>
       <input type="text" data-lkot="Text" value="${escapeHtml(structShown(m.get('Text') || ''))}" placeholder="its text on the computer" style="flex:1;min-width:0"></div>
       <div class="row" style="padding-left:12px"><label style="width:auto">Then it says</label><input type="text" data-lkot="TriggerText" value="${escapeHtml(structShown(m.get('TriggerText') || ''))}" placeholder="e.g. Door unlocked" style="flex:1;min-width:0"></div>`;
+  }
+  if (l.when === 'keypress') {              // the key (Play binds it for its launch: live._set_keys)
+    const busy = BUSY_KEYS.includes(l.key);
+    h += `<div class="row" style="padding-left:12px"><label style="width:auto">key</label><select data-lkkey>${KEYS.map((k) => `<option ${k === l.key ? 'selected' : ''}>${k}</option>`).join('')}</select>`
+      + `<span class="hint${busy ? ' bad' : ''}" style="margin:0">${busy ? 'the game uses this key: JC can no longer do that with it' : 'works in Play (the key is bound for that launch)'}</span></div>`;
   }
   if (l.when === 'near') h += `<div class="row" style="padding-left:12px"><label style="width:auto">within</label><input type="number" data-lkn value="${+l.near || 256}" step="32" min="32" style="width:70px"><span class="hint" style="margin:0">units (a door is 128 high)</span></div>`;
   // the conditions: all must hold when it happens, or the rule does nothing that time (conditions.js, mounted by lkWire)
@@ -12103,6 +12411,12 @@ function lkRuleHtml(l, inPanel) {
     if (x.verb === 'floor') h += row(`<label style="width:auto" title="Its sequence: 0 is where it starts">floor</label><input type="number" data-lkarg="${j}" data-k="a" value="${Math.max(0, lkWholeOf(x.a, 0))}" min="0"${lkFloorMax(t) !== null ? ` max="${lkFloorMax(t)}"` : ''} step="1" style="width:60px">`);
     if (x.verb === 'count') h += row(`<label style="width:auto">counter</label>${arg('a', 'Levers', 'flex:1;min-width:0')}<label style="width:auto" title="Set the counter to the number instead of adding it"><input type="checkbox" data-lkset="${j}" ${x.c === 'set' ? 'checked' : ''}> set to</label><input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px">`);
     h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
+    if (x.verb === 'body') h += bodyRowsHtml(x, j);
+    if (x.verb === 'fpmoment') {             // a moment of Tools > First-person moments (fp-moments.js)
+      const names = fpMoments.list();
+      h += `<div class="row" style="padding-left:38px"><select data-lkfpm="${j}" style="flex:1;min-width:0"><option value="">(choose a moment)</option>${names.map((n) => `<option ${n === x.a ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}${x.a && !names.includes(x.a) ? `<option selected>${escapeHtml(x.a)} (missing)</option>` : ''}</select>`
+        + `<button data-lkfpedit="${j}" ${x.a && names.includes(x.a) ? '' : 'disabled'} title="Change this moment">Edit…</button><button data-lkfpnew="${j}" title="Make a new moment for it">New…</button></div>`;
+    }
     if (x.verb === 'travel') h += row(`<select data-lkarg="${j}" data-k="a" style="flex:1;min-width:0"><option value="">(choose a map)</option>${(allMapNames || []).map((m) => `<option ${m === x.a ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}${x.a && !(allMapNames || []).includes(x.a) ? `<option selected>${escapeHtml(x.a)}</option>` : ''}</select>${arg('b', 'arriving at (Tag)', 'width:100px')}`);
     h += '</div>';
   });
@@ -12155,6 +12469,8 @@ function lkWire(box, redraw) {
     });
     el.querySelector('[data-lko]').onchange = (e) => ch(() => { l.once = e.target.checked; });
     el.querySelector('[data-lkx]').onclick = () => ch(() => { edits.links = lkList().filter((x) => x !== l); });
+    const lkey = el.querySelector('[data-lkkey]');
+    if (lkey) lkey.onchange = () => ch(() => { l.key = lkey.value; });
     const ln = el.querySelector('[data-lkn]');
     if (ln) ln.onchange = () => ch(() => { l.near = Math.max(32, +ln.value || 256); });
     const lo = el.querySelector('[data-lkopt]');
@@ -12214,6 +12530,48 @@ function lkWire(box, redraw) {
       lkStartPick({ hint: 'Click the object they go and use (a bomb, a generator, a computer...)',
         accept: (o, chain) => (o.name === x.target ? 'That is the character: click the object.' : chain.includes('ScriptedPawn') ? 'A character cannot be used: click an object.' : true),
         done: (o) => ch(() => { x.a = o.name; }) });
+    };
+    // a body animation: the character's own and the Animation Studio's (baked on its models when chosen), how many
+    // times, its speed, whether it may keep walking; ▶ plays it on the character in the 3D view
+    for (const sel of q('[data-lkbody]')) {
+      const x = act(sel), who = lkActor(x.target);
+      if (!who) { sel.disabled = true; continue; }
+      animsOf(who.cls, meshOf(who)).then((info) => {
+        if (!document.body.contains(sel)) return;
+        const o = bodyHow(x.c);
+        sel.innerHTML = info ? seqOptions(info.seqs.filter((sq) => !sq.custom), o.own ? '' : x.a || '', '(choose one)')
+          : '<option value="">(this character has no animations)</option>';
+        studioList().then((names) => {
+          if (!document.body.contains(sel) || !names.length) return;
+          const og = document.createElement('optgroup');
+          og.label = 'Animation Studio (yours)';
+          for (const n of names) og.appendChild(new Option(n, 'studio:' + n, false, o.own && x.a === n));
+          sel.appendChild(og);
+          if (o.own && x.a) sel.value = 'studio:' + x.a;
+        });
+      });
+      sel.onchange = async () => {
+        const v = sel.value;
+        if (!v) return;
+        const own = v.startsWith('studio:'), name = v.replace(/^studio:/, '');
+        if (own && window.__studio) {          // baked on this character's models first, as When idle does
+          sel.disabled = true;
+          try { await window.__studio.ensure(who.cls, name, (t) => status(t)); } catch (err) { log('Animation Studio: ' + err.message, 'bad'); sel.disabled = false; return; }
+          sel.disabled = false;
+          for (const k of Object.keys(animInfo)) delete animInfo[k];
+        }
+        ch(() => { x.a = name; x.c = bodyHowText({ ...bodyHow(x.c), own }); });
+      };
+    }
+    for (const sel of q('[data-lkfpm]')) sel.onchange = () => ch(() => { act(sel).a = sel.value.replace(/ \(missing\)$/, ''); });
+    for (const b of q('[data-lkfpedit]')) b.onclick = () => { const x = act(b); fpMoments.open(x.a, () => redraw()); };
+    for (const b of q('[data-lkfpnew]')) b.onclick = () => { const x = act(b); fpMoments.open('', (name) => ch(() => { x.a = name; })); };
+    for (const sel of q('[data-lkbmode]')) sel.onchange = () => ch(() => { const x = act(sel); x.c = bodyHowText({ ...bodyHow(x.c), mode: sel.value }); if (sel.value === 'time' && !(+x.b > 0)) x.b = '5'; });
+    for (const inp of q('[data-lkbrate]')) inp.onchange = () => ch(() => { const x = act(inp); x.c = bodyHowText({ ...bodyHow(x.c), rate: +inp.value || 1 }); });
+    for (const c of q('[data-lkbwalk]')) c.onchange = () => ch(() => { const x = act(c); x.c = bodyHowText({ ...bodyHow(x.c), walk: c.checked }); });
+    for (const b of q('[data-lkbodyplay]')) b.onclick = () => {
+      const x = act(b), g = proxyOf(x.target);
+      if (g && x.a) void startPreview(g, g.userData.actor.cls, x.a, bodyHow(x.c).rate);
     };
     for (const s of q('[data-lkcol]')) s.onchange = () => ch(() => { const x = act(s), o = effectOptions(x.c); x.c = effectOptionText(s.value, o.beep, o.exact); });
     for (const c of q('[data-lkbeep]')) c.onchange = () => ch(() => { const x = act(c), o = effectOptions(x.c); x.c = effectOptionText(o.colour, c.checked, o.exact); });
@@ -12415,8 +12773,8 @@ function renderLogic() {
   lgPending = false;
   const list = lkList();
   const groups = new Map();
-  for (const l of list) { const k = l.when === 'start' ? '' : l.src; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
-  let h = `<div class="row"><b style="flex:1">Logic · ${escapeHtml(mapName)}</b><button id="lgstart">+ When the map starts</button><button id="lgclose">Close</button></div>
+  for (const l of list) { const k = l.when === 'start' || l.when === 'keypress' ? '' : l.src; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
+  let h = `<div class="row"><b style="flex:1">Logic · ${escapeHtml(mapName)}</b><button id="lgstart">+ When the map starts</button><button id="lgkey" title="A key JC presses (in Play)">+ When JC presses a key</button><button id="lgclose">Close</button></div>
     <div class="hint" style="margin:2px 0 8px">Every interaction of the map: <i>when</i> something happens, <i>then</i> what happens, each after its seconds. Make them in the Properties of an object (<b>+ When it...</b>, or <b>🔗 Connect to...</b> and click another object); no Tag or Event to write. <b>Rebuild</b> puts them in the game.</div>`;
   if (!list.length) h += '<div class="hint">No interactions yet. Select a button, a door, a keypad, a zone, a character... and use <b>🔗 Connect to...</b> in its Properties.</div>';
   for (const [k, ls] of groups) {
@@ -12429,6 +12787,7 @@ function renderLogic() {
   for (const g of logicBox.querySelectorAll('.lg-head [data-lkgo]')) g.onclick = (e) => { e.preventDefault(); const p = proxyOf(g.dataset.lkgo); if (p) { select(p); focusSelected(); } };
   $('#lgclose').onclick = () => { logicBox.style.display = 'none'; };
   $('#lgstart').onclick = () => lkChange(null, () => { lkAdd(null, 'start', null); }, () => {});
+  $('#lgkey').onclick = () => lkChange(null, () => { const l = lkAdd(null, 'keypress', null); l.key = 'K'; l.label = lkSentence(l); }, () => {});
 }
 $('#logicbtn').onclick = () => (logicBox.style.display === 'block' ? (logicBox.style.display = 'none') : openLogic().catch((e) => log('Logic: ' + e.message, 'bad')));
 
@@ -12474,7 +12833,7 @@ function lkCheck(add) {
     const who = l.src || (l.do || []).map((x) => x.target).find(Boolean);
     const say = lkSentence(l);
     if (edits.disabled?.[l.src]) { add('info', `Interaction "${say}": its source is disabled in game.`, who); continue; }
-    if (l.when !== 'start' && !lkActor(l.src)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
+    if (l.when !== 'start' && l.when !== 'keypress' && !lkActor(l.src)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
     if (!(l.do || []).length) add('warn', `Interaction "${say}": it does nothing yet (+ Then...).`, who);
     for (const x of l.do || []) {
       if (x.area && !lkAreaTargets(x, l.src).length) add('warn', `Interaction "${say}": the area group currently has no recipients.`, who);
@@ -14579,13 +14938,19 @@ function mapTextures() {
   const base = `/cache/${mapName}/`;
   const out = texList.map((name) => {
     const t = mapTex && mapTex[texFull[name]];
-    return { name, url: t && t.png ? base + t.png : '', size: t && t.w ? `${t.w}×${t.h}` : '' };
+    return { name, full: texFull[name] || '', url: t && t.png ? base + t.png : '', size: t && t.w ? `${t.w}×${t.h}` : '' };
   });
   for (const n of Object.keys((edits && edits.textures) || {})) out.unshift({ name: n, url: texUrl(n), size: '' });
   return out;
 }
+// Tools > First-person moments (fp-moments.js): the weapons of the Objects browser, their models as the Studio reads them
+const fpMoments = createFpMoments({ api, edits: () => edits, status, pickSound, playSound: (name) => playSound(name), escapeHtml,
+  change: (label, fn) => { pushUndo(label); fn(edits); setDirty(); },
+  weapons: () => (palette.find((c) => c.category === 'Weapons')?.items || []).map((it) => ({ cls: it.cls, label: `${itemLabel(it)} · ${it.cls}` })),
+  loadModel: (mesh) => window.__studio.loadModel(mesh) });
+window.__fpmoments = fpMoments;
 const texturePicker = createTexturePicker({ api, menu: openMenu, findInMap: (name) => findInMap(searchToken('tex', name, true)), getMapTextures: mapTextures, storage: safeStorage,
-  favourites: favouriteShelf(favourites, 'textures') });
+  favourites: favouriteShelf(favourites, 'textures'), pickFromView: startTexturePick });
 // ---------------------------------------------------------------- the command palette (Ctrl+K; command-palette.js)
 // As Unity's Search window. The menus' commands, the Settings pages and the panels come from the menus (menubar.js);
 // from here the map's objects (as the Hierarchy's search finds them: its words and tokens), the Objects browser's

@@ -50,12 +50,13 @@ export const KEPT = [
   ['documents', 'text', 'its text'],
   ['cutscenes', 'cutscene', 'its cutscene (keys and subtitles)'],
   ['fxpreview', 'effect', 'its effect preview'],
+  ['particlepreview', 'particles', 'its particles preview (always played)'],
 ];
 // what a use the new object does not answer says of it
 export const NEEDS = {
   output: 'it never does that', input: 'it cannot do that', character: 'it is no character', talker: 'it cannot talk',
   door: 'it is no door', computer: 'it is no computer', text: 'it has no text', cutscene: 'it is no cutscene camera',
-  effect: 'it is no effect point', patrol: 'it is no patrol point',
+  effect: 'it is no effect point', patrol: 'it is no patrol point', particles: 'it throws no particles',
 };
 
 // Where the Story names `name`: [{need, where}], once per need and dialogue or event. A dialogue it owns, or a line

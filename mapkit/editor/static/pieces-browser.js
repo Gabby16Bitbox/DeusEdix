@@ -1,12 +1,14 @@
-import { catalogMatches, editCatalogDetails } from './asset-catalog.js';
+import { catalogMatches, rankCatalog, editCatalogDetails } from './asset-catalog.js';
 // Local, on-demand scan of installed maps. Nothing here ships game content.
 // favourites: the stars of the tiles and their group at the top (browser-tiles.js favouriteShelf), or none.
+import { createSearch, rank } from './search-rank.js';
+
 export function createPiecesBrowser({
   api, escapeHtml, onPlace, canPlace = () => true, isVisible = () => true,
   onThumbnails = () => {}, onCatalog = () => {}, pollMs = 2000,
   containerSelector = '#pieces', searchSelector = '#psearch',
   filterItem = () => true, categoryLabel = value => value, searchTerms = [],
-  getContext = () => null, noun = 'pieces', menu = null, favourites = null,
+  getContext = () => null, noun = 'pieces', menu = null, favourites = null, warm = () => null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
@@ -20,6 +22,31 @@ export function createPiecesBrowser({
   if (!$('link[href="/static/pieces-browser.css"]')) document.head.appendChild(link);
 
   function stopPolling() { clearTimeout(timer); timer = 0; }
+
+  // A piece got ready before its click: the pointer resting on its tile asks for its prefab only if it was made before
+  // (?ready=1: the server reads it without waiting for a Rebuild and makes nothing), pressing it starts making it; then
+  // warm(clip) reads its preview and textures. place() takes what was started.
+  const prepared = new Map();
+  let peekTimer = 0;
+  function prepare(id, onlyMade = false) {
+    const kept = prepared.get(id);
+    if (kept && (onlyMade || kept.full || kept.ok)) return kept.promise;
+    const revision = generation;
+    const promise = api('/api/piece_prefab?id=' + encodeURIComponent(id) + (onlyMade ? '&ready=1' : ''), {}).then(clip => {
+      if (!clip || clip.kind !== 'prefab') throw new Error('not made yet');
+      entry.ok = true;
+      if (!disposed && revision === generation) Promise.resolve().then(() => warm(clip)).catch(() => {});
+      return clip;
+    });
+    const entry = { promise, full: !onlyMade };
+    prepared.set(id, entry);
+    promise.catch(() => { if (prepared.get(id) === entry) prepared.delete(id); });
+    return promise;
+  }
+  function peek(id) {
+    clearTimeout(peekTimer);
+    peekTimer = setTimeout(() => { if (!disposed && canPlace()) prepare(id, true).catch(() => {}); }, 150);
+  }
   function thumbnails() {
     if (thumbFrame || disposed || !isVisible()) return;
     thumbFrame = requestAnimationFrame(() => {
@@ -103,7 +130,11 @@ export function createPiecesBrowser({
     const target = container.querySelector('[data-pieces-list]');
     const firstCategory = categories.find(category => items.some(item => item.cat === category));
     if (!openedFirst && firstCategory) { openCategories.add(firstCategory); openedFirst = true; }
-    const matches = item => catalogMatches(item, query, searchTerms);
+    // the search (search-rank.js): its name first, its textures' names, last its category and map
+    const search = createSearch(query);
+    const fields = item => [{ text: item.label, weight: 3 }, { text: [item.original_label, ...(item.keywords || []), ...(item.materials || [])].join(' '), weight: 2 }, { text: Array.isArray(item.tex) ? item.tex.join(' ') : '', weight: 2 },
+      { text: `${item.cat || ''} ${categoryLabel(item.cat || '')} ${searchTerms.join(' ')}`, weight: 1 }, { text: item.map || '', weight: 1 }];
+    const matches = item => !search || search.score(fields(item)) > 0;
     const tile = item => {
       const maps = Array.isArray(item.maps) ? item.maps : [], size = Array.isArray(item.size) ? item.size.join(' x ') : '';
       const where = maps.length > 1 ? `${maps.length} levels` : item.map || '';
@@ -112,17 +143,26 @@ export function createPiecesBrowser({
           <span class="th" data-th="piece:${esc(item.id)}${item.revision ? '|' + esc(item.revision) : ''}"></span><span class="tl">${esc(item.label)}</span>${preparing.has(item.id) ? '<small data-piece-loading>Preparing…</small>' : ''}${favourites ? favourites.star(item.id, item.label) : ''}</button>`;
     };
     let html = '';
+    if (search) {                  // a search: one list, best match first, favourites a little first
+      const starred = new Set(favourites ? favourites.list().map(fav => fav.id) : []);
+      const found = rankCatalog(items, query, fields, item => (starred.has(item.id) ? 3 : 0));
+      if (found.length) {
+        html += `<details data-cat="Results" open><summary>Best matches <small>${found.length}</small></summary>`;
+        for (const item of found.slice(0, 300)) html += tile(item);
+        html += '</details>';
+      }
+    }
     // Favourites first: the starred ones this browser lists (the other instance has the rest); one no longer in the
     // library shows as missing, once the library is read and no scan may still find it
     const settled = catalog && !scanning && !['running', 'pausing'].includes(catalog.scan?.state);
-    const favs = (catalog && favourites ? favourites.entries(id => catalog.items.find(item => item.id === id)) : [])
+    const favs = (catalog && favourites && !search ? favourites.entries(id => catalog.items.find(item => item.id === id)) : [])
       .filter(({ fav, item }) => (item ? filterItem(item) && matches(item) : settled && (!query || fav.label.toLowerCase().includes(query))));
     if (favs.length) {
       html += `<details data-cat="${esc(favourites.group)}" ${query || openCategories.has(favourites.group) ? 'open' : ''}><summary>${esc(favourites.group)} <small>${favs.length}</small></summary>`;
       for (const { fav, item } of favs) html += item ? tile(item) : favourites.missing(fav);
       html += '</details>';
     }
-    for (const category of categories) {
+    for (const category of search ? [] : categories) {
       const shown = items.filter(item => item.cat === category && matches(item));
       if (!shown.length) continue;
       html += `<details data-cat="${esc(category)}" ${query || openCategories.has(category) ? 'open' : ''}><summary>${esc(categoryLabel(category))} <small>${shown.length}</small></summary>`;
@@ -142,7 +182,14 @@ export function createPiecesBrowser({
       thumbnails();
     });
     // Drag/drop awaits preparation before placing the asset in the viewport.
-    for (const button of target.querySelectorAll('[data-piece]')) button.onclick = () => place(button.dataset.piece);
+    for (const button of target.querySelectorAll('[data-piece]')) {
+      button.onclick = () => place(button.dataset.piece);
+      button.addEventListener('pointerenter', () => peek(button.dataset.piece));
+      button.addEventListener('pointerleave', () => clearTimeout(peekTimer));
+      button.addEventListener('pointerdown', event => {
+        if (event.button === 0 && !disposed && canPlace()) prepare(button.dataset.piece).catch(() => {});
+      });
+    }
     if (menu) for (const button of target.querySelectorAll('[data-piece]')) button.oncontextmenu = event => {
       event.preventDefault(); const item = items.find(i => i.id === button.dataset.piece);
       menu(event.clientX, event.clientY, [{ label: 'Edit catalog details…', run: () => editCatalogDetails({ item, api, categories,
@@ -216,7 +263,7 @@ export function createPiecesBrowser({
     preparing.add(id); placeError = ''; draw();
     const context = getContext(), revision = generation;
     try {
-      const clip = await api('/api/piece_prefab?id=' + encodeURIComponent(id), {});
+      const clip = await prepare(id);
       if (disposed || revision !== generation || context !== getContext()) return;
       if (!canPlace()) throw new Error('Open a map and stop Play before placing the prepared piece.');
       const button = [...(shell?.querySelectorAll('[data-piece]') || [])].find(item => item.dataset.piece === id);
@@ -226,11 +273,12 @@ export function createPiecesBrowser({
   }
 
   function invalidate() {
+    prepared.clear(); clearTimeout(peekTimer);
     generation++; request = null; catalog = null; autoAttempted = false; scanning = false; pausing = false;
     readError = ''; scanError = ''; listStamp = null; stopPolling();
   }
   function dispose() {
-    disposed = true; generation++; stopPolling(); cancelAnimationFrame(thumbFrame); thumbFrame = 0;
+    disposed = true; generation++; stopPolling(); clearTimeout(peekTimer); prepared.clear(); cancelAnimationFrame(thumbFrame); thumbFrame = 0;
     searchInput?.removeEventListener('input', search);
   }
   return { render, invalidate, dispose, suspend: stopPolling };

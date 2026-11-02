@@ -4,7 +4,7 @@
   "behaviour": "The action count sets a counter (c = set) or adds to it, a negative number too; the log names only the counter, the state at the end shows the value.",
   "derivedFrom": [
     {"file": "UCLink.uc", "lines": [613, 623], "has": "function Count(name counter, int n, bool bSet)"},
-    {"file": "UCLink.uc", "lines": [578, 579], "has": "else if (verb == \"count\")"}
+    {"file": "UCLink.uc", "lines": [583, 584], "has": "else if (verb == \"count\")"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

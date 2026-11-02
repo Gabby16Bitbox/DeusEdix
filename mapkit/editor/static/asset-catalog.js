@@ -1,4 +1,14 @@
+import { createSearch, rank } from './search-rank.js';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Keep exact catalog filters while ranking ordinary words and tolerating typos.
+export function rankCatalog(items, query, fields, boost = () => 0) {
+  const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
+  const isFilter = word => /^(map:|id:|material:|\d\d_)/i.test(word) || word.includes('~');
+  const filters = tokens.filter(isFilter).join(' ');
+  const candidates = filters ? items.filter(item => catalogMatches(item, filters)) : items;
+  const search = createSearch(tokens.filter(word => !isFilter(word)).join(' '));
+  return search ? rank(candidates, search, fields, boost) : candidates;
+}
 export function catalogMatches(item, query, extras = []) {
   const source = typeof item.source === 'string' ? item.source : item.source?.map || item.source?.label || '';
   const text = [item.label, item.cat, item.original_label, item.original_cat,

@@ -737,6 +737,50 @@ Objects scale all together (in Deus Ex an object has a single size, and its coll
 Objects whose name starts with `UC` are the editor's own (interactions, the map's `UCBoot`...): you can
 move them, but keep them in the same room.
 
+### Particles: smoke, steam, sparks, dust
+
+**Objects > Effects** has the game's particles, ready to place: rising smoke, a steam jet, cold mist that sinks,
+sparks, short bursts of electric sparks and falling dust (each a `ParticleGenerator`, the class of the game's steam
+vents, set as the game sets its own). Click one, then a floor, wall or ceiling: its **cyan arrow** comes out of the
+surface clicked, and that is the way the particles are thrown. Turn it with `E`, Rotation and Pitch.
+
+While it is selected the particles play in the 3D view, with their texture: thrown along the arrow, rising or
+sinking, falling with gravity, growing and fading as the game does it. The **Particles** section of the right panel
+has its settings by name, each with a slider; the preview follows them as you drag:
+
+- **Texture**: the picture of each particle (its small picture opens the texture picker: the game's *Effects*
+  package has its smoke, sparks and flames; the dropper takes one from the 3D view);
+- **Chance** and **Every (s)**: how often it throws a puff; **Particles each time**: how many in a puff;
+- **Speed** along the arrow, **Rise** (below 0 they sink), **Life (s)**, **Size**;
+- **Spread out**, **Gravity**, **Grow**, **Fade out**, **Glow (unlit)**, **Darkens (modulated)**.
+
+Only the settings the game's class has are shown (read from the game the first time). **always play the preview**
+keeps it playing when it is not selected (the editor's only: the game does not read it). Generators already in a map
+(an original map's steam vents) have the same arrow, preview and section. The preview follows the game's rules
+closely, but it is not the game: Rebuild and Play show the particles for sure.
+
+**Particles that hurt, and switching them on and off.** The Effects of the browser are `UCParticles` (DeusEdix's
+package: the game's particles, and more). Under the particle settings their section has:
+
+- **Damage**: how much each hit, its **Kind** (fire, electricity, poison gas, tear gas, radiation, EMP, explosion,
+  shot, stun: what JC's augmentations and armour resist), its **Radius** round the stream, its **Reach** along the
+  arrow (0: a ball round it), **Hit every (s)**, and whether it **Hurts characters too** (else JC only). Nothing is
+  hurt through a wall. While it is selected, a red see-through shape in the 3D view shows where it hurts;
+- **Switching on and off**: **On at the start** (off: it waits), **Stays on (s)** once switched on (0: until switched
+  off), and whether **"Switch on" also switches it off**. Switch it with the Interactions' *Switch on* and *Switch
+  off* (when JC uses a button, walks into a collision box, picks something up, a timer runs out...) or with the
+  game's own triggers through its Tag. Off, it throws no more particles (those in the air finish their life) and its
+  sound stops.
+
+The browser has some ready: *Steam that burns*, *Electric hazard*, *Toxic gas*, *Smoke when switched on (10 s)*. A
+generator of an original map (a `ParticleGenerator`) has **Make it able to hurt and switch on/off**: it becomes a
+`UCParticles` with the same particles (Replace with..., one Undo).
+
+**Your own effects.** **Save as my effect…** in the section keeps the particles' settings (texture, damage and
+switching too) under a name of yours: they are in **Objects > Effects** of this project, under the game's, to place
+again in any map (right click one to delete it). A particle can have a picture of yours as its texture: import it
+into the map (the texture editor), then type its name in **Texture**.
+
 ### Several objects at once
 
 **Ctrl+click** or **Shift+click** adds an object to the selection (or takes it away) in the 3D
@@ -1549,6 +1593,39 @@ what happens when something happens to it.
 **Rebuild** puts them in the game. The game's own Tag and Event (**Connections (Tag / Event)**) still
 work: an object with an Event of its own keeps triggering it as well.
 
+### When JC presses a key
+
+In the **Logic** window, **+ When JC presses a key** makes a rule that runs when JC presses the key you choose (a
+letter, a digit, F1–F12, Insert, Delete, Home, End, Page Up/Down, the numeric keypad). It works in **Play**: the
+key is bound for that launch in Play's own copy of your settings (yours are left as they are). A key the game
+already uses (W, A, S, D, E, F, the number keys...) is taken from JC for that launch: the rule says so in red.
+
+### First-person moments (the weapon JC holds)
+
+**Tools > First-person moments...** makes moments of the weapon JC holds, seen as the player sees it: an
+inspection of the gun, a gesture when a weapon is picked up, a weapon raised as a door opens.
+
+- **Weapon**: the one it is made for (its first-person model and its place in the view are read from the game).
+  In the game the moment plays only while JC holds that weapon.
+- **Clips**: pieces of the weapon's own animations one after another (Select, Reload, Shoot...): any frames of
+  one, at any speed (**in ... s**), backwards too (**⇄**, or a *to* before the *from*). The last frame stays
+  until the moment ends.
+- **Moves**: keys of the weapon's place in the view (forward, right, up), straight from one to the next; the
+  last one is where it ends (0 0 0: back where it was).
+- **Sounds** at their seconds, and a **shake** of the view (in the game only).
+- ▶ and the timeline play it in the view, with its sounds.
+
+An Interaction plays it: **JC's weapon plays a moment** (an action without an object), when JC presses a key,
+uses a button, walks into a collision box, picks something up... JC firing, reloading or putting the weapon away
+ends the moment at once.
+
+**New animations from Blender.** **Export the model (.glb)** writes the weapon's first-person model (arms and
+gun) at rest. Animate it in Blender any way you like (an armature, shape keys) without moving its points in edit
+mode, and export it as .glb with its animation. **Import an animation (.glb)...** reads it back frame by frame
+(30 frames a second, or the number you choose) as a new animation of the weapon, `FP_<name>`, in a copy of its
+model in DeusEdix's `DeusEdixAnims` package (as the Animation Studio's), and adds its clip to the moment. In the
+game the weapon wears that copy while the moment plays.
+
 ## Scripting tags
 
 Select an object and open **Inspector > Scripting tag**. A scripting tag groups objects for new
@@ -2218,7 +2295,17 @@ conversation, in a fight or running away they are as the game makes them.
 patrolling through it): they do it while they wait there. When the point had no wait, it gets one
 long enough for the animation.
 
-Both work through DeusEdix's package: `UCAnimSet` objects in the map (made by the rebuild), so the
+**When something happens** (an Interaction): *Play a body animation* on a character makes it play one when
+JC uses a button, walks into a collision box, picks something up, when a timer runs out, a cutscene starts...
+Choose the character as the target, then its **animation** (the model's own, or one of yours from the
+Animation Studio: it is put on the character's models when you choose it), how many times (**once**, **over and
+over** until *Stop its body animation*, or **over and over, for some seconds**), its **speed**, and whether it
+**may keep walking** (off: it stands still while it plays; a patrol goes on afterwards). ▶ plays it on the
+character in the 3D view. Whatever the game's AI plays meanwhile, the animation goes on where it was; at its
+end the character does what it did before, and the rules *When it has finished its body animation* run (to
+play another, say a line, open a door...).
+
+All of these work through DeusEdix's package: `UCAnimSet` objects in the map (made by the rebuild), so the
 package must be in the game (**Install** puts it there).
 
 **Pose here** (*Animation > Pose here...* in a character's Properties, or right-click it): poses the

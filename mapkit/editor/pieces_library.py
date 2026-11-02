@@ -20,6 +20,7 @@ import data as editor_data
 import dxmaps
 import gamelib
 import moving_pieces
+import prefabs
 import settings
 import t3d
 
@@ -93,6 +94,28 @@ def _signature(path, digest=True):
     return value
 
 
+_digests = {}       # (path, size, time) of an original map -> its sha256: hashed once per start of the editor
+
+
+def _same_map(path, signature):
+    """_signature(path) == signature, the map's contents hashed only the first time this size and time are seen
+    (placing a piece hashed its whole original map at every click)."""
+    try:
+        current = _signature(path, False)
+        if current != {k: signature.get(k) for k in ('path', 'size', 'mtime')}:
+            return False
+        key = (current['path'], current['size'], current['mtime'])
+        with _guard:
+            known = _digests.get(key)
+        if known is None:
+            known = _signature(path)
+            with _guard:
+                _digests[key] = known
+        return known == signature
+    except OSError:
+        return False
+
+
 def _stat_matches(path, signature):
     try:
         return isinstance(signature, dict) and _signature(path, False) == {k: signature.get(k) for k in ('path', 'size', 'mtime')}
@@ -100,14 +123,26 @@ def _stat_matches(path, signature):
         return False
 
 
+_catalogs = {}      # the catalog as last read, by its file's size and time: placing a piece read it whole every time
+
+
 def _catalog():
+    """The Pieces catalog (read only: it is shared until its file changes), or {} when it is missing or invalid."""
     path = _safe(gamelib.CATALOG.parent, gamelib.CATALOG)
     try:
+        st = path.stat()
+        key = (str(path), st.st_mtime_ns, st.st_size)
+        with _guard:
+            kept = _catalogs.get('value')
+        if kept and kept[0] == key:
+            return kept[1]
         value = json.loads(path.read_text(encoding='utf-8'))
         if (not isinstance(value, dict) or value.get('version') != gamelib.VERSION or
                 not isinstance(value.get('items'), list) or not isinstance(value.get('categories'), list) or
                 any(not isinstance(category, str) for category in value['categories'])):
-            return {}
+            value = {}
+        with _guard:
+            _catalogs['value'] = (key, value)
         return value
     except (OSError, ValueError):
         return {}
@@ -432,8 +467,8 @@ def _validate_piece(item, name):
                 raise ValueError('This piece uses a level-local resource; choose another piece.')
 
 
-def prefab(oid, log=print):
-    """Validate source identity and use a content-versioned generated prefab ID."""
+def _resolve(oid):
+    """(item, map name, its signature, identity, prefab id) of a piece of the current game's library."""
     if not isinstance(oid, str) or not _OBJECT.fullmatch(oid):
         raise ValueError('Invalid Pieces object identity.')
     catalog, identity = _catalog(), _identity()
@@ -445,10 +480,36 @@ def prefab(oid, log=print):
     if not _MAP.fullmatch(name):
         raise ValueError('Invalid Pieces source map.')
     path = _safe(Path(settings.REVISION_MAPS), Path(settings.REVISION_MAPS) / (name + '.dx'))
-    if _signature(path) != signature or not _cache_valid(name, signature, identity):
+    if not _same_map(path, signature):
         raise ValueError('This original map changed or its cache is missing. Rescan Pieces before placing it.')
-    _validate_piece(item, name)
     version = hashlib.sha256(json.dumps(dict(identity, source=signature, objects_version=gamelib.VERSION, preview=PREVIEW_VERSION),
                                         sort_keys=True).encode()).hexdigest()[:16]
-    pid = 'obj_' + re.sub(r'\W', '_', oid) + '_' + version
+    return item, name, signature, identity, 'obj_' + re.sub(r'\W', '_', oid) + '_' + version
+
+
+def _made(pid):
+    folder = prefabs.ROOT / pid
+    return (folder / 'prefab.json').is_file() and (folder / 'display.json').is_file()
+
+
+def made(oid):
+    """The piece's prefab when it was made before from this very map, game and version (its id says so; checked when it
+    was made), else None. Reads files only and takes no lock: placing a piece made before no longer waits for a Rebuild
+    or a Pieces scan holding the SDK (server: /api/piece_prefab)."""
+    try:
+        _item, _name, _signature_, _identity_, pid = _resolve(oid)
+        return gamelib.prefab(oid, pid=pid) if _made(pid) else None
+    except (OSError, ValueError, KeyError, RuntimeError):
+        return None                                 # the full path (prefab) says why
+
+
+def prefab(oid, log=print):
+    """Validate source identity and use a content-versioned generated prefab ID."""
+    item, name, signature, identity, pid = _resolve(oid)
+    # made before from this very map, game and version and checked then: placed again at once, without checking every
+    # texture of the map's cache and parsing its scene.t3d again
+    if not _made(pid):
+        if not _cache_valid(name, signature, identity):
+            raise ValueError('This original map changed or its cache is missing. Rescan Pieces before placing it.')
+        _validate_piece(item, name)
     return gamelib.prefab(oid, log=log, pid=pid)
