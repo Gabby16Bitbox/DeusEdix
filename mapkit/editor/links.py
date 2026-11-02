@@ -134,6 +134,8 @@ def act_string(a):
         if a.get('b'):
             url += '#' + str(a['b']).strip()
         fields += [_text(url), '', '']
+    elif verb == 'body':                        # a character's body animation (a), b seconds, c how (body_how)
+        fields += [_name(a.get('a')), '%g' % _secs(a.get('b'), 0), body_how(a.get('c'))]
     elif verb == 'npcuse':                      # the character goes to the object (a), b seconds, c pose
         fields += [_name(a.get('a')), '%g' % _secs(a.get('b'), 3), 'stand' if a.get('c') == 'stand' else 'crouch']
     elif verb == 'effect':                      # a kind, b seconds (0 = until stopped), c colour (+ beep)
@@ -161,6 +163,26 @@ def act_string(a):
     if len(result) > 900:
         raise ValueError('Interaction text is too long for the engine; shorten this action')
     return result
+
+
+BODY_MODES = ('once', 'loop', 'time')
+
+
+def body_how(c):
+    """How a body animation plays (UCAnimSet.PlayBody): its words in this order, its speed last ("x1.5": the game finds
+    the speed after the first x): once, loop (until "Stop its body animation") or time (looped for its seconds); own
+    (an animation of the Animation Studio: the model with the Studio's animations); walk (it may keep walking)."""
+    words = str(c or '').lower().split()
+    mode = next((w for w in words if w in BODY_MODES), 'once')
+    rate = 1.0
+    for w in words:
+        if w.startswith('x'):
+            try:
+                rate = float(w[1:])
+            except ValueError:
+                pass
+    rate = min(10.0, max(0.05, rate)) if math.isfinite(rate) else 1.0
+    return ' '.join([mode] + [w for w in ('own', 'walk') if w in words] + ['x%g' % rate])
 
 
 def _args(v):

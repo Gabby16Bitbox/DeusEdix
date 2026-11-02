@@ -92,6 +92,7 @@ function Hook()
 	if (Source == "" || When == 'start' || When == 'picked' || When == 'gone' || When == 'near'
 		|| When == 'cutstart' || When == 'cutdone'      // a cutscene (UCCutscene) triggers UCL_<name>_Start / _End
 		|| When == 'npcused' || When == 'finished' || When == 'stopped' || When == 'arrived'
+		|| When == 'bodydone'                           // a character's body animation: its UCAnimSet tells UCL_<name>_Body
 		|| When == 'output')                            // a script's output (UCScript.Output) sets the link off
 		return;                                         // (UCNpcUse, UCTimer trigger their tags; arrived is watched)
 	if (When == 'used' && UsableOf(Source) != None)    // JC has finished using it: its UCUsable triggers this
@@ -512,6 +513,8 @@ function DoAct(string s)
 		NpcOrders(n, 'Wandering');
 	else if (verb == "follow")
 		NpcOrders(n, 'Following');
+	else if (verb == "body" || verb == "bodystop")
+		Body(ScriptedPawn(T), verb == "bodystop", a, b, c);
 	else if (verb == "goto" || verb == "run")
 		NpcGo(n, vect(1,0,0) * float(a) + vect(0,1,0) * float(b) + vect(0,0,1) * float(c), verb == "run");
 	else if (verb == "navgo" || verb == "navrun")      // on the walkable area (UCNavMesh)
@@ -717,6 +720,42 @@ function Effect(Actor T, string kind, float secs, string opts)
 		return;
 	E.Target = string(T.Name);
 	E.StartEffect(kind, secs, opts);
+}
+
+// A character's body animation ("Play a body animation", "Stop its body animation"): its UCAnimSet plays it (a new
+// one when it has none of its own), and tells UCL_<character>_Body at its end. a: the animation, b: seconds (looped
+// for that long), c: how (UCAnimSet.PlayBody).
+function Body(ScriptedPawn SP, bool bStop, string anim, string secs, string opts)
+{
+	local UCAnimSet AS, Mine;
+
+	if (SP == None)
+		return;
+	foreach AllActors(class'UCAnimSet', AS)
+		if (AS.AppearanceMesh == None && (AS.Who == SP || string(AS.PawnName) ~= string(SP.Name)))
+			Mine = AS;
+	if (bStop)
+	{
+		if (Mine != None)
+			Mine.StopBody();
+		return;
+	}
+	if (Mine == None)
+	{
+		Mine = Spawn(class'UCAnimSet',,, SP.Location);
+		if (Mine == None)
+			return;
+		Mine.Who = SP;
+		Mine.Home = SP.Rotation;
+		Mine.bReady = True;
+	}
+	if (Mine.Who == None)                  // its own, not started yet (a fraction of a second after the map starts)
+	{
+		Mine.Who = SP;
+		Mine.Home = SP.Rotation;
+		Mine.bReady = True;
+	}
+	Mine.PlayBody(StringToName(anim), float(secs), opts, "UCL_" $ SP.Name $ "_Body");
 }
 
 // The animation of an object (its UCMotion, made in the editor's Animation panel); a door without one

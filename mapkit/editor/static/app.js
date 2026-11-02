@@ -2,7 +2,7 @@
 // Unreal coordinates (X, Y, Z up, left-handed) <-> three.js (Y up): (x, y, z) -> (x, z, y).
 import { AREA_VERBS, areaMembers, areaRecipients } from './connect-area.js';
 import { BLOCK_WHEN, BLOCK_VERBS, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
-  effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary } from './interaction-blocks.js';
+  effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary, BODY_MODES, bodyHow, bodyHowText } from './interaction-blocks.js';
 import { mountConditions, conditionText, conditionProblem, kindOf } from './conditions.js';
 import { createEffectPointGizmo, setEffectPointTilt, stepEffectPreviews, effectPreviewsActive, disposeEffectPoint, isEffectPoint,
   fxPreviewOf, fxPreviewKind, fxEffectsOn, FX_PREVIEW_KINDS } from './effect-point.js';
@@ -5225,6 +5225,17 @@ function particleSection(a, redraw) {
     };
   };
   return { html: inspectorSection('particles', 'Particles', h, true), wire };
+}
+// the rows of "Play a body animation" in a rule (its select is filled when the character's animations are read)
+function bodyRowsHtml(x, j) {
+  const o = bodyHow(x.c), row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
+  const cur = x.a ? `<option value="${escapeHtml((o.own ? 'studio:' : '') + x.a)}" selected>${escapeHtml(x.a)}</option>` : '<option value="">(choose one)</option>';
+  return row(`<label style="width:auto">animation</label><select data-lkbody="${j}" style="flex:1;min-width:0">${cur}</select><button data-lkbodyplay="${j}" title="Play it on the character in the 3D view (the editor only)">▶</button>`)
+    + row(`<select data-lkbmode="${j}" title="How many times">${BODY_MODES.map(([k, l]) => `<option value="${k}" ${k === o.mode ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`
+      + (o.mode === 'time' ? `<input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 0}" min="0" step="0.5" style="width:56px"><span class="hint" style="margin:0">s</span>` : ''))
+    + row(`<label style="width:auto">speed</label><input type="number" data-lkbrate="${j}" value="${o.rate}" min="0.05" max="10" step="0.1" style="width:56px">`
+      + `<label style="width:auto" title="Off: it stands still while it plays (a patrol or a walk goes on afterwards)"><input type="checkbox" data-lkbwalk="${j}" ${o.walk ? 'checked' : ''}> may keep walking</label>`)
+    + (o.mode === 'loop' ? row('<span class="hint" style="margin:0">until "Stop its body animation"</span>') : '');
 }
 // the Effect point section of its Properties: the preview (editor only) and the rules that use it
 function fxPointSection(a, redraw) {
@@ -12163,6 +12174,7 @@ function lkRuleHtml(l, inPanel) {
     if (x.verb === 'floor') h += row(`<label style="width:auto" title="Its sequence: 0 is where it starts">floor</label><input type="number" data-lkarg="${j}" data-k="a" value="${Math.max(0, lkWholeOf(x.a, 0))}" min="0"${lkFloorMax(t) !== null ? ` max="${lkFloorMax(t)}"` : ''} step="1" style="width:60px">`);
     if (x.verb === 'count') h += row(`<label style="width:auto">counter</label>${arg('a', 'Levers', 'flex:1;min-width:0')}<label style="width:auto" title="Set the counter to the number instead of adding it"><input type="checkbox" data-lkset="${j}" ${x.c === 'set' ? 'checked' : ''}> set to</label><input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px">`);
     h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
+    if (x.verb === 'body') h += bodyRowsHtml(x, j);
     if (x.verb === 'travel') h += row(`<select data-lkarg="${j}" data-k="a" style="flex:1;min-width:0"><option value="">(choose a map)</option>${(allMapNames || []).map((m) => `<option ${m === x.a ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}${x.a && !(allMapNames || []).includes(x.a) ? `<option selected>${escapeHtml(x.a)}</option>` : ''}</select>${arg('b', 'arriving at (Tag)', 'width:100px')}`);
     h += '</div>';
   });
@@ -12274,6 +12286,45 @@ function lkWire(box, redraw) {
       lkStartPick({ hint: 'Click the object they go and use (a bomb, a generator, a computer...)',
         accept: (o, chain) => (o.name === x.target ? 'That is the character: click the object.' : chain.includes('ScriptedPawn') ? 'A character cannot be used: click an object.' : true),
         done: (o) => ch(() => { x.a = o.name; }) });
+    };
+    // a body animation: the character's own and the Animation Studio's (baked on its models when chosen), how many
+    // times, its speed, whether it may keep walking; ▶ plays it on the character in the 3D view
+    for (const sel of q('[data-lkbody]')) {
+      const x = act(sel), who = lkActor(x.target);
+      if (!who) { sel.disabled = true; continue; }
+      animsOf(who.cls, meshOf(who)).then((info) => {
+        if (!document.body.contains(sel)) return;
+        const o = bodyHow(x.c);
+        sel.innerHTML = info ? seqOptions(info.seqs.filter((sq) => !sq.custom), o.own ? '' : x.a || '', '(choose one)')
+          : '<option value="">(this character has no animations)</option>';
+        studioList().then((names) => {
+          if (!document.body.contains(sel) || !names.length) return;
+          const og = document.createElement('optgroup');
+          og.label = 'Animation Studio (yours)';
+          for (const n of names) og.appendChild(new Option(n, 'studio:' + n, false, o.own && x.a === n));
+          sel.appendChild(og);
+          if (o.own && x.a) sel.value = 'studio:' + x.a;
+        });
+      });
+      sel.onchange = async () => {
+        const v = sel.value;
+        if (!v) return;
+        const own = v.startsWith('studio:'), name = v.replace(/^studio:/, '');
+        if (own && window.__studio) {          // baked on this character's models first, as When idle does
+          sel.disabled = true;
+          try { await window.__studio.ensure(who.cls, name, (t) => status(t)); } catch (err) { log('Animation Studio: ' + err.message, 'bad'); sel.disabled = false; return; }
+          sel.disabled = false;
+          for (const k of Object.keys(animInfo)) delete animInfo[k];
+        }
+        ch(() => { x.a = name; x.c = bodyHowText({ ...bodyHow(x.c), own }); });
+      };
+    }
+    for (const sel of q('[data-lkbmode]')) sel.onchange = () => ch(() => { const x = act(sel); x.c = bodyHowText({ ...bodyHow(x.c), mode: sel.value }); if (sel.value === 'time' && !(+x.b > 0)) x.b = '5'; });
+    for (const inp of q('[data-lkbrate]')) inp.onchange = () => ch(() => { const x = act(inp); x.c = bodyHowText({ ...bodyHow(x.c), rate: +inp.value || 1 }); });
+    for (const c of q('[data-lkbwalk]')) c.onchange = () => ch(() => { const x = act(c); x.c = bodyHowText({ ...bodyHow(x.c), walk: c.checked }); });
+    for (const b of q('[data-lkbodyplay]')) b.onclick = () => {
+      const x = act(b), g = proxyOf(x.target);
+      if (g && x.a) void startPreview(g, g.userData.actor.cls, x.a, bodyHow(x.c).rate);
     };
     for (const s of q('[data-lkcol]')) s.onchange = () => ch(() => { const x = act(s), o = effectOptions(x.c); x.c = effectOptionText(s.value, o.beep, o.exact); });
     for (const c of q('[data-lkbeep]')) c.onchange = () => ch(() => { const x = act(c), o = effectOptions(x.c); x.c = effectOptionText(o.colour, c.checked, o.exact); });

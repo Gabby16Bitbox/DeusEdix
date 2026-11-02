@@ -2262,7 +2262,17 @@ conversation, in a fight or running away they are as the game makes them.
 patrolling through it): they do it while they wait there. When the point had no wait, it gets one
 long enough for the animation.
 
-Both work through DeusEdix's package: `UCAnimSet` objects in the map (made by the rebuild), so the
+**When something happens** (an Interaction): *Play a body animation* on a character makes it play one when
+JC uses a button, walks into a collision box, picks something up, when a timer runs out, a cutscene starts...
+Choose the character as the target, then its **animation** (the model's own, or one of yours from the
+Animation Studio: it is put on the character's models when you choose it), how many times (**once**, **over and
+over** until *Stop its body animation*, or **over and over, for some seconds**), its **speed**, and whether it
+**may keep walking** (off: it stands still while it plays; a patrol goes on afterwards). ▶ plays it on the
+character in the 3D view. Whatever the game's AI plays meanwhile, the animation goes on where it was; at its
+end the character does what it did before, and the rules *When it has finished its body animation* run (to
+play another, say a line, open a door...).
+
+All of these work through DeusEdix's package: `UCAnimSet` objects in the map (made by the rebuild), so the
 package must be in the game (**Install** puts it there).
 
 **Pose here** (*Animation > Pose here...* in a character's Properties, or right-click it): poses the

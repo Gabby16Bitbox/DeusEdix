@@ -6,7 +6,7 @@
     {"file": "UCLink.uc", "lines": [408, 437], "has": "function DoArea(string s)"},
     {"file": "UCLink.uc", "lines": [342, 348], "has": "function bool AreaKind(Actor A, string kind)"},
     {"file": "UCLink.uc", "lines": [354, 368], "has": "function QueueRecipient("},
-    {"file": "UCLink.uc", "lines": [451, 451], "has": "Report(\"act\", Field(s, 1) $ \"|area \" $ Field(s, 7));"}
+    {"file": "UCLink.uc", "lines": [452, 452], "has": "Report(\"act\", Field(s, 1) $ \"|area \" $ Field(s, 7));"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

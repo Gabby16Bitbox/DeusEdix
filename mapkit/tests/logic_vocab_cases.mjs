@@ -11,11 +11,13 @@ import { AREA_VERBS } from '../editor/static/connect-area.js';
 
 // the outputs, verbs and families of 27 Oct 2026
 export const OUTPUTS = ['opened', 'closed', 'destroyed', 'used', 'code', 'wrongcode', 'option', 'enter', 'leave', 'laser', 'alarm',
-  'dies', 'any', 'picked', 'gone', 'near', 'arrived', 'start', 'animdone', 'cutstart', 'cutdone', 'npcused', 'finished', 'stopped', 'output'];
+  'dies', 'any', 'picked', 'gone', 'near', 'arrived', 'start', 'animdone', 'cutstart', 'cutdone', 'npcused', 'finished', 'stopped', 'output',
+  'bodydone'];      // (2 Nov 2026: a character's body animation)
 export const VERBS = ['open', 'close', 'toggle', 'lock', 'unlock', 'blow', 'key', 'attack', 'hostile', 'friend', 'neutral', 'stand',
   'wander', 'follow', 'goto', 'run', 'leave', 'appear', 'npcuse', 'lighton', 'lightoff', 'lighttoggle', 'on', 'off', 'hide', 'show',
   'explode', 'sound', 'effect', 'anim', 'animback', 'animstop', 'cutplay', 'cutstop', 'timerstart', 'timerstop', 'timerpause',
-  'timerresume', 'input', 'floor', 'message', 'goal', 'note', 'flag', 'count', 'travel'];
+  'timerresume', 'input', 'floor', 'message', 'goal', 'note', 'flag', 'count', 'travel',
+  'body', 'bodystop'];     // (2 Nov 2026)
 // an object of each family
 export const ACTOR = { other: 'Thing1', door: 'Door3', elevator: 'Lift1', keypad: 'Pad1', computer: 'Comp1', character: 'Guard1',
   carcass: 'Body1', laser: 'Laser1', beam: 'Beam1', alarm: 'Siren1', camera: 'Cam1', turret: 'Gun1', soundfx: 'Music1', zone: 'Zone1',
@@ -45,7 +47,7 @@ export const world = {
 const SOURCE = { opened: 'Door3', closed: 'Door3', destroyed: 'Door3', used: 'Button1', code: 'Pad1', wrongcode: 'Pad1', option: 'Comp1',
   enter: 'Zone1', leave: 'Zone1', laser: 'Laser1', alarm: 'Siren1', dies: 'Guard1', any: 'Lift1', picked: 'Item1', gone: 'Body1',
   near: 'Cam1', arrived: 'Guard1', start: '', animdone: 'Crate', cutstart: 'Cut1', cutdone: 'Cut1', npcused: 'Crate', finished: 'Timer1',
-  stopped: 'Timer1', output: 'Gen0' };
+  stopped: 'Timer1', output: 'Gen0', bodydone: 'Guard1' };
 const TARGET = { door: 'Door3', character: 'Guard1', light: 'Lamp1', any: 'Crate', script: 'Gen0', elevator: 'Lift1', cutscene: 'Cut1',
   timer: 'Timer1' };
 const FATE = fateFlag('01_Map', 'Guard1', 'Dead');
@@ -68,6 +70,8 @@ const ARGS = {
   input: [{ a: 'Start', b: 'Seconds=4;Mode=red' }, { a: 'Start' }, { a: 'Stop', b: '' }, { a: '' }],
   floor: [{ a: '2' }, { a: '-1' }, { a: 'x' }, { a: '' }, { a: 2.7 }],
   timerstart: [{ a: '45' }, { a: '0' }, { a: '' }, { a: '2.5' }],
+  body: [{ a: 'Wave', b: '0', c: 'once x1' }, { a: 'Dance', b: '0', c: 'loop own x1.5' }, { a: 'Wave', b: '6', c: 'time walk x1' },
+    { a: 'Wave', b: '0', c: 'time x1' }, { a: '', c: 'once x1' }, {}],
   npcuse: [{ a: 'Crate', b: '4', c: 'crouch' }, { a: 'Crate', b: '4', c: 'stand' }, { a: '', b: '0' }, { a: 'Crate' }, {}],
   effect: [{ a: 'mist', b: '0' }, { a: 'mist', b: '5' }, { a: 'sparks', b: '5', c: 'exact' }, { a: 'blinklight', b: '30', c: 'red beep' },
     { a: 'pulse', b: '0', c: 'blue' }, { a: 'pulse', c: 'green beep exact' }, { a: 'off' }, { a: 'nonsense', b: '2' },
