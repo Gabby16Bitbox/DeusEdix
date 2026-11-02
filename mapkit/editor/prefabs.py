@@ -9,6 +9,7 @@ geometry.json, textures.json) and writes tools\\mapkit\\prefabs\\<id>\\:
 A paste is an entry of edits['prefabs'] = {pid, prefab, offset, yaw}: the build imports the blocks
 (brushes renamed, placed with geom.XForm) before the BSP rebuild, so they become part of the map.
 """
+import hashlib
 import json
 import re
 import shutil
@@ -293,22 +294,68 @@ class Gone(LookupError):
 
 def display(pid):
     """Upgrade legacy preview texture frames without writing a map or running the SDK. Gone: no such version on disk."""
+    return json.loads(display_file(pid).read_text(encoding='utf-8'))
+
+
+# 1: the texture frames of texture_mapping.enrich; another value makes every kept upgrade again
+DISPLAY_VERSION = 1
+
+
+def display_file(pid):
+    """The file the page reads as a prefab's preview: its display.json when its texture frames are complete, else the
+    upgraded copy kept in the project's cache (_prefab_display), made once from the source map's cached polygons. Before,
+    the upgrade lived in memory only: after every start of the editor the first placing of a prefab read the whole
+    polys.json of its source map again (seconds for a big map). The copy is named after what it was made from (the
+    display's and the polygons' size and time), so a rebuilt source map makes it again. It is not in the prefabs folder (Play
+    hashes that folder). Gone: no such version on disk."""
     import data
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,240}', pid):
+    if not isinstance(pid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,240}', pid):
         raise ValueError('Invalid prefab preview identity.')
     path = ROOT / pid / 'display.json'
-    if not (ROOT / pid / 'prefab.json').is_file():
+    if not (ROOT / pid / 'prefab.json').is_file() or not path.is_file():
         raise Gone('This prefab version is not on disk any more.')
-    source = load(pid).get('source', '')
+    source = _source_of(pid)                     # (a prefab.json that cannot be read is not served: 409, not gone)
+    stat = path.stat()
+    if _frames_complete(str(path), stat.st_mtime_ns, stat.st_size):
+        return path
     paths = []
     if re.fullmatch(r'[\w.-]+', source):
         for folder in (data.map_folder('ref_' + source), data.map_folder(source)):
             p = folder / 'polys.json'
             if p.is_file():
-                stat = p.stat()
-                paths.append((str(p), stat.st_mtime_ns, stat.st_size))
+                st = p.stat()
+                paths.append((str(p), st.st_mtime_ns, st.st_size))
+    key = json.dumps([DISPLAY_VERSION, stat.st_mtime_ns, stat.st_size, paths])
+    kept = data.CACHE / '_prefab_display' / ('%s-%s.json' % (pid, hashlib.sha256(key.encode()).hexdigest()[:16]))
+    if kept.is_file():
+        return kept
+    result = _display_cached(str(path), stat.st_mtime_ns, stat.st_size, tuple(paths))
+    import atomicfile
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    for old in kept.parent.glob(pid + '-*.json'):           # made from an older display or source map
+        if old != kept:
+            old.unlink(missing_ok=True)
+    atomicfile.write_text(kept, json.dumps(result, separators=(',', ':')))
+    return kept
+
+
+@lru_cache(maxsize=256)
+def _frames_complete(path, mtime, size):
+    groups = json.loads(Path(path).read_text(encoding='utf-8')).get('groups', [])
+    return all(len(g.get('uvFrames', [])) == len(g['pos']) // 9 and all(g['uvFrames']) for g in groups)
+
+
+def _source_of(pid):
+    """The map a prefab version was taken from, without parsing its whole prefab.json again each time."""
+    path = ROOT / pid / 'prefab.json'
     stat = path.stat()
-    return _display_cached(str(path), stat.st_mtime_ns, stat.st_size, tuple(paths))
+    return _source_cached(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=256)
+def _source_cached(path, mtime, size):
+    source = json.loads(Path(path).read_text(encoding='utf-8')).get('source', '')
+    return source if isinstance(source, str) else ''
 
 
 @lru_cache(maxsize=4)

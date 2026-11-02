@@ -756,8 +756,8 @@ class Handler(BaseHTTPRequestHandler):
                 if '..' in rel.parts:
                     return self._send(403, {'error': 'no'})
                 if len(rel.parts) == 2 and rel.name == 'display.json':
-                    try:
-                        return self._send(200, prefabs.display(rel.parts[0]))
+                    try:                                  # a file: the browser keeps it (304 when unchanged)
+                        return self._file(prefabs.display_file(rel.parts[0]), keep=True)
                     except prefabs.Gone as exc:       # not there any more, unlike a file that cannot be read (409)
                         return self._send(404, dict(error=str(exc)))
                 return self._file(prefabs.ROOT / rel, keep=True)
@@ -1199,6 +1199,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, pieces_library.start(LOCK, force=body.get('force', False),
                                       prepare=project_server.ensure_runtime, operation=project_server.operation,
                                       waiting=lambda: WAITING['n'] > 0))
+            if path == '/api/piece_prefab':
+                # a piece placed again: its prefab read without waiting for the SDK (a Rebuild holds it to its end);
+                # ?ready=1 (the pointer resting on its tile) asks only for that and never makes one
+                query = parse_qs(urlparse(self.path).query)
+                with project_server.operation():
+                    clip = pieces_library.made(query.get('id', [''])[0])
+                if clip is not None:
+                    return self._send(200, clip)
+                if query.get('ready', [''])[0] == '1':
+                    return self._send(200, dict(ready=False))
             with project_server.operation(), UserTurn():
                 query = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
                 tutorial_write_guard(path, query, self.headers)

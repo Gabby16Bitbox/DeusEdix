@@ -5,7 +5,7 @@ export function createPiecesBrowser({
   onThumbnails = () => {}, onCatalog = () => {}, pollMs = 2000,
   containerSelector = '#pieces', searchSelector = '#psearch',
   filterItem = () => true, categoryLabel = value => value, searchTerms = [],
-  getContext = () => null, noun = 'pieces', favourites = null,
+  getContext = () => null, noun = 'pieces', favourites = null, warm = () => null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
@@ -19,6 +19,31 @@ export function createPiecesBrowser({
   if (!$('link[href="/static/pieces-browser.css"]')) document.head.appendChild(link);
 
   function stopPolling() { clearTimeout(timer); timer = 0; }
+
+  // A piece got ready before its click: the pointer resting on its tile asks for its prefab only if it was made before
+  // (?ready=1: the server reads it without waiting for a Rebuild and makes nothing), pressing it starts making it; then
+  // warm(clip) reads its preview and textures. place() takes what was started.
+  const prepared = new Map();
+  let peekTimer = 0;
+  function prepare(id, onlyMade = false) {
+    const kept = prepared.get(id);
+    if (kept && (onlyMade || kept.full || kept.ok)) return kept.promise;
+    const revision = generation;
+    const promise = api('/api/piece_prefab?id=' + encodeURIComponent(id) + (onlyMade ? '&ready=1' : ''), {}).then(clip => {
+      if (!clip || clip.kind !== 'prefab') throw new Error('not made yet');
+      entry.ok = true;
+      if (!disposed && revision === generation) Promise.resolve().then(() => warm(clip)).catch(() => {});
+      return clip;
+    });
+    const entry = { promise, full: !onlyMade };
+    prepared.set(id, entry);
+    promise.catch(() => { if (prepared.get(id) === entry) prepared.delete(id); });
+    return promise;
+  }
+  function peek(id) {
+    clearTimeout(peekTimer);
+    peekTimer = setTimeout(() => { if (!disposed && canPlace()) prepare(id, true).catch(() => {}); }, 150);
+  }
   function thumbnails() {
     if (thumbFrame || disposed || !isVisible()) return;
     thumbFrame = requestAnimationFrame(() => {
@@ -140,7 +165,14 @@ export function createPiecesBrowser({
       thumbnails();
     });
     // Drag/drop awaits preparation before placing the asset in the viewport.
-    for (const button of target.querySelectorAll('[data-piece]')) button.onclick = () => place(button.dataset.piece);
+    for (const button of target.querySelectorAll('[data-piece]')) {
+      button.onclick = () => place(button.dataset.piece);
+      button.addEventListener('pointerenter', () => peek(button.dataset.piece));
+      button.addEventListener('pointerleave', () => clearTimeout(peekTimer));
+      button.addEventListener('pointerdown', event => {
+        if (event.button === 0 && !disposed && canPlace()) prepare(button.dataset.piece).catch(() => {});
+      });
+    }
     syncPreparing();
     thumbnails();
   }
@@ -209,7 +241,7 @@ export function createPiecesBrowser({
     preparing.add(id); placeError = ''; draw();
     const context = getContext(), revision = generation;
     try {
-      const clip = await api('/api/piece_prefab?id=' + encodeURIComponent(id), {});
+      const clip = await prepare(id);
       if (disposed || revision !== generation || context !== getContext()) return;
       if (!canPlace()) throw new Error('Open a map and stop Play before placing the prepared piece.');
       const button = [...(shell?.querySelectorAll('[data-piece]') || [])].find(item => item.dataset.piece === id);
@@ -219,11 +251,12 @@ export function createPiecesBrowser({
   }
 
   function invalidate() {
+    prepared.clear(); clearTimeout(peekTimer);
     generation++; request = null; catalog = null; autoAttempted = false; scanning = false; pausing = false;
     readError = ''; scanError = ''; listStamp = null; stopPolling();
   }
   function dispose() {
-    disposed = true; generation++; stopPolling(); cancelAnimationFrame(thumbFrame); thumbFrame = 0;
+    disposed = true; generation++; stopPolling(); clearTimeout(peekTimer); prepared.clear(); cancelAnimationFrame(thumbFrame); thumbFrame = 0;
     searchInput?.removeEventListener('input', search);
   }
   return { render, invalidate, dispose, suspend: stopPolling };

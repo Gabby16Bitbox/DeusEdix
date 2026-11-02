@@ -1769,13 +1769,14 @@ function syncStructures() {
     structures[name] = { name, obj, label: `${e.label} (from ${e.source})`, category: e.mover ? 'Movers' : 'Pasted', pivot: e.pivot,
       placement: { offset: [0, 0, 0], yaw: 0 }, actors: [], rotatable: e.rotatable !== false, copyable: true,
       gameplay: false, paste: true, pendingPaste: true, built: false, prefab: e.prefab };
-    loadPrefabDisplay(e.prefab).then((d) => {
-      if (!d || !obj.parent) return;
-      const base = `/prefabs/${e.prefab}/`;
-      for (const g of d.groups) {
-        const mesh = new THREE.Mesh(geometryUE(g.pos, g.uv, e.pivot), makeMaterial((d.textures[g.tex] || {}).png, tf(g.tex, g.flags), base));
-        textureScale.capture(mesh.geometry, g);
-        mesh.userData.tex = g.tex; mesh.userData.flags = tf(g.tex, g.flags);
+    prefabParts(e.prefab, e.pivot).then((parts) => {
+      if (!parts || !obj.parent) return;
+      for (const part of parts) {
+        // its own copy of the prepared geometry (made once per prefab): the copy's texture scale changes its UVs
+        const geometry = part.geometry.clone();
+        geometry.userData = { ...part.geometry.userData };
+        const mesh = new THREE.Mesh(geometry, prefabMaterial(part));
+        mesh.userData.tex = part.tex; mesh.userData.flags = tf(part.tex, part.flags);
         mesh.userData.world = true;
         obj.add(mesh);
         setMeshLight(mesh);
@@ -1784,7 +1785,7 @@ function syncStructures() {
       if (st?.obj === obj) textureScale.update(obj, st.placement, livePose(st));
       if (selected === obj) outline.setFromObject(obj);
       wake();
-    }).catch
+    }).catch(() => {});
   }
   for (const st of Object.values(structures)) showPose(st, poseOf(st));
   for (const c of edits.copies) {
@@ -3038,6 +3039,7 @@ const prefabBrowser = createPrefabBrowser({
   // linked prefabs: the 3D view for a card's picture (without the editor's marks), the open map's copies, the menu
   capture: () => (script && !gameView?.active ? viewShot({ clean: true }).url : null),
   copiesHere: (item) => (script ? copyCounts(edits.prefabs, item) : null),
+  warm: (item) => warmPrefab(item),
   placedHere: () => (script ? edits.prefabs.map((e) => e.prefab) : []),
   menu: (x, y, items) => openMenu(x, y, items),
   onSelect: (item) => selectInstances(item.line || item.id),
@@ -5298,6 +5300,38 @@ const prefabDisplays = {};
 function loadPrefabDisplay(id) {
   return prefabDisplays[id] || (prefabDisplays[id] = fetch(`/prefabs/${id}/display.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
 }
+// a prefab's preview made ready once (its geometry by texture, UVs captured for the texture scale): the ghost while it
+// is placed shares it, each placed copy starts from a copy of it. Before, both made it again from display.json at
+// every click and every copy. Kept by prefab and pivot (a version's files never change), across maps.
+const prefabPartsCache = new Map();
+function prefabParts(id, pivot) {
+  const key = id + '|' + (pivot || [0, 0, 0]).join(',');
+  let parts = prefabPartsCache.get(key);
+  if (!parts) {
+    parts = loadPrefabDisplay(id).then((d) => {
+      if (!d) { prefabPartsCache.delete(key); return null; }
+      const base = `/prefabs/${id}/`;
+      return d.groups.map((g) => {
+        const geometry = geometryUE(g.pos, g.uv, pivot);
+        textureScale.capture(geometry, g);
+        return { geometry, tex: g.tex, flags: g.flags, png: (d.textures[g.tex] || {}).png, base };
+      });
+    });
+    prefabPartsCache.set(key, parts);
+  }
+  return parts;
+}
+// its material in the open map (the map's own texture flags count): made once per texture, in matCache
+function prefabMaterial(part) { return makeMaterial(part.png, tf(part.tex, part.flags), part.base); }
+// a prefab got ready before it is clicked (the pointer on its card or its button, the cards in view): its preview read
+// and made, its textures asked for, so its ghost shows at once. Nothing while Play runs or no map is open.
+function warmPrefab(clip) {
+  if (!clip || typeof clip.id !== 'string' || !script || mapLoading || gameView?.active) return Promise.resolve(null);
+  return prefabParts(clip.id, clip.pivot).then((parts) => {
+    if (parts && script) for (const part of parts) prefabMaterial(part);
+    return parts;
+  }).catch(() => null);
+}
 // a new copy's pid: never one a deleted copy's records, a reference or a hidden or locked object still name (prefab-links.js)
 function nextPid() { const s = viewState(); return freePid(edits, [...s.hidden, ...s.locked]); }
 function clipboard() { try { return JSON.parse(localStorage.getItem(projectStorageKey('clipboard', projectContext)) || 'null'); } catch (e) { return null; } }
@@ -6137,6 +6171,7 @@ const piecesBrowser = createPiecesBrowser({
   onCatalog: catalog => { pieceCat = catalog; },
   onThumbnails: observeThumbs,
   onPlace: (clip, button) => startPlacing({ prefab: clip, radius: 4, height: 0 }, button),
+  warm: (clip) => warmPrefab(clip),
 });
 const moversBrowser = createPiecesBrowser({
   api, escapeHtml, containerSelector: '#object-movers', searchSelector: '#search', noun: 'movers', favourites: pieceFavs,
@@ -6147,6 +6182,7 @@ const moversBrowser = createPiecesBrowser({
   canPlace: () => !!script && !gameView?.active, getContext: () => mapGeneration,
   onCatalog: catalog => { pieceCat = catalog; }, onThumbnails: observeThumbs,
   onPlace: (clip, button) => startPlacing({ prefab: clip, radius: 4, height: 0 }, button),
+  warm: (clip) => warmPrefab(clip),
 });
 function buildPieces() { return piecesBrowser.render(); }
 function pieceShapesOf(map, revision = '') {
@@ -6173,9 +6209,9 @@ async function pieceModel(id) {
 }
 // the ghost of a prefab while it is being placed
 async function prefabGhost(clip) {
-  const d = await loadPrefabDisplay(clip.id), g = new THREE.Group();
-  if (!d) return null;
-  for (const grp of d.groups) g.add(new THREE.Mesh(geometryUE(grp.pos, grp.uv, clip.pivot), makeMaterial((d.textures[grp.tex] || {}).png, tf(grp.tex, grp.flags), `/prefabs/${clip.id}/`)));
+  const parts = await prefabParts(clip.id, clip.pivot), g = new THREE.Group();
+  if (!parts) return null;
+  for (const part of parts) g.add(new THREE.Mesh(part.geometry, prefabMaterial(part)));
   return g;
 }
 for (const b of document.querySelectorAll('#bottom .btab')) b.onclick = () => showTab(b.dataset.tab);

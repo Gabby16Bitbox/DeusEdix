@@ -6,11 +6,13 @@
 // open map (null with none open); placedHere: the versions the open map places (kept by a Delete); menu(x, y, items):
 // the editor's right-click menu; onSelect/onUpdate(item): Select instances, Update instances; onChange: the list was
 // read again or changed (the Hierarchy's badges, the Inspector).
+// warm(item): get a prefab ready before Place is clicked (its preview and textures), so its ghost shows at once: asked
+// when the pointer or the focus reaches its card, and for the cards in view, one at a time while the page is idle.
 export function createPrefabBrowser({
   api, escapeHtml, onPlace, onSave, getDefaultName = () => '',
   canSave = () => true, isTemporary = () => false, status = () => {}, onSaved = () => {}, favourites = null,
   capture = () => null, copiesHere = () => null, placedHere = () => [], menu = null, onSelect = () => {}, onUpdate = () => {},
-  onChange = () => {},
+  onChange = () => {}, warm = () => null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
@@ -26,6 +28,30 @@ export function createPrefabBrowser({
   }
 
   function invalidate() { items = null; loading = null; generation++; failed = false; onChange(); }
+
+  // Getting prefabs ready before their Place: those asked for once are not asked for again (warm keeps what it made)
+  const warmed = new Set(), waiting = [];
+  let warming = false, observer = null;
+  const idle = callback => (window.requestIdleCallback ? window.requestIdleCallback(callback, { timeout: 1500 }) : setTimeout(callback, 200));
+  function warmNow(item) {
+    if (!item || warmed.has(item.id)) return;
+    warmed.add(item.id);
+    Promise.resolve().then(() => warm(item)).then(ready => { if (!ready) warmed.delete(item.id); }, () => warmed.delete(item.id));
+  }
+  function warmLater(item) {
+    if (!item || warmed.has(item.id) || waiting.includes(item)) return;
+    waiting.push(item);
+    if (warming) return;
+    warming = true;
+    const next = () => idle(() => {
+      const it = waiting.shift();
+      if (!it) { warming = false; return; }
+      if (warmed.has(it.id)) { next(); return; }
+      warmed.add(it.id);
+      Promise.resolve().then(() => warm(it)).then(ready => { if (!ready) warmed.delete(it.id); }, () => warmed.delete(it.id)).finally(next);
+    });
+    next();
+  }
   favourites?.subscribe(() => { void render(); });   // a star clicked: drawn again from the list it has
 
   function list() {
@@ -111,6 +137,19 @@ export function createPrefabBrowser({
       event.preventDefault();
       more(itemOf(article.dataset.pfCard), event.clientX, event.clientY);
     });
+    // ready before Place: at once when the pointer or the focus reaches a card, while idle for the cards in view (asked
+    // again at each drawing: another map may be open, with its own materials; what was read stays with warm)
+    waiting.length = 0; warmed.clear();
+    observer?.disconnect();
+    observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver(seen => {
+      for (const entry of seen) if (entry.isIntersecting) { observer?.unobserve(entry.target); warmLater(itemOf(entry.target.dataset.pfCard)); }
+    }) : null;
+    for (const article of container.querySelectorAll('[data-pf-card]')) {
+      const ready = () => warmNow(itemOf(article.dataset.pfCard));
+      article.addEventListener('pointerenter', ready);
+      article.addEventListener('focusin', ready);
+      observer?.observe(article);
+    }
   }
 
   // a card's menu (its ⋯ or a right click): its copies in the open map, then the prefab itself
