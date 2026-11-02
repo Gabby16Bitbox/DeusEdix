@@ -3218,7 +3218,7 @@ function makeProxy(a, source) {
   const color = kind === 'light' ? lightColor(liveLight(a)) : KIND_COLOR[kind];
   const model = (kind === 'light' || kind === 'path' || kind === 'logic') ? null : modelFor(a, source);
   let body;
-  if (kind === 'light' || kind === 'path' || kind === 'logic') body = isEffectPoint(a) ? createEffectPointGizmo() : createViewportIcon(a, color);
+  if (kind === 'light' || kind === 'path' || kind === 'logic') body = isEffectPoint(a) ? createEffectPointGizmo() : createViewportIcon(a, color, (key) => actorProp(a, key));
   else {
     const r = Math.max(4, a.radius || 16), h = Math.max(4, a.height || 16);
     const geo = new THREE.CylinderGeometry(r, r, 2 * h, 18);
@@ -6125,7 +6125,7 @@ function paletteTile(it, shown) {
   if (it.custom) {
     return `<button class="item" data-pi="${shown.push(it) - 1}" data-custom="${escapeHtml(it.custom)}" title="${escapeHtml(it.name)}: your character (Characters)"><span class="th" data-th="char:${escapeHtml(it.custom)}|${escapeHtml(window.__characters.stamp(it.custom))}"></span><span class="tl">${escapeHtml(it.name)}</span><small>${escapeHtml(it.sub || '')}</small>${objectFavs.star(objectFavId(it), it.name)}</button>`;
   }
-  return `<button class="item" data-pi="${shown.push(it) - 1}" data-cls="${it.cls}" title="${escapeHtml(label)} · ${escapeHtml(it.cls)}"><span class="th" ${paletteHas.has(it.cls) ? `data-th="cls:${it.cls}"` : ''}>${iconOf(it.cls)}</span><span class="tl">${escapeHtml(label)}</span><small>${label === it.cls ? '' : it.cls}</small>${objectFavs.star(objectFavId(it), label)}</button>`;
+  return `<button class="item" data-pi="${shown.push(it) - 1}" data-cls="${it.cls}" title="${escapeHtml(label)} · ${escapeHtml(it.cls)}"><span class="th" ${paletteHas.has(it.cls) ? `data-th="cls:${it.cls}"` : ''}>${iconOf(it.cls, it.preset)}</span><span class="tl">${escapeHtml(label)}</span><small>${label === it.cls ? '' : it.cls}</small>${objectFavs.star(objectFavId(it), label)}</button>`;
 }
 function buildPalette() {
   const q = $('#search').value.trim().toLowerCase();
@@ -6190,8 +6190,8 @@ function buildPalette() {
   if (bottomTab === 'objects') void moversBrowser.render();
   observeThumbs();
 }
-function iconOf(cls) {               // objects without a 3D model: lights, triggers, points...
-  return objectPreviewIcon(cls);
+function iconOf(cls, preset = null) {       // objects without a 3D model: lights, triggers, points... (preset: how it is placed)
+  return objectPreviewIcon(cls, preset);
 }
 
 // ---------------------------------------------------------------- the browser (bottom panel): tabs

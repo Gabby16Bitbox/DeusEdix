@@ -47,7 +47,7 @@ function wordScore(typed, word) {
 }
 
 // the other words a word typed stands for (synonyms: groups of words that mean one thing, e.g. a texture's theme:
-// floor, flr, pavimento): the groups with a word that is the word typed, or starts with it (4 letters or more)
+// floor, flr, ground): the groups with a word that is the word typed, or starts with it (4 letters or more)
 function alternatives(t, synonyms) {
   const out = new Set();
   for (const group of synonyms || []) {
