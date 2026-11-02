@@ -21,7 +21,8 @@ import json
 from pathlib import Path
 
 CONFIG = Path(__file__).resolve().parent / 'config' / 'logic.json'
-HEARS_KINDS = {'event', 'fail', 'keypad', 'option', 'motion', 'watch', 'start', 'cut', 'npcuse', 'timer', 'port'}
+HEARS_KINDS = {'event', 'fail', 'keypad', 'option', 'motion', 'watch', 'start', 'cut', 'npcuse', 'timer', 'port',
+               'key'}         # key: a key JC presses (no object: the key is the link's own, UCMutator.Mutate tells it)
 
 
 def _load(path=CONFIG):
@@ -114,11 +115,11 @@ def io_for(chain, ports=None):
     return out
 
 
-def tag(when, src, option=0):
-    """The Tag the link of an output waits for (the object's event becomes it), or None when the link is watched or
-    set off directly (it then takes its own: links.tag_of)."""
+def tag(when, src, option=0, key=''):
+    """The Tag the link of an output waits for (the object's event becomes it; a key's: UCL_Key_<key>), or None when the
+    link is watched or set off directly (it then takes its own: links.tag_of)."""
     pattern = OUTPUTS.get(when, {}).get('tag')
-    return pattern.format(src=src, option=option) if pattern else None
+    return pattern.format(src=src, option=option, key=key) if pattern else None
 
 
 # ---------------------------------------------------------------- the vocabulary (version 2)

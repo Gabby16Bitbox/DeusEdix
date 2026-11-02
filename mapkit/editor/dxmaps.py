@@ -28,6 +28,7 @@ import geom  # noqa: E402
 import kit  # noqa: E402
 import settings  # noqa: E402
 import prefabs  # noqa: E402
+import fpmoments  # noqa: E402
 import textures  # noqa: E402
 import props  # noqa: E402
 import comptexts  # noqa: E402
@@ -508,6 +509,11 @@ def build(map_name, log=print, options=None, watch=None):
     # the texture packages the objects' properties name (a particle's Texture'Effects.Smoke.SmokePuff1'), loaded before
     # the objects come in: a reference to a package that is not loaded is lost
     cmds += prefabs.package_commands(property_texture_packages(edits))
+    for package in fpmoments.packages(edits):            # the sounds of the first-person moments (fpmoments.py)
+        try:
+            cmds += prefabs.package_commands([package])
+        except ValueError as exc:
+            lines.append('  First-person moment: %s' % exc)
     # pictures imported in the editor: into the map, then on the faces (no rebuild) and on the objects
     cmds += textures.import_commands(edits, folder)
     cmds += textures.surface_commands(edits, structs)
@@ -679,6 +685,10 @@ def build(map_name, log=print, options=None, watch=None):
     for a in links.blocks(edits):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += links.report(edits)
+    # the first-person moments the rules play: UCViewMoment actors (fpmoments.py)
+    for a in fpmoments.blocks(edits):
+        blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
+    lines += fpmoments.report(edits)
     lines += cutscenes.report(edits)
     # zones: the WaterZone of every pool, a sky box (and its SkyZoneInfo) for sky surfaces in a map whose source has no
     # sky (its package's own objects: _classes)

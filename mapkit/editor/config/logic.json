@@ -49,6 +49,9 @@
       "kw": ["arrive", "reach", "destination"]},
     "start": {"hears": "start", "label": "the map starts", "say": "the map starts", "level": "basic",
       "games": ["revision", "vanilla"], "kw": ["start", "begin", "load", "map"]},
+    "keypress": {"hears": "key", "tag": "UCL_Key_{key}", "label": "JC presses a key", "say": "JC presses {key}",
+      "args": [{"id": "key", "type": "text", "label": "key", "default": "K", "empty": "?"}], "level": "more", "games": ["revision", "vanilla"],
+      "kw": ["key", "press", "button", "keyboard", "input", "hotkey"]},
     "animdone": {"hears": "motion", "tag": "UCL_{src}_Anim", "label": "its animation has finished",
       "say": "the animation of {src} has finished", "level": "basic", "games": ["revision", "vanilla"],
       "kw": ["animation", "motion", "finished"]},
@@ -215,6 +218,9 @@
     "floor": {"target": true, "label": "Go to a floor", "acts": "elevator", "say": "{t} goes to floor {a}",
       "many": "{t} go to floor {a}", "args": [{"id": "a", "type": "floor", "label": "floor", "default": 0}],
       "level": "basic", "games": ["revision", "vanilla"], "kw": ["elevator", "lift", "level", "storey"]},
+    "fpmoment": {"target": false, "label": "JC's weapon plays a moment", "say": "JC's weapon plays the moment {a}",
+      "args": [{"id": "a", "type": "text", "label": "moment", "empty": "?"}], "level": "more", "games": ["revision", "vanilla"],
+      "kw": ["first person", "weapon", "view", "animation", "inspect", "gun", "hands"]},
     "message": {"target": false, "label": "A message on the screen", "say": "the message \"{a}\"",
       "args": [{"id": "a", "type": "line", "label": "What appears on the screen"}], "level": "basic",
       "games": ["revision", "vanilla"], "kw": ["text", "say", "hud", "print", "subtitle"]},
@@ -247,7 +253,7 @@
         {"id": "b", "type": "tag", "label": "arriving at (Tag)"}], "level": "basic",
       "games": ["revision", "vanilla"], "kw": ["teleport", "level", "map", "load", "exit"]}
   },
-  "free": ["message", "goal", "note", "flag", "count", "sound", "travel"],
+  "free": ["message", "goal", "note", "flag", "count", "sound", "travel", "fpmoment"],
   "families": [
     {"id": "other", "classes": ["Actor"], "outputs": ["any", "npcused", "near"], "inputs": ["on", "off", "sound", "explode", "effect"]},
     {"id": "door", "noun": "door", "classes": ["DeusExMover"], "outputs": ["opened", "closed", "destroyed", "near"],

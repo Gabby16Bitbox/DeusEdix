@@ -11,7 +11,14 @@ export const BLOCK_WHEN = {
   stopped: 'an action stops it',
   arrived: 'they get where they were sent (Walk / Run to a place)',
   bodydone: 'its body animation has finished',
+  keypress: 'JC presses a key',
 };
+// the keys a rule can wait for, as the engine names them (editor/links.py KEYS)
+export const KEYS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'].concat(Array.from({ length: 12 }, (_, i) => `F${i + 1}`),
+  ['Insert', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'], Array.from({ length: 10 }, (_, i) => `NumPad${i}`));
+// keys the game already uses (the original game's bindings): a rule on one takes it from the player while they play
+export const BUSY_KEYS = ['W', 'A', 'S', 'D', 'E', 'R', 'F', 'C', 'X', 'Q', 'T', 'Z', 'L', 'N', 'M', 'G', 'H', 'I', 'K', 'O', 'P', 'U', 'V', 'B', 'Y', 'J',
+  '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'];
 
 // what a rule can do: [label, kind of object it acts on]
 export const BLOCK_VERBS = {
@@ -23,6 +30,7 @@ export const BLOCK_VERBS = {
   effect: ['An effect on it (mist, sparks, light...)', 'any'],
   body: ['Play a body animation', 'character'],
   bodystop: ['Stop its body animation', 'character'],
+  fpmoment: ["JC's weapon plays a moment", ''],
 };
 
 // How a body animation plays (the action's c, as links.py body_how writes it): mode once / loop (until stopped) / time
@@ -67,6 +75,7 @@ export function withExact(c, on) {
 export function blockDefaults(x) {
   if (x.verb === 'npcuse') { x.b = x.b || '4'; x.c = x.c === 'stand' ? 'stand' : 'crouch'; }
   if (x.verb === 'body') { x.a = x.a || ''; x.b = x.b || '0'; x.c = bodyHowText(bodyHow(x.c)); }
+  if (x.verb === 'fpmoment') x.a = x.a || '';
   if (x.verb === 'effect') {
     if (!EFFECT_KINDS.some((e) => e[0] === x.a)) x.a = 'mist';
     if (x.b === undefined || x.b === '') x.b = '0';
@@ -107,6 +116,7 @@ export function blockActText(x, t, nameOf, info = {}) {
       return `${t} plays the animation ${anim}`;
     }
     case 'bodystop': return `${t} stops its body animation`;
+    case 'fpmoment': return `JC's weapon plays the moment ${x.a || '?'}`;
     case 'effect': {
       if (x.a === 'off') return `stop the effects on ${t}`;
       const o = effectOptions(x.c), light = isLightEffect(x.a);

@@ -115,7 +115,24 @@ def tag_of(link, usable=()):
     src, when = _name(link.get('src')), link.get('when')
     if when == 'used' and src in usable:       # JC has finished using it: its UCUsable triggers this
         return 'UCL_%s_Used' % src
-    return logic_catalog.tag(when, src, option_of(link)) or 'UCLW_' + _name(link.get('id') or 'x')
+    return logic_catalog.tag(when, src, option_of(link), key_of(link)) or 'UCLW_' + _name(link.get('id') or 'x')
+
+
+# The keys a rule can wait for (When JC presses a key), by the engine's names for them (EInputKey: Play binds them
+# to "mutate UCKey <key>" in its copy of the player's settings: live._set_keys)
+KEYS = tuple([chr(c) for c in range(ord('A'), ord('Z') + 1)] + [str(d) for d in range(10)] + ['F%d' % n for n in range(1, 13)]
+             + ['Insert', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'] + ['NumPad%d' % d for d in range(10)])
+
+
+def key_of(link):
+    """The key of a rule "When JC presses a key" ('' for any other, or a key the engine does not name)."""
+    k = str(link.get('key') or '')
+    return next((x for x in KEYS if x.lower() == k.lower()), '')
+
+
+def keys_in(edits):
+    """The keys the map's rules wait for."""
+    return sorted({key_of(l) for l in edits.get('links') or [] if isinstance(l, dict) and l.get('when') == 'keypress'} - {''})
 
 
 def act_string(a):
@@ -244,6 +261,8 @@ def valid(link):
     when = link.get('when')
     if when not in WHEN:
         return False
+    if WHEN[when] == 'key':                      # a key: no object, a key the engine names
+        return bool(key_of(link)) and any(str(a.get('verb')) in VERBS for a in link.get('do') or [])
     if WHEN[when] != 'start' and not _name(link.get('src')):
         return False
     if WHEN[when] == 'port' and not _name(link.get('port')):     # a script's output: which one

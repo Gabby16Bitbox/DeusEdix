@@ -515,6 +515,8 @@ function DoAct(string s)
 		NpcOrders(n, 'Following');
 	else if (verb == "body" || verb == "bodystop")
 		Body(ScriptedPawn(T), verb == "bodystop", a, b, c);
+	else if (verb == "fpmoment")                        // JC's weapon plays a first-person moment (UCViewMoment)
+		FPMoment(a);
 	else if (verb == "goto" || verb == "run")
 		NpcGo(n, vect(1,0,0) * float(a) + vect(0,1,0) * float(b) + vect(0,0,1) * float(c), verb == "run");
 	else if (verb == "navgo" || verb == "navrun")      // on the walkable area (UCNavMesh)
@@ -756,6 +758,20 @@ function Body(ScriptedPawn SP, bool bStop, string anim, string secs, string opts
 		Mine.bReady = True;
 	}
 	Mine.PlayBody(StringToName(anim), float(secs), opts, "UCL_" $ SP.Name $ "_Body");
+}
+
+// JC's weapon plays the first-person moment called a (UCViewMoment, made in the editor's First-person moments)
+function FPMoment(string moment)
+{
+	local UCViewMoment M;
+
+	foreach AllActors(class'UCViewMoment', M)
+		if (M.MomentName ~= moment)
+		{
+			M.Play();
+			return;
+		}
+	Report("fail", "fpmoment|" $ moment $ "|missing");
 }
 
 // The animation of an object (its UCMotion, made in the editor's Animation panel); a door without one

@@ -144,15 +144,15 @@ Always: the names (A4) and the place of inputs (A7). The others where a fixture 
 | `running_before_conditions_no_recheck` | Running is checked before the conditions, which are not checked again | `UCLink.uc:275-278`, `UCLink.uc:280-284`, `UCLink.uc:829-848` |
 | `conditions_before_actions` | All the rules on one output check their conditions before any action runs | `UCLink.uc:196-219`, `UCLink.uc:266-288`, `UCLink.uc:829-848` |
 | `first_failing_condition_named` | All conditions must hold; the skip names the first that does not | `UCLink.uc:280-284` |
-| `actions_in_delay_order` | Actions run in delay order, delays counted from the start | `links.py:282`, `UCLink.uc:838-842` |
+| `actions_in_delay_order` | Actions run in delay order, delays counted from the start | `links.py:301`, `UCLink.uc:854-858` |
 | `condition_flag` | Condition: a state is Yes or No | `UCEditorStory.uc:849-850`, `UCEditorStory.uc:36-42` |
 | `condition_item` | Condition: JC carries or does not carry an item | `UCEditorStory.uc:851-852`, `UCEditorStory.uc:966-974` |
 | `condition_alive` | Condition: a character is alive or not | `UCEditorStory.uc:853-854`, `UCEditorStory.uc:958-964` |
 | `condition_skill` | Condition: JC's skill is at least a level | `UCEditorStory.uc:855-856`, `UCEditorStory.uc:887-897` |
 | `condition_counter` | Condition: a counter compared with a number | `UCEditorStory.uc:857-858`, `UCEditorStory.uc:866-883` |
 | `condition_credits` | Condition: JC's credits compared with a number | `UCEditorStory.uc:859-860`, `UCEditorStory.uc:866-883` |
-| `counter_actions` | Counters: set and add, read by another rule | `UCLink.uc:613-623`, `UCLink.uc:581-582` |
-| `action_without_name` | A counter, a state or a goal with no name fails, the next actions still run | `UCLink.uc:568-579`, `UCLink.uc:615-618` |
+| `counter_actions` | Counters: set and add, read by another rule | `UCLink.uc:613-623`, `UCLink.uc:583-584` |
+| `action_without_name` | A counter, a state or a goal with no name fails, the next actions still run | `UCLink.uc:568-579`, `UCLink.uc:617-620` |
 | `area_dynamic` | Area target with current entrants: saved members, then what is in the radius now | `UCLink.uc:408-437`, `UCLink.uc:342-348`, `UCLink.uc:354-368`, `UCLink.uc:452` |
 | `group_saved_members` | Group target: only the saved members that can do it | `UCLink.uc:408-437`, `UCLink.uc:342-348`, `links.py:74`, `UCLinkGroup.uc:12-16` |
 | `tag_targets` | Scripting-tag target: what has the tag and can do the verb, never the source | `UCLink.uc:386-394`, `UCLink.uc:397-405`, `UCObjectTag.uc:95-98` |
@@ -160,8 +160,8 @@ Always: the names (A4) and the place of inputs (A7). The others where a fixture 
 | `script_input_output` | A script's input and output | `UCLink.uc:626-631`, `UCScript.uc:55-78`, `UCLink.uc:224-235` |
 | `script_outputs_wait_for_start` | Outputs said while the map loads wait for Started() | `UCScript.uc:55-78`, `UCScript.uc:221-232` |
 | `script_queue_full` | At most 8 outputs wait; the same output again finds its rule running | `UCScript.uc:55-78`, `UCScript.uc:221-232`, `UCLink.uc:275-278` |
-| `script_noinput_and_noscript` | An input the script does not handle, an input on something that is no script | `UCScript.uc:48-51`, `UCLink.uc:590-593` |
-| `deleted_and_disabled` | Deleted and disabled objects take their rules and actions with them | `links.py:264`, `links.py:275-280` |
+| `script_noinput_and_noscript` | An input the script does not handle, an input on something that is no script | `UCScript.uc:48-51`, `UCLink.uc:592-595` |
+| `deleted_and_disabled` | Deleted and disabled objects take their rules and actions with them | `links.py:283`, `links.py:294-299` |
 | `missing_source_hook` | A rule that cannot hook itself says so, when and how depends on its output | `UCLink.uc:104-112`, `UCLink.uc:150-159`, `UCLink.uc:326-332` |
 | `used_and_any_one_event` | Outputs heard on the same event run together | `UCLink.uc:196-219`, `UCLink.uc:139-142` |
 | `enter_leave_share_a_tag` | Walking in and out of one zone | `UCLink.uc:196-219`, `UCLink.uc:252-260` |

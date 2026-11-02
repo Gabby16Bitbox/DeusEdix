@@ -53,6 +53,7 @@ KEEP = {
     'props': "the properties set (not the Story's names: PROPS_DROP)",
     'rawprops': 'All properties',
     'particlepreview': 'the particles that always play their preview (editor only)',
+    'fpmoments': "the first-person moments (the weapon JC holds: its clips, moves, sounds)",
     'textures': 'the pictures imported (their files are copied with the template)',
     'retexture': 'what wears them',
     'surfaces': 'the textures and alignment of faces',

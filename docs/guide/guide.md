@@ -1593,6 +1593,39 @@ what happens when something happens to it.
 **Rebuild** puts them in the game. The game's own Tag and Event (**Connections (Tag / Event)**) still
 work: an object with an Event of its own keeps triggering it as well.
 
+### When JC presses a key
+
+In the **Logic** window, **+ When JC presses a key** makes a rule that runs when JC presses the key you choose (a
+letter, a digit, F1–F12, Insert, Delete, Home, End, Page Up/Down, the numeric keypad). It works in **Play**: the
+key is bound for that launch in Play's own copy of your settings (yours are left as they are). A key the game
+already uses (W, A, S, D, E, F, the number keys...) is taken from JC for that launch: the rule says so in red.
+
+### First-person moments (the weapon JC holds)
+
+**Tools > First-person moments...** makes moments of the weapon JC holds, seen as the player sees it: an
+inspection of the gun, a gesture when a weapon is picked up, a weapon raised as a door opens.
+
+- **Weapon**: the one it is made for (its first-person model and its place in the view are read from the game).
+  In the game the moment plays only while JC holds that weapon.
+- **Clips**: pieces of the weapon's own animations one after another (Select, Reload, Shoot...): any frames of
+  one, at any speed (**in ... s**), backwards too (**⇄**, or a *to* before the *from*). The last frame stays
+  until the moment ends.
+- **Moves**: keys of the weapon's place in the view (forward, right, up), straight from one to the next; the
+  last one is where it ends (0 0 0: back where it was).
+- **Sounds** at their seconds, and a **shake** of the view (in the game only).
+- ▶ and the timeline play it in the view, with its sounds.
+
+An Interaction plays it: **JC's weapon plays a moment** (an action without an object), when JC presses a key,
+uses a button, walks into a collision box, picks something up... JC firing, reloading or putting the weapon away
+ends the moment at once.
+
+**New animations from Blender.** **Export the model (.glb)** writes the weapon's first-person model (arms and
+gun) at rest. Animate it in Blender any way you like (an armature, shape keys) without moving its points in edit
+mode, and export it as .glb with its animation. **Import an animation (.glb)...** reads it back frame by frame
+(30 frames a second, or the number you choose) as a new animation of the weapon, `FP_<name>`, in a copy of its
+model in DeusEdix's `DeusEdixAnims` package (as the Animation Studio's), and adds its clip to the moment. In the
+game the weapon wears that copy while the moment plays.
+
 ## Scripting tags
 
 Select an object and open **Inspector > Scripting tag**. A scripting tag groups objects for new

@@ -61,10 +61,11 @@ class Outputs(unittest.TestCase):
             self.assertEqual(entry['tag'], logic_catalog.OUTPUTS[when].get('tag', ''), when)
 
     def test_a_tag_filled_in_is_the_one_its_rule_waits_on(self):
-        """The simulator fills in the pattern ({src}, {option}) to tell the rules: it must be links.tag_of's Tag."""
+        """The simulator fills in the pattern ({src}, {option}, {key}) to tell the rules: it must be links.tag_of's Tag."""
         for when, entry in logic_compile.outputs().items():
-            link = message('L1', src='Thing1', when=when, option=2, port='Ready')
-            want = entry['tag'].replace('{src}', 'Thing1').replace('{option}', '2') if entry['tag'] else 'UCLW_L1'
+            link = message('L1', src='Thing1', when=when, option=2, port='Ready', key='F')
+            want = (entry['tag'].replace('{src}', 'Thing1').replace('{option}', '2').replace('{key}', 'F')
+                    if entry['tag'] else 'UCLW_L1')
             self.assertEqual(links.tag_of(link), want, when)
 
 

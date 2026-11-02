@@ -2,7 +2,8 @@
 // Unreal coordinates (X, Y, Z up, left-handed) <-> three.js (Y up): (x, y, z) -> (x, z, y).
 import { AREA_VERBS, areaMembers, areaRecipients } from './connect-area.js';
 import { BLOCK_WHEN, BLOCK_VERBS, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
-  effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary, BODY_MODES, bodyHow, bodyHowText } from './interaction-blocks.js';
+  effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary, BODY_MODES, bodyHow, bodyHowText, KEYS, BUSY_KEYS } from './interaction-blocks.js';
+import { createFpMoments } from './fp-moments.js';
 import { mountConditions, conditionText, conditionProblem, kindOf } from './conditions.js';
 import { createEffectPointGizmo, setEffectPointTilt, stepEffectPreviews, effectPreviewsActive, disposeEffectPoint, isEffectPoint,
   fxPreviewOf, fxPreviewKind, fxEffectsOn, FX_PREVIEW_KINDS } from './effect-point.js';
@@ -11822,6 +11823,7 @@ function lkWhenText(l) {
     case 'gone': return `When ${s} is destroyed`;
     case 'near': return `When JC comes within ${+l.near || 256} units of ${s}`;
     case 'start': return 'When the map starts';
+    case 'keypress': return `When JC presses ${l.key || '?'}`;
     case 'leave': return `When JC walks out of ${s}`;
     case 'animdone': return `When the animation of ${s} has finished`;
     case 'cutstart': return `When ${s} starts`;
@@ -12121,7 +12123,7 @@ function lkUpdateAreaMarkers() {
 // one rule: "When ... : then ..." with its actions
 function lkRuleHtml(l, inPanel) {
   const src = lkActor(l.src), cat = lkCatOf(src), cur = lkWhenKey(l);
-  const evs = l.when === 'start' ? ['start'] : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
+  const evs = l.when === 'start' ? ['start'] : l.when === 'keypress' ? ['keypress'] : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
   const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(l.src, w)}"` : LK_WHEN[w] || w);
   let h = `<div class="lk-rule" data-lk="${escapeHtml(l.id)}">`;
   h += `<div class="row"><b>When</b>${inPanel && l.src ? `<a href="#" data-lkgo="${escapeHtml(l.src)}" title="Go to it">${escapeHtml(lkName(l.src))}</a>` : ''}
@@ -12133,6 +12135,11 @@ function lkRuleHtml(l, inPanel) {
     h += `<div class="row" style="padding-left:12px"><label style="width:auto">Button</label><select data-lkopt>${opts.map((o) => `<option value="${o.i}" ${o.i === (+l.option || 0) ? 'selected' : ''}>${o.i + 1}: ${escapeHtml(unquote(new Map(o.pairs).get('Text') || '') || '(empty)')}</option>`).join('')}</select>
       <input type="text" data-lkot="Text" value="${escapeHtml(structShown(m.get('Text') || ''))}" placeholder="its text on the computer" style="flex:1;min-width:0"></div>
       <div class="row" style="padding-left:12px"><label style="width:auto">Then it says</label><input type="text" data-lkot="TriggerText" value="${escapeHtml(structShown(m.get('TriggerText') || ''))}" placeholder="e.g. Door unlocked" style="flex:1;min-width:0"></div>`;
+  }
+  if (l.when === 'keypress') {              // the key (Play binds it for its launch: live._set_keys)
+    const busy = BUSY_KEYS.includes(l.key);
+    h += `<div class="row" style="padding-left:12px"><label style="width:auto">key</label><select data-lkkey>${KEYS.map((k) => `<option ${k === l.key ? 'selected' : ''}>${k}</option>`).join('')}</select>`
+      + `<span class="hint${busy ? ' bad' : ''}" style="margin:0">${busy ? 'the game uses this key: JC can no longer do that with it' : 'works in Play (the key is bound for that launch)'}</span></div>`;
   }
   if (l.when === 'near') h += `<div class="row" style="padding-left:12px"><label style="width:auto">within</label><input type="number" data-lkn value="${+l.near || 256}" step="32" min="32" style="width:70px"><span class="hint" style="margin:0">units (a door is 128 high)</span></div>`;
   // the conditions: all must hold when it happens, or the rule does nothing that time (conditions.js, mounted by lkWire)
@@ -12175,6 +12182,11 @@ function lkRuleHtml(l, inPanel) {
     if (x.verb === 'count') h += row(`<label style="width:auto">counter</label>${arg('a', 'Levers', 'flex:1;min-width:0')}<label style="width:auto" title="Set the counter to the number instead of adding it"><input type="checkbox" data-lkset="${j}" ${x.c === 'set' ? 'checked' : ''}> set to</label><input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px">`);
     h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
     if (x.verb === 'body') h += bodyRowsHtml(x, j);
+    if (x.verb === 'fpmoment') {             // a moment of Tools > First-person moments (fp-moments.js)
+      const names = fpMoments.list();
+      h += `<div class="row" style="padding-left:38px"><select data-lkfpm="${j}" style="flex:1;min-width:0"><option value="">(choose a moment)</option>${names.map((n) => `<option ${n === x.a ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}${x.a && !names.includes(x.a) ? `<option selected>${escapeHtml(x.a)} (missing)</option>` : ''}</select>`
+        + `<button data-lkfpedit="${j}" ${x.a && names.includes(x.a) ? '' : 'disabled'} title="Change this moment">Edit…</button><button data-lkfpnew="${j}" title="Make a new moment for it">New…</button></div>`;
+    }
     if (x.verb === 'travel') h += row(`<select data-lkarg="${j}" data-k="a" style="flex:1;min-width:0"><option value="">(choose a map)</option>${(allMapNames || []).map((m) => `<option ${m === x.a ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}${x.a && !(allMapNames || []).includes(x.a) ? `<option selected>${escapeHtml(x.a)}</option>` : ''}</select>${arg('b', 'arriving at (Tag)', 'width:100px')}`);
     h += '</div>';
   });
@@ -12227,6 +12239,8 @@ function lkWire(box, redraw) {
     });
     el.querySelector('[data-lko]').onchange = (e) => ch(() => { l.once = e.target.checked; });
     el.querySelector('[data-lkx]').onclick = () => ch(() => { edits.links = lkList().filter((x) => x !== l); });
+    const lkey = el.querySelector('[data-lkkey]');
+    if (lkey) lkey.onchange = () => ch(() => { l.key = lkey.value; });
     const ln = el.querySelector('[data-lkn]');
     if (ln) ln.onchange = () => ch(() => { l.near = Math.max(32, +ln.value || 256); });
     const lo = el.querySelector('[data-lkopt]');
@@ -12319,6 +12333,9 @@ function lkWire(box, redraw) {
         ch(() => { x.a = name; x.c = bodyHowText({ ...bodyHow(x.c), own }); });
       };
     }
+    for (const sel of q('[data-lkfpm]')) sel.onchange = () => ch(() => { act(sel).a = sel.value.replace(/ \(missing\)$/, ''); });
+    for (const b of q('[data-lkfpedit]')) b.onclick = () => { const x = act(b); fpMoments.open(x.a, () => redraw()); };
+    for (const b of q('[data-lkfpnew]')) b.onclick = () => { const x = act(b); fpMoments.open('', (name) => ch(() => { x.a = name; })); };
     for (const sel of q('[data-lkbmode]')) sel.onchange = () => ch(() => { const x = act(sel); x.c = bodyHowText({ ...bodyHow(x.c), mode: sel.value }); if (sel.value === 'time' && !(+x.b > 0)) x.b = '5'; });
     for (const inp of q('[data-lkbrate]')) inp.onchange = () => ch(() => { const x = act(inp); x.c = bodyHowText({ ...bodyHow(x.c), rate: +inp.value || 1 }); });
     for (const c of q('[data-lkbwalk]')) c.onchange = () => ch(() => { const x = act(c); x.c = bodyHowText({ ...bodyHow(x.c), walk: c.checked }); });
@@ -12526,8 +12543,8 @@ function renderLogic() {
   lgPending = false;
   const list = lkList();
   const groups = new Map();
-  for (const l of list) { const k = l.when === 'start' ? '' : l.src; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
-  let h = `<div class="row"><b style="flex:1">Logic · ${escapeHtml(mapName)}</b><button id="lgstart">+ When the map starts</button><button id="lgclose">Close</button></div>
+  for (const l of list) { const k = l.when === 'start' || l.when === 'keypress' ? '' : l.src; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
+  let h = `<div class="row"><b style="flex:1">Logic · ${escapeHtml(mapName)}</b><button id="lgstart">+ When the map starts</button><button id="lgkey" title="A key JC presses (in Play)">+ When JC presses a key</button><button id="lgclose">Close</button></div>
     <div class="hint" style="margin:2px 0 8px">Every interaction of the map: <i>when</i> something happens, <i>then</i> what happens, each after its seconds. Make them in the Properties of an object (<b>+ When it...</b>, or <b>🔗 Connect to...</b> and click another object); no Tag or Event to write. <b>Rebuild</b> puts them in the game.</div>`;
   if (!list.length) h += '<div class="hint">No interactions yet. Select a button, a door, a keypad, a zone, a character... and use <b>🔗 Connect to...</b> in its Properties.</div>';
   for (const [k, ls] of groups) {
@@ -12540,6 +12557,7 @@ function renderLogic() {
   for (const g of logicBox.querySelectorAll('.lg-head [data-lkgo]')) g.onclick = (e) => { e.preventDefault(); const p = proxyOf(g.dataset.lkgo); if (p) { select(p); focusSelected(); } };
   $('#lgclose').onclick = () => { logicBox.style.display = 'none'; };
   $('#lgstart').onclick = () => lkChange(null, () => { lkAdd(null, 'start', null); }, () => {});
+  $('#lgkey').onclick = () => lkChange(null, () => { const l = lkAdd(null, 'keypress', null); l.key = 'K'; l.label = lkSentence(l); }, () => {});
 }
 $('#logicbtn').onclick = () => (logicBox.style.display === 'block' ? (logicBox.style.display = 'none') : openLogic().catch((e) => log('Logic: ' + e.message, 'bad')));
 
@@ -12585,7 +12603,7 @@ function lkCheck(add) {
     const who = l.src || (l.do || []).map((x) => x.target).find(Boolean);
     const say = lkSentence(l);
     if (edits.disabled?.[l.src]) { add('info', `Interaction "${say}": its source is disabled in game.`, who); continue; }
-    if (l.when !== 'start' && !lkActor(l.src)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
+    if (l.when !== 'start' && l.when !== 'keypress' && !lkActor(l.src)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
     if (!(l.do || []).length) add('warn', `Interaction "${say}": it does nothing yet (+ Then...).`, who);
     for (const x of l.do || []) {
       if (x.area && !lkAreaTargets(x, l.src).length) add('warn', `Interaction "${say}": the area group currently has no recipients.`, who);
@@ -14693,6 +14711,12 @@ function mapTextures() {
   for (const n of Object.keys((edits && edits.textures) || {})) out.unshift({ name: n, url: texUrl(n), size: '' });
   return out;
 }
+// Tools > First-person moments (fp-moments.js): the weapons of the Objects browser, their models as the Studio reads them
+const fpMoments = createFpMoments({ api, edits: () => edits, status, pickSound, playSound: (name) => playSound(name), escapeHtml,
+  change: (label, fn) => { pushUndo(label); fn(edits); setDirty(); },
+  weapons: () => (palette.find((c) => c.category === 'Weapons')?.items || []).map((it) => ({ cls: it.cls, label: `${itemLabel(it)} · ${it.cls}` })),
+  loadModel: (mesh) => window.__studio.loadModel(mesh) });
+window.__fpmoments = fpMoments;
 const texturePicker = createTexturePicker({ api, menu: openMenu, findInMap: (name) => findInMap(searchToken('tex', name, true)), getMapTextures: mapTextures, storage: safeStorage,
   favourites: favouriteShelf(favourites, 'textures'), pickFromView: startTexturePick });
 // ---------------------------------------------------------------- the command palette (Ctrl+K; command-palette.js)

@@ -344,6 +344,7 @@ const MENUS = [
     { label: 'Character Creator...', run: click('charbtn') },
     { label: 'Animation Studio...', run: click('studiobtn') },
     { label: 'Weapons...', run: () => window.__weapons?.open() },
+    { label: 'First-person moments...', map: true, run: () => window.__fpmoments?.open() },
     { label: 'Import a mod...', run: () => window.__modImport?.open() },
     { label: 'Scripts...', map: true, run: () => window.__scriptsPanel?.open() },
     { label: 'Import assets...', run: () => { window.__workspace?.show('browser'); click('bimportany')(); } },
