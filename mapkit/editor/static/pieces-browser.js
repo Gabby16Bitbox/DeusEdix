@@ -1,5 +1,7 @@
 // Local, on-demand scan of installed maps. Nothing here ships game content.
 // favourites: the stars of the tiles and their group at the top (browser-tiles.js favouriteShelf), or none.
+import { createSearch, rank } from './search-rank.js';
+
 export function createPiecesBrowser({
   api, escapeHtml, onPlace, canPlace = () => true, isVisible = () => true,
   onThumbnails = () => {}, onCatalog = () => {}, pollMs = 2000,
@@ -125,8 +127,11 @@ export function createPiecesBrowser({
     const target = container.querySelector('[data-pieces-list]');
     const firstCategory = categories.find(category => items.some(item => item.cat === category));
     if (!openedFirst && firstCategory) { openCategories.add(firstCategory); openedFirst = true; }
-    const matches = item => !query || [item.label, item.cat, item.map, ...searchTerms, ...(Array.isArray(item.tex) ? item.tex : [])]
-      .some(value => String(value || '').toLowerCase().includes(query));
+    // the search (search-rank.js): its name first, its textures' names, last its category and map
+    const search = createSearch(query);
+    const fields = item => [{ text: item.label, weight: 3 }, { text: Array.isArray(item.tex) ? item.tex.join(' ') : '', weight: 2 },
+      { text: `${item.cat || ''} ${categoryLabel(item.cat || '')} ${searchTerms.join(' ')}`, weight: 1 }, { text: item.map || '', weight: 1 }];
+    const matches = item => !search || search.score(fields(item)) > 0;
     const tile = item => {
       const maps = Array.isArray(item.maps) ? item.maps : [], size = Array.isArray(item.size) ? item.size.join(' x ') : '';
       const where = maps.length > 1 ? `${maps.length} levels` : item.map || '';
@@ -135,17 +140,26 @@ export function createPiecesBrowser({
           <span class="th" data-th="piece:${esc(item.id)}${item.revision ? '|' + esc(item.revision) : ''}"></span><span class="tl">${esc(item.label)}</span>${preparing.has(item.id) ? '<small data-piece-loading>Preparing…</small>' : ''}${favourites ? favourites.star(item.id, item.label) : ''}</button>`;
     };
     let html = '';
+    if (search) {                  // a search: one list, best match first, favourites a little first
+      const starred = new Set(favourites ? favourites.list().map(fav => fav.id) : []);
+      const found = rank(items, search, fields, item => (starred.has(item.id) ? 3 : 0));
+      if (found.length) {
+        html += `<details data-cat="Results" open><summary>Best matches <small>${found.length}</small></summary>`;
+        for (const item of found.slice(0, 300)) html += tile(item);
+        html += '</details>';
+      }
+    }
     // Favourites first: the starred ones this browser lists (the other instance has the rest); one no longer in the
     // library shows as missing, once the library is read and no scan may still find it
     const settled = catalog && !scanning && !['running', 'pausing'].includes(catalog.scan?.state);
-    const favs = (catalog && favourites ? favourites.entries(id => catalog.items.find(item => item.id === id)) : [])
+    const favs = (catalog && favourites && !search ? favourites.entries(id => catalog.items.find(item => item.id === id)) : [])
       .filter(({ fav, item }) => (item ? filterItem(item) && matches(item) : settled && (!query || fav.label.toLowerCase().includes(query))));
     if (favs.length) {
       html += `<details data-cat="${esc(favourites.group)}" ${query || openCategories.has(favourites.group) ? 'open' : ''}><summary>${esc(favourites.group)} <small>${favs.length}</small></summary>`;
       for (const { fav, item } of favs) html += item ? tile(item) : favourites.missing(fav);
       html += '</details>';
     }
-    for (const category of categories) {
+    for (const category of search ? [] : categories) {
       const shown = items.filter(item => item.cat === category && matches(item));
       if (!shown.length) continue;
       html += `<details data-cat="${esc(category)}" ${query || openCategories.has(category) ? 'open' : ''}><summary>${esc(categoryLabel(category))} <small>${shown.length}</small></summary>`;

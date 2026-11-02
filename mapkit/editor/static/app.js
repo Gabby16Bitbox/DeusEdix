@@ -66,6 +66,7 @@ import { createViewAxes, createViewNote } from './view-axes.js';
 import { createTexturePicker } from './texture-picker.js';
 import { createFavourites } from './browser-favourites.js';
 import { favouriteShelf, installStars, mountTileSize } from './browser-tiles.js';
+import { createSearch, rank as rankSearch } from './search-rank.js';
 import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions, blockPoints } from './block-shapes.js';
 import { createVertexEditor } from './vertex-edit.js';
 import { createDragHandles } from './drag-handles.js';
@@ -6070,8 +6071,12 @@ function placingOf(it) {
 }
 // what an item of the Objects browser is among its favourites: its class (a preset: its name too), your character's id
 const objectFavId = (it) => (it.custom ? 'character:' + it.custom : it.preset ? `${it.cls}:${it.name}` : it.cls);
-// an item of the Objects browser the search (q, lower case) shows: by its class, its names, its category
-const paletteMatch = (it, category, q) => !q || [it.cls, gameName(it.name), NAMES[it.cls] || '', category, it.sub || ''].some((s) => s.toLowerCase().includes(q));
+// what the search weighs of an item of the Objects browser (search-rank.js): its name first, then the other words it is
+// known by (palette.json searchAliases: the game's sink is Faucet), its class, last its category
+const paletteFields = (it, category) => [{ text: it.custom ? it.name : itemLabel(it), weight: 3 }, { text: gameName(it.name), weight: 3 },
+  { text: it.tags || '', weight: 2 }, { text: it.cls || '', weight: 2 }, { text: `${category} ${it.sub || ''}`, weight: 1 }];
+// an item of the Objects browser the search shows (q: what was typed, or its createSearch)
+const paletteMatch = (it, category, q) => { const s = typeof q === 'string' ? createSearch(q) : q; return !s || s.score(paletteFields(it, category)) > 0; };
 // the tile of an item (shown: the items of the tiles, by data-pi), with its star
 function paletteTile(it, shown) {
   const label = itemLabel(it);
@@ -6090,14 +6095,34 @@ function buildPalette() {
   // Favourites first (kept per project); a class or a character no longer there shows as missing
   const byFav = new Map();
   if (objectFavs.list().length) for (const c of categories) for (const it of c.items) if (!byFav.has(objectFavId(it))) byFav.set(objectFavId(it), { it, category: c.category });
-  const favs = objectFavs.entries((id) => byFav.get(id))
+  const search = createSearch(q);
+  if (search) {
+    // a search: one list, best match first (Gabby, 2 Nov 2026: "sink" found nothing, and what matched was lost in its
+    // category); each item once (Most used repeats some), weighed with its own category; favourites a little first
+    const each = new Map();
+    for (const c of categories) {
+      if (c.movingLibrary) continue;
+      for (const it of c.items) {
+        const id = objectFavId(it), had = each.get(id);
+        if (!had || had.category === 'Most used') each.set(id, { it, category: c.category });
+      }
+    }
+    const starred = new Set(objectFavs.list().map((fav) => fav.id));
+    const found = rankSearch([...each.values()], search, (x) => paletteFields(x.it, x.category), (x) => (starred.has(objectFavId(x.it)) ? 3 : 0));
+    html += `<details data-cat="Results" open><summary>Best matches <small>${found.length}</small></summary>`;
+    for (const x of found.slice(0, 300)) html += paletteTile(x.it, shown);
+    html += '</details>';
+    html += `<details data-cat="Movers" open><summary>Movers</summary><div id="object-movers"></div></details>`;
+    if (!found.length) html = '<div class="hint">No objects match these words. Try another word (sink, chair, bin…) or look in Pieces and Models.</div>' + html;
+  }
+  const favs = search ? [] : objectFavs.entries((id) => byFav.get(id))
     .filter(({ fav, item }) => (item ? paletteMatch(item.it, item.category, q) : !q || fav.label.toLowerCase().includes(q)));
   if (favs.length) {
     html += `<details data-cat="${escapeHtml(objectFavs.group)}" ${q || openCats.has(objectFavs.group) ? 'open' : ''}><summary>${escapeHtml(objectFavs.group)} <small>${favs.length}</small></summary>`;
     for (const { fav, item } of favs) html += item ? paletteTile(item.it, shown) : objectFavs.missing(fav);
     html += '</details>';
   }
-  for (const c of categories) {
+  for (const c of search ? [] : categories) {
     if (c.movingLibrary) {
       html += `<details data-cat="Movers" ${q || openCats.has('Movers') ? 'open' : ''}><summary>Movers</summary><div id="object-movers"></div></details>`;
       continue;
@@ -6264,7 +6289,23 @@ function modelReplaceRow(a, id) {
   return `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(cur || a.cls)}">${escapeHtml(cur || 'Class model')}</span><button id="${id}" style="flex:none;padding:0 8px" title="Replace the visual model and its skins; keep the same actor, logic, transform and collision">Replace…</button></div>`;
 }
 // a model the search (q, lower case) shows: by its name, its label, the game's object that has it
-const modelMatch = (m, q) => !q || [m.mesh, m.label || '', m.used || ''].some((s) => s.toLowerCase().includes(q));
+// the other words of the class that uses a model (palette.json searchAliases, from the Objects browser's list)
+let paletteTagsOf = null, paletteTagsFor = null;
+function paletteTags(cls) {
+  if (!cls) return '';
+  if (paletteTagsFor !== palette) {
+    paletteTagsFor = palette; paletteTagsOf = new Map();
+    for (const c of palette) for (const it of c.items) if (it.tags) paletteTagsOf.set(it.cls, it.tags);
+  }
+  return paletteTagsOf.get(String(cls).split('.').pop()) || '';
+}
+// what the search weighs of a model (search-rank.js): its name, the class that uses it and that class's other words, its package
+const modelFields = (m) => {
+  const short = m.mesh.split('.').slice(1).join('.');
+  return [{ text: m.label || short, weight: 3 }, { text: short, weight: 2 }, { text: m.used || '', weight: 2 },
+    { text: paletteTags(m.used), weight: 2 }, { text: m.pkg || '', weight: 1 }];
+};
+const modelMatch = (m, q) => { const s = typeof q === 'string' ? createSearch(q) : q; return !s || s.score(modelFields(m)) > 0; };
 function modelTile(m) {
   const short = m.mesh.split('.').slice(1).join('.');
   return `<button class="item" data-mesh="${escapeHtml(m.mesh)}" title="${escapeHtml(m.mesh)} · ${m.tris} triangles${m.frames > 1 ? ` · ${m.frames} frames` : ''}${m.used ? ` · the game's ${escapeHtml(m.label || m.used)}` : ''}"><span class="th" data-th="mesh:${escapeHtml(m.mesh)}"></span><span class="tl">${escapeHtml(m.label || short)}</span><small>${escapeHtml(m.label ? short : '')}</small>${modelFavs.star(m.mesh, m.label || short)}</button>`;
@@ -6286,15 +6327,21 @@ async function buildModels() {
   }
   const q = $('#msearch').value.trim().toLowerCase(), mine = bottomTab === 'mymodels';
   let html = modelReplace ? `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(modelReplace.name)}">${modelReplace.busy ? 'Loading model for' : 'Replace model of'} ${escapeHtml(modelReplace.name)}</span><button id="model-replace-cancel" style="flex:none;height:var(--ui-control,22px);padding:0 8px;line-height:18px" title="Cancel replacement (Esc)">Cancel</button></div>` : '';
+  const search = createSearch(q);
+  if (search) {                    // a search: one list, best match first, from every package (My models: yours)
+    const starred = new Set(modelFavs.list().map((fav) => fav.id));
+    const found = rankSearch(modelList.meshes.filter((m) => !mine || m.pkg === MODELS_PKG), search, modelFields, (m) => (starred.has(m.mesh) ? 3 : 0));
+    if (found.length) html += `<details data-pkg="Results" open><summary>Best matches <small>${found.length}</small></summary>${found.slice(0, 300).map(modelTile).join('')}</details>`;
+  }
   // Favourites first (kept per project; My models: your own); a model whose package is gone shows as missing
-  const favs = modelFavs.entries(modelNamed)
+  const favs = search ? [] : modelFavs.entries(modelNamed)
     .filter(({ fav, item }) => (item ? (!mine || item.pkg === MODELS_PKG) && modelMatch(item, q) : !q || fav.label.toLowerCase().includes(q)));
   if (favs.length) {
     html += `<details data-pkg="${escapeHtml(modelFavs.group)}" ${q || mine || modelOpen.has(modelFavs.group) ? 'open' : ''}><summary>${escapeHtml(modelFavs.group)} <small>${favs.length}</small></summary>`;
     for (const { fav, item } of favs) html += item ? modelTile(item) : modelFavs.missing(fav);
     html += '</details>';
   }
-  for (const p of modelList.packages) {
+  for (const p of search ? [] : modelList.packages) {
     if (mine && p.name !== MODELS_PKG) continue;              // My models: only the imported ones
     const items = modelList.meshes.filter((m) => m.pkg === p.name && modelMatch(m, q));
     if (!items.length) continue;

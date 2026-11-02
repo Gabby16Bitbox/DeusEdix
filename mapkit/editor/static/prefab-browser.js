@@ -8,6 +8,8 @@
 // read again or changed (the Hierarchy's badges, the Inspector).
 // warm(item): get a prefab ready before Place is clicked (its preview and textures), so its ghost shows at once: asked
 // when the pointer or the focus reaches its card, and for the cards in view, one at a time while the page is idle.
+import { createSearch, rank } from './search-rank.js';
+
 export function createPrefabBrowser({
   api, escapeHtml, onPlace, onSave, getDefaultName = () => '',
   canSave = () => true, isTemporary = () => false, status = () => {}, onSaved = () => {}, favourites = null,
@@ -85,7 +87,7 @@ export function createPrefabBrowser({
     const ticket = ++rendered, revision = generation;
     const search = $('#pfsearch');
     if (search) search.oninput = () => { void render(); };
-    const query = String(search?.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const query = createSearch(search?.value || '');
     container.setAttribute('aria-busy', 'true');
     container.innerHTML = '<div class="hint" role="status">Loading project prefabs…</div>';
     let entries;
@@ -98,8 +100,9 @@ export function createPrefabBrowser({
       return;
     }
     if (ticket !== rendered || revision !== generation) return;
-    const matches = text => query.every(word => text.toLowerCase().includes(word));
-    const shown = entries.filter(item => matches(`${item.label || ''} ${sourceName(item.source)}`));
+    // the search (search-rank.js): its name first, then its source map; best match first
+    const matches = text => !query || query.score([{ text, weight: 1 }]) > 0;
+    const shown = query ? rank(entries, query, item => [{ text: item.label || '', weight: 3 }, { text: sourceName(item.source), weight: 1 }]) : entries;
     // Favourites first (kept per project, by prefab: a new version keeps its star); a prefab deleted from the library
     // shows as missing
     const favs = (favourites?.entries(id => entries.find(item => lineOf(item) === id)) || [])

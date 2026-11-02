@@ -801,6 +801,7 @@ def actors(map_name):
 # says what each list does)
 PALETTE_CONFIG = json.loads((HERE / 'config' / 'palette.json').read_text(encoding='utf-8'))
 FAVOURITES = {'Most used': PALETTE_CONFIG['mostUsed']}
+SEARCH_ALIASES = {k: v for k, v in PALETTE_CONFIG.get('searchAliases', {}).items() if isinstance(v, str)}
 NO_MODEL = tuple(PALETTE_CONFIG['noModel'])          # no 3D model: an icon (an effect point: its arrows)
 CATEGORY = PALETTE_CONFIG['categories']
 SUB = PALETTE_CONFIG['subcategories']
@@ -937,6 +938,12 @@ def palette():
                     dict(cls='PatrolPoint', radius=12, height=14.5, name='Patrol point (see Patrol route of a character)', sub=''),
                     dict(cls='WanderPoint', radius=12, height=14.5, name='Wander point (wandering characters stop and look here)', sub=''),
                     dict(cls='HidePoint', radius=12, height=14.5, name='Hide point (where scared characters hide)', sub='')]
+    # more words the search finds them by (palette.json searchAliases: the game's sink is Faucet)
+    for items in groups.values():
+        for it in items:
+            tags = SEARCH_ALIASES.get(it['cls'])
+            if tags:
+                it['tags'] = tags
     return [dict(category=k, items=groups[k]) for k in ORDER if k in groups] + \
            [dict(category=k, items=v) for k, v in groups.items() if k not in ORDER]
 
