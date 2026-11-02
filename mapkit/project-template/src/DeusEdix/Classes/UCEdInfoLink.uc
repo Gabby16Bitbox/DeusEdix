@@ -17,6 +17,50 @@ var float d;
 var bool bPlaying;
 var bool bQuickStart;   // Tutorial room guidance: the latest room replaces the previous one.
 
+
+// Defaults belong to this project; overrides belong only to this call.
+var bool bCustomStyle, bStyleBackground, bStyleText;
+var byte StyleFont, StyleSize;
+var Color StyleBackground, StyleText;
+
+function PostBeginPlay()
+{
+    Super.PostBeginPlay();
+    bCustomStyle=class'UCInfoLinkStyle'.default.bCustomStyle;
+    StyleFont=class'UCInfoLinkStyle'.default.StyleFont;
+    StyleSize=class'UCInfoLinkStyle'.default.StyleSize;
+    bStyleBackground=class'UCInfoLinkStyle'.default.bStyleBackground;
+    StyleBackground=class'UCInfoLinkStyle'.default.StyleBackground;
+    bStyleText=class'UCInfoLinkStyle'.default.bStyleText;
+    StyleText=class'UCInfoLinkStyle'.default.StyleText;
+}
+
+function InfoStart(string ownerBind)
+{
+    local DeusExPlayer P;
+    local DeusExRootWindow root;
+    local UCInfoLinkWindow win;
+    P=Plr();
+    if (P!=None) root=DeusExRootWindow(P.rootWindow);
+    if (root!=None && root.hud!=None)
+    {
+        if (bCustomStyle)
+        {
+            root.hud.DestroyInfoLinkWindow();
+            win=UCInfoLinkWindow(root.hud.NewChild(class'UCInfoLinkWindow'));
+            root.hud.infolink=win;
+            if (win!=None)
+            {
+                if (root.hud.msgLog!=None) root.hud.msgLog.Hide();
+                win.ApplyAppearance(StyleFont,StyleSize,bStyleBackground,StyleBackground,bStyleText,StyleText);
+            }
+        }
+        else if (UCInfoLinkWindow(root.hud.infolink)!=None)
+            root.hud.DestroyInfoLinkWindow();
+    }
+    Super.InfoStart(ownerBind);
+}
+
 function CancelGuidance()
 {
 	StopInfoVoice();

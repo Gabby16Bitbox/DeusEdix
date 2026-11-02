@@ -1,3 +1,4 @@
+import {mountInfoLinkStyle, DEFAULT_STYLE} from './infolink-style.js';
 import {configureStateEditor, mountStateField} from './state-editor.js';
 import {stateLabel, normalizeCatalog} from './state-model.js';
 import {collectDraftStates, conditionProblems, conditionRows, removeCondition} from './story-state.js';
@@ -18,6 +19,9 @@ let revision = 0;
 const saveQueue = createSaveQueue();
 let voices = {}, soundsPkg = 'UCSounds';        // the voices given to lines (/api/dubs): key -> {seconds}
 const MAX_ANSWERS = 6;
+let globalInfoStyle={style:{...DEFAULT_STYLE},revision:null}, globalStyleDirty=false, globalStyleVersion=0;
+const infoStyleCSS=document.createElement('link');infoStyleCSS.rel='stylesheet';
+infoStyleCSS.href=new URL('./infolink-style.css',import.meta.url).href;document.head.appendChild(infoStyleCSS);
 
 const STEP_TYPES = {
   line: 'Line', choice: 'JC\'s answers (choice)', label: 'Label (jump target)', if: 'Check a condition',
@@ -127,7 +131,7 @@ root.innerHTML = `
     <div class="st-list">
       <h4>Dialogues</h4><div id="st-dlist"></div><button class="it" id="st-newd">+ New dialogue</button>
       <h4>Original conversations</h4><div id="st-originals"></div>
-      <h4>InfoLinks</h4><div id="st-ilist"></div><button class="it" id="st-newi">+ New InfoLink</button>
+      <h4>InfoLinks</h4><div id="st-ilist"></div><button class="it" id="st-newi">+ New InfoLink</button><button class="it" id="st-istyle" title="Default appearance for all InfoLinks created in this project">InfoLink style…</button>
       <h4>Events</h4><div id="st-elist"></div><button class="it" id="st-newe">+ New event</button>
       <h4>Story state</h4><button class="it" id="st-state">Flags &amp; conditions</button>
       <div class="tip" style="margin-top:12px">A <b>dialogue</b> belongs to a character or an object: it starts when JC talks to it or gets close.<br>
@@ -184,6 +188,7 @@ async function ensure() {
     ]);
     if(epoch!==loadEpoch || E()?.script!==script) return false;
     story=r.story; story.dialogues ||= []; story.events ||= []; story.infolinks ||= [];
+    globalInfoStyle=r.infolinkStyle || {style:{...DEFAULT_STYLE},revision:null};globalStyleDirty=false;globalStyleVersion++;
     mapCode=r.code || ''; flags=r.flags || []; items=r.items || [];
     catalogFlags=catalogResult.status==='fulfilled' ? catalogResult.value : [];
     const v=voiceResult.status==='fulfilled' ? voiceResult.value : {};
@@ -512,6 +517,8 @@ function render() {
   const el = $('#st-edit');
   if (!current) { el.innerHTML = '<div class="tip">Pick a dialogue, an InfoLink or an event on the left, or create a new one. For a character\'s dialogues you can also select them in the scene and press "Dialogues" in the right panel.</div>'; return; }
   el.refreshStateCatalog=null;
+  el.oninput=null;
+  if (current.kind === 'istyle') { renderInfoLinkDefaults(el); return; }
   if (current.kind === 'state') { renderStateCatalog(el); return; }
   if (current.kind === 'd') renderDialogue(el, story.dialogues[current.i]);
   else if (current.kind === 'i') renderInfo(el, story.infolinks[current.i]);
@@ -934,6 +941,25 @@ function usesOf(id) {                     // the events and dialogues that play 
     .concat(story.infolinks.map((o, i) => o.id !== id && has(o.do) ? { kind: 'i', i, text: 'after the InfoLink: ' + (o.title || o.id) } : null))
     .filter(Boolean);
 }
+async function saveInfoLinkDefaults(context) {
+  if(!globalStyleDirty) return;
+  const version=globalStyleVersion, style=JSON.parse(JSON.stringify(globalInfoStyle.style));
+  const response=await fetch('/api/infolink_style', {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({style,revision:globalInfoStyle.revision})});
+  const result=await response.json();
+  if(!response.ok) throw Error(result.error || 'Could not save the project InfoLink style.');
+  if(sameSaveContext(context)) {
+    globalInfoStyle.revision=result.revision;
+    if(version===globalStyleVersion) globalStyleDirty=false;
+  }
+}
+function openInfoLinkDefaults() { current={kind:'istyle'}; render(); }
+function renderInfoLinkDefaults(el) {
+  el.innerHTML='<h4>Project InfoLink style</h4><div id="st-project-istyle"></div>';
+  mountInfoLinkStyle(el.querySelector('#st-project-istyle'),{style:globalInfoStyle.style,
+    onChange:style=>{globalInfoStyle.style=style;globalStyleDirty=true;globalStyleVersion++;changed();}});
+}
+
 function renderInfo(el, il) {
   il.lines = il.lines || [];
   il.do = il.do || [];
@@ -947,6 +973,7 @@ function renderInfo(el, il) {
       <label><input type="checkbox" data-k="once" ${il.once !== false ? 'checked' : ''}> only once</label>
       <label title="While it plays, clicking people starts no dialogue: a dialogue would hide the InfoLink window (and the game would cut it). They can be talked to again as soon as it ends."><input type="checkbox" data-k="hush" ${il.hush !== false ? 'checked' : ''}> no talking while it plays</label></div>
     <div class="tip">An InfoLink is one-way: only the caller speaks, JC never answers by radio (if JC has to report something, set a flag). Each line gets its own screen, timed like the game's.</div>
+    <details class="st-il-appearance"><summary>Appearance</summary><div id="st-local-istyle"></div></details>
     <div id="st-ilines"></div>
     <div class="f"><button id="st-iadd">+ Line</button></div>
     <div class="tip">Actions: they happen as soon as the InfoLink starts (as in Deus Ex, an interrupted InfoLink counts as heard).</div>
@@ -956,6 +983,10 @@ function renderInfo(el, il) {
     <div class="f"><button id="st-ievent">+ Event that plays it</button><span style="flex:1"></span><button id="st-deli" class="bad">Delete InfoLink</button></div>`;
   bindFields(el.querySelector('.f'), il);
   bindFields(el.querySelectorAll('.f')[1], il);
+  const appearance=mountInfoLinkStyle($('#st-local-istyle'),{local:true,style:il.style,project:globalInfoStyle.style,
+    speaker:()=>il.name || il.caller,sample:()=>il.lines[0]?.text || '',onProject:openInfoLinkDefaults,
+    onChange:style=>{if(style==null)delete il.style;else il.style=style;changed();}});
+  el.oninput=()=>appearance.refresh();
   $('#st-caller').onchange = () => {
     const b = $('#st-caller').value;
     if (b) { il.caller = b; il.name = (CALLERS.find((c) => c[0] === b) || [])[1] || b; $('#st-other').style.display = 'none'; }
@@ -1126,6 +1157,8 @@ function save({automatic = false} = {}) {
     if (!sameSaveContext(context)) return false;
     if (automatic && !dirty) return true;
     const savedRevision = revision, snapshot = storySnapshot();
+    await saveInfoLinkDefaults(context);
+    if(!sameSaveContext(context))return false;
     const response = await fetch('/api/story?script=' + encodeURIComponent(context.script) + (automatic ? '&automatic=1' : ''), {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(snapshot),
     });
@@ -1151,6 +1184,8 @@ function apply() {
     const busyMessage = `Generating the story code and compiling ${E().standalone ? 'your project' : 'the mod'} (about 2 minutes)...`;
     if (busyEl && bt) { bt.textContent = busyMessage; busyEl.style.display = 'flex'; }
     try {
+      await saveInfoLinkDefaults(context);
+      if(!sameSaveContext(context))return {saved:false,skipped:true};
       const response = await fetch('/api/story_apply?script=' + encodeURIComponent(context.script), {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({story: snapshot}),
       });
@@ -1191,6 +1226,7 @@ $('#st-newd').onclick = () => {
   current = { kind: 'd', i: story.dialogues.length - 1 };
   changed(); render();
 };
+$('#st-istyle').onclick=openInfoLinkDefaults;
 $('#st-newi').onclick = () => {
   story.infolinks.push({ id: nextId('i', story.infolinks), title: 'New InfoLink', caller: 'AlexJacobson', name: 'Alex Jacobson', once: true, lines: [{ text: '' }], do: [] });
   current = { kind: 'i', i: story.infolinks.length - 1 };

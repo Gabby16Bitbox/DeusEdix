@@ -1,3 +1,4 @@
+import { encodeRawVertices } from './studio-vertex-format.js';
 // Animation Studio of the map editor: the characters' animations made, imported and put in the game.
 //
 // Deus Ex animates its characters frame by frame (every vertex has a position in every frame, no
@@ -85,15 +86,8 @@ function parseModel(info, buf, custom) {
   return { info, faces, wedges, uvs, pos, FV, SV: c.specialVerts, frames: frame, seqs };
 }
 // three.js positions -> the model's raw units (int16), for the baked frames
-function toRaw(info, P, out, at) {
-  const [kx, ky, kz] = info.scale, [ox, oy, oz] = info.origin, yaw = info.rot[1] * 2 * Math.PI / YAW, cs = Math.cos(yaw), sn = Math.sin(yaw);
-  const clamp = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
-  for (let i = 0; i < P.length / 3; i++) {
-    const X = P[3 * i], Y = P[3 * i + 2], Z = P[3 * i + 1];       // actor space
-    const x = X * cs + Y * sn, y = -X * sn + Y * cs;                // turned back by RotOrigin's yaw
-    out[at + 3 * i] = clamp(x / kx + ox); out[at + 3 * i + 1] = clamp(y / ky + oy); out[at + 3 * i + 2] = clamp(Z / kz + oz);
-  }
-}
+function toRaw(info, P, out, at) { encodeRawVertices(info, P, out, at); }
+
 async function loadModel(mesh) {
   const info = await api('/api/anims?mesh=' + encodeURIComponent(mesh));
   const [buf, ...custom] = await Promise.all([fetch(info.url).then((r) => r.arrayBuffer()),

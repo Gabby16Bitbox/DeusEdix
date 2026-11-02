@@ -767,7 +767,10 @@ def actors(map_name):
         if own:
             return own
         return (((class_defaults.get(cls) or {}).get('props') or {}).get('BindName') or [''])[0].strip('"')
+    import patrol_paths
     for a in t3d.actors(text):
+        if patrol_paths.owned(a):
+            continue                    # build-only walking support, not extra patrol stops
         cls = a['cls']
         # Unreal omits default Location=(0,0,0) from exports. Ordinary editable objects at the
         # origin still need a row, including after re-enabling them; hidden runtime helpers do not.

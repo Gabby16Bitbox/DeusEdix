@@ -270,7 +270,7 @@ class Supervisor:
                 raise ProjectTransitionError('Close the game before opening another project.', 'game_running')
             self._retire(previous)
             import projects
-            info = projects.provision(descriptor['id'])
+            info = projects.provision(descriptor['id'], preserve_local=True)
             root = Path(info['path'])
             port, token = self._port(), secrets.token_hex(24)
             env = dict(os.environ, DEUSEDIX_PROJECT_WORKER='1', DEUSEDIX_PROJECT_ID=info['id'],

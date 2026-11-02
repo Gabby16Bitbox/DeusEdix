@@ -78,7 +78,11 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
   }
   async function loadThumbs(pkg) {
     if (!loadingPkg.has(pkg)) loadingPkg.set(pkg, api('/api/texture_thumbs?pkg=' + encodeURIComponent(pkg)).then((r) => {
-      for (const [k, v] of Object.entries(r.thumbs || {})) thumbs.set(k.toLowerCase(), v);
+      for (const [k, v] of Object.entries(r.thumbs || {})) {
+        thumbs.set(k.toLowerCase(), v);
+        const entry = index?.packages.find(p => p.name === pkg)?.textures.find(t => t[0] === k);
+        if (entry) thumbs.set(entry[1].toLowerCase(), v);
+      }
       return r;
     }).catch((e) => { loadingPkg.delete(pkg); throw e; }));
     return loadingPkg.get(pkg);
@@ -87,7 +91,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
   function urlOf(name) {
     const n = shortName(name).toLowerCase();
     const own = mapList().find((t) => t.name.toLowerCase() === n);
-    return (own && own.url) || thumbs.get(n) || '';
+    return String(name).includes('.') ? (thumbs.get(String(name).toLowerCase()) || '') : ((own && own.url) || thumbs.get(n) || '');
   }
   // a favourite texture by its name: this map's, else the game's (null: neither has it, ix: the game's index)
   function textureNamed(name, ix) {
@@ -95,9 +99,18 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     if (own) return { name: own.name, url: own.url, size: own.size || '' };
     if (!named) {
       named = new Map();
-      for (const p of ix.packages) for (const t of p.textures) if (!named.has(t[0].toLowerCase())) named.set(t[0].toLowerCase(), { name: t[0], pkg: p.name, size: t[2] + '×' + t[3] });
+      for (const p of ix.packages) for (const t of p.textures) {
+        const item = { name: p.kind === 'skins' ? t[1] : t[0], pkg: p.name, size: t[2] + '×' + t[3] };
+        if (!named.has(t[0].toLowerCase())) named.set(t[0].toLowerCase(), item);
+        named.set(t[1].toLowerCase(), item);
+      }
     }
     return named.get(n) ? { ...named.get(n) } : null;
+  }
+  function packageOf(value, ix) {
+    const ref = String(value || '').replace(/^\w+'([^']+)'$/, '$1').toLowerCase();
+    return ix.packages.find(p => p.textures.some(t => t[1].toLowerCase() === ref)) ||
+      ix.packages.find(p => p.textures.some(t => t[0].toLowerCase() === shortName(ref)));
   }
   // the package a texture is in (its picture comes with the package's pictures)
   async function pictureOf(name) {
@@ -105,7 +118,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     if (u || !name) return u;
     const ix = await loadIndex();
     const n = shortName(name).toLowerCase();
-    const pkg = ix.packages.find((p) => p.textures.some((t) => t[0].toLowerCase() === n));
+    const pkg = packageOf(name, ix);
     if (!pkg) return '';
     await loadThumbs(pkg.name);
     return urlOf(name);
@@ -170,6 +183,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     browsed = name;
     query = '';
     source = 'map';
+    const initialTexture = input?.value || name;
     box = document.createElement('div');
     box.id = 'texpicker';
     box.setAttribute('role', 'dialog');
@@ -204,7 +218,14 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     search.select();
     renderSources();
     search.oninput();
-    loadIndex().then(() => { if (box) renderSources(); }).catch((e) => { if (box) box.querySelector('.tp-foot').textContent = 'The game\'s textures could not be listed: ' + e.message; });
+    const openedBox = box;
+    loadIndex().then(ix => {
+      if (!box || box !== openedBox) return;
+      const pkg = packageOf(initialTexture, ix);
+      if (pkg && source === 'map' && !query) { source = 'pkg:' + pkg.name; render(); }
+      renderSources();
+      box.querySelector('.tp-src .on')?.scrollIntoView({ block: 'nearest' });
+    }).catch((e) => { if (box) box.querySelector('.tp-foot').textContent = 'The game\'s textures could not be listed: ' + e.message; });
   }
   function renderSources() {
     if (!box) return;
@@ -220,9 +241,9 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
   // missing: a favourite no package nor the map has now (its star unstars it)
   function tile(name, url, size, current, missing) {
     const star = favourites ? favourites.star(name, name) : '';
-    if (missing) return `<div class="tp-tile fav-missing" title="${esc(favourites.goneTitle({ label: name }))}"><div class="tp-img">?</div><small>${esc(name)}</small><em>Missing</em>${star}</div>`;
+    if (missing) return `<div class="tp-tile fav-missing" title="${esc(favourites.goneTitle({ label: name }))}"><div class="tp-img">?</div><small>${esc(shortName(name))}</small><em>Missing</em>${star}</div>`;
     return `<div class="tp-tile ${current ? 'on' : ''}" data-name="${esc(name)}" title="${esc(name)}${size ? ' · ' + size : ''}${findInMap ? ' · Right click: Find in map' : ''}">
-      <div class="tp-img">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : ''}</div><small>${esc(name)}</small>${size ? `<em>${esc(size)}</em>` : ''}${star}</div>`;
+      <div class="tp-img">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : ''}</div><small>${esc(shortName(name))}</small>${size ? `<em>${esc(size)}</em>` : ''}${star}</div>`;
   }
   async function render() {
     if (!box) return;
@@ -244,7 +265,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
         if (!items.length) note = query ? 'No favourite texture has that name.' : 'No favourite textures yet: the star of a texture keeps it here, for this project.';
       } else {
         const pkgs = source === 'all' ? ix.packages : ix.packages.filter((p) => 'pkg:' + p.name === source);
-        for (const p of pkgs) for (const t of p.textures) if (match(t[0])) items.push({ name: t[0], pkg: p.name, size: t[2] + '×' + t[3] });
+        for (const p of pkgs) for (const t of p.textures) if (match(t[0])) items.push({ name: p.kind === 'skins' ? t[1] : t[0], pkg: p.name, size: t[2] + '×' + t[3] });
         if (source === 'all' && !query) { items = []; note = 'Type a name to search every texture of the game, or pick a package on the left.'; }
         else if (!items.length) note = 'No texture with that name.';
       }
@@ -260,7 +281,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
       }
       for (const i of items) i.url = i.url || thumbs.get(i.name.toLowerCase()) || '';
     }
-    grid.innerHTML = (note ? `<div class="tp-note">${esc(note)}</div>` : '') + items.map((i) => tile(i.name, i.url, i.size, i.name.toLowerCase() === cur, i.missing)).join('');
+    grid.innerHTML = (note ? `<div class="tp-note">${esc(note)}</div>` : '') + items.map((i) => tile(i.name, i.url, i.size, shortName(i.name).toLowerCase() === cur, i.missing)).join('');
     for (const t of grid.querySelectorAll('.tp-tile[data-name]')) {
       t.onclick = () => choose(t.dataset.name, false);
       t.ondblclick = (e) => { if (!e.target.closest('.fav-star')) choose(t.dataset.name, true); };   // a star's: two stars

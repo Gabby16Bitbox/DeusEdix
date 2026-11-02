@@ -21,7 +21,8 @@ const FLAGS = [[0x400000, 'Unlit', 'Full brightness, no light or shadow on it (s
 // slip(): the Texture Slip started as Edit > Slip the texture starts it (the panel's Slip)
 export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, deselect, status, log, escapeHtml, textures,
   canShowPanel = () => true, canEditFace = () => true, onChange = () => {},
-  recent = { list: () => [], add: () => {} }, picture = () => '', keyOf = () => '', onlyAfterRebuild = () => 0, slip = () => {} }) {
+  recent = { list: () => [], add: () => {} }, picture = () => '', keyOf = () => '', onlyAfterRebuild = () => 0, slip = () => {},
+  onMode = () => {} }) {
   let faces = [], meshes = [], chosen = new Set(), overlays = [], mode = false;
   const target = f => ({ brush: f.brush, poly: f.poly });
   const selected = () => [...chosen].map(i => faces[i]).filter(Boolean);
@@ -247,7 +248,13 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
       return queue('texture', [texture], [target(face)]);
     },
     load(data, geometry) { clear(); faces = data; meshes = geometry; },
-    toggle() { mode = !mode; deselect(); status(mode ? 'Face selection: click a face, Shift+click to add. Alt+click also works in object mode.' : 'Object selection. Alt+click selects a face.'); },
+    toggle() {
+      mode = !mode; deselect(); onMode(mode);
+      status(mode ? 'Face selection: click a face, Shift+click to add. Q, or Esc with no face selected, goes back to objects.'
+        : 'Object selection. Alt+click selects a face.');
+    },
+    // Face selection left (Esc with no face selected): -> whether it was on
+    exit() { if (!mode) return false; this.toggle(); return true; },
     pick(hit, add) {
       const id = hit?.object.userData.faces?.[hit.faceIndex];
       if (id === undefined || id < 0 || !faces[id]) { status('Select a built wall, floor or ceiling. Rebuild newly added geometry first.', 'warn'); return; }

@@ -202,16 +202,31 @@ export function createProjectHub({ confirmLeave, onCurrent, onVisibility }) {
         onWait: () => window.__tutorialLoading?.show('Finishing the current operation before opening the tutorial…') }) : await attempt();
       if (opening.signal.aborted) return false;
       if (tutorial) window.__tutorialLoading?.show('Opening the tutorial editor…');
+      if (result.project?.updateWarning) {
+        window.__tutorialLoading?.hide?.();
+        await showUpdateNotice(result.project.updateWarning);
+        if (opening.signal.aborted) return false;
+      }
       navigate(result.url, tutorial, fromHome); return true;
     }
     catch (e) {
       if (e.name === 'AbortError') return false;
       error(e);
       if (tutorial) window.__tutorialLoading?.fail(e, () => openProject(project, true, fromHome));
-      if (dialog.open) dialog.querySelector('.project-error').textContent = e.message;
+      if (dialog.open && dialog.querySelector('.project-error')) dialog.querySelector('.project-error').textContent = e.message;
       return false;
     }
     finally { window.removeEventListener('pagehide', leave); lock(false); }
+  }
+  function showUpdateNotice(warning) {
+    return new Promise(resolve => {
+      dialog.innerHTML = `<form method="dialog"><header><h2 id="project-dialog-title">Local editor version</h2></header><main>
+        <p>${esc(warning.message)}</p><details><summary>Changed files</summary><ul>${(warning.files || []).map(file => `<li>${esc(file)}</li>`).join('')}</ul></details>
+        </main><footer><button type="submit" class="primary">Continue</button></footer></form>`;
+      dialog.addEventListener('close', resolve, { once: true });
+      if (!dialog.open) dialog.showModal();
+      dialog.querySelector('button').focus();
+    });
   }
   function openDialog(mode) {
     if (working) return;

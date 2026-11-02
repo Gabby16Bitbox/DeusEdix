@@ -43,7 +43,8 @@ MAX_VERTICES = 8191  # _a.3d's uint16 frame-size header holds eight bytes per ve
 MAX_MATERIALS = 8
 MAX_FRAMES = 4000
 MAX_FRAME_VERTICES = 3000000   # frames x vertices: 24 MB of _a.3d at most
-LIST_VERSION = 2
+LIST_VERSION = 5
+APPEARANCE_VERSION = 2
 # loaded by every run from its own System folder (dist\): not again from the game's copy
 OWN = (settings.PACKAGE, settings.VOICES_PACKAGE, settings.ANIMS_PACKAGE, PACKAGE)
 SKIP = ('Core', 'Editor', 'IpDrv', 'IpServer', 'UWindow', 'UBrowser', 'Fire', 'DXOgg', 'RF', 'ConSys', 'Extension')
@@ -86,6 +87,38 @@ def _load_cmd(name, files):
     return kit.load_cmd(files[name])          # a long path too (another mod's package in the project)
 
 
+
+def _representatives(classes):
+    """A living character before its corpse when a mesh has several users."""
+    by_mesh = {}
+    for c in sorted(classes, key=lambda c: (c.get('cat') == 'Bodies' or 'carcass' in c['cls'].lower(), c['cls'])):
+        if c.get('mesh') and c['mesh'] != 'None':
+            by_mesh.setdefault(c['mesh'], c)
+    return by_mesh
+
+
+def _appearances(session, meshes):
+    """Read inherited visual defaults in this session, without trusting older class caches."""
+    import characters
+    modern = hasattr(kit, 'rows')
+    name = 'model-looks.jsonl' if modern else 'model-looks.txt'
+    session.batch([r'UC_DEFAULTS ..\Output\%s Skin,MultiSkins' % name])
+    path = session.folder / 'Output' / name
+    classes = characters._classes(path if modern else path.read_text(encoding='utf-8', errors='replace'))
+    out = {}
+    for m in meshes:
+        p = classes.get(m.get('used'), {}).get('p', {})
+        visual = {}
+        for prop in ('Skin', 'MultiSkins'):
+            for i, value in enumerate(p.get(prop) or []):
+                if i >= (8 if prop == 'MultiSkins' else 1):
+                    break
+                if value and (value == 'None' or re.fullmatch(r"Texture'[\w.]+?'", value)):
+                    visual['MultiSkins(%d)' % i if prop == 'MultiSkins' else prop] = value
+        out[m['mesh']] = visual
+    return out
+
+
 def listing(log=print):
     """{packages: [{name, count}], meshes: [{mesh, pkg, cls, tris, frames, seqs}]}, made once per set of
     packages (a package changed or added: made again)."""
@@ -118,14 +151,16 @@ def listing(log=print):
     meshes = [dict(mesh=r['mesh'], pkg=r['package'], cls=r['class'], tris=r['triangles'], frames=r['frames'], seqs=r['sequences'])
               for r in rows if r['package'] in files and r['triangles'] > 0]
     # the object of the game that uses it: its name, and the size it has there (its class's DrawScale)
-    by_mesh = {}
-    for c in data.catalog(log=lambda *a: None):
-        if c.get('mesh') and c['mesh'] != 'None':
-            by_mesh.setdefault(c['mesh'], c)
+    by_mesh = _representatives(data.catalog(log=lambda *a: None))
     for m in meshes:
-        c = by_mesh.get(m['mesh'])
+        # Alternate dead-body meshes take their skins from the living pawn at runtime.
+        # Their named family uses the same material slots, even without a placeable class.
+        family = re.sub(r'_Carcass[BC]?$', '', m['mesh'])
+        c = by_mesh.get(family) or by_mesh.get(m['mesh'])
         if c:
             m.update(used=c['cls'], label=c['name'], scale=c.get('scale') or 1.0)
+    import model_looks
+    meshes = model_looks.describe(meshes, log)
     meshes.sort(key=lambda m: (m['pkg'].lower(), m['mesh'].lower()))
     counts = {}
     for m in meshes:
@@ -163,11 +198,15 @@ def package_models(pkg, log=print):
     meshes = [m for m in lst['meshes'] if m['pkg'] == pkg]
     folder = CACHE / _safe(pkg)
     idx = folder / 'index.json'
-    stamp = '%s-%d-%d' % (pkg, _mtime(files[pkg]), data.MESH_VERSION)
+    stamp = '%s-%d-%d-%s-skin%d-%s' % (pkg, _mtime(files[pkg]), data.MESH_VERSION, lst['sig'], APPEARANCE_VERSION, settings.TARGET)
     if idx.exists():
         try:
             d = json.loads(idx.read_text(encoding='utf-8'))
             if d.get('stamp') == stamp:
+                # Actor metadata can change without re-exporting mesh geometry.
+                by_mesh = {m['mesh']: m for m in meshes}
+                for mesh, info in d['models'].items():
+                    info['character'] = by_mesh.get(mesh, {}).get('character')
                 return d
         except ValueError:
             pass
@@ -179,10 +218,13 @@ def package_models(pkg, log=print):
     start = ['MAP NEW', 'OBJ LOAD FILE="%s.u"' % settings.PACKAGE, _load_cmd(pkg, files)]
     try:
         s.batch(start)
+        appearances = _appearances(s, meshes)
+        import model_looks
+        appearances.update(model_looks.appearances(meshes, log))
         for k in range(0, len(meshes), 50):
             chunk = meshes[k:k + 50]
-            body = ''.join("Begin Actor Class=UCMeshDeco Name=UCM%d\n    Location=(X=%d,Y=%d,Z=0)\n    Mesh=%s'%s'\nEnd Actor\n"
-                           % (k + i, (i % 8) * 800 - 3200, (i // 8) * 800 - 3200, m['cls'], m['mesh']) for i, m in enumerate(chunk))
+            body = ''.join("Begin Actor Class=UCMeshDeco Name=UCM%d\n    Location=(X=%d,Y=%d,Z=0)\n    Mesh=%s'%s'\n%sEnd Actor\n"
+                           % (k + i, (i % 8) * 800 - 3200, (i // 8) * 800 - 3200, m['cls'], m['mesh'], ''.join('    %s=%s\n' % (key, value) for key, value in appearances[m['mesh']].items())) for i, m in enumerate(chunk))
             (s.folder / 'T3D' / 'models.t3d').write_text('Begin Map\n' + body + 'End Map\n', encoding='latin1')
             try:
                 s.batch(['MAP NEW', r'MAP IMPORTADD FILE="..\T3D\models.t3d"', r'UC_MESHES ..\Output\meshes.bin'])
@@ -208,7 +250,8 @@ def package_models(pkg, log=print):
         fname = 'models/%s.json' % _safe(info['mesh'])
         (folder / fname).write_text(json.dumps(dict(parts=m['parts'])), encoding='utf-8')
         models[info['mesh']] = dict(file=fname, cls=info['cls'], tris=info['tris'], frames=info['frames'],
-                                    scale=info.get('scale', 1.0), label=info.get('label', ''), used=info.get('used', ''), **place)
+                                    scale=info.get('scale', 1.0), label=info.get('label', ''), used=info.get('used', ''),
+                                    appearance=appearances.get(info['mesh'], {}), character=info.get('character'), **place)
     d = dict(stamp=stamp, models=models, textures=tex_info)
     idx.write_text(json.dumps(d), encoding='utf-8')
     return d

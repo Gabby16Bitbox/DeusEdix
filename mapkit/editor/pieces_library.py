@@ -4,7 +4,7 @@ GET data() is cheap and never acquires the SDK lock. The optional prepare and
 operation callbacks keep runtime preparation/project switching owned by the server.
 Only generated reference caches, preview files and catalogs are written here.
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 import functools
 import hashlib
@@ -31,7 +31,7 @@ PREVIEW_VERSION = 2
 _REQUIRED = ('stamp.txt', 'brushes.json', 'polys.json', 'textures.json', 'geometry.json', 'scene.t3d')
 # Several maps are read at once: every SDK session is its own process in its own private run folder, and
 # about half of a map's time is the SDK starting and the textures turning into PNGs.
-_WORKERS = max(1, min(3, (os.cpu_count() or 2) // 3))
+_WORKERS = max(1, min(2, (os.cpu_count() or 2) // 3))     # two maps at a time: the scan is background work
 _guard = threading.RLock()
 _cancel = threading.Event()
 _thread = None
@@ -163,6 +163,8 @@ def data():
              for item in catalog.get('items', []) if isinstance(item, dict) and
              isinstance(item.get('map'), str) and item.get('map') in valid and
              _OBJECT.fullmatch(str(item.get('id', '')))]
+    import asset_catalog
+    items = asset_catalog.decorate(items)
     scan.update(items=len(items), stale=stale)
     if source and scan['state'] == 'idle':
         finished = source.get('complete') and not stale
@@ -173,7 +175,7 @@ def data():
     if stale and scan['state'] == 'complete':
         scan.update(state='idle', message='The original maps changed. Rescan to refresh this game’s Pieces.')
     revision = hashlib.sha256(json.dumps([(item['id'], item['revision']) for item in items]).encode()).hexdigest()[:20]
-    return dict(version=gamelib.VERSION, categories=catalog.get('categories', []) if source else [], items=items,
+    return dict(version=gamelib.VERSION, categories=asset_catalog.categories(items), items=items,
                 revision=revision, gameName=getattr(settings, 'GAME_NAME', settings.TARGET), target=settings.TARGET, scan=scan)
 
 
@@ -236,7 +238,14 @@ def _publish(ready, identity, *, complete=False, processed=0, total=0, errors=()
 
 
 def _read_map(name, path, identity, signature):
-    """One original map into its reference cache (a worker of _run; the caller holds the SDK lock)."""
+    """One original map into its reference cache (a worker of _run; the caller holds the SDK lock), as background
+    work: its engine processes below normal priority (build_cpu.background)"""
+    import build_cpu
+    with build_cpu.background():
+        return _read_map_now(name, path, identity, signature)
+
+
+def _read_map_now(name, path, identity, signature):
     folder = _cache_folder(name)
     if not _cache_valid(name, signature, identity, objects=False):
         # A SHA-only change can defeat data.prepare's mtime/size stamp.
@@ -306,7 +315,10 @@ def _run(lock, maps, identity, prepare, operation, waiting=lambda: False):
                                         jobs[name] = pool.submit(_read_map, name, maps[name], identity, signature)
                                 except (Exception, SystemExit) as exc:
                                     jobs[name] = exc
-                            for name, job in jobs.items():
+                            # each map counted as soon as it is read, whichever of the batch ends first
+                            order = {job: name for name, job in jobs.items() if isinstance(job, Future)}
+                            done = [(name, job) for name, job in jobs.items() if job is None or isinstance(job, BaseException)]
+                            for name, job in done + [(order[f], f) for f in as_completed(order)]:
                                 try:
                                     if isinstance(job, BaseException):
                                         raise job

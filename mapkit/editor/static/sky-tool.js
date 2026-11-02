@@ -11,6 +11,8 @@
 // - The light of the time of day: the map's ambient light (edits.level.ambient, as Map settings) and, by day
 //   or at sunset, a sun: Deus Ex has no sunlight, so big lights high in every opening to the sky, set towards
 //   the sun's side (added objects with Tag UCSun, made again each time).
+import { SKY_TEXTURES, backgroundSettings, skyProjection } from './sky-background.js';
+
 const TIMES = {
   day: { label: 'Day', ambient: [56, 150, 40], sun: { bright: 255, hue: 32, sat: 230 }, bg: 0x8fb4dc },
   sunset: { label: 'Sunset', ambient: [28, 16, 120], sun: { bright: 210, hue: 16, sat: 90 }, bg: 0xc8784a },
@@ -140,57 +142,110 @@ const pixels = (cv) => cv.getContext('2d').getImageData(0, 0, cv.width, cv.heigh
 
 // refuseWhileBuilding(what): throws while a Rebuild runs (app.js: the map waits for it), saying so with `what`
 export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName,
-  warnHiddenKinds, proxyOf, refuseWhileBuilding }) {
-  let dialog = null, frame = 0, look = null, field = null, began = 0;
+  warnHiddenKinds, proxyOf, refuseWhileBuilding, onPreview = () => {} }) {
+  let dialog = null, frame = 0, look = null, field = null, began = 0, skyRequest = 0;
+  let previewMessage = '', savedLook = null, applying = false, sunChanged = false, cloudsChanged = false;
   const state = {
     time: 'day', sky: 'made', clouds: 40, seed: 7, picture: null, sun: true, sunYaw: 135, sunHigh: 60, sunPower: 100, ambient: true,
-    cloudLook: 'soft', cloudTex: 'ClenCloudBank_B', cloudSize: 25, cloudHigh: 8, cloudBright: 90, cloudSpeed: 25, wind: 135, viewYaw: 0, viewPitch: 35,
+    cloudLook: 'soft', cloudTex: 'ClenCloudBank_B', cloudSize: 25, cloudHigh: 8, cloudBright: 90, cloudSpeed: 25, wind: 135, viewYaw: 0, viewPitch: 5,
+    background: backgroundSettings(), backgroundPicture: null,
   };
+  const initialState = structuredClone(state);
+  let viewportSignature = '', viewportScript = null, savedCloudTex = null, disposed = false;
+  function publishPreview() {
+    if (!disposed) onPreview(look ? { look, field, layer: layerOf(state), background: { ...state.background } } : null);
+  }
+  // Loading, Undo and Apply all go through this. The open dialog owns its temporary preview until closed.
+  function syncViewport(force = false) {
+    const script = getScript(), lv = getEdits().level || {};
+    if (disposed || (dialog?.open && viewportScript === script && !force)) return;
+    if (dialog?.open && viewportScript !== script) dialog.close();
+    const signature = JSON.stringify([script, lv.sky, lv.skyKind, lv.skyLook, lv.skyBackground, lv.clouds, lv.time]);
+    if (!force && signature === viewportSignature) return;
+    viewportSignature = signature; viewportScript = script;
+    ++skyRequest; look = null; field = null; publishPreview();
+    if (!script || !lv.sky) return;
+    restore(lv);
+    return Promise.all([remakeSky(), remakeClouds()]);
+  }
   const layered = () => state.cloudLook !== 'none';
   function holes(edits) { return (edits.boxes || []).filter((b) => b.hole && b.sky); }
   // what the preview samples: the sky's walls and top (painted, the picture, or none for the game's) and the clouds
-  function remakeSky() {
-    look = null;
-    if (state.sky === 'made') look = { walls: pixels(paintWalls(256, 128, state.time, layered() ? state.clouds : 0, state.seed, edgeRow(state))), top: pixels(paintTop(64, state.time, 0, state.seed)) };
-    else if (state.sky === 'picture' && state.picture) {
-      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; cv.getContext('2d').drawImage(state.picture, 0, 0, 256, 128);
-      look = { walls: pixels(cv), top: pixels(paintTop(64, state.time, 0, state.seed)) };
+  const textureImages = new Map();
+  async function textureImage(name) {
+    const script = getScript(), key = script + ':' + name;
+    if (!textureImages.has(key)) textureImages.set(key, (async () => {
+      const own = getEdits().textures?.[name];
+      const tile = own ? { ref: name } : await api('/api/texture_tile?tex=' + encodeURIComponent(name));
+      const info = await api('/api/texture_source?tex=' + encodeURIComponent(tile.ref || name) + '&script=' + encodeURIComponent(script));
+      const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('Could not read ' + name)); i.src = info.url; });
+      const cv = document.createElement('canvas'); cv.width = Math.min(1024, info.w); cv.height = Math.max(1, Math.round(cv.width * info.h / info.w));
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      return pixels(cv);
+    })().catch(e => { textureImages.delete(key); throw e; }));
+    return textureImages.get(key);
+  }
+  const fromPicture = (picture) => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+    cv.getContext('2d').drawImage(picture, 0, 0, 512, 512); return pixels(cv);
+  };
+  async function remakeSky() {
+    const request = ++skyRequest;
+    previewMessage = 'Loading background…';
+    const slot = (image, tile, painted = false) => ({ image, tile, width: image.width, height: image.height, painted });
+    try {
+      let next;
+      if (state.sky === 'made') {
+        next = [slot(pixels(paintWalls(256, 256, state.time, layered() ? state.clouds : 0, state.seed, edgeRow(state))), [SKY_SIZE, SKY_SIZE], true),
+          slot(pixels(paintTop(64, state.time, 0, state.seed)), 2048), slot(pixels(paintBottom(state.time)), 2048)];
+      } else if (state.sky === 'picture' && state.picture) {
+        next = [slot(fromPicture(state.picture), [SKY_SIZE, SKY_SIZE], true), slot(pixels(paintTop(64, state.time, 0, state.seed)), 2048), slot(pixels(paintBottom(state.time)), 2048)];
+      } else if ((state.sky === 'picture' || state.sky === 'saved') && savedLook?.walls) {
+        next = await Promise.all([savedLook.walls, savedLook.top || savedLook.walls, savedLook.bottom || savedLook.top || savedLook.walls]
+          .map(async (name, i) => slot(await textureImage(name), i ? 2048 : [SKY_SIZE, SKY_SIZE], !i)));
+      } else if (SKY_TEXTURES[state.sky]) {
+        next = await Promise.all(SKY_TEXTURES[state.sky].map(async ([name, tile]) => slot(await textureImage(name), tile)));
+      } else throw new Error('Choose a sky picture.');
+      if (state.backgroundPicture) next[0] = slot(fromPicture(state.backgroundPicture), [SKY_SIZE, SKY_SIZE], true);
+      else if (state.background.texture) next[0] = slot(await textureImage(state.background.texture), [SKY_SIZE, SKY_SIZE], true);
+      if (request !== skyRequest) return;
+      look = next; previewMessage = '';
+    } catch (e) {
+      if (request !== skyRequest) return;
+      look = null; previewMessage = 'Preview unavailable: ' + e.message;
     }
+    publishPreview();
+    if (dialog) dialog.querySelector('[data-preview-status]')?.replaceChildren(document.createTextNode(previewMessage));
   }
   // what each texel of the layer adds to the sky: the painted clouds in the colour of the time, or the game's texture
-  let gameImages = {};
   async function gameCloud(name) {
-    if (!(name in gameImages)) {
-      gameImages[name] = null;
-      try {
-        const tile = await api('/api/texture_tile?tex=' + encodeURIComponent(name));
-        const info = await api('/api/texture_source?tex=' + encodeURIComponent(tile.ref || name) + '&script=' + encodeURIComponent(getScript()));
-        const img = new Image();
-        await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = info.url; });
-        const cv = document.createElement('canvas'); cv.width = cv.height = 128; cv.getContext('2d').drawImage(img, 0, 0, 128, 128);
-        gameImages[name] = cv.getContext('2d').getImageData(0, 0, 128, 128).data;
-      } catch (_) { /* no picture: the preview shows soft clouds instead */ }
-    }
-    return gameImages[name];
+    const image = await textureImage(name);
+    const src = document.createElement('canvas'); src.width = image.width; src.height = image.height;
+    src.getContext('2d').putImageData(image, 0, 0);
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    cv.getContext('2d').drawImage(src, 0, 0, 128, 128);
+    return pixels(cv).data;
   }
-  function remakeClouds() {
+  async function remakeClouds() {
     field = null;
-    if (!layered()) return;
-    field = new Float32Array(128 * 128 * 3);
-    if (state.cloudLook === 'game') {
-      const name = state.cloudTex;
-      gameCloud(name).then((px) => {
-        if (state.cloudLook !== 'game' || state.cloudTex !== name) return;
-        const d = px ? null : cloudField(128, 'soft', 50, 1);
-        for (let i = 0; i < 128 * 128; i++) for (let c = 0; c < 3; c++) field[i * 3 + c] = px ? px[i * 4 + c] : 200 * d[i];
-      });
-      return;
+    if (!layered()) { publishPreview(); return; }
+    const target = field = new Float32Array(128 * 128 * 3);
+    const name = !cloudsChanged && savedCloudTex ? savedCloudTex : state.cloudLook === 'game' ? state.cloudTex : null;
+    if (name) {
+      let px = null;
+      try { px = await gameCloud(name); } catch { /* texture unavailable: soft clouds as in the dialog */ }
+      if (field !== target) return;
+      const d = px ? null : cloudField(128, 'soft', 50, 1);
+      for (let i = 0; i < 128 * 128; i++) for (let c = 0; c < 3; c++) target[i*3+c] = px ? px[i*4+c] : 200*d[i];
+      field = target.slice(); // new data identity: upload to the GPU once, not on every slider move
+    } else {
+      const d = cloudField(128, state.cloudLook, state.clouds, state.seed), rgb = LAYER_RGB[state.time], b = state.cloudBright / 100;
+      for (let i = 0; i < 128 * 128; i++) for (let c = 0; c < 3; c++) field[i*3+c] = rgb[c]*d[i]*b;
     }
-    const d = cloudField(128, state.cloudLook, state.clouds, state.seed), rgb = LAYER_RGB[state.time], b = state.cloudBright / 100;
-    for (let i = 0; i < 128 * 128; i++) for (let c = 0; c < 3; c++) field[i * 3 + c] = rgb[c] * d[i] * b;
+    publishPreview();
   }
   function sample(img, u, v) {
-    const x = Math.min(img.width - 1, Math.max(0, Math.floor(u * img.width))), y = Math.min(img.height - 1, Math.max(0, Math.floor(v * img.height)));
+    const x = Math.floor(((u % 1 + 1) % 1) * img.width), y = Math.floor(((v % 1 + 1) % 1) * img.height);
     const i = (y * img.width + x) * 4;
     return [img.data[i], img.data[i + 1], img.data[i + 2]];
   }
@@ -198,13 +253,14 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
   function drawPreview(now) {
     const cv = dialog && dialog.querySelector('#sky-prev');
     if (!cv) return;
-    const W = 256, H = 80, g = cv.getContext('2d'), img = g.createImageData(W, H);
+    const W = 384, H = 160, g = cv.getContext('2d'), img = g.createImageData(W, H);
     const L = layerOf(state), P = PALETTE[state.time];
     const gone = L.tile > 0 ? ((now - began) / 1000 * L.speed) % L.tile : 0;
     const yaw = state.viewYaw * Math.PI / 180, pitch = state.viewPitch * Math.PI / 180, fx = Math.tan(50 * Math.PI / 180), fy = fx * H / W;
     const fwd = [Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch)];
     const right = [-Math.sin(yaw), Math.cos(yaw), 0], up = [-Math.sin(pitch) * Math.cos(yaw), -Math.sin(pitch) * Math.sin(yaw), Math.cos(pitch)];
     const ca = Math.cos(-Math.atan2(L.dir[1], L.dir[0])), sa = Math.sin(-Math.atan2(L.dir[1], L.dir[0]));
+    const mappings = look && [0, 1, 2, 3, 4, 5].map(face => skyProjection(face, look[face < 4 ? 0 : face === 4 ? 2 : 1], state.background));
     for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
       const a = (px / (W - 1) * 2 - 1) * fx, b = (1 - py / (H - 1) * 2) * fy;
       const d = [fwd[0] + right[0] * a + up[0] * b, fwd[1] + right[1] * a + up[1] * b, fwd[2] + right[2] * a + up[2] * b];
@@ -212,13 +268,12 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
       // the sky box, from its centre
       const m = Math.max(Math.abs(d[0]), Math.abs(d[1])), tw = m > 1e-6 ? HALF / m : 1e9, zw = tw * d[2];
       let col;
-      if (look && zw < HALF && zw > -HALF) {
-        // each wall shows the picture once, its top row on the top edge (as zones.skybox maps it)
-        const along = Math.abs(d[0]) > Math.abs(d[1]) ? tw * d[1] * Math.sign(d[0]) : -tw * d[0] * Math.sign(d[1]);
-        col = sample(look.walls, (along + HALF) / SKY_SIZE, (HALF - zw) / SKY_SIZE);
-      } else if (look && d[2] > 0) {
-        const t = HALF / d[2];
-        col = sample(look.top, ((t * d[0] / SKY_SIZE + 0.5) % 1 + 1) % 1, ((t * d[1] / SKY_SIZE + 0.5) % 1 + 1) % 1);
+      if (look) {
+        const wall = zw < HALF && zw > -HALF;
+        const face = wall ? (Math.abs(d[0]) > Math.abs(d[1]) ? (d[0] < 0 ? 0 : 1) : (d[1] < 0 ? 2 : 3)) : (d[2] < 0 ? 4 : 5);
+        const t = wall ? tw : HALF / Math.abs(d[2]), slot = look[wall ? 0 : d[2] > 0 ? 1 : 2];
+        const p = mappings[face], u = p[0] + t*(p[1]*d[0] + p[2]*d[1] + p[3]*d[2]), v = p[4] + t*(p[5]*d[0] + p[6]*d[1] + p[7]*d[2]);
+        col = sample(slot.image, u, v);
       } else {
         const t = Math.max(0, Math.min(1, 0.5 - d[2] * 0.9));       // the game's sky: just its colours
         col = t < HORIZON ? mix(P.zenith, P.horizon, t / HORIZON) : P.ground;
@@ -247,11 +302,11 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
     drawPreview.cv.getContext('2d').putImageData(img, 0, 0);
     g.imageSmoothingEnabled = true;
     g.drawImage(drawPreview.cv, 0, 0, cv.width, cv.height);
-    if (!look) { g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, cv.height - 22, cv.width, 22); g.fillStyle = '#ddd'; g.font = '11px sans-serif'; g.fillText("The game's sky shows after Rebuild; the clouds are as here", 8, cv.height - 7); }
   }
+  let lastFrame = 0;
   function loop(now) {
     if (!dialog || !dialog.open) { frame = 0; return; }
-    drawPreview(now);
+    if (now - lastFrame >= 1000 / 30 && dialog.querySelector('.sky-background')?.open) { drawPreview(now); lastFrame = now; }
     frame = requestAnimationFrame(loop);
   }
   const SHOW = { clouds: (v) => v + '%', cloudSize: (v) => v + '%', cloudHigh: (v) => v + '°', cloudBright: (v) => v + '%',
@@ -263,10 +318,29 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
       <div class="sky-times">${Object.entries(TIMES).map(([k, t]) => `<button type="button" data-time="${k}" class="${state.time === k ? 'on' : ''}" aria-pressed="${state.time === k}">${t.label}</button>`).join('')}</div>
       <label>Sky</label>
       <div class="sky-list">
+        ${state.sky === 'saved' ? '<label class="sky-opt"><input type="radio" name="sky" value="saved" checked> Current custom sky</label>' : ''}
         <label class="sky-opt"><input type="radio" name="sky" value="made" ${state.sky === 'made' ? 'checked' : ''}> Painted for this time</label>
         <label class="sky-opt"><input type="radio" name="sky" value="picture" ${state.sky === 'picture' ? 'checked' : ''}> Your picture <button type="button" data-pic>Choose…</button><input type="file" accept="image/*" hidden data-file></label>
         ${GAME_SKIES.filter(([, , t]) => t === state.time).map(([k, l]) => `<label class="sky-opt"><input type="radio" name="sky" value="${k}" ${state.sky === k ? 'checked' : ''}> ${escapeHtml(l)} <small>(the game's)</small></label>`).join('')}
       </div>
+      <details class="sky-background" open><summary>Background</summary>
+        <div class="row"><label for="sky-background-texture">Texture</label>
+          <select id="sky-background-texture" title="The distant background on the sides of the sky">
+            <option value="">Same as sky</option>
+            ${[['HK_City_A_A', 'Hong Kong skyline'], ['NY_1', 'New York skyline'], ['ColorStars_A', 'Stars']]
+              .map(([k, l]) => `<option value="${k}" ${state.background.texture === k ? 'selected' : ''}>${l}</option>`).join('')}
+            ${state.background.texture && !['HK_City_A_A', 'NY_1', 'ColorStars_A'].includes(state.background.texture) ? `<option value="${escapeHtml(state.background.texture)}" selected>Your picture</option>` : ''}
+          </select><button type="button" data-background-picture title="Use a picture for the distant background">Import…</button>
+          <input type="file" accept="image/*" hidden data-background-file>
+        </div>
+        ${[['height', 'Height', -100, 100, 'Lower the value to lower the skyline. Percentage of one texture repeat.'],
+          ['scale', 'Size', 25, 200, 'Size of the background picture. 100% keeps its original size.'],
+          ['horizontal', 'Horizontal', -100, 100, 'Move the picture left or right. Percentage of one texture repeat.']].map(([k,l,min,max,tip]) =>
+          `<div class="row"><label for="sky-background-${k}" title="${tip}">${l}</label><input id="sky-background-${k}" type="range" data-background="${k}" min="${min}" max="${max}" step="0.5" value="${state.background[k]}" title="${tip}"><input type="number" data-background-number="${k}" min="${min}" max="${max}" step="0.5" value="${state.background[k]}" aria-label="${l} percent" title="${tip}"><span class="sky-unit">%</span></div>`).join('')}
+        <div class="sky-preview-heading"><span>Live preview</span><button type="button" data-background-reset title="Reset background position and size">Reset</button></div>
+        <canvas id="sky-prev" width="768" height="320" class="sky-prev" title="Drag to look around; arrow keys turn the preview" tabindex="0" aria-label="Sky preview. Drag or use arrow keys to look around."></canvas>
+        <p class="hint" data-preview-status role="status">${escapeHtml(previewMessage)}</p>
+      </details>
       <label>Clouds</label>
       <div class="sky-seg" role="group" aria-label="Clouds">${LOOKS.map(([k, l, tip]) => `<button type="button" data-look="${k}" class="${state.cloudLook === k ? 'on' : ''}" aria-pressed="${state.cloudLook === k}" title="${tip}">${l}</button>`).join('')}
         <button type="button" data-seed title="Other clouds" ${on && !game ? '' : 'disabled'}>↻</button></div>
@@ -279,47 +353,86 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
         ${slider('cloudSpeed', 'Wind', 0, 100, 'How fast the wind moves them (0: still)')}
         ${slider('wind', 'Wind from', 0, 359, 'Where the wind comes from, as the sun')}
       </div>
-      <canvas id="sky-prev" width="512" height="160" class="sky-prev" title="Drag to look round"></canvas>
       ${lit ? `<label class="sky-check"><input type="checkbox" data-k="sun" ${state.sun ? 'checked' : ''}> Sunlight (big lights high in the openings to the sky)</label>
       <div class="sky-grid" ${state.sun ? '' : 'hidden'}>
         ${slider('sunYaw', 'Sun from', 0, 359, 'Where the sun is')}${slider('sunHigh', 'Sun height', 10, 90, 'How high the sun is')}
         ${slider('sunPower', 'Strength', 20, 100, 'How bright the sun is')}</div>` : ''}
       <label class="sky-check"><input type="checkbox" data-k="ambient" ${state.ambient ? 'checked' : ''}> The light of the ${TIMES[state.time].label.toLowerCase()} for the whole map (ambient)</label>
-      <p class="hint">${n ? `The sky shows through the ${n} opening${n > 1 ? 's' : ''} to the sky of this map.` : 'This map has no opening to the sky yet: make a Hole and tick "open to the sky" (the sun goes in it too).'} Rebuild to see it.</p>
+      <p class="hint">${n ? 'Preview updates while you adjust. Apply, then Rebuild for the game.' : 'Add a Hole with “open to the sky” to show this sky in the map.'}</p>
       <p class="sky-msg" role="status"></p></main><footer><button type="button" data-close>Cancel</button><button type="submit" class="primary">Apply</button></footer></form>`;
     for (const b of dialog.querySelectorAll('[data-close]')) b.onclick = () => dialog.close();
     for (const b of dialog.querySelectorAll('[data-time]')) b.onclick = () => {
-      state.time = b.dataset.time;
-      if (!['made', 'picture'].includes(state.sky)) state.sky = 'made';
+      state.time = b.dataset.time; sunChanged = true; cloudsChanged = true;
+      if (!['made', 'picture', 'saved'].includes(state.sky)) state.sky = 'made';
       remakeSky(); remakeClouds(); render();
     };
-    const ctex = dialog.querySelector('[data-ctex]'); if (ctex) ctex.onchange = () => { state.cloudTex = ctex.value; remakeClouds(); };
-    for (const b of dialog.querySelectorAll('[data-look]')) b.onclick = () => { state.cloudLook = b.dataset.look; remakeSky(); remakeClouds(); render(); };
+    const ctex = dialog.querySelector('[data-ctex]'); if (ctex) ctex.onchange = () => { cloudsChanged = true; state.cloudTex = ctex.value; remakeClouds(); };
+    for (const b of dialog.querySelectorAll('[data-look]')) b.onclick = () => { cloudsChanged = true; state.cloudLook = b.dataset.look; remakeSky(); remakeClouds(); render(); };
     for (const r of dialog.querySelectorAll('input[name=sky]')) r.onchange = () => { state.sky = r.value; remakeSky(); render(); };
     for (const i of dialog.querySelectorAll('[data-k]')) i.oninput = () => {
       const k = i.dataset.k;
+      if (k.startsWith('sun')) sunChanged = true;
+      if (k.startsWith('cloud') || k === 'wind') cloudsChanged = true;
       state[k] = i.type === 'checkbox' ? i.checked : +i.value;
       if (i.type === 'checkbox') { render(); return; }
       const s = i.parentElement.querySelector('.hint'); if (s && SHOW[k]) s.textContent = SHOW[k](i.value);
       if (k === 'clouds') { remakeClouds(); remakeSky(); } else if (k === 'cloudHigh') remakeSky(); else if (k === 'cloudBright') remakeClouds();
+      publishPreview();
     };
-    const seed = dialog.querySelector('[data-seed]'); if (seed) seed.onclick = () => { state.seed = (state.seed * 7 + 13) % 997; remakeSky(); remakeClouds(); };
+    const seed = dialog.querySelector('[data-seed]'); if (seed) seed.onclick = () => { cloudsChanged = true; state.seed = (state.seed * 7 + 13) % 997; remakeSky(); remakeClouds(); };
+    for (const input of dialog.querySelectorAll('[data-background], [data-background-number]')) input.oninput = () => {
+      if (input.value === '' || !Number.isFinite(input.valueAsNumber)) return;
+      const key = input.dataset.background || input.dataset.backgroundNumber;
+      state.background = backgroundSettings({ ...state.background, [key]: input.valueAsNumber });
+      publishPreview();
+      for (const peer of dialog.querySelectorAll(`[data-background="${key}"], [data-background-number="${key}"]`)) if (peer !== input) peer.value = state.background[key];
+    };
+    dialog.querySelector('#sky-background-texture').onchange = e => {
+      state.background.texture = e.target.value; state.backgroundPicture = null; remakeSky();
+    };
+    dialog.querySelector('[data-background-reset]').onclick = () => {
+      state.background = { ...state.background, height: 0, horizontal: 0, scale: 100 }; publishPreview(); render();
+    };
+    const readPicture = async (file) => {
+      const url = URL.createObjectURL(file);
+      try { return await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('This picture could not be read.')); i.src = url; }); }
+      finally { URL.revokeObjectURL(url); }
+    };
+    dialog.querySelector('[data-background-picture]').onclick = () => dialog.querySelector('[data-background-file]').click();
+    dialog.querySelector('[data-background-file]').onchange = async e => {
+      const file = e.target.files[0]; if (!file) return;
+      try { state.backgroundPicture = await readPicture(file); state.background.texture = 'pending_picture'; remakeSky(); render(); }
+      catch (err) { dialog.querySelector('.sky-msg').textContent = err.message; }
+    };
     dialog.querySelector('[data-pic]').onclick = (e) => { e.preventDefault(); dialog.querySelector('[data-file]').click(); };
     dialog.querySelector('[data-file]').onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
-      state.picture = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(); i.src = URL.createObjectURL(f); });
-      state.sky = 'picture'; remakeSky(); render();
+      try { state.picture = await readPicture(f); state.sky = 'picture'; remakeSky(); render(); }
+      catch (err) { dialog.querySelector('.sky-msg').textContent = err.message; }
     };
     const prev = dialog.querySelector('#sky-prev');
     prev.onpointerdown = (e) => {
       const x0 = e.clientX, y0 = e.clientY, yaw0 = state.viewYaw, pitch0 = state.viewPitch; prev.setPointerCapture(e.pointerId);
       prev.onpointermove = (m) => {
         state.viewYaw = ((yaw0 - (m.clientX - x0) * 0.4) % 360 + 360) % 360;
-        state.viewPitch = Math.max(0, Math.min(80, pitch0 + (m.clientY - y0) * 0.3));
+        state.viewPitch = Math.max(-80, Math.min(80, pitch0 + (m.clientY - y0) * 0.3));
       };
-      prev.onpointerup = () => { prev.onpointermove = null; };
+      prev.onpointerup = prev.onpointercancel = () => { prev.onpointermove = null; };
     };
-    dialog.querySelector('form').onsubmit = (e) => { e.preventDefault(); apply().catch((err) => { dialog.querySelector('.sky-msg').textContent = err.message; }); };
+    prev.onkeydown = e => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      state.viewYaw += e.key === 'ArrowLeft' ? -5 : e.key === 'ArrowRight' ? 5 : 0;
+      state.viewPitch = Math.max(-80, Math.min(80, state.viewPitch + (e.key === 'ArrowUp' ? 5 : e.key === 'ArrowDown' ? -5 : 0)));
+    };
+    dialog.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault(); if (applying) return;
+      applying = true;
+      const submit = dialog.querySelector('[type=submit]'); submit.disabled = true;
+      dialog.querySelector('main').inert = true;
+      try { await apply(); } catch (err) { dialog.querySelector('.sky-msg').textContent = err.message; }
+      finally { applying = false; submit.disabled = false; dialog.querySelector('main').inert = false; }
+    };
     if (!frame) frame = requestAnimationFrame(loop);
   }
   // a picture made a texture of the map, named apart from `taken` (the map's other textures) and from those made before
@@ -334,13 +447,22 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
   // they are imported finds the map as it was. Not while a Rebuild runs: the dialog says so
   async function apply() {
     const edits = getEdits(), msg = dialog.querySelector('.sky-msg'), on = layered();
-    if (state.sky === 'picture' && !state.picture) throw new Error('Choose your picture first.');
+    if (state.sky === 'picture' && !state.picture && !savedLook?.walls) throw new Error('Choose your picture first.');
+    if (!look || previewMessage) throw new Error(previewMessage || 'Wait for the background preview to load.');
     refuseWhileBuilding('the sky waits');
     msg.textContent = 'Making the sky…';
     const own = edits.textures || {}, made = {};
-    const taken = Object.keys(own).filter((k) => own[k].from !== 'sky');      // the old painted sky's names are free again
-    let skyLook = null, cloudTex = state.cloudTex;                          // the game's clouds: nothing to import
-    if (state.sky === 'made' || state.sky === 'picture') {
+    const taken = Object.keys(own); // Never overwrite an image still used by Undo or a saved custom sky.
+    let skyLook = state.sky === 'saved' || (state.sky === 'picture' && !state.picture) ? savedLook : null;
+    let cloudTex = state.cloudTex;
+    const background = { ...state.background };
+    if (state.backgroundPicture) {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 1024;
+      cv.getContext('2d').drawImage(state.backgroundPicture, 0, 0, 1024, 1024);
+      background.texture = await importCanvas(cv, 'SkyBackground', taken, made);
+      made[background.texture].from = 'sky-background';
+    }
+    if (state.sky === 'made' || (state.sky === 'picture' && state.picture)) {
       let walls;
       // the clouds overhead are the layer's; the painted walls keep only the far ones, under its edge
       if (state.sky === 'made') walls = paintWalls(1024, 1024, state.time, on ? state.clouds : 0, state.seed, edgeRow(state));
@@ -348,28 +470,31 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
       skyLook = { walls: await importCanvas(walls, 'SkyWalls', taken, made), top: await importCanvas(paintTop(512, state.time, 0, state.seed), 'SkyTop', taken, made),
         bottom: await importCanvas(paintBottom(state.time), 'SkyBottom', taken, made) };
     }
-    if (state.cloudLook !== 'game' && on) cloudTex = await importCanvas(paintClouds(512, state), 'SkyClouds', taken, made);
+    if (state.cloudLook !== 'game' && on) cloudTex = !cloudsChanged && edits.level?.clouds?.tex
+      ? edits.level.clouds.tex : await importCanvas(paintClouds(512, state), 'SkyClouds', taken, made);
     if (getEdits() !== edits) throw new Error('The map was opened again while its sky was made: press Apply again.');
     pushUndo('Sky & time of day');
     edits.level = edits.level || {};
-    for (const [k, t] of Object.entries(edits.textures || {})) if (t.from === 'sky') delete edits.textures[k];     // the old painted sky
     edits.textures = Object.assign(edits.textures || {}, made);
     delete edits.level.skyLook;
     if (skyLook) { edits.level.skyLook = skyLook; edits.level.sky = 'mine'; } else edits.level.sky = state.sky;
-    edits.level.skyKind = state.sky;
+    if (state.sky !== 'saved') edits.level.skyKind = state.sky;
+    edits.level.skyBackground = backgroundSettings(background);
     edits.level.time = state.time;
-    edits.level.clouds = { look: state.cloudLook, amount: state.clouds, size: state.cloudSize, height: state.cloudHigh, bright: state.cloudBright,
-      speed: state.cloudSpeed, wind: state.wind, seed: state.seed };
-    if (on) edits.level.clouds.tex = cloudTex;
+    if (cloudsChanged || !edits.level.clouds) {
+      edits.level.clouds = { look: state.cloudLook, amount: state.clouds, size: state.cloudSize, height: state.cloudHigh, bright: state.cloudBright,
+        speed: state.cloudSpeed, wind: state.wind, seed: state.seed };
+      if (on) edits.level.clouds.tex = cloudTex;
+    }
     if (state.ambient) {
       const [b, hue, sat] = TIMES[state.time].ambient;
       edits.level.ambient = { AmbientBrightness: b, AmbientHue: hue, AmbientSaturation: sat };
     }
     // the sun: made again each time (its lights are ordinary objects of the map, Tag UCSun)
-    edits.added = (edits.added || []).filter((a) => !(a.props && a.props.Tag === 'UCSun'));
+    if (sunChanged) edits.added = (edits.added || []).filter((a) => !(a.props && a.props.Tag === 'UCSun'));
     const sun = TIMES[state.time].sun, opens = holes(edits);
     const suns = [];                                   // their names: what the Show menu hides of them is said (app.js)
-    if (sun && state.sun) {
+    if (sunChanged && sun && state.sun) {
       const a = state.sunYaw * Math.PI / 180;
       for (const b of opens) {
         const c = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2], half = [(b.hi[0] - b.lo[0]) / 2, (b.hi[1] - b.lo[1]) / 2];
@@ -385,18 +510,25 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
     setDirty(); rebuildProxies();
     scene.background = new THREE.Color(TIMES[state.time].bg);
     const where = opens.length ? '' : ' (the map has no opening to the sky yet: make a Hole "open to the sky")';
-    const what = state.sky === 'made' ? 'painted sky' : state.sky === 'picture' ? 'your picture as the sky' : 'the game\'s sky';
+    const what = state.sky === 'made' ? 'painted sky' : ['picture', 'saved'].includes(state.sky) ? 'your picture as the sky' : 'the game\'s sky';
     const clouds = on ? `, ${state.cloudLook} clouds${state.cloudSpeed ? ' in the wind' : ''}` : '';
-    log(`${TIMES[state.time].label}: ${what}${clouds}${suns.length ? `, the sun in ${suns.length} opening${suns.length > 1 ? 's' : ''}` : ''}${state.ambient ? ', the light of the ' + TIMES[state.time].label.toLowerCase() : ''}${where}. Rebuild to see it.`, 'ok');
+    log(`${TIMES[state.time].label}: ${what}${clouds}${suns.length ? `, the sun in ${suns.length} opening${suns.length > 1 ? 's' : ''}` : ''}${state.ambient ? ', the light of the ' + TIMES[state.time].label.toLowerCase() : ''}${where}. Rebuild to apply in game.`, 'ok');
     dialog.close();
     warnHiddenKinds(suns.map(proxyOf), 'Added');
   }
   // the dialog opens as the map's sky was left (the picture itself is not kept: choose it again)
   function restore(lv) {
-    if (lv.time && TIMES[lv.time]) state.time = lv.time;
+    Object.assign(state, structuredClone(initialState));
+    savedLook = lv.skyLook ? { ...lv.skyLook } : null;
+    savedCloudTex = lv.clouds?.tex || null;
+    sunChanged = false; cloudsChanged = false;
+    state.ambient = !lv.sky;
+    state.time = TIMES[lv.time] ? lv.time : (GAME_SKIES.find(([k]) => k === lv.sky)?.[2] || 'day');
     const kind = lv.skyKind || (lv.sky === 'mine' ? 'made' : lv.sky);
-    if (kind === 'made' || (kind === 'picture' && state.picture)) state.sky = kind;
+    if (lv.sky === 'mine' && savedLook?.walls) state.sky = 'saved';
+    else if (kind === 'made') state.sky = kind;
     else if (GAME_SKIES.some(([k, , t]) => k === kind && t === state.time)) state.sky = kind;
+    state.background = backgroundSettings(lv.skyBackground);
     const c = lv.clouds;
     if (c) Object.assign(state, { cloudLook: LOOKS.some(([k]) => k === c.look) ? c.look : 'none', clouds: c.amount ?? state.clouds, cloudSize: c.size ?? state.cloudSize,
       cloudHigh: c.height ?? state.cloudHigh, cloudBright: c.bright ?? state.cloudBright, cloudSpeed: c.speed ?? state.cloudSpeed, wind: c.wind ?? state.wind, seed: c.seed ?? state.seed,
@@ -408,22 +540,35 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
     if (!dialog) {
       dialog = document.createElement('dialog'); dialog.className = 'map-dialog sky-dialog'; dialog.setAttribute('aria-labelledby', 'sky-title');
       document.body.appendChild(dialog);
+      dialog.addEventListener('close', () => { if (!disposed) syncViewport(true); });
       const css = document.createElement('style');
-      css.textContent = `.sky-dialog main > label { display:block; margin:10px 0 4px; }
-        .sky-times { display:flex; gap:6px; } .sky-times button { flex:1; height:22px; padding:0 8px; } .sky-times button.on, .sky-seg button.on { background:var(--primary-soft, #1f3b63); border-color:var(--acc); }
+      css.textContent = `.map-dialog.sky-dialog { width:min(600px, calc(100vw - 32px)); max-height:calc(100vh - 32px); }
+        .sky-dialog form { display:flex; flex-direction:column; max-height:calc(100vh - 36px); }
+        .sky-dialog header, .sky-dialog footer { flex:none; }
+        .sky-dialog main { min-height:0; overflow:auto; }
+        .sky-dialog main > label { display:block; margin:12px 0 4px; }
+        .sky-times { display:flex; gap:6px; } .sky-times button { flex:1; height:22px; padding:0 8px; } .sky-times button.on, .sky-seg button.on { background:var(--accent-soft); border-color:var(--acc); }
         .sky-seg { display:flex; gap:4px; } .sky-seg button { flex:1; height:22px; padding:0 8px; } .sky-seg [data-seed] { flex:0 0 28px; padding:0; }
         .sky-list { display:flex; flex-direction:column; gap:4px; } .sky-opt { display:flex; align-items:center; gap:6px; } .sky-opt small { color:var(--dim); }
         .sky-opt button { height:22px; padding:0 8px; }
-        .sky-prev { display:block; width:100%; height:auto; margin:8px 0; border:1px solid var(--line); border-radius:var(--radius-input, 2px); cursor:grab; touch-action:none; }
-        .sky-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); column-gap:12px; margin-top:4px; }
+        .sky-prev { display:block; box-sizing:border-box; width:100%; height:auto; margin:8px 0; border:1px solid var(--line); border-radius:var(--radius-control); cursor:grab; touch-action:none; }
+        .sky-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(260px, 100%), 1fr)); column-gap:12px; margin-top:4px; }
         .sky-grid[hidden] { display:none; }
         .sky-dialog .row { display:flex; align-items:center; gap:8px; margin:4px 0; height:22px; } .sky-dialog .row > label { flex:0 0 76px; }
         .sky-dialog .row select { flex:1; min-width:0; height:22px; }
         .sky-dialog .row input[type=range] { flex:1; min-width:0; padding:0; border:0; background:transparent; }   /* not the dialog's boxed inputs */ .sky-dialog .row .hint { flex:0 0 40px; text-align:right; font-variant-numeric:tabular-nums; }
         .sky-check { display:flex !important; align-items:center; gap:6px; margin:8px 0 4px !important; }
+        .sky-background { margin:12px 0 8px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:4px 0; }
+        .sky-background summary { height:22px; line-height:22px; color:var(--heading); font-weight:600; cursor:pointer; }
+        .sky-background button { height:22px; min-height:22px; padding:0 6px; line-height:20px; white-space:nowrap; }
+        .sky-background input[type=number] { flex:0 0 56px; width:56px; min-width:0; height:22px; padding:0 4px; font-variant-numeric:tabular-nums; }
+        .sky-unit { flex:0 0 12px; color:var(--dim); font-size:11px; }
+        .sky-preview-heading { display:flex; align-items:center; justify-content:space-between; margin-top:8px; color:var(--dim); font-size:11px; }
+        .sky-background [data-preview-status]:empty { display:none; }
         .sky-msg { color:var(--warn); min-height:1em; }`;
       document.head.appendChild(css);
     }
+    viewportScript = getScript();
     restore(getEdits().level || {});
     remakeSky(); remakeClouds();
     began = performance.now();
@@ -432,5 +577,7 @@ export function createSkyTool({ THREE, scene, getEdits, getScript, pushUndo, set
   }
   // the colour the 3D view gives the faces that show the sky: the time of day chosen for the map (null: none chosen)
   const backdrop = (lv) => (lv && lv.time && TIMES[lv.time] ? TIMES[lv.time].bg : null);
-  return { open, backdrop };
+  return { open, backdrop, syncViewport,
+    dispose() { disposed = true; ++skyRequest; field = look = null; cancelAnimationFrame(frame); dialog?.close(); dialog?.remove(); onPreview(null); },
+  };
 }

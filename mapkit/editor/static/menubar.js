@@ -292,6 +292,7 @@ const MENUS = [
     viewItem('wire', 'Wireframe'), viewItem('cuts', 'BSP cuts'), viewItem('zones', 'Zones'), viewItem('lightmap', 'Lightmap detail'),
     { label: 'Next lighting', key: 'light', run: () => press('light') },
     // as Unity's Scene view Effects: the Lit view moves as the game does (lamps, coronas, panning, a zone's view fog)
+    { label: 'Sky preview', map: true, checked: () => !!ed()?.skyPreviewOn, run: () => ed()?.setSkyPreview(!ed().skyPreviewOn) },
     { label: 'Effects', map: true, checked: () => !!ed()?.effectsOn, run: () => ed()?.setEffects(!ed().effectsOn) },
     // as Unity's Scene view audio: the map's ambient sounds heard round the camera (ambient-sound.js, scene-audio.js)
     { label: 'Hear the map', map: true, checked: () => !!ed()?.audioOn, run: () => ed()?.setAudio(!ed().audioOn) },

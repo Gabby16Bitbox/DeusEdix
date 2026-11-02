@@ -155,6 +155,49 @@ def sky_needed(edits):
     return any(b.get('sky') and b.get('hole') for b in edits.get('boxes') or [])
 
 
+def background_settings(level):
+    """Background controls are percentages of one texture repeat; positive height lifts the picture.
+    No setting keeps the old sky exactly. Clouds and the top/bottom faces are independent."""
+    raw = level.get('skyBackground') or {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def number(key, fallback, lo, hi):
+        try:
+            n = float(raw.get(key, fallback))
+            return max(lo, min(hi, n)) if math.isfinite(n) else fallback
+        except (TypeError, ValueError):
+            return fallback
+
+    texture = raw.get('texture') or ''
+    if not isinstance(texture, str) or not re.fullmatch(r'[\w.]+', texture):
+        texture = ''
+    return dict(height=number('height', 0, -100, 100), horizontal=number('horizontal', 0, -100, 100),
+                scale=number('scale', 100, 25, 200), texture=texture)
+
+
+def _background_brush(brush, level):
+    s = background_settings(level)
+    scale = s['scale'] / 100
+    if scale == 1 and s['height'] == 0 and s['horizontal'] == 0:
+        return brush
+    for f in brush.faces:
+        if abs(f.normal[2]) > 0.5:
+            continue
+        u, v, origin = geom.mapping(f, True)
+        # Keep the texture at the wall's centre fixed while scaling. Offsets are texture fractions,
+        # independent of resolution. Keep Origin on the face plane for Unreal's BSP compiler.
+        pivot = tuple(sum(p[k] for p in f.verts) / len(f.verts) for k in range(3))
+        tu, tv = geom.tex_size(f.mat.tex)
+        uu, vv = sum(x*x for x in u), sum(x*x for x in v)
+        pu, pv = -s['horizontal'] / 100 * tu, s['height'] / 100 * tv
+        f.u = tuple(x / scale for x in u)
+        f.v = tuple(x / scale for x in v)
+        f.origin = tuple(pivot[k] + (origin[k] - pivot[k]) * scale
+                         - scale * (u[k] * pu / uu + v[k] * pv / vv) for k in range(3))
+    return brush
+
+
 def skybox(edits, has_sky):
     """A sky box for a map with sky surfaces and no sky zone: ([('sub', Brush, 0)], [actor])."""
     if has_sky or not sky_needed(edits):
@@ -176,12 +219,17 @@ def skybox(edits, has_sky):
         wall_pan = (0.0, 2.0 * SKYBOX_SIZE / 2048)
     else:
         sky = SKIES.get(lv.get('sky') or 'hongkong', SKIES['hongkong'])
+    background = background_settings(lv)
+    if background['texture']:
+        sky = dict(sky, walls=(background['texture'], (SKYBOX_SIZE, SKYBOX_SIZE)))
+        # A replacement picture fills each wall once, from its top edge.
+        wall_align, wall_pan = (c[0] - h, c[1] - h, c[2] + h), (0.0, 2.0)
     lo, hi = tuple(v - h for v in c), tuple(v + h for v in c)
     mats = {'sides': geom.Mat(sky['walls'][0], tile=sky['walls'][1], flags=0x400000, align=wall_align, offset=wall_pan),   # unlit
             'top': geom.Mat(sky['top'][0], tile=sky['top'][1], flags=0x400000),
             'bottom': geom.Mat(sky['bottom'][0], tile=sky['bottom'][1], flags=0x400000)}
     actor = dict(cls='SkyZoneInfo', name='UCSkyZone', loc=list(c), props={})
-    ops = [('sub', geom.box(lo, hi, mats, name='UCSkyBox'), 0)]
+    ops = [('sub', _background_brush(geom.box(lo, hi, mats, name='UCSkyBox'), lv), 0)]
     clouds = cloud_sheet(edits)                 # the clouds: a sheet of the box (after it), its zone pans them
     if clouds:
         ops.append(('add', clouds[0], PF_SEMISOLID))

@@ -131,7 +131,9 @@ TOOLS = {
                            'choices': {'type': 'array', 'items': {'type': 'integer'}}}, ['dialogue'])),
     'run_js': ('run_js', 60, 'Advanced (only when the user allows advanced tools): run JavaScript in the editor\'s page '
                '(an async function body; `return` a JSON value). window.__editor is the editor, window.__story the Story. '
-               'For what no other tool does.',
+               'For what no other tool does. Bake animations with window.__studio.kit.bakeOn(rig, model, animation), '
+               'which rejects coordinates outside the game format. Never clamp vertices into range: move the actor '
+               'separately for large travel, keeping the vertex clip in place.',
                schema({'code': {'type': 'string'}}, ['code'])),
     'project_api': (None, 120, 'Call the project\'s own server, as the page does: GET a path (e.g. '
                     '/api/check?script=...); POST it with body only when the user allows advanced tools. No editor '

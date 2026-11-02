@@ -1460,6 +1460,15 @@ class Scene:
             self.model_edits = changes
         if changes:
             self._apply_actor_edits(changes)
+        # Long drawn patrol legs need walking nodes between their numbered stops.
+        import patrol_paths, t3d
+        walking, retired, route_report = patrol_paths.prepare(t3d.actors('\n'.join(self.actors)), changes)
+        if retired:
+            self.actors = [block for block in self.actors if not any(patrol_paths.owned(a) for a in t3d.actors(block))]
+        for a in walking:
+            self.actor(a['cls'], tuple(a['loc']), name=a['name'], **a['props'])
+        for line in route_report:
+            print(line)
         if not changes.get('level'):
             # The project default applies even to an untouched generated map.
             import sys as _sys

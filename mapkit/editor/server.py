@@ -36,6 +36,7 @@ import prefab_library  # noqa: E402
 import prefab_snapshot  # noqa: E402
 import textures  # noqa: E402
 import story  # noqa: E402
+import infolink_styles
 import props  # noqa: E402
 import anims  # noqa: E402
 import mapsettings  # noqa: E402
@@ -734,7 +735,8 @@ class Handler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         try:
             if u.path == '/api/prefab_library':
-                return self._send(200, dict(items=prefab_library.library()))
+                import asset_catalog
+                return self._send(200, dict(items=asset_catalog.decorate(prefab_library.library(), 'prefab')))
             if u.path == '/api/prefab_usage':           # where a prefab is placed: what its Delete asks about
                 return self._send(200, prefab_library.usage(q.get('line')))
             if u.path == '/api/missiongraph':
@@ -852,7 +854,8 @@ class Handler(BaseHTTPRequestHandler):
                     characters.catalog(log=lambda *a: None)
                 stamp = (characters.CACHE / 'catalog.json').stat().st_mtime_ns
                 return self._send(200, dict(catalog='/cache/_characters/catalog.json?v=%d' % stamp,
-                                            characters=characters.load_all()))
+                                            characters=characters.load_all(),
+                                            looks=list(__import__('model_looks').bodies(log=lambda *a: None).values())))
             if u.path == '/api/texflags':
                 # the PolyFlags of the game's textures (masked fences...), made once (data.texture_flags)
                 with LOCK:
@@ -1004,7 +1007,7 @@ class Handler(BaseHTTPRequestHandler):
                 # objects JC can receive in a dialogue: weapons, ammo, pickups of the game and the editor's package
                 items = data.items()
                 return self._send(200, dict(map=map_name, story=story.load(map_name), flags=story.known_flags(),
-                                            cls=story.class_name(map_name), code=story.code(map_name), items=items))
+                                            cls=story.class_name(map_name), code=story.code(map_name), items=items, infolinkStyle=infolink_styles.snapshot()))
             if u.path == '/api/gamecons':
                 with LOCK:
                     map_name = q.get('map') or map_of(q.get('script', ''))
@@ -1199,6 +1202,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, pieces_library.start(LOCK, force=body.get('force', False),
                                       prepare=project_server.ensure_runtime, operation=project_server.operation,
                                       waiting=lambda: WAITING['n'] > 0))
+            if path == '/api/catalog_metadata':
+                n = int(self.headers.get('Content-Length', 0) or 0)
+                if not 0 < n <= 16384:
+                    return self._send(400, dict(error='Invalid catalog details request.'))
+                import asset_catalog
+                body = json.loads(self.rfile.read(n))
+                with project_server.operation():
+                    return self._send(200, dict(item=asset_catalog.save(body)))
             with project_server.operation(), UserTurn():
                 query = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
                 tutorial_write_guard(path, query, self.headers)
@@ -1478,6 +1489,9 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(200, info)
                 except (ValueError, TypeError) as exc:
                     return self._send(400, dict(error=str(exc)))
+            if u.path == '/api/infolink_style':
+                with LOCK:
+                    return self._send(200, infolink_styles.save(body.get('style'), body.get('revision')))
             if u.path == '/api/story':
                 with LOCK:
                     import originalstory
@@ -1559,6 +1573,13 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     clip = prefabs.copy(q['map'], q['structure'], data.map_folder(key), data.structures(key))
                 return self._send(200, clip)
+            if u.path == '/api/piece_duplicate':
+                import piece_duplicate
+                map_name = map_of(q['script'])
+                with LOCK:
+                    result = piece_duplicate.capture(map_name, data.CACHE / map_name, data.structures(map_name),
+                                                     body.get('structure'), body.get('pose'))
+                return self._send(200, result)
             if u.path == '/api/copy':
                 # copy a structure (as a prefab) or an object of the map shown, to paste it into any map
                 map_name = map_of(q['script'])

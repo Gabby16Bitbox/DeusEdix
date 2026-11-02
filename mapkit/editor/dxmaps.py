@@ -46,6 +46,7 @@ import motions  # noqa: E402
 import surfaces  # noqa: E402
 import t3d  # noqa: E402
 import activation  # noqa: E402
+import preview_owners  # noqa: E402
 import rebuild  # noqa: E402
 from scene import Scene, PF_SEMISOLID  # noqa: E402
 
@@ -390,6 +391,15 @@ def structures(map_name, cache_folder=None, actors=None, src=None):
         shown_[name] = s
     if built_current(map_name):
         shown_.update((info.get('built') or {}).get('pastes') or {})
+        receipt = info.get('built') or {}
+        if 'previews' not in receipt:
+            saved = load_edits(map_name)
+            exported = OUT / (map_name + '.t3d')
+            # Recovery reads only a proven build snapshot, never current edits.
+            if receipt.get('edits') == _edits_fingerprint(saved) and exported.exists():
+                receipt['previews'] = preview_owners.recover(saved, exported.read_text(encoding='latin1'))
+                info_p.write_text(json.dumps(info), encoding='utf-8')
+        shown_.update(receipt.get('previews') or {})
     gp = OUT / (map_name + '.groups.json')
     text = json.dumps(shown_)
     if not gp.exists() or gp.read_text(encoding='utf-8') != text:
@@ -706,6 +716,13 @@ def build(map_name, log=print, options=None, watch=None):
         lights = True
     tag_blocks = ['UCTag_' + name for name in links.object_tags.entries(edits)]     # made again (links.blocks)
     cmds += ['UC_DEL ' + name for name in tag_blocks]
+    import patrol_paths
+    walking, retired, route_report = patrol_paths.prepare(scene_actors + list(t3d.actors('\n'.join(blocks))), edits)
+    cmds += ['UC_DEL ' + name for name in retired]
+    for a in walking:
+        blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
+    nav = nav or bool(walking or retired)
+    lines += route_report
     if blocks:
         (folder / 'T3D' / 'added.t3d').write_text(t3d.import_text(blocks), encoding='latin1')
         cmds.append(r'MAP IMPORTADD FILE="..\T3D\added.t3d"')
@@ -713,6 +730,7 @@ def build(map_name, log=print, options=None, watch=None):
         cmds += ['UC_SCALE %s %.4f' % (a['name'], float(a['scale'])) for a in edits.get('added') or []
                  if a.get('scale') and abs(float(a['scale']) - 1) > 1e-3]
         cmds += ['UC_SCALE %s %.4f' % (n, scale) for n, scale in grown.items()]    # a copy's objects grown on their own
+    preview = preview_owners.Collector()
     for i, b in enumerate(edits.get('boxes') or []):
         lo, hi = b['lo'], b['hi']
         if not all(hi[k] > lo[k] for k in range(3)):
@@ -733,6 +751,8 @@ def build(map_name, log=print, options=None, watch=None):
         # a cube, a wedge, a cylinder, a cone, a sphere, a dome; a hollow one: its convex pieces
         for j, brush in enumerate(block_shapes.brushes(b, mats, 'EditBox%d' % i)):
             brush = geom.rotate_brush(brush, [(lo[k]+hi[k])/2 for k in range(3)], b.get('rot'), bool(b.get('hole')))
+            if not b.get('hole'):
+                preview.add(b, brush)
             f = 'box%d.t3d' % i if j == 0 else 'box%d_p%d.t3d' % (i, j)
             (folder / 'T3D' / f).write_text(brush.t3d(), encoding='ascii')
             cmds += ['BRUSH RESET', r'BRUSH IMPORT FILE="..\T3D\%s"' % f,
@@ -745,7 +765,9 @@ def build(map_name, log=print, options=None, watch=None):
         c = 'OBJ LOAD FILE="%s.utx"' % pkg
         if (built or edits.get('boxes')) and c not in cmds:
             cmds.insert(1, c)
+    drawn_snapshots = {p['name']: p for p in edits.get('drawn') or []}
     for j, (pname, br) in enumerate(built):
+        preview.add(drawn_snapshots[pname], br, drawn=True)
         (folder / 'T3D' / ('drawn%d.t3d' % j)).write_text(br.t3d(), encoding='ascii')
         cmds += ['BRUSH RESET', r'BRUSH IMPORT FILE="..\T3D\drawn%d.t3d"' % j, 'BRUSH ADD FLAGS=%d' % PF_SEMISOLID]
         geometry = lights = nav = True
@@ -800,6 +822,7 @@ def build(map_name, log=print, options=None, watch=None):
         # the path points placed or moved in the editor rest on the floor (no reach spec from a floating one)
         mine = [_cmdname(a['name']) for a in edits.get('added') or [] if a['cls'].split('.')[-1] in NAV and a['name'] not in disabled]
         mine += [_cmdname(n) for n, m in (edits.get('moved') or {}).items() if (m.get('cls') or '').split('.')[-1] in NAV and n not in disabled]
+        mine += [a['name'] for a in walking]
         if mine:
             cmds.append('UC_NAVDROP ' + ' '.join(mine))
         # the map's own points (11-44 units over the floor in the original maps) are linked on the floor and put
@@ -841,7 +864,8 @@ def build(map_name, log=print, options=None, watch=None):
     activation.save(OUT / (map_name + '.dx'), folder, edits)
     preview_bundle.publish(OUT / (map_name + '.dx'), folder)
     lines += zones.report((OUT / (map_name + '.t3d')).read_text(encoding='latin1', errors='replace'), edits)
-    info['built'] = dict(source=stamp(src), groups=edits.get('groups') or {}, at=time.time(),
+    info['built'] = dict(previews=preview.resolve((OUT / (map_name + '.t3d')).read_text(encoding='latin1')),
+                         source=stamp(src), groups=edits.get('groups') or {}, at=time.time(),
                          geometry=geometry, lights=lights, paths=nav, pastes=pastes, unnest=list(edits.get('unnest') or []),
                          disabled=sorted(disabled), rebuild_mode=options['mode'], edits=edits_fingerprint,
                          surfaces=edits.get('surfaces') or [])

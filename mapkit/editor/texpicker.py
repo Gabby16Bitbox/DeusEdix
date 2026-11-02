@@ -60,6 +60,38 @@ def _read_index(pkg):
     return out
 
 
+
+def _skin_packages():
+    """Skin textures live in .u packages as well as .utx; use only this project's game."""
+    import packages
+    import kit
+    names = {'DeusExCharacters', 'DeusExDeco', 'DeusExItems', 'RevisionDeco', 'RevisionPawn'}
+    found = {n: Path(d) / (n + '.u') for n, d in packages.found().items() if n in names}
+    for p in kit.extra_packages():
+        path = Path(p['path']) if p.get('path') else Path(packages.found().get(p['name'], '')) / (p['name'] + '.u')
+        if path.is_file():
+            found[p['name']] = path
+    return found
+
+
+def _skin_index(name, path):
+    import texcat
+    stat = path.stat()
+    stamp = [str(path.resolve()), stat.st_mtime_ns, stat.st_size]
+    cache = THUMBS / '_indexes' / (name + '.json')
+    try:
+        d = json.loads(cache.read_text(encoding='utf-8'))
+        if d.get('stamp') == stamp:
+            return d['textures']
+    except (OSError, ValueError, KeyError):
+        pass
+    textures = [[t['name'], '.'.join(x for x in (name, t['group'], t['name']) if x), t['usize'], t['vsize']]
+                for t in texcat.textures(path) if t['usize'] and t['vsize']]
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(dict(stamp=stamp, textures=textures)), encoding='utf-8')
+    return textures
+
+
 def index():
     global _index
     if _index is None:
@@ -68,6 +100,13 @@ def index():
         texcat.ensure_index(names)           # the packages with no index yet (read from the .utx, no host)
         _index = [dict(name=n, textures=[list(t) for t in _read_index(n)]) for n in names]
         _index = [p for p in _index if p['textures']]
+        known = {p['name'].lower() for p in _index}
+        for name, path in _skin_packages().items():
+            if name.lower() in known:
+                continue
+            textures = _skin_index(name, path)
+            if textures:
+                _index.append(dict(name=name, textures=textures, kind='skins'))
     return dict(packages=_index)
 
 
@@ -107,6 +146,11 @@ def _make(todo, folder, failed):
     from PIL import Image
     s = kit.Session([], 'editor-texthumbs')
     try:
+        pkg = todo[0][1].split('.')[0] if todo else ''
+        path = _skin_packages().get(pkg)
+        if path:
+            command = kit.load_cmd(path) if hasattr(kit, 'load_cmd') else 'OBJ LOAD FILE="%s"' % path
+            s.batch([command])
         out = s.folder / 'Output'
         for start in range(0, len(todo), 40):           # a texture that cannot be read fails only its batch's line
             chunk = todo[start:start + 40]

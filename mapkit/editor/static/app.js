@@ -1,9 +1,12 @@
+import { characterType, characterModelItem, characterConversionProps } from './model-characters.js';
+import { characterLookControls, wireCharacterLooks } from './character-looks.js';
 // DeusEdix map editor: 3D view of the last build, objects and structures moved like in UE5.
 // Unreal coordinates (X, Y, Z up, left-handed) <-> three.js (Y up): (x, y, z) -> (x, z, y).
 import { AREA_VERBS, areaMembers, areaRecipients } from './connect-area.js';
 import { BLOCK_WHEN, BLOCK_VERBS, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
   effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary } from './interaction-blocks.js';
 import { mountConditions, conditionText, conditionProblem, kindOf } from './conditions.js';
+import { createWeatherPreview, weatherKind, weatherSettings, weatherPreviewControl } from './weather-preview.js';
 import { createEffectPointGizmo, setEffectPointTilt, stepEffectPreviews, effectPreviewsActive, disposeEffectPoint, isEffectPoint,
   fxPreviewOf, fxPreviewKind, fxEffectsOn, FX_PREVIEW_KINDS } from './effect-point.js';
 import { PLACE_MODES, loadPlaceMode, savePlaceMode, placeModeLabel, normalToRotation, rotationToVector, stickPoint, isFloor, signedRot } from './surface-stick.js';
@@ -58,6 +61,7 @@ import { createTextureSlip, sameFrame } from './texture-slip-ui.js';
 import { queueProblem, ROW_LIMIT } from './texture-slip.js';
 import { createDrawTools, DRAW_LABELS, DRAW_DEFAULTS } from './draw-tools.js';
 import { createSkyTool } from './sky-tool.js';
+import { createSkyPreview } from './sky-preview.js';
 import { createMapPose } from './map-pose.js';
 import { createViewportToolbar } from './viewport-toolbar.js';
 import { PITCH_LIMIT, lookDir, orbitStep, dragDolly, dollyStep, nextFlySpeed, FRAME_DISTANCES, frameStep, FLIGHT_SECONDS, flightPose,
@@ -432,8 +436,8 @@ for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown',
   window.addEventListener(ev, () => wake(), { capture: true, passive: true });
 // what has the view drawn every frame now (else 4 times a second); Effects not while Play runs: the game lies over the view
 function drawEveryFrame(now) {
-  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || showPaths
-    || (effectsShown() && !gameView?.active);
+  return now < awakeUntil || cam.look || previewing || tc.dragging || (anim && anim.playing) || effectPreviewsActive() || weatherPreview.active || showPaths
+    || ((effectsShown() || (skyPreview.animating && !viewModes.mode)) && !gameView?.active);
 }
 function animate(now) {
   requestAnimationFrame(animate);
@@ -458,6 +462,7 @@ function animate(now) {
   stepEffectPreviews(proxies, dt, fxWant);
   if (showPaths) stepPathView(dt);
   liveBlocks.sync(proxies.children);
+  stepWeatherPreview(dt);
   stepLiveLighting();
   stepEffects(now);                  // View > Effects: its lamps, pans, coronas and zone now (nothing while it is off)
   stepAudio(now);                    // Hear the map: the sounds round the camera, where it is now (nothing while it is off)
@@ -472,6 +477,7 @@ function animate(now) {
     if (!p.parent) collisionVolumes.delete(p);
     else updateCollisionVolume(p, actorProp);
   }
+  skyPreview.suspend(!!viewModes.mode || !!gameView?.active);
   orthoViews?.render();              // the orthographic panes first: they borrow a corner of this canvas
   renderer.render(scene, camera);
   lightEffects.drawHaze();           // the view fog of the zone the camera is in (Effects)
@@ -593,9 +599,11 @@ async function clearMap() {
   window.__tutorial?.stop(); window.__cutscene?.close(); window.__story?.reset();
   closeAnim(); stopPreview(); resetInput(); cancelPlacing(); select(null); clearLinks();
   disposeGroup(pathLines); disposeGroup(routeLines); disposeGroup(multiBoxes);
+  skyPreview.clearSurfaces(); skyPreview.setSource(null); weatherPreview.clear();
   world.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   world.clear(); for (const q of proxies.children) disposeEffectPoint(q); disposeViewportIcons(proxies); proxies.clear(); worldMeshes.length = 0; clearMaterials();
   script = null; mapName = null; baseActors = []; structures = {}; actorStruct = {}; edits = EMPTY(); clearHistory(undoHistory); historyChanged(); dirty = false;
+  skyTool.syncViewport();
   mapGeneration++;
   publishedLayout = null;
   bakedObjectTags = {};
@@ -772,6 +780,7 @@ let geoRev = 0;                       // the map's geometry loaded so far (the w
 async function loadGeometry(url, structs) {
   surfaceTexturePreview?.restore();
   geoRev++;
+  skyPreview.clearSurfaces();
   world.clear();
   worldMeshes.length = 0;
   structures = {};
@@ -818,11 +827,12 @@ async function loadGeometry(url, structs) {
     const st = grp.structure && structures[grp.structure];
     const flags = tf(grp.tex, grp.flags);
     if ((grp.flags | flags) & PF.fake) {
-      if (skyColour == null || st) continue;
-      const sky = new THREE.Mesh(geometryUE(grp.pos, grp.uv), new THREE.MeshBasicMaterial({ color: skyColour, side: THREE.DoubleSide }));
+      const sky = new THREE.Mesh(geometryUE(grp.pos, grp.uv, st ? st.center : null), new THREE.MeshBasicMaterial({ color: skyColour ?? 0x10141e, side: THREE.DoubleSide }));
+      if (st) sky.geometry.applyQuaternion(rotations.pose(st.placement).invert());
       sky.userData.flags = PF.unlit; sky.userData.sky = true;
       sky.raycast = () => {};
-      world.add(sky);
+      (st ? st.obj : blockGroups.get(grp.structure) || world).add(sky);
+      skyPreview.bindSurface(sky, skyColour != null && !st);
       continue;
     }
     const mesh = new THREE.Mesh(geometryUE(grp.pos, grp.uv, st ? st.center : null, grp.uv2), makeMaterial((g.textures[grp.tex] || {}).png, flags, base));
@@ -1396,11 +1406,18 @@ function stepAudio(now) {
 
 // a real 3D object (mesh or door) from the library, coordinates relative to the actor
 const modelCache = {};
+function characterVisual(a, source) {
+  const changed = edits.props?.[a.name] || {}, props = { ...(a.props || {}), ...changed };
+  if (!props.Mesh || source === 'palette') return null;
+  return window.__characters?.parts({ ...a, props }) || null;
+}
 function modelFor(a, source, preview = false) {
   let m = null, tex = mapTex, base = `/cache/${mapName}/`, key;
   const mp = previewMesh(a, source), pose = mp ? replacementPose(a, source) : null;
-  if (mp && !meshModels[mp]) return null; // Never flash the previous model while its replacement loads.
-  if (mp) {
+  const character = characterVisual(a, source);
+  if (mp && !meshModels[mp] && !character) return null; // Never flash the previous model while its replacement loads.
+  if (character) { m = character; tex = character.textures; base = ''; key = 'look:' + character.key + '|' + JSON.stringify(pose); }
+  else if (mp) {
     const pkg = mp.split('.')[0];
     m = meshModels[mp]; tex = meshTex[pkg] || {}; base = `/cache/_models/${pkg}/`; key = `mesh:${mp}|${JSON.stringify(pose)}`;
   } else if (source === 'map' && meshLib[a.name]) { m = meshLib[a.name]; key = 'map:' + a.name; }
@@ -1520,8 +1537,10 @@ function texRows(p) {                    // [{tex, slot, png, w, h, kind}] of th
   if (!d.actor) return rows;
   const mp = previewMesh(d.actor, d.source);
   let m = null, tex = mapTex, base = `/cache/${mapName}/`;
-  if (mp && !meshModels[mp]) return rows;
-  if (mp) {
+  const character = characterVisual(d.actor, d.source);
+  if (mp && !meshModels[mp] && !character) return rows;
+  if (character) { m = character; tex = character.textures; base = ''; }
+  else if (mp) {
     m = meshModels[mp]; tex = meshTex[mp.split('.')[0]] || {}; base = `/cache/_models/${mp.split('.')[0]}/`;
   } else if (d.source === 'map' && meshLib[d.actor.name]) m = meshLib[d.actor.name];
   else if (paletteLib[d.actor.cls]) { m = paletteLib[d.actor.cls]; tex = paletteTex; base = '/cache/_palette/'; }
@@ -3598,6 +3617,7 @@ function rebuildProxies() {
   showChanges();
   buildStructList();
   buildHierarchy();
+  skyTool.syncViewport();
 }
 
 // ---------------------------------------------------------------- selection and transforms
@@ -3627,8 +3647,37 @@ function ledgeNear(ue, radius) {
 const drawTools = createDrawTools({ THREE, T, scene, getEdits: () => edits, status, escapeHtml, getSnap: () => snap, texList: () => texList, probe: ledgeNear,
   dress: (g) => dressDrawn(g) });
 // Map > Sky & time of day (sky-tool.js; the sky box by editor/zones.py)
+const skyPreview = createSkyPreview({ THREE, scene, wake });
+// Weather is selected-zone only. Never write preview state into edits or build data.
+let weatherSolids = [], weatherSolidTime = 0, weatherSolidRevision = -1, weatherPreviewScript = null;
+const weatherPreview = createWeatherPreview({ THREE, scene, camera, wake, obstacles: () => {
+  // Built surfaces already follow structure/block transforms. Include unbuilt solid
+  // blocks too; ignore sky portals, picking volumes, hidden geometry and icons.
+  world.updateMatrixWorld(true); proxies.updateMatrixWorld(true);
+  const now = performance.now();
+  if (now > weatherSolidTime || weatherSolidRevision !== geoRev) {
+    weatherSolidRevision = geoRev;
+    weatherSolidTime = now + 250;
+    const visible = o => { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; };
+    weatherSolids = worldMeshes.filter(o => o.parent && visible(o) && !o.userData.sky);
+    for (const p of proxies.children) {
+      const b = p.userData.box || p.userData.drawn;
+      if (!b || b.hole || b.water || b.portal || !visible(p)) continue;
+      p.traverse(o => { if (o.isMesh && visible(o) && o.material?.colorWrite !== false && o.material?.opacity !== 0) weatherSolids.push(o); });
+    }
+  }
+  return weatherSolids;
+} });
+function stepWeatherPreview(dt) {
+  if (weatherPreviewScript !== script) { weatherPreview.clear(); weatherPreviewScript = script; weatherSolidTime = 0; }
+  const p = selected, a = p?.userData.actor, kind = weatherKind(a, chainNow[a?.cls] || []);
+  const source = script && kind && p.parent && !objectHidden(p) && !edits.disabled?.[a.name] && !edits.deleted?.[a.name]
+    ? { name: a.name, settings: weatherSettings(a, keyValue, kind), revision: `${script}:${geoRev}` } : null;
+  weatherPreview.step(dt, source, !!gameView?.active || !!viewModes.mode);
+}
+function setSkyPreview(on) { skyPreview.setEnabled(on); }
 const skyTool = createSkyTool({ THREE, scene, getEdits: () => edits, getScript: () => script, pushUndo, setDirty, rebuildProxies, api, log, escapeHtml, nextName,
-  warnHiddenKinds, proxyOf, refuseWhileBuilding });
+  warnHiddenKinds, proxyOf, refuseWhileBuilding, onPreview: data => skyPreview.setSource(data) });
 // Pose here: a character posed against the map where it stands (map-pose.js)
 const mapPose = createMapPose({ THREE, scene, camera, canvas, world, proxies, mouseRay, visibleHits, wake, api, edits: () => edits, pushUndo, setDirty,
   status, log, animsOf, animFrames, animatedModel, fitAnimated, meshOf, stopPreview, select, animsChanged, UE, commit, refuseWhileBuilding });
@@ -3642,7 +3691,18 @@ function keepRecentTexture(ref) {
 }
 // a face can be edited (the Surface panel, the Texture Slip): its structure is not locked
 function canEditFace(face) { return !selectionLocked(structures[face.structure]?.obj); }
-const surfaceTools = createSurfaceTools({ THREE, getEdits: () => edits, pushUndo, setDirty,
+// a label over the 3D view while Face selection (Q) is on: how to go back to objects
+const faceModeLabel = floatingLabel();
+faceModeLabel.textContent = 'Face selection \u00b7 Q or Esc to go back to objects';
+function showFaceModeLabel(on) {
+  if (!on) { faceModeLabel.style.display = 'none'; return; }
+  const r = canvas.getBoundingClientRect();
+  faceModeLabel.style.display = 'block';
+  faceModeLabel.style.left = Math.round(r.left + r.width / 2 - faceModeLabel.offsetWidth / 2) + 'px';
+  faceModeLabel.style.top = Math.round(r.top + 8) + 'px';
+}
+window.addEventListener('resize', () => { if (surfaceTools.mode) showFaceModeLabel(true); });
+const surfaceTools = createSurfaceTools({ THREE, getEdits: () => edits, pushUndo, setDirty, onMode: (on) => showFaceModeLabel(on),
   deselect: () => select(null), status, log, escapeHtml,
   textures: () => [...Object.keys(mapTex), ...Object.keys(edits.textures || {}), ...texturePreviewInfo.keys()],
   canShowPanel: () => !inspectorIsPinned(),
@@ -4174,7 +4234,31 @@ canvas.addEventListener('pointerdown', (e) => {          // before the gizmo's o
     const axis = tc.axis;
     // Copy in place before TransformControls records its drag origin. The copy
     // and its complete drag are one Undo, not a copy plus a second move.
-    if (!duplicateSelected({offset: 0})) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    const duplicated = duplicateSelected({offset: 0});
+    if (duplicated && typeof duplicated.then === 'function') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      // Resume this gesture only while the same pointer remains down. Never
+      // replay after release/cancel, or a slow snapshot would leave a stuck drag.
+      let held = true, latest = e;
+      const move = ev => { if (ev.pointerId === e.pointerId) latest = ev; };
+      const release = ev => { if (ev.pointerId === e.pointerId) held = false; };
+      window.addEventListener('pointermove', move, true);
+      window.addEventListener('pointerup', release, true);
+      window.addEventListener('pointercancel', release, true);
+      duplicated.then(ok => {
+        window.removeEventListener('pointermove', move, true);
+        window.removeEventListener('pointerup', release, true);
+        window.removeEventListener('pointercancel', release, true);
+        if (!ok || !held || !selected) return;
+        tc.axis = axis; altCopyUndo = true;
+        const init = ev => ({pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: true,
+          clientX: ev.clientX, clientY: ev.clientY, button: 0, buttons: 1, bubbles: true, cancelable: true});
+        canvas.dispatchEvent(new PointerEvent('pointerdown', init(e)));
+        if (latest !== e) canvas.dispatchEvent(new PointerEvent('pointermove', init(latest)));
+      });
+      return;
+    }
+    if (!duplicated) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     tc.axis = axis;
     altCopyUndo = true;
   }
@@ -5056,9 +5140,14 @@ function removeOne(p) {                    // an object or a block out of the ma
   if (d.kind === 'drawn') edits.drawn = (edits.drawn || []).filter((x) => x !== d.drawn);
   else if (d.kind === 'box') edits.boxes = edits.boxes.filter((b) => b !== d.box);
   else if (d.source === 'added') {
-    const own = edits.added.find((a) => a.name === d.actor.name);
-    edits.added = edits.added.filter((a) => a.name !== d.actor.name);
-    if (own?.replaces) edits.deleted[d.actor.name] = own.replaces;     // it replaced an object of the map (Replace with...): that one goes too
+    const name = d.actor.name, own = edits.added.find((a) => a.name === name);
+    const built = baseActors.find((a) => a.name === name);
+    edits.added = edits.added.filter((a) => a.name !== name);
+    // A Rebuild also puts added actors in baseActors. Keep their deletion explicit:
+    // inserting a prefab refreshes every proxy, including custom names from MCP.
+    const gone = own?.replaces || (built && { cls: built.cls, orig: edits.moved[name]?.orig || built.loc });
+    if (gone) edits.deleted[name] = gone;
+    delete edits.moved[name];
   } else {
     let orig = baseActors.find((x) => x.name === d.actor.name).loc;
     const st = structures[actorStruct[d.actor.name]];
@@ -5224,21 +5313,83 @@ function dupStructure(st, dx = null) {
   edits.copies.push(c);
   return `${group}~${c.id}`;
 }
-function duplicateSelected({offset = 48} = {}) {
+
+// Native map pieces have no procedural copy recipe. Capture a private bundle
+// before touching edits; a stale async result must never duplicate another map.
+let nativeDuplicateTask = null;
+function duplicateNativePieces(list, offset) {
+  if (nativeDuplicateTask) return nativeDuplicateTask;
+  const sourceScript = script, generation = mapGeneration, revision = editRevision, keys = selKeys().join('\n');
+  const wanted = list.filter(m => isStruct(m) && !structures[m.userData.name]?.copyable);
+  const requests = wanted.map(m => {
+    const st = structures[m.userData.name], states = {};
+    for (const name of st.actors || []) {
+      const p = proxyOf(name);
+      states[name] = {};
+      for (const field of ['deleted', 'disabled', 'props', 'rawprops', 'anims', 'motions', 'texts', 'documents', 'cutscenes', 'objectTags'])
+        if (edits[field]?.[name] !== undefined) states[name][field] = clipClone(edits[field][name]);
+      if (p && !edits.deleted[name]) {
+        states[name].moved = {loc: UE(p.position), rot: objectRotation(p)};
+        states[name].props = ownProps(p);
+      }
+    }
+    return {name: st.name, pose: livePose(st), states};
+  });
+  const task = (async () => {
+    try {
+      busy('Duplicating map pieces…');
+      const prepared = new Map();
+      for (const request of requests) {
+        const clip = await api('/api/piece_duplicate?script=' + encodeURIComponent(sourceScript), {structure: request.name, pose: request.pose});
+        // Fetch preview before changing selection, particularly for Alt-drag.
+        await loadPrefabDisplay(clip.id);
+        prepared.set(request.name, {clip, states: request.states});
+      }
+      if (script !== sourceScript || mapGeneration !== generation || editRevision !== revision || selKeys().join('\n') !== keys || gameView?.active) {
+        status('The selection changed while preparing the copy. Duplicate it again.', 'warn'); return false;
+      }
+      return duplicateSelected({offset, prepared});
+    } catch (e) {
+      status('Nothing duplicated: ' + e.message, 'warn'); log('Duplicate failed: ' + e.message, 'warn'); return false;
+    } finally { busy(''); }
+  })();
+  nativeDuplicateTask = task;
+  task.finally(() => { if (nativeDuplicateTask === task) nativeDuplicateTask = null; });
+  return task;
+}
+function duplicateNativeEntry(item, offset) {
+  const {clip, states} = item, pid = nextPid();
+  edits.prefabs.push({pid, prefab: clip.id, label: clip.label, source: clip.source, pivot: clip.pivot,
+    offset: [offset, 0, 0], yaw: 0, rotatable: true});
+  for (const [name, slot] of Object.entries(clip.members || {})) {
+    const target = 'UCPf' + pid.replace(/\W/g, '') + 'A' + slot;
+    for (const [field, value] of Object.entries(states[name] || {})) {
+      const record = clipClone(value);
+      if (field === 'moved') record.loc[0] += offset;
+      if (field === 'deleted') delete record.orig; // bundle is already at the live pose
+      (edits[field] ||= {})[target] = record;
+    }
+  }
+  return 's:paste~' + pid;
+}
+
+function duplicateSelected({offset = 48, prepared = null} = {}) {
   if (!selected || !requireUnlocked()) return false;
   const all = selected === groupPivot ? members() : [selected];
   const carried = carriedBy(all);
   const list = all.filter(m => !carried(m));
-  const blocked = list.filter(m => isStruct(m) ? !structures[m.userData.name]?.copyable : m.userData.kind === 'mover');
+  const blocked = list.filter(m => !isStruct(m) && m.userData.kind === 'mover');
   if (blocked.length) {
     const names = blocked.map(m => isStruct(m) ? structures[m.userData.name].label : m.userData.actor?.name).join(', ');
     const message = `Nothing duplicated: ${names} needs a reusable prefab. Un-nest to copy individual pieces, or use Objects → Movers for a door or elevator.`;
     status(message, 'warn'); log(message, 'warn'); return false;
   }
   if (!list.length) return false;
+  if (!prepared && list.some(m => isStruct(m) && !structures[m.userData.name]?.copyable)) return duplicateNativePieces(list, offset);
   const nest = selected === groupPivot && groupPivot.userData.nest, news = [];
   pushUndo(stepOf('Duplicate', list));
-  for (const m of list) news.push(isStruct(m) ? 's:' + dupStructure(structures[m.userData.name], offset) : keyOf(dupOne(m, offset)));
+  for (const m of list) news.push(prepared?.has(m.userData.name) ? duplicateNativeEntry(prepared.get(m.userData.name), offset) :
+    isStruct(m) ? 's:' + dupStructure(structures[m.userData.name], offset) : keyOf(dupOne(m, offset)));
   let n = null;
   if (nest) {
     const n0 = nestById(nest), up = parentNest('n:' + nest);
@@ -6130,7 +6281,7 @@ mountTileSize({ root: $('#bottom'), slider: $('#btiles input'), grid: '.bpane.ti
 // then a floor or a wall: it is pasted as a prefab (built into the map by Rebuild).
 let pieceCat = null, pieceShapes = {};
 const piecesBrowser = createPiecesBrowser({
-  api, escapeHtml, isVisible: () => bottomTab === 'pieces', favourites: pieceFavs,
+  api, escapeHtml, menu: openMenu, isVisible: () => bottomTab === 'pieces', favourites: pieceFavs,
   filterItem: item => !['door', 'elevator'].includes(item.kind),
   getContext: () => mapGeneration,
   canPlace: () => !!script && !gameView?.active,
@@ -6139,7 +6290,7 @@ const piecesBrowser = createPiecesBrowser({
   onPlace: (clip, button) => startPlacing({ prefab: clip, radius: 4, height: 0 }, button),
 });
 const moversBrowser = createPiecesBrowser({
-  api, escapeHtml, containerSelector: '#object-movers', searchSelector: '#search', noun: 'movers', favourites: pieceFavs,
+  api, escapeHtml, menu: openMenu, containerSelector: '#object-movers', searchSelector: '#search', noun: 'movers', favourites: pieceFavs,
   searchTerms: ['mover', 'movers'],
   isVisible: () => bottomTab === 'objects' && !!$('#object-movers')?.parentElement.open,
   filterItem: item => ['door', 'elevator'].includes(item.kind),
@@ -6186,7 +6337,47 @@ $('#bchars').onclick = () => window.__characters && window.__characters.open();
 // other mods' packages, the imported ones' MODELS_PKG). A package's models are exported the first time it is opened.
 // A model is placed as a UCMeshDeco of the editor's package: its Mesh, a collision cylinder round it, a PrePivot that
 // centres it; at the size the game uses it (the DrawScale of the game's object that has it).
-let modelList = null, modelReplace = null;
+let modelList = null, modelReplace = null, modelListPending = null;
+function readModelList() {
+  if (modelList) return Promise.resolve(modelList);
+  return modelListPending ||= api('/api/models').then(d => modelList = d).finally(() => { modelListPending = null; });
+}
+function modelCharacter(a) {
+  const props = { ...(a.props || {}), ...(edits.props?.[a.name] || {}), ...(edits.rawprops?.[a.name] || {}) };
+  const mesh = /'([^']+)'/.exec(String(props.Mesh || ''))?.[1] || meshOf(a);
+  return a.cls === 'UCMeshDeco' ? characterType(mesh, modelList?.meshes, window.__characters?.lookTemplates(), props) : null;
+}
+async function makeModelCharacter(p) {
+  if (!p?.userData.actor || !requireUnlocked(p)) return;
+  const a = p.userData.actor, generation = mapGeneration;
+  const type = modelCharacter(a), mesh = meshOf(a);
+  if (!type) return;
+  const schema = await api('/api/props?cls=' + encodeURIComponent(type.cls));
+  const names = new Set((schema.fields || []).map(q => q.prop.toLowerCase()));
+  for (const key of ['Mesh', 'Skin', 'MultiSkins', 'Texture', 'PrePivot', 'DrawScale', 'CollisionRadius', 'CollisionHeight', 'Tag', 'Event', 'BindName']) names.add(key.toLowerCase());
+  if (generation !== mapGeneration || proxyOf(a.name) !== p || !requireUnlocked(p)) return;
+  const info = { cls: /^SkeletalMesh'/.test(String(actorProp(a, 'Mesh'))) ? 'SkeletalMesh' : 'LodMesh',
+    label: hierLabel(a) }, item = characterModelItem(mesh, info, type);
+  const has = key => names.has(key.toLowerCase()), current = { ...(a.props || {}), ...(edits.props?.[a.name] || {}) };
+  const props = characterConversionProps(current, item, has, a.name);
+  const raw = Object.fromEntries(Object.entries(edits.rawprops?.[a.name] || {})
+    .filter(([key]) => has(key.split('(')[0]) && !/^(?:Physics|IdleAnim|IdleRate|Health|Orders|OrderTag|bInvincible|bCollideWorld)$/i.test(key)));
+  const e = { name: a.name, cls: type.cls, kind: 'pawn', loc: UE(p.position), rot: objectRotation(p),
+    radius: +props.CollisionRadius || type.radius, height: +props.CollisionHeight || type.height, props,
+    // Exported model/collision sizes already include the last Rebuild's scale.
+    scale: p.scale.x, bind: unquote(props.BindName) };
+  pushUndo(`Make ${hierLabel(a)} a character`);
+  const at = edits.added.findIndex(x => x.name === a.name);
+  removeOne(p);
+  if (edits.deleted[a.name]) { e.replaces = edits.deleted[a.name]; delete edits.deleted[a.name]; }
+  edits.added.splice(at < 0 ? edits.added.length : at, 0, e);
+  delete (edits.props || {})[a.name];
+  if (Object.keys(raw).length) (edits.rawprops ||= {})[a.name] = raw;
+  else delete (edits.rawprops || {})[a.name];
+  // Same name and same mesh: keep links, textures, folders and animation edits.
+  setDirty(); rebuildProxies(); showDetails();
+  status('Character enabled. Behaviour and Patrol route are available; Rebuild to apply in game.', 'ok');
+}
 const modelOpen = new Set([modelFavs.group]), modelPkgs = {}, meshModels = {}, meshTex = {};
 function meshOf(a) { const m = /'([^']+)'/.exec(String(actorProp(a, 'Mesh') || '')); return m ? m[1] : ''; }
 function prePivotZ(a) { const m = /Z=(-?[\d.]+)/.exec(String(actorProp(a, 'PrePivot') || '')); return m ? +m[1] : 0; }
@@ -6215,6 +6406,10 @@ function beginModelReplacement(p) {
   if (!canReplaceModel(p) || !requireUnlocked(p)) return;
   cancelPlacing(); closeAnim(); stopPreview();
   modelReplace = { name: p.userData.actor.name, generation: mapGeneration, busy: false };
+  const current = meshOf(p.userData.actor) || p.userData.actor.mesh || modelClassInfo(p.userData.actor).mesh;
+  const pkg = current && current.split('.')[0];
+  if (pkg) { modelOpen.clear(); modelOpen.add(pkg); modelReplace.focusPkg = pkg; }
+  $('#msearch').value = '';
   showTab('models');
   status('Choose a replacement model. Logic, transform and collision stay unchanged. Esc cancels.');
 }
@@ -6223,12 +6418,22 @@ function cancelModelReplacement() {
   status('Model replacement cancelled.');
   buildModels();
 }
+function applyCharacterLook(p, mesh, id) {
+  if (!canReplaceModel(p) || !requireUnlocked(p)) return;
+  const a = p.userData.actor, properties = window.__characters?.lookProps(mesh, id);
+  if (!properties) { status('That character look is unavailable for this game.', 'warn'); return; }
+  pushUndo();
+  for (const [key, value] of Object.entries(properties)) putProp(a, key, value);
+  if (edits.retexture) edits.retexture = edits.retexture.filter(t => !(t.kind === 'actor' && t.name === a.name));
+  setDirty(); rebuildProxies();
+  status(`Look: ${id}. Rebuild to apply in game.`, 'ok');
+}
 function modelReplaceRow(a, id) {
   const cur = meshOf(a) || a.mesh || modelClassInfo(a).mesh;
   return `<div class="row"><span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(cur || a.cls)}">${escapeHtml(cur || 'Class model')}</span><button id="${id}" style="flex:none;padding:0 8px" title="Replace the visual model and its skins; keep the same actor, logic, transform and collision">Replace…</button></div>`;
 }
 // a model the search (q, lower case) shows: by its name, its label, the game's object that has it
-const modelMatch = (m, q) => !q || [m.mesh, m.label || '', m.used || ''].some((s) => s.toLowerCase().includes(q));
+const modelMatch = (m, q) => !q || [m.mesh, m.label || '', m.used || '', ...(m.look_names || [])].some((s) => s.toLowerCase().includes(q));
 function modelTile(m) {
   const short = m.mesh.split('.').slice(1).join('.');
   return `<button class="item" data-mesh="${escapeHtml(m.mesh)}" title="${escapeHtml(m.mesh)} · ${m.tris} triangles${m.frames > 1 ? ` · ${m.frames} frames` : ''}${m.used ? ` · the game's ${escapeHtml(m.label || m.used)}` : ''}"><span class="th" data-th="mesh:${escapeHtml(m.mesh)}"></span><span class="tl">${escapeHtml(m.label || short)}</span><small>${escapeHtml(m.label ? short : '')}</small>${modelFavs.star(m.mesh, m.label || short)}</button>`;
@@ -6244,7 +6449,7 @@ async function buildModels() {
   if (modelReplace && modelReplace.generation !== mapGeneration) modelReplace = null;
   if (!modelList) {
     el.innerHTML = '<div class="hint">Reading the models of the game (the first time, a few seconds)...</div>';
-    try { modelList = await api('/api/models'); } catch (e) { el.innerHTML = `<div class="hint bad">${escapeHtml(e.message)}</div>`; return; }
+    try { modelList = await readModelList(); } catch (e) { el.innerHTML = `<div class="hint bad">${escapeHtml(e.message)}</div>`; return; }
     // the first package opens when none is (Favourites is not a package)
     if (modelList.packages.length && !modelList.packages.some((p) => modelOpen.has(p.name))) modelOpen.add(modelList.packages[0].name);
   }
@@ -6260,7 +6465,7 @@ async function buildModels() {
   }
   for (const p of modelList.packages) {
     if (mine && p.name !== MODELS_PKG) continue;              // My models: only the imported ones
-    const items = modelList.meshes.filter((m) => m.pkg === p.name && modelMatch(m, q));
+    const items = modelList.meshes.filter((m) => !m.hidden && m.pkg === p.name && modelMatch(m, q));
     if (!items.length) continue;
     const open = q || mine || modelOpen.has(p.name);
     html += `<details data-pkg="${escapeHtml(p.name)}" ${open ? 'open' : ''}><summary>${escapeHtml(p.name === MODELS_PKG ? (/^DXP_/i.test(MODELS_PKG) ? 'My models' : MODELS_PKG) + ' (imported)' : p.name)} <small>${items.length}</small></summary>`;
@@ -6274,6 +6479,11 @@ async function buildModels() {
     if (d.open) { modelOpen.add(d.dataset.pkg); if (!d.querySelector('.item')) buildModels(); } else modelOpen.delete(d.dataset.pkg);
     observeThumbs();
   });
+  if (modelReplace?.focusPkg) {
+    const folder = [...el.querySelectorAll('details[data-pkg]')].find(d => d.dataset.pkg === modelReplace.focusPkg);
+    folder?.scrollIntoView({ block: 'nearest' });
+    delete modelReplace.focusPkg;
+  }
   if ($('#model-replace-cancel')) $('#model-replace-cancel').onclick = cancelModelReplacement;
   for (const b of el.querySelectorAll('[data-mesh]')) {
     b.disabled = !!modelReplace?.busy;
@@ -6305,7 +6515,7 @@ function dropActorTextures(name) {
   if (edits.retexture) edits.retexture = edits.retexture.filter(t => !(t.kind === 'actor' && t.name === name));
 }
 function modelProps(mesh, info) {
-  return { Mesh: `${info.cls}'${mesh}'`, CollisionRadius: info.r.toFixed(6), CollisionHeight: info.h.toFixed(6),
+  return { ...(info.appearance || {}), Mesh: `${info.cls}'${mesh}'`, CollisionRadius: info.r.toFixed(6), CollisionHeight: info.h.toFixed(6),
            PrePivot: `(X=0.000000,Y=0.000000,Z=${info.pz.toFixed(6)})` };
 }
 // an idle animation or a pose plays while the character stands (Orders Standing): one whose class wanders by
@@ -6354,6 +6564,7 @@ async function placeModel(mesh, btn, extra = null) {
     putProp(who, 'Mesh', `${info.cls}'${mesh}'`);
     putProp(who, 'Skin', 'None');
     for (let i = 0; i < 8; i++) putProp(who, `MultiSkins(${i})`, 'None');
+    for (const [key, value] of Object.entries(info.appearance || {})) putProp(who, key, value);
     // Old per-slot textures belong to the old visual; retain all non-visual authoring data.
     dropActorTextures(who.name);
     modelReplace = null;
@@ -6365,7 +6576,8 @@ async function placeModel(mesh, btn, extra = null) {
   // an imported animated model loops its animation (UCMeshDeco.IdleAnim)
   const own = (modelList && modelList.imported || []).find((m) => m.mesh === mesh);
   const idle = extra || (own && own.idle ? { IdleAnim: own.idle } : {});
-  startPlacing({ cls: 'UCMeshDeco', radius: info.r * k, height: info.h * k, base: { r: info.r, h: info.h }, mesh, scale: k,
+  const living = characterModelItem(mesh, info, info.character || characterType(mesh, modelList?.meshes, window.__characters?.lookTemplates()), idle);
+  startPlacing(living || { cls: 'UCMeshDeco', radius: info.r * k, height: info.h * k, base: { r: info.r, h: info.h }, mesh, scale: k,
                  preset: Object.assign(modelProps(mesh, info), info.label ? { ItemName: `"${info.label}"` } : {}, idle),
                  name: info.label || mesh.split('.').pop() }, btn);
 }
@@ -7089,7 +7301,7 @@ function keptThumb(key) {
   const kind = key.slice(0, key.indexOf(':')), id = key.slice(key.indexOf(':') + 1);
   if (kind === 'cls') return id;
   if (kind === 'piece') return 'piece_' + id.replace(/[^\w.-]/g, '_');
-  if (kind === 'mesh' && !id.startsWith(MODELS_PKG + '.')) return 'mesh_' + id.replace(/[^\w.-]/g, '_');
+  if (kind === 'mesh' && !id.startsWith(MODELS_PKG + '.')) return 'meshlook2_' + id.replace(/[^\w.-]/g, '_');
   return null;
 }
 // the next tiles of the queue start loading their model and textures while this one is drawn
@@ -7221,7 +7433,7 @@ async function fillThumb(el) {
       if (url) fetch('/api/thumb?cls=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ png: url }) }).catch(() => {});
     }
   } else if (!url && kind === 'mesh') {
-    const own = id.startsWith(MODELS_PKG + '.'), skey = 'mesh_' + id.replace(/[^\w.-]/g, '_');
+    const own = id.startsWith(MODELS_PKG + '.'), skey = 'meshlook2_' + id.replace(/[^\w.-]/g, '_');
     if (!own && !thumbMissing.has(key)) url = await serverThumb(skey);
     if (!url) {
       const r = await meshInfo(id).catch(() => null);
@@ -8462,8 +8674,9 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
       e2.height = placing.base.h;
       if (Math.abs((placing.scale || 1) - 1) > 1e-3) e2.scale = placing.scale;
     }
-    if (placing.custom) {               // a character of the Character Creator: its look, faction, weapons (itemProps); its own BindName
-      e2.custom = placing.custom;
+    if (placing.custom || placing.character) { // a living character: its own conversation identity
+      // a character of the Character Creator: its look, faction, weapons (itemProps); its own BindName
+      if (placing.custom) e2.custom = placing.custom;
       e2.kind = 'pawn';
       e2.bind = 'UCEd_' + e2.name;
       e2.props.BindName = `"${e2.bind}"`;
@@ -10827,6 +11040,10 @@ async function renderProps(p) {
   const view = inspectorView, a = p.userData.actor, box = $('#propsec');     // its Inspector, after the waits too
   if (!box || !a) return;
   const fields = await classFields(a.cls);
+
+  if (a.cls === 'UCMeshDeco' && meshOf(a)) {
+    try { await readModelList(); } catch { /* ordinary model editing stays available */ }
+  }
   await loadFactions();
   if (fields.some((f) => f.kind === 'mapurl') && !allMapNames) {
     try { allMapNames = (await api('/api/newmap_info')).maps; } catch (e) { allMapNames = []; }
@@ -10860,9 +11077,22 @@ function drawProps(p, fields, box) {
   const itemSel = (id, v) => `<select id="${id}" style="max-width:190px">${itemOptions(v)}</select>`;
   let html = scriptTagHtml(a), group = '';
   const wires = [() => wireScriptTag(a, p, redraw)], notes = lampNotes(a);      // (a lamp's: what does nothing in the game)
+  if (weatherKind(a, chainNow[a.cls] || [])) {
+    html += inspectorSection('weather-preview', 'Weather preview', weatherPreviewControl(weatherPreview.isPaused(a.name)), true);
+    wires.push(() => { const input = box.querySelector('[data-weather-preview]'); if (input) input.onchange = () => {
+      weatherPreview.setPaused(a.name, !input.checked);
+    }; });
+  }
   if (canReplaceModel(p)) {
-    html += inspectorSectionStart('appearance-model', 'Model', true) + modelReplaceRow(a, 'replace-model') + '</div></details>';
+    const visualProps = { ...(a.props || {}), ...(edits.props?.[a.name] || {}) };
+    const visualMesh = meshOf(a) || a.mesh || modelClassInfo(a).mesh;
+    html += inspectorSectionStart('appearance-model', 'Model', true) + modelReplaceRow(a, 'replace-model') +
+      characterLookControls({ actor: a, mesh: visualMesh, props: visualProps, characters: window.__characters }) +
+      (modelCharacter(a) ? '<div class="row"><button id="make-model-character" title="Enable character AI for this living game body. Keep its appearance, transform and scripting links. Ctrl+Z undoes it.">Make character</button></div>' : '') + '</div></details>';
+    wires.push(() => wireCharacterLooks({ root: { querySelector: $ }, mesh: visualMesh, characters: window.__characters,
+      apply: (mesh, look) => inspectorAction(p, () => applyCharacterLook(p, mesh, look)) }));
     wires.push(() => { $('#replace-model').onclick = () => inspectorAction(p, () => beginModelReplacement(p)); });
+    wires.push(() => { const button = $('#make-model-character'); if (button) button.onclick = () => inspectorAction(p, () => { void makeModelCharacter(p).catch(e => status(e.message, 'bad')); }); });
   }
   const lk = lkSection(a, p, redraw);
   wires.push(lk.wire);
@@ -14314,6 +14544,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape' && modelReplace) { cancelModelReplacement(); }
   else if (k === 'escape' && pilot) endPilot();
   else if (k === 'escape' && window.__workspace?.maximized) maximizePanel();
+  // Esc in Face selection: the faces chosen let go first, then (none chosen) back to objects
+  else if (k === 'escape' && surfaceTools.mode && !surfaceTools.hasSelection && !placing && !measure?.active && !vertexEdit?.active) surfaceTools.exit();
   else if (k === 'escape') { if (measure?.active) measure.exit(); else if (vertexEdit?.active) vertexEdit.exit(); else { cancelPlacing(); select(null); } }
   else if (k === 'p' && e.shiftKey) togglePilot();
   else if (k === 'p') togglePaths();
@@ -14546,6 +14778,8 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   copyProperties: copySelectionProps, pasteProperties: pasteSelectionProps, get propertyClip() { return propClip?.of || ''; },
   setViewMode: (mode) => setViewMode(mode),
   get viewMode() { return viewModes.mode; },
+  weatherPreview,
+  skyPreview, setSkyPreview, get skyPreviewOn() { return skyPreview.enabled; },
   setEffects, get effectsOn() { return effectsOn; },          // View > Effects
   setAudio, get audioOn() { return sceneAudio.on; },          // View > Hear the map
   pasteT3D: () => pasteT3D(),

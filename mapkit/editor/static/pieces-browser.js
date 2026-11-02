@@ -1,3 +1,4 @@
+import { catalogMatches, editCatalogDetails } from './asset-catalog.js';
 // Local, on-demand scan of installed maps. Nothing here ships game content.
 // favourites: the stars of the tiles and their group at the top (browser-tiles.js favouriteShelf), or none.
 export function createPiecesBrowser({
@@ -5,13 +6,13 @@ export function createPiecesBrowser({
   onThumbnails = () => {}, onCatalog = () => {}, pollMs = 2000,
   containerSelector = '#pieces', searchSelector = '#psearch',
   filterItem = () => true, categoryLabel = value => value, searchTerms = [],
-  getContext = () => null, noun = 'pieces', favourites = null,
+  getContext = () => null, noun = 'pieces', menu = null, favourites = null,
 }) {
   const $ = selector => document.querySelector(selector);
   const esc = value => escapeHtml(String(value ?? ''));
   const number = value => Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
   let catalog = null, request = null, generation = 0, autoAttempted = false, scanning = false, pausing = false;
-  let timer = 0, thumbFrame = 0, disposed = false, shell = null, searchInput = null;
+  let timer = 0, thumbFrame = 0, disposed = false, shell = null, searchInput = null, material = '';
   let listStamp = null, scanError = '', readError = '', placeError = '', openedFirst = false;
   const openCategories = new Set(favourites ? [favourites.group] : []), preparing = new Set();
   const link = document.createElement('link');
@@ -56,7 +57,7 @@ export function createPiecesBrowser({
     const gameName = catalog?.gameName || ({ vanilla: 'Deus Ex', revision: 'Deus Ex: Revision' })[catalog?.game] || 'Selected game';
     const failure = readError || scanError || (state === 'error' ? scan.message || 'The local scan could not finish.' : '');
     let html = `<div class="pieces-scan-toolbar"><button data-pieces-scan ${active ? 'disabled' : ''}>${active ? 'Scanning…' : state === 'paused' ? 'Resume scan' : failure ? 'Retry scan' : 'Refresh scan'}</button>
-      ${['running', 'pausing'].includes(state) ? `<button data-pieces-pause ${pausing || state === 'pausing' ? 'disabled' : ''}>${pausing || state === 'pausing' ? 'Pausing…' : 'Pause scan'}</button>` : ''}<span class="hint">${esc(gameName)} · from your installed maps · project-local cache</span></div>`;
+      ${['running', 'pausing'].includes(state) ? `<button data-pieces-pause ${pausing || state === 'pausing' ? 'disabled' : ''}>${pausing || state === 'pausing' ? 'Pausing…' : 'Pause scan'}</button>` : ''}<select data-pieces-material title="Filter by material" aria-label="Material"><option value="">All materials</option>${[...new Set((catalog?.items || []).flatMap(i => i.materials || []))].sort().map(m => `<option ${material === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select><span class="hint">${esc(gameName)} · from your installed maps · project-local cache</span></div>`;
     if (active) {
       html += `<div class="pieces-scan-progress" role="status" aria-live="polite"><span>${total ? `${processed} / ${total} maps` : 'Finding installed maps…'} · ${found} pieces found</span>
         <progress ${total ? `value="${Math.min(processed, total)}" max="${total}"` : ''} aria-label="Local map scan progress"></progress>
@@ -74,6 +75,8 @@ export function createPiecesBrowser({
     if (!container || disposed) return;
     container.querySelector('[data-pieces-progress]').innerHTML = progressHtml();
     container.querySelector('[data-pieces-error]').textContent = placeError;
+    const materialSelect = container.querySelector('[data-pieces-material]');
+    if (materialSelect) materialSelect.onchange = () => { material = materialSelect.value; draw(); };
     const scanButton = container.querySelector('[data-pieces-scan]');
     if (scanButton) scanButton.onclick = () => { void scan(false); };
     const pauseButton = container.querySelector('[data-pieces-pause]');
@@ -82,7 +85,7 @@ export function createPiecesBrowser({
     if (retry) retry.onclick = () => { void render(); };
     const query = String(searchInput?.value || '').trim().toLowerCase();
     const categories = Array.isArray(catalog?.categories) ? catalog.categories : [];
-    const items = Array.isArray(catalog?.items) ? catalog.items.filter(filterItem) : [];
+    const items = Array.isArray(catalog?.items) ? catalog.items.filter(item => filterItem(item) && (!material || item.materials?.includes(material))) : [];
     const syncPreparing = () => {
       for (const button of container.querySelectorAll('[data-piece]')) {
         const pending = preparing.has(button.dataset.piece);
@@ -94,19 +97,18 @@ export function createPiecesBrowser({
         } else if (!pending && label) label.remove();
       }
     };
-    const stamp = JSON.stringify([query, categories, items, items.length ? '' : catalog?.scan?.state, items.length ? false : scanning, favourites?.list()]);
+    const stamp = JSON.stringify([query, material, categories, items, items.length ? '' : catalog?.scan?.state, items.length ? false : scanning, favourites?.list()]);
     if (stamp === listStamp) { syncPreparing(); return; }
     listStamp = stamp;
     const target = container.querySelector('[data-pieces-list]');
     const firstCategory = categories.find(category => items.some(item => item.cat === category));
     if (!openedFirst && firstCategory) { openCategories.add(firstCategory); openedFirst = true; }
-    const matches = item => !query || [item.label, item.cat, item.map, ...searchTerms, ...(Array.isArray(item.tex) ? item.tex : [])]
-      .some(value => String(value || '').toLowerCase().includes(query));
+    const matches = item => catalogMatches(item, query, searchTerms);
     const tile = item => {
       const maps = Array.isArray(item.maps) ? item.maps : [], size = Array.isArray(item.size) ? item.size.join(' x ') : '';
       const where = maps.length > 1 ? `${maps.length} levels` : item.map || '';
       return `<button class="item" data-piece="${esc(item.id)}" ${preparing.has(item.id) ? 'disabled aria-busy="true"' : ''}
-          title="${esc(item.label)} · ${esc(size)} · used ${number(item.count)} time${item.count === 1 ? '' : 's'} (${esc(where)})${item.operation ? ' · ' + esc(item.operation) + '. Rebuild to play. No original mission links.' : ''}">
+          title="${esc(item.label)} · original: ${esc(item.original_label || item.label)} · ${esc(size)} · used ${number(item.count)} time${item.count === 1 ? '' : 's'} (${esc(where)})${item.operation ? ' · ' + esc(item.operation) + '. Rebuild to play. No original mission links.' : ''}">
           <span class="th" data-th="piece:${esc(item.id)}${item.revision ? '|' + esc(item.revision) : ''}"></span><span class="tl">${esc(item.label)}</span>${preparing.has(item.id) ? '<small data-piece-loading>Preparing…</small>' : ''}${favourites ? favourites.star(item.id, item.label) : ''}</button>`;
     };
     let html = '';
@@ -141,6 +143,11 @@ export function createPiecesBrowser({
     });
     // Drag/drop awaits preparation before placing the asset in the viewport.
     for (const button of target.querySelectorAll('[data-piece]')) button.onclick = () => place(button.dataset.piece);
+    if (menu) for (const button of target.querySelectorAll('[data-piece]')) button.oncontextmenu = event => {
+      event.preventDefault(); const item = items.find(i => i.id === button.dataset.piece);
+      menu(event.clientX, event.clientY, [{ label: 'Edit catalog details…', run: () => editCatalogDetails({ item, api, categories,
+        onSaved: () => { listStamp = null; return render(); } }) }]);
+    };
     syncPreparing();
     thumbnails();
   }

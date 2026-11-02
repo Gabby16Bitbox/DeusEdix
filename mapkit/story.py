@@ -49,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import settings  # noqa: E402
 import atomicfile  # noqa: E402
+import infolink_styles
 import conditions  # noqa: E402
 
 KIT = Path(__file__).resolve().parent
@@ -81,6 +82,7 @@ def load(map_name):
 
 
 def save(map_name, story):
+    infolink_styles.validate_story(story)
     STORY.mkdir(exist_ok=True)
     atomicfile.write_json(path(map_name), story, ensure_ascii=False)
 
@@ -380,6 +382,7 @@ def action_code(map_name, a, dialogues, indent, infolinks=None):
 
 def generate(map_name, story):
     """The UnrealScript class of a map's story."""
+    infolink_styles.validate_story(story)
     dialogues = {d['id']: d for d in story.get('dialogues') or [] if d.get('id') and d.get('owner')}
     cls = class_name(map_name)
     L = [HEADER % map_name + 'class %s extends UCEditorStory;' % cls, '',
@@ -420,6 +423,7 @@ def generate(map_name, story):
               "\ts = InfoLink('%s', %s, %s, %s);" % (heard_flag(map_name, il), 'True' if il.get('once', True) else 'False',
                                                      lit(ident(il.get('caller') or 'Unknown')), lit(il.get('name') or '')),
               '\tif (s == None)', '\t\treturn;']
+        L += infolink_styles.override_code(il.get('style'))
         if il.get('hush') is False:      # "No talking while it plays" off (UCEdInfoLink hushes by default)
             L.append('\ts.bHushTalks = False;')
         for line in il.get('lines') or []:
@@ -490,6 +494,7 @@ def write_all(current=None):
     of a report. A story that cannot be built (a condition not filled in yet...) stops it, naming its map, when it
     is the map being played or installed (current) or when every map is built (current None: Export mod); another
     map's keeps the class it had, and the report says why."""
+    infolink_styles.write_runtime()
     report = []
     import sys
     sys.path.insert(0,str(KIT/'editor'))

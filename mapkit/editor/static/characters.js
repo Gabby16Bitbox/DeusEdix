@@ -24,6 +24,7 @@ const PF = { masked: 2, translucent: 4, modulated: 64 };
 
 let cat = null, chars = [], cur = null, dirty = false, readyP = null, items = [];
 const models = {};
+let lookBodies = [];
 let open = null;              // the group whose gallery is open
 
 async function api(url, body) {
@@ -39,6 +40,7 @@ function ready() {
     readyP = (async () => {
       const r = await api('/api/characters');
       chars = r.characters || [];
+      lookBodies = r.looks || [];
       cat = await (await fetch(r.catalog)).json();
       await Promise.all(Object.entries(cat.bodies).map(async ([k, b]) => { models[k] = await (await fetch('/cache/_characters/' + b.model)).json(); }));
       if (E() && E().refreshPalette) E().refreshPalette();
@@ -491,6 +493,12 @@ window.__characters = {
   get dirty() { return dirty; },
   portrait: async (id, opts) => { await ready(); const c = typeof id === 'object' ? id : chars.find((x) => x.id === id); if (!c) throw new Error('no character ' + id); return portrait(c, opts); },
   ready,
+  lookTemplates: () => lookBodies,
+  lookProps(mesh, id) {
+    const body = lookBodies.find(b => b.mesh === mesh), look = body?.looks.find(p => p.id === id);
+    if (!look) return null;
+    return { Mesh: `LodMesh'${mesh}'`, Skin: 'None', ...Object.fromEntries(look.skins.map((t, i) => [`MultiSkins(${i})`, t ? `Texture'${t}'` : 'None'])) };
+  },
   open: openPanel,
   parts: partsOfActor,
   propsOf,

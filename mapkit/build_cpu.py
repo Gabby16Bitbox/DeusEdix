@@ -6,8 +6,41 @@ Unsupported APIs/topologies simply keep the normal Windows scheduling policy.
 """
 import os
 import struct
+import threading
 from contextlib import contextmanager
 from functools import wraps
+
+# work started from a thread inside background() (the Pieces scan): its engine processes run below normal priority
+# and keep Windows' own core choice, so the programs the person is using come first (1 Nov 2026: the mouse
+# stuttered while three scan engines held the fast cores)
+_local = threading.local()
+
+
+@contextmanager
+def background():
+    was = getattr(_local, 'background', False)
+    _local.background = True
+    try:
+        yield
+    finally:
+        _local.background = was
+
+
+def _in_background(process_handle):
+    """In background(): the process below normal priority, and True (no fast cores asked for it)"""
+    if not getattr(_local, 'background', False):
+        return False
+    if os.name == 'nt' and process_handle is not None:
+        try:
+            import ctypes as c
+            from ctypes import wintypes as w
+            k = c.WinDLL('kernel32', use_last_error=True)
+            k.SetPriorityClass.argtypes = [w.HANDLE, w.DWORD]
+            k.SetPriorityClass.restype = w.BOOL
+            k.SetPriorityClass(w.HANDLE(process_handle), 0x4000)      # BELOW_NORMAL_PRIORITY_CLASS
+        except (AttributeError, OSError, ValueError, TypeError):
+            pass
+    return True
 
 
 def _enabled():
@@ -75,6 +108,8 @@ def prefer_performance(process_handle=None):
     calls this with its child handle, so the server/UI scheduling is unchanged.
     Returns the selected CPU-set IDs, or [] when Windows retains its defaults.
     """
+    if _in_background(process_handle):
+        return []
     if not _enabled():
         return []
     try:
@@ -97,7 +132,7 @@ def prefer_performance(process_handle=None):
 
 def _prefer_thread():
     """Return a restoration callback only when we assigned this worker thread."""
-    if not _enabled():
+    if not _enabled() or getattr(_local, 'background', False):
         return None
     try:
         import ctypes as c

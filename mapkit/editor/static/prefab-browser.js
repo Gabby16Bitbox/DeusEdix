@@ -1,3 +1,4 @@
+import { catalogMatches, editCatalogDetails } from './asset-catalog.js';
 // Project-local, baked prefabs. Placement and capturing map edits stay with app.js.
 // favourites: the stars of the cards and their group at the top (browser-tiles.js favouriteShelf), or none.
 // Linked prefabs (prefab-links.js): a card is a prefab (its line), placed as its newest version; its ⋯ (or a right
@@ -73,18 +74,18 @@ export function createPrefabBrowser({
     }
     if (ticket !== rendered || revision !== generation) return;
     const matches = text => query.every(word => text.toLowerCase().includes(word));
-    const shown = entries.filter(item => matches(`${item.label || ''} ${sourceName(item.source)}`));
+    const shown = entries.filter(item => catalogMatches(item, query.join(' ')));
     // Favourites first (kept per project, by prefab: a new version keeps its star); a prefab deleted from the library
     // shows as missing
     const favs = (favourites?.entries(id => entries.find(item => lineOf(item) === id)) || [])
-      .filter(({ fav, item }) => matches(item ? `${item.label || ''} ${sourceName(item.source)}` : fav.label));
+      .filter(({ fav, item }) => item ? catalogMatches(item, query.join(' ')) : matches(fav.label));
     const reason = unavailable();
     const intro = `<div class="prefab-toolbar"><button data-pf-save class="primary" ${reason ? 'disabled' : ''} title="${esc(reason || 'Save the selected structure or nested group')}">Save selection as prefab…</button></div>
       <div class="hint sintro">Project library. Each prefab is a baked structure, including nested groups and their objects. Its copies stay linked to it: Apply to prefab (right click a copy) saves a new version, Update instances brings the others to it. Rebuild the source map before saving to capture the latest geometry. Placing or saving does not change your clipboard.</div>`;
     const card = item => {
       const counts = item.counts || {}, here = copiesHere(item), line = lineOf(item);
-      return `<article class="prefab-card" data-pf-card="${esc(line)}">${item.thumb ? `<img class="prefab-thumb" src="${esc(item.thumb)}" alt="" loading="lazy">` : '<span class="prefab-thumb" aria-hidden="true"></span>'}<div class="prefab-copy"><b>${esc(item.label || item.id)}</b>
-        <small>Version ${count(item.version) || 1} · source: ${esc(sourceName(item.source) || 'Project map')}</small>
+      return `<article class="prefab-card" data-pf-card="${esc(line)}">${item.thumb ? `<img class="prefab-thumb" src="${esc(item.thumb)}" alt="" loading="lazy">` : '<span class="prefab-thumb" aria-hidden="true"></span>'}<div class="prefab-copy"><b title="${esc(item.original_label || item.label || item.id)}">${esc(item.label || item.id)}</b>
+        <small>${esc(item.cat || 'Project prefabs')} · Version ${count(item.version) || 1} · source: ${esc(sourceName(item.source) || 'Project map')}</small>
         <small>${count(counts.structures)} structures · ${count(counts.brushes)} brushes · ${count(counts.actors)} objects</small>
         ${here?.count ? `<small class="prefab-here${here.older ? ' old' : ''}">In this map: ${here.count} ${here.count === 1 ? 'copy' : 'copies'}${here.older ? `, ${here.older} on an older version` : ''}</small>` : ''}</div>
         ${favourites ? favourites.star(line, item.label || item.id) : ''}<button data-pf-place="${esc(item.id)}" title="Place a copy, linked to this prefab">Place</button>${menu ? `<button class="prefab-more" data-pf-more="${esc(line)}" title="Rename, delete, picture, its copies in this map" aria-label="More for ${esc(item.label || item.id)}">⋯</button>` : ''}</article>`;
@@ -121,6 +122,8 @@ export function createPrefabBrowser({
       { label: 'Select instances', off: !here?.count, run: () => onSelect(item) },
       { label: 'Update instances', off: !here?.older, run: () => onUpdate(item) },
       { sep: true },
+      { label: 'Edit catalog details…', run: () => editCatalogDetails({ item, api, categories: (items || []).map(i => i.cat),
+        onSaved: () => { invalidate(); return render(); } }) },
       { label: 'Rename…', run: () => rename(item) },
       { label: 'Use the current view as its picture', off: !here, run: () => picture(item) },
       { sep: true },

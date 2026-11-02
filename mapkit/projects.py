@@ -31,6 +31,7 @@ PYTHON.update({'vec3.py', 'classtree.py'})   # the vector type (geom, blocks) an
 PYTHON.add('mover_transform.py')        # a mover moved or turned in the editor keeps its keys (scene, dxmaps)
 PYTHON.add('conditions.py')             # the rules' and the Story's conditions (links, story)
 PYTHON.update({'build_cache.py', 'build_cached.py', 'build_cpu.py', 'preview_bundle.py', 'texture_cache.py', 'resident_build.py'})
+PYTHON.add('patrol_paths.py')          # walking support for drawn patrol routes
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
 GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc'}
@@ -439,7 +440,7 @@ class ProjectManager:
                 payload[target] = _namespace(file.read_bytes(), metadata['package'])
         return payload, seeds
 
-    def _provision(self, metadata):
+    def _provision(self, metadata, preserve_local=False):
         if metadata.get('external'):
             path = self._path(metadata['path'], self._registry()['projects'])
             actual = _workspace_metadata(path)
@@ -477,9 +478,9 @@ class ProjectManager:
             before[rel] = digest
             if destination.exists() and not destination.is_file():
                 conflicts.append(rel)
-            elif digest is not None and digest != old.get(rel, _hash(content)):
+            elif digest is not None and digest not in (old.get(rel), _hash(content)):
                 conflicts.append(rel)
-        if conflicts:
+        if conflicts and not preserve_local:
             raise ProjectConflictError(conflicts)
         for rel in seeds:
             destination = path / rel
@@ -503,6 +504,22 @@ class ProjectManager:
                     or _target(existing.get('target')) != _target(metadata.get('target'))):
                 raise ValueError('Project config points to another namespace; it was not replaced.')
             config = {**existing, **config}
+        if conflicts:
+            # Opening may retain a complete existing application, never a hybrid
+            # assembled from selected old/new modules. Creation stays strict.
+            if not manifest.is_file() or not cfgfile.is_file() or not old:
+                raise ProjectConflictError(conflicts)
+            for rel in old:
+                _no_links(path / rel)
+                if not (path / rel).is_file():
+                    raise ProjectConflictError(conflicts)
+            for rel in ('tools/mapkit/editor/server.py', 'tools/mapkit/settings.py',
+                        'tools/mapkit/project_server.py', 'tools/mapkit/editor/static/app.js'):
+                if not (path / rel).is_file():
+                    raise ProjectConflictError(conflicts)
+            return dict(metadata, updateWarning=dict(
+                message="Using this project's local editor version. Local changes were preserved; the editor update was skipped.",
+                files=sorted(conflicts)))
         path.mkdir(parents=True, exist_ok=True)
         if not manifest.exists():
             _json(manifest, dict(version=VERSION, **{key: metadata[key] for key in ('id', 'name', 'kind', 'package', 'target')
@@ -579,7 +596,7 @@ class ProjectManager:
             _json(self.registry, registry)
             return metadata
 
-    def provision(self, ident_or_path):
+    def provision(self, ident_or_path, preserve_local=False):
         with self._locked():
             registry = self._registry()
             metadata = next((p for p in registry['projects'] if p['id'] == str(ident_or_path)), None)
@@ -591,10 +608,11 @@ class ProjectManager:
                 if any(p['package'].casefold() == metadata['package'].casefold() and p['id'] != metadata['id']
                        for p in registry['projects']):
                     raise ValueError('This project package is already registered under another ID.')
-            result = self._provision(metadata)
-            registry['projects'] = [result if p['id'] == result['id'] else p for p in registry['projects']]
+            result = self._provision(metadata, preserve_local=preserve_local)
+            registered = {k: v for k, v in result.items() if k != 'updateWarning'}
+            registry['projects'] = [registered if p['id'] == result['id'] else p for p in registry['projects']]
             if not any(p['id'] == result['id'] for p in registry['projects']):
-                registry['projects'].append(result)
+                registry['projects'].append(registered)
             _json(self.registry, registry)
             return result
 
@@ -622,8 +640,8 @@ def open_project(folder):
     return ProjectManager().open_project(folder)
 
 
-def provision(ident_or_path):
-    return ProjectManager().provision(ident_or_path)
+def provision(ident_or_path, preserve_local=False):
+    return ProjectManager().provision(ident_or_path, preserve_local=preserve_local)
 
 
 def default_location():
