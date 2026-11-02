@@ -53,6 +53,8 @@
 #projecthub .sr-project { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 body #project-dialog { width:min(580px,calc(100vw - 32px)); }
 body #project-dialog form { margin:0; }
+body #project-dialog .project-update-path, body #project-dialog details li { overflow-wrap:anywhere; }
+body #project-dialog details ul { max-height:240px; overflow:auto; padding-left:20px; }
 body #project-dialog main > label { display:block; margin:8px 0 4px; }
 body #project-dialog main > input { box-sizing:border-box; width:100%; min-height:28px; height:28px; }
 body #project-dialog .project-note { color:var(--dim); font-size:11px; margin:10px 0; }

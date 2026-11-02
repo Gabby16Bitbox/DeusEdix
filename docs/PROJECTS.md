@@ -33,9 +33,17 @@ Back up the manifest, `deusedix.json`, authored content and runtime sources toge
 
 Editor appearance, shortcuts and panel layout are shared preferences. Map state, recent maps, visibility/selection locks and tutorial progress are stored for the project. The application keeps its project list separately from project content.
 
+## Updating an existing project
+
+After installing a new DeusEdix version, opening a project updates its editor files automatically. An **Editor updated** notice lists the changed files and the backup folder. Maps, dialogue, imported assets and generated InfoLink styles are preserved. The update does not rebuild maps.
+
+Local code changes are merged when they do not overlap the update. If they conflict, **Editor update available** offers **Keep local version** or **Update with backup**. The latter replaces the listed conflicting files with the installed version; their previous contents are kept in `.deusedix-updates/`. An interrupted file-copy operation rolls back the files it replaced. A backup is not a replacement for a full project backup.
+
+An external workspace with its own custom editor must be integrated once before automatic updates can be enabled. Until then, a notice explains that it is using its own editor version. Private campaign classes remain separate from shared editor files.
+
 ## Implementation notes
 
-Every project runs in a separate editor process with fixed paths. A session header binds API requests to that process; late saves from a previous session cannot target the newly opened project. Project code is copied from an allowlist. Updates compare ownership hashes and stop on locally changed application files. User assets, generated story classes and extended catalog caches are preserved.
+Every project runs in a separate editor process with fixed paths. A session header binds API requests to that process; late saves from a previous session cannot target the newly opened project. Project code is copied from an allowlist. Updates compare ownership hashes and a compressed pristine baseline, stored in `.deusedix-editor-base.zip`. Overlapping local code edits require an explicit choice. User assets, generated story classes and extended catalog caches are preserved.
 
 Managed runtime packages use `DXP_<project ID>`; audio, models and animation packages append `Sounds`, `Models` and `Anims`. Installed builds and game saves use `Revision/DeusEdixProjects/<project ID>/`. Activating one project's game paths does not delete another project's build.
 

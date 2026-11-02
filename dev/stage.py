@@ -24,7 +24,7 @@ STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', 
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
 GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc'}
 USER_PATHS = ('Projects', 'DevInstall', 'maps', 'webview', 'deusedix.json', 'DeusEdix.exe',
-              'deusedix-project.json', '.deusedix-owned.json', '.deusedix-ui.json', '.deusedix-project-ui.json',
+              'deusedix-project.json', '.deusedix-owned.json', '.deusedix-editor-base.zip', '.deusedix-updates', '.deusedix-ui.json', '.deusedix-project-ui.json',
               *('tools/mapkit/' + name for name in
                 ('maps', 'story', 'sounds', 'dubs', 'models', 'textures', 'characters', 'prefabs', 'anims')))
 

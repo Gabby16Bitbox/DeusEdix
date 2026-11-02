@@ -274,7 +274,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_failed_process_launch_closes_log_and_releases_supervisor(self):
         supervisor = self.server.Supervisor(game_running=lambda: False)
-        fake_projects = types.SimpleNamespace(provision=lambda _id: {'id': 'a', 'path': str(self.a)})
+        fake_projects = types.SimpleNamespace(provision=lambda _id, **kwargs: {'id': 'a', 'path': str(self.a)})
         stream = Mock()
         with patch.dict(sys.modules, {'projects': fake_projects}), patch.object(supervisor, '_port', return_value=9998), \
                 patch.object(supervisor, '_stop'), patch.object(Path, 'open', return_value=stream), \
@@ -314,7 +314,7 @@ class RuntimeTests(unittest.TestCase):
         previous = self.worker()
         supervisor.active = previous
         child = self.worker('b')['process']
-        fake_projects = types.SimpleNamespace(provision=lambda _id: {'id': 'b', 'path': str(self.b)})
+        fake_projects = types.SimpleNamespace(provision=lambda _id, **kwargs: {'id': 'b', 'path': str(self.b)})
         timer = Mock()
         with patch.dict(sys.modules, {'projects': fake_projects}), patch.object(supervisor, '_port', return_value=9998), \
                 patch.object(self.server.subprocess, 'Popen', return_value=child), \
@@ -337,7 +337,7 @@ class RuntimeTests(unittest.TestCase):
                 supervisor = self.server.Supervisor(game_running=lambda: False)
                 info = dict(id='workspace-test' if external else 'custom-test', path=str(self.b), external=external)
                 child = self.worker()['process']
-                fake_projects = types.SimpleNamespace(provision=lambda _id: info)
+                fake_projects = types.SimpleNamespace(provision=lambda _id, **kwargs: info)
                 with patch.dict(sys.modules, {'projects': fake_projects}), \
                         patch.dict(os.environ, {'DEUSEDIX_WORKSPACE_ID': 'stale'}), \
                         patch.object(supervisor, '_port', return_value=9998), \

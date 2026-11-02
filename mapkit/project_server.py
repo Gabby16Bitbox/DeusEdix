@@ -258,19 +258,19 @@ class Supervisor:
         for worker, _timer in pending:
             self._finish_retired(worker)
 
-    def open(self, descriptor):
+    def open(self, descriptor, update_local=False):
         if not self.lock.acquire(blocking=False):
             raise ProjectTransitionError('Another project is opening. Please wait.', 'project_busy')
         previous = self.active
         worker = None
         try:
-            if previous and previous['project']['id'] == descriptor['id'] and previous['process'].poll() is None:
+            if not update_local and previous and previous['project']['id'] == descriptor['id'] and previous['process'].poll() is None:
                 return dict(project=previous['project'], url=previous['url'])
             if (not previous or previous['process'].poll() is not None) and self.game_running():
                 raise ProjectTransitionError('Close the game before opening another project.', 'game_running')
             self._retire(previous)
             import projects
-            info = projects.provision(descriptor['id'], preserve_local=True)
+            info = projects.provision(descriptor['id'], preserve_local=True, update_local=update_local)
             root = Path(info['path'])
             port, token = self._port(), secrets.token_hex(24)
             env = dict(os.environ, DEUSEDIX_PROJECT_WORKER='1', DEUSEDIX_PROJECT_ID=info['id'],
@@ -385,7 +385,7 @@ def api(path, body=None):
         return SUPERVISOR.open(info)
     if path == '/api/projects/open':
         info = projects.open_project(body['path']) if body.get('path') else projects.get_project(body.get('id', ''))
-        return SUPERVISOR.open(info)
+        return SUPERVISOR.open(info, update_local=body.get('updateEditor') is True)
     if path == '/api/projects/close':
         return SUPERVISOR.close()
     if path == '/api/projects/assistant':          # Tools > AI assistant...: the user's switch

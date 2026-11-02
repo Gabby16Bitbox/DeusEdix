@@ -198,13 +198,21 @@ export function createProjectHub({ confirmLeave, onCurrent, onVisibility }) {
     try {
       const descriptor = { ...project };
       const attempt = () => api('/api/projects/open', descriptor, { signal: opening.signal });
-      const result = tutorial ? await waitForProjectTransition(attempt, { signal: opening.signal, timeoutMs: 120000,
+      let result = tutorial ? await waitForProjectTransition(attempt, { signal: opening.signal, timeoutMs: 120000,
         onWait: () => window.__tutorialLoading?.show('Finishing the current operation before opening the tutorial…') }) : await attempt();
       if (opening.signal.aborted) return false;
       if (tutorial) window.__tutorialLoading?.show('Opening the tutorial editor…');
       if (result.project?.updateWarning) {
         window.__tutorialLoading?.hide?.();
-        await showUpdateNotice(result.project.updateWarning);
+        const choice = await showUpdateNotice(result.project.updateWarning);
+        if (opening.signal.aborted) return false;
+        if (choice === 'update') {
+          result = await api('/api/projects/open', { ...descriptor, updateEditor: true }, { signal: opening.signal });
+        }
+      }
+      if (result.project?.updateNotice) {
+        window.__tutorialLoading?.hide?.();
+        await showUpdateNotice(result.project.updateNotice, true);
         if (opening.signal.aborted) return false;
       }
       navigate(result.url, tutorial, fromHome); return true;
@@ -218,14 +226,16 @@ export function createProjectHub({ confirmLeave, onCurrent, onVisibility }) {
     }
     finally { window.removeEventListener('pagehide', leave); lock(false); }
   }
-  function showUpdateNotice(warning) {
+  function showUpdateNotice(warning, updated = false) {
     return new Promise(resolve => {
-      dialog.innerHTML = `<form method="dialog"><header><h2 id="project-dialog-title">Local editor version</h2></header><main>
-        <p>${esc(warning.message)}</p><details><summary>Changed files</summary><ul>${(warning.files || []).map(file => `<li>${esc(file)}</li>`).join('')}</ul></details>
-        </main><footer><button type="submit" class="primary">Continue</button></footer></form>`;
-      dialog.addEventListener('close', resolve, { once: true });
+      dialog.returnValue = '';
+      dialog.innerHTML = `<form method="dialog"><header><h2 id="project-dialog-title">${updated ? 'Editor updated' : 'Editor update available'}</h2></header><main>
+        <p>${esc(warning.message)}</p>${warning.backup ? `<p class="project-note">Previous files saved in:<br><span class="project-update-path">${esc(warning.backup)}</span></p>` : ''}
+        <details><summary>Changed files${warning.merged?.length ? ` · ${warning.merged.length} local changes kept` : ''}</summary><ul>${(warning.files || []).map(file => `<li>${esc(file)}</li>`).join('')}</ul></details>
+        </main><footer>${!updated && warning.canUpdate ? '<button type="submit" value="keep">Keep local version</button><button type="submit" value="update" class="primary">Update with backup</button>' : '<button type="submit" value="keep" class="primary">Continue</button>'}</footer></form>`;
+      dialog.addEventListener('close', () => resolve(dialog.returnValue || 'keep'), { once: true });
       if (!dialog.open) dialog.showModal();
-      dialog.querySelector('button').focus();
+      dialog.querySelector('.primary').focus();
     });
   }
   function openDialog(mode) {

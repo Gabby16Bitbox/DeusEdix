@@ -4,6 +4,7 @@ Each worker imports its own copied application from a complete compatible worksp
 canonical application owns only manifest-tracked code; maps, stories and resources are local.
 """
 import contextlib
+import difflib
 import hashlib
 import json
 import os
@@ -11,12 +12,15 @@ from pathlib import Path, PurePosixPath
 import re
 import threading
 import uuid
+import zipfile
+from datetime import datetime, timezone
 
 import settings
 
 VERSION = 1
 MANIFEST = 'deusedix-project.json'
 OWNED = '.deusedix-owned.json'
+BASE = '.deusedix-editor-base.zip'
 KINDS = {'custom', 'original', 'tutorial'}
 _LOCK = threading.RLock()
 PYTHON = {'activation.py', 'classes.py', 'geom.py', 'kit.py', 'library.py', 'live.py', 'game_process.py', 'originalstory.py',
@@ -35,7 +39,7 @@ PYTHON.add('patrol_paths.py')          # walking support for drawn patrol routes
 PYTHON.add('infolink_styles.py')       # shared InfoLink styles in existing and new projects
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
-GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc'}
+GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc', 'UCInfoLinkStyle.uc'}
 DATA_DIRS = ('maps', 'maps/.authoring', 'dist', 'logs', 'tools/mapkit/maps', 'tools/mapkit/story',
              'tools/mapkit/out', 'tools/mapkit/runs', 'tools/mapkit/editor/cache', 'tools/mapkit/sounds',
              'tools/mapkit/dubs', 'tools/mapkit/models', 'tools/mapkit/textures', 'tools/mapkit/characters',
@@ -50,6 +54,111 @@ class ProjectConflictError(ValueError):
 
 def _hash(content):
     return hashlib.sha256(content).hexdigest()
+
+
+def _merge_editor(base, local, incoming):
+    """Conservative line merge: preserve local edits; overlapping edits need a choice."""
+    if local == base or local == incoming:
+        return incoming
+    if incoming == base:
+        return local
+    if any(b'\0' in value for value in (base, local, incoming)):
+        return None
+    if any(any(c < 32 and c not in (9, 10, 13) for c in value) for value in (base, local, incoming)):
+        return None
+    crlf = b'\r\n' in local
+    base, local, incoming = (value.replace(b'\r\n', b'\n') for value in (base, local, incoming))
+    lines = base.splitlines(keepends=True)
+    changes = []
+    for version in (local, incoming):
+        target = version.splitlines(keepends=True)
+        for op, a, b, c, d in difflib.SequenceMatcher(None, lines, target, autojunk=False).get_opcodes():
+            if op == 'equal':
+                continue
+            change = (a, b, target[c:d])
+            if change in changes:
+                continue
+            for start, end, _ in changes:
+                # Insertions at the same boundary are deliberately ambiguous.
+                if max(a, start) < min(b, end) or (a == b and start <= a <= end) or (start == end and a <= start <= b):
+                    return None
+            changes.append(change)
+    out, cursor = [], 0
+    for a, b, value in sorted(changes):
+        out.extend(lines[cursor:a]); out.extend(value); cursor = b
+    out.extend(lines[cursor:])
+    result = b''.join(out)
+    return result.replace(b'\n', b'\r\n') if crlf else result
+
+
+def _base_files(path):
+    file = path / BASE
+    _no_links(file)
+    if not file.exists():
+        return {}
+    try:
+        with zipfile.ZipFile(file) as archive:
+            if sum(info.file_size for info in archive.infolist()) > 256 * 1024 * 1024:
+                raise ValueError('Editor update baseline is too large.')
+            return {_relative(name): archive.read(name) for name in archive.namelist()}
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ValueError('Cannot read the editor update baseline; no files were replaced.') from exc
+
+
+def _base_bytes(payload):
+    import io
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for rel, content in sorted(payload.items()):
+            info = zipfile.ZipInfo(rel, (1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, content)
+    return stream.getvalue()
+
+
+def _apply_editor_update(path, writes, expected):
+    """Back up the whole change before writing; roll back a failed update."""
+    changed = {rel: data for rel, data in writes.items()
+               if not (path / rel).is_file() or (path / rel).read_bytes() != data}
+    if not changed:
+        return None
+    originals = {}
+    for rel in changed:
+        target = path / _relative(rel)
+        _no_links(target)
+        old = target.read_bytes() if target.is_file() else None
+        if (None if old is None else _hash(old)) != expected[rel]:
+            raise ProjectConflictError([rel])
+        originals[rel] = old
+    backup = path / '.deusedix-updates' / (datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
+    for rel, data in originals.items():
+        if data is not None:
+            _write(backup / 'files' / rel, data)
+    report = dict(version=1, status='prepared', files={rel: dict(before=expected[rel], after=_hash(data))
+                                                     for rel, data in changed.items()})
+    _json(backup / 'update.json', report)
+    applied = []
+    try:
+        for rel, data in changed.items():
+            target = path / rel
+            now = _hash(target.read_bytes()) if target.is_file() else None
+            if now != expected[rel]:
+                raise ProjectConflictError([rel])
+            _write(target, data)
+            applied.append(rel)
+        _json(backup / 'update.json', dict(report, status='complete'))
+    except Exception:
+        for rel in reversed(applied):
+            target = path / rel
+            _no_links(target)
+            if target.is_file() and _hash(target.read_bytes()) == _hash(changed[rel]):
+                if originals[rel] is None:
+                    target.unlink()
+                else:
+                    _write(target, originals[rel])
+        _json(backup / 'update.json', dict(report, status='rolled back'))
+        raise
+    return str(backup)
 
 
 def _read(path):
@@ -441,18 +550,24 @@ class ProjectManager:
                 payload[target] = _namespace(file.read_bytes(), metadata['package'])
         return payload, seeds
 
-    def _provision(self, metadata, preserve_local=False):
+    def _provision(self, metadata, preserve_local=False, update_local=False):
         if metadata.get('external'):
             path = self._path(metadata['path'], self._registry()['projects'])
             actual = _workspace_metadata(path)
             if (any(actual[k] != metadata[k] for k in ('id', 'kind', 'package'))
                     or _target(actual.get('target')) != _target(metadata.get('target'))):
                 raise ValueError('The existing workspace identity changed; no files were replaced.')
-            return actual
+            if not (path / OWNED).is_file() or not (path / BASE).is_file():
+                return dict(actual, updateWarning=dict(
+                    message='This workspace uses its own editor files. Installing DeusEdix does not update them. '
+                            'Its custom code needs to be integrated once before automatic editor updates can be enabled.',
+                    files=[], canUpdate=False)) if preserve_local else actual
+            return self._refresh_external(actual, preserve_local, update_local)
         if metadata.get('legacy'):
             return dict(metadata)                 # Existing work is registered in place, never refreshed.
         path = self._path(metadata['path'], self._registry()['projects'])
         manifest = path / MANIFEST
+        updating = manifest.is_file()
         if manifest.exists():
             actual = _metadata(_read(manifest), path)
             if (any(actual[k] != metadata[k] for k in ('id', 'kind', 'package'))
@@ -471,7 +586,9 @@ class ProjectManager:
         old = {key: value for key, value in old.items() if key not in seeds}
         if any(not isinstance(digest, str) or not re.fullmatch(r'[a-f0-9]{64}', digest) for digest in old.values()):
             raise ValueError('Invalid project application ownership hash.')
-        conflicts, before = [], {}
+        baseline = _base_files(path)
+        canonical = dict(payload)
+        conflicts, before, merged = [], {}, []
         for rel, content in payload.items():
             destination = path / rel
             _no_links(destination)
@@ -479,9 +596,19 @@ class ProjectManager:
             before[rel] = digest
             if destination.exists() and not destination.is_file():
                 conflicts.append(rel)
-            elif digest is not None and digest not in (old.get(rel), _hash(content)):
+            elif digest is not None and digest != _hash(content):
+                local = destination.read_bytes()
+                if rel in baseline:
+                    combined = _merge_editor(baseline[rel], local, content)
+                    if combined is not None:
+                        payload[rel] = combined
+                        if combined != content:
+                            merged.append(rel)
+                        continue
+                elif digest == old.get(rel):
+                    continue
                 conflicts.append(rel)
-        if conflicts and not preserve_local:
+        if conflicts and not preserve_local and not update_local:
             raise ProjectConflictError(conflicts)
         for rel in seeds:
             destination = path / rel
@@ -505,7 +632,7 @@ class ProjectManager:
                     or _target(existing.get('target')) != _target(metadata.get('target'))):
                 raise ValueError('Project config points to another namespace; it was not replaced.')
             config = {**existing, **config}
-        if conflicts:
+        if conflicts and not update_local:
             # Opening may retain a complete existing application, never a hybrid
             # assembled from selected old/new modules. Creation stays strict.
             if not manifest.is_file() or not cfgfile.is_file() or not old:
@@ -519,19 +646,16 @@ class ProjectManager:
                 if not (path / rel).is_file():
                     raise ProjectConflictError(conflicts)
             return dict(metadata, updateWarning=dict(
-                message="Using this project's local editor version. Local changes were preserved; the editor update was skipped.",
-                files=sorted(conflicts)))
+                message="This project has local editor or runtime changes that overlap the update. New features are not active yet. "
+                        "Update with backup replaces the conflicting editor files; maps, dialogue and project assets are kept.",
+                files=sorted(conflicts), canUpdate=True))
         path.mkdir(parents=True, exist_ok=True)
         if not manifest.exists():
             _json(manifest, dict(version=VERSION, **{key: metadata[key] for key in ('id', 'name', 'kind', 'package', 'target')
                                                      if key in metadata}))
-        for rel, content in payload.items():
-            destination = path / rel
-            actual = _hash(destination.read_bytes()) if destination.is_file() else None
-            if actual != before[rel]:
-                raise ProjectConflictError([rel])
-            if actual != _hash(content):
-                _write(destination, content)
+        if update_local:
+            for rel in conflicts:
+                payload[rel] = canonical[rel]
         for rel, content in seeds.items():
             destination = path / rel
             _no_links(destination)
@@ -542,9 +666,80 @@ class ProjectManager:
         for directory in DATA_DIRS:
             _no_links(path / directory)
             (path / directory).mkdir(parents=True, exist_ok=True)
-        _json(cfgfile, config)
-        _json(path / OWNED, {'version': VERSION, 'files': {**old, **{rel: _hash(data) for rel, data in payload.items()}}})
+        writes = dict(payload)
+        writes['deusedix.json'] = (json.dumps(config, indent=2) + '\n').encode('utf-8')
+        writes[OWNED] = (json.dumps({'version': VERSION, 'files': {**old, **{rel: _hash(data) for rel, data in payload.items()}}}, indent=2) + '\n').encode('utf-8')
+        writes[BASE] = _base_bytes(canonical)
+        for rel in ('deusedix.json', OWNED, BASE):
+            before[rel] = _hash((path / rel).read_bytes()) if (path / rel).is_file() else None
+        changed = [rel for rel, data in payload.items() if updating and before[rel] != _hash(data)]
+        backup = _apply_editor_update(path, writes, before)
+        if changed:
+            return dict(metadata, updateNotice=dict(message='The project editor was updated. Your maps, dialogue and assets were kept.',
+                        files=changed, merged=merged, backup=backup))
         return dict(metadata)
+
+    def _refresh_external(self, metadata, preserve_local, update_local):
+        """Only an explicitly integrated external workspace opts in; private mod classes remain unowned."""
+        path = Path(metadata['path'])
+        old = _read(path / OWNED)
+        if old.get('version') != VERSION or not isinstance(old.get('files'), dict):
+            raise ValueError('Invalid project application ownership manifest.')
+        ownership = {_relative(rel): value for rel, value in old['files'].items()}
+        if any(not isinstance(digest, str) or not re.fullmatch(r'[a-f0-9]{64}', digest) for digest in ownership.values()):
+            raise ValueError('Invalid project application ownership hash.')
+        baseline = _base_files(path)
+        payload, _seeds = self._payload(metadata)
+        ownership = {rel: value for rel, value in ownership.items() if rel not in _seeds}
+        dev = settings.devmode(path)
+        # External mods keep their original imported-animation/model package names.
+        aliases = {metadata['package'] + suffix: dev[key] for suffix, key in
+                   [('Anims', 'animsPackage'), ('Models', 'modelsPackage'), ('Sounds', 'soundsPackage'), ('Voices', 'voicesPackage')]}
+        for rel, value in list(payload.items()):
+            if rel.startswith('src/'):
+                if rel not in ownership and (path / rel).exists():
+                    del payload[rel]       # private overrides were never adopted as editor code
+                    continue
+                if rel.endswith('.uc'):
+                    for source, target in aliases.items():
+                        value = re.sub(rb'\b' + re.escape(source.encode()) + rb'\b', target.encode(), value)
+                    payload[rel] = value
+        canonical = dict(payload)
+        conflicts, before, merged = [], {}, []
+        for rel, content in payload.items():
+            target = path / rel
+            _no_links(target)
+            if target.exists() and not target.is_file():
+                raise ValueError('Expected an editor file: ' + rel)
+            local = target.read_bytes() if target.is_file() else None
+            before[rel] = None if local is None else _hash(local)
+            if local is None or local == content:
+                continue
+            combined = _merge_editor(baseline[rel], local, content) if rel in baseline else None
+            if combined is not None:
+                payload[rel] = combined
+                if combined != content:
+                    merged.append(rel)
+            elif rel in baseline or before[rel] != ownership.get(rel):
+                conflicts.append(rel)
+        if conflicts and not update_local:
+            if not preserve_local:
+                raise ProjectConflictError(conflicts)
+            return dict(metadata, updateWarning=dict(message='This workspace has local editor changes that overlap the update. '
+                        'New features are not active yet. Update with backup replaces the listed files; private maps and resources are kept.',
+                        files=conflicts, canUpdate=True))
+        if update_local:
+            for rel in conflicts:
+                payload[rel] = canonical[rel]
+        writes = dict(payload)
+        writes[OWNED] = (json.dumps(dict(version=VERSION, files={**ownership, **{rel: _hash(data) for rel, data in payload.items()}}), indent=2) + '\n').encode()
+        writes[BASE] = _base_bytes(canonical)
+        for rel in (OWNED, BASE):
+            before[rel] = _hash((path / rel).read_bytes()) if (path / rel).is_file() else None
+        changed = [rel for rel, data in payload.items() if before[rel] != _hash(data)]
+        backup = _apply_editor_update(path, writes, before)
+        return dict(metadata, **(dict(updateNotice=dict(message='The workspace editor was updated. Private mod files were kept.',
+                    files=changed, merged=merged, backup=backup)) if changed else {}))
 
     def list_projects(self):
         with self._locked():
@@ -597,7 +792,7 @@ class ProjectManager:
             _json(self.registry, registry)
             return metadata
 
-    def provision(self, ident_or_path, preserve_local=False):
+    def provision(self, ident_or_path, preserve_local=False, update_local=False):
         with self._locked():
             registry = self._registry()
             metadata = next((p for p in registry['projects'] if p['id'] == str(ident_or_path)), None)
@@ -609,8 +804,8 @@ class ProjectManager:
                 if any(p['package'].casefold() == metadata['package'].casefold() and p['id'] != metadata['id']
                        for p in registry['projects']):
                     raise ValueError('This project package is already registered under another ID.')
-            result = self._provision(metadata, preserve_local=preserve_local)
-            registered = {k: v for k, v in result.items() if k != 'updateWarning'}
+            result = self._provision(metadata, preserve_local=preserve_local, update_local=update_local)
+            registered = {k: v for k, v in result.items() if k not in ('updateWarning', 'updateNotice')}
             registry['projects'] = [registered if p['id'] == result['id'] else p for p in registry['projects']]
             if not any(p['id'] == result['id'] for p in registry['projects']):
                 registry['projects'].append(registered)
@@ -641,8 +836,8 @@ def open_project(folder):
     return ProjectManager().open_project(folder)
 
 
-def provision(ident_or_path, preserve_local=False):
-    return ProjectManager().provision(ident_or_path, preserve_local=preserve_local)
+def provision(ident_or_path, preserve_local=False, update_local=False):
+    return ProjectManager().provision(ident_or_path, preserve_local=preserve_local, update_local=update_local)
 
 
 def default_location():

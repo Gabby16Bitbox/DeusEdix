@@ -48,13 +48,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "..\build\pyi\DeusEdix\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\build\release\*"; DestDir: "{app}"; Excludes: "UCPortraits.uc,UCVoiceDubs.uc"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\release\*"; DestDir: "{app}"; Excludes: "UCPortraits.uc,UCVoiceDubs.uc,UCInfoLinkStyle.uc"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; These are generated from the user's portraits and recordings. Seed a new install only.
 Source: "..\build\release\src\DeusEdix\Classes\UCPortraits.uc"; DestDir: "{app}\src\DeusEdix\Classes"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "..\build\release\src\DeusEdix\Classes\UCVoiceDubs.uc"; DestDir: "{app}\src\DeusEdix\Classes"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\build\release\src\DeusEdix\Classes\UCInfoLinkStyle.uc"; DestDir: "{app}\src\DeusEdix\Classes"; Flags: onlyifdoesntexist uninsneveruninstall
 ; Clean templates are application code, not the user's generated indexes.
 Source: "..\build\release\tools\mapkit\project-template\src\DeusEdix\Classes\UCPortraits.uc"; DestDir: "{app}\tools\mapkit\project-template\src\DeusEdix\Classes"; Flags: ignoreversion
 Source: "..\build\release\tools\mapkit\project-template\src\DeusEdix\Classes\UCVoiceDubs.uc"; DestDir: "{app}\tools\mapkit\project-template\src\DeusEdix\Classes"; Flags: ignoreversion
+Source: "..\build\release\tools\mapkit\project-template\src\DeusEdix\Classes\UCInfoLinkStyle.uc"; DestDir: "{app}\tools\mapkit\project-template\src\DeusEdix\Classes"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\DeusEdix"; Filename: "{app}\DeusEdix.exe"
