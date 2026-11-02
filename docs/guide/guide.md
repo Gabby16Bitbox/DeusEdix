@@ -759,6 +759,28 @@ keeps it playing when it is not selected (the editor's only: the game does not r
 (an original map's steam vents) have the same arrow, preview and section. The preview follows the game's rules
 closely, but it is not the game: Rebuild and Play show the particles for sure.
 
+**Particles that hurt, and switching them on and off.** The Effects of the browser are `UCParticles` (DeusEdix's
+package: the game's particles, and more). Under the particle settings their section has:
+
+- **Damage**: how much each hit, its **Kind** (fire, electricity, poison gas, tear gas, radiation, EMP, explosion,
+  shot, stun: what JC's augmentations and armour resist), its **Radius** round the stream, its **Reach** along the
+  arrow (0: a ball round it), **Hit every (s)**, and whether it **Hurts characters too** (else JC only). Nothing is
+  hurt through a wall. While it is selected, a red see-through shape in the 3D view shows where it hurts;
+- **Switching on and off**: **On at the start** (off: it waits), **Stays on (s)** once switched on (0: until switched
+  off), and whether **"Switch on" also switches it off**. Switch it with the Interactions' *Switch on* and *Switch
+  off* (when JC uses a button, walks into a collision box, picks something up, a timer runs out...) or with the
+  game's own triggers through its Tag. Off, it throws no more particles (those in the air finish their life) and its
+  sound stops.
+
+The browser has some ready: *Steam that burns*, *Electric hazard*, *Toxic gas*, *Smoke when switched on (10 s)*. A
+generator of an original map (a `ParticleGenerator`) has **Make it able to hurt and switch on/off**: it becomes a
+`UCParticles` with the same particles (Replace with..., one Undo).
+
+**Your own effects.** **Save as my effect…** in the section keeps the particles' settings (texture, damage and
+switching too) under a name of yours: they are in **Objects > Effects** of this project, under the game's, to place
+again in any map (right click one to delete it). A particle can have a picture of yours as its texture: import it
+into the map (the texture editor), then type its name in **Texture**.
+
 ### Several objects at once
 
 **Ctrl+click** or **Shift+click** adds an object to the selection (or takes it away) in the 3D

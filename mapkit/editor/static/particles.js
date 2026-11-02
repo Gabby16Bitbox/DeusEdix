@@ -27,6 +27,18 @@ export const PARTICLE_FIELDS = Object.freeze([
   { key: 'bFade', label: 'Fade out', type: 'bool', def: true, tip: 'Each particle fades as it lives' },
   { key: 'bParticlesUnlit', label: 'Glow (unlit)', type: 'bool', def: false, tip: 'Full bright whatever the light, like sparks and flames' },
   { key: 'bModulated', label: 'Darkens (modulated)', type: 'bool', def: false, tip: 'Darkens what is behind it (dark smoke, soot) instead of lighting it' },
+  // UCParticles' own (DeusEdix's class: damage and switching; group 'hurt'): not the game's ParticleGenerator's
+  { key: 'FxDamage', label: 'Damage', type: 'int', def: 0, min: 0, max: 500, step: 1, group: 'hurt', own: 'UCParticles', tip: 'Damage each hit (0: it hurts no one)' },
+  { key: 'FxDamageType', label: 'Kind', type: 'name', def: 'Burned', group: 'hurt', own: 'UCParticles', tip: 'The game\'s kind of damage: what JC\'s augmentations and armour resist',
+    options: [['Burned', 'Fire (burns)'], ['Shocked', 'Electricity (shocks)'], ['PoisonGas', 'Poison gas'], ['TearGas', 'Tear gas'],
+      ['Radiation', 'Radiation'], ['EMP', 'EMP (drains bioenergy)'], ['Exploded', 'Explosion'], ['Shot', 'Shot'], ['Stunned', 'Stun']] },
+  { key: 'FxRadius', label: 'Radius', type: 'float', def: 48, min: 1, max: 2000, step: 4, group: 'hurt', own: 'UCParticles', tip: 'How far from its stream it hurts (units)' },
+  { key: 'FxReach', label: 'Reach', type: 'float', def: 0, min: 0, max: 4000, step: 8, group: 'hurt', own: 'UCParticles', tip: 'How far along its arrow the stream goes (0: a ball round it)' },
+  { key: 'FxEvery', label: 'Hit every (s)', type: 'float', def: 0.5, min: 0.1, max: 30, step: 0.1, group: 'hurt', own: 'UCParticles', tip: 'Seconds between hits' },
+  { key: 'bFxHurtAll', label: 'Hurts characters too', type: 'bool', def: false, group: 'hurt', own: 'UCParticles', tip: 'Off: JC only' },
+  { key: 'bFxStartOn', label: 'On at the start', type: 'bool', def: true, group: 'switch', own: 'UCParticles', tip: 'Off: it waits for "Switch on" (an interaction, or a trigger through its Tag)' },
+  { key: 'FxOnTime', label: 'Stays on (s)', type: 'float', def: 0, min: 0, max: 3600, step: 0.5, group: 'switch', own: 'UCParticles', tip: 'Switched on, it goes off by itself after these seconds (0: until switched off)' },
+  { key: 'bFxToggle', label: '"Switch on" also switches it off', type: 'bool', def: false, group: 'switch', own: 'UCParticles', tip: 'A button pressed again turns it off' },
 ]);
 const BY_KEY = Object.fromEntries(PARTICLE_FIELDS.map((f) => [f.key.toLowerCase(), f]));
 
@@ -35,6 +47,7 @@ export function parseValue(field, text) {
   if (text === undefined || text === null || text === '') return undefined;
   const s = String(text).trim();
   if (field.type === 'bool') return /^true$/i.test(s.replace(/"/g, ''));
+  if (field.type === 'name') return s.replace(/["']/g, '') || undefined;
   if (field.type === 'texture') {
     const m = /^\w*'([^']+)'$/.exec(s);
     const name = (m ? m[1] : s).replace(/"/g, '');
@@ -47,6 +60,7 @@ export function parseValue(field, text) {
 // A value as the map is given it (the Properties' text)
 export function formatValue(field, value) {
   if (field.type === 'bool') return value ? 'True' : 'False';
+  if (field.type === 'name') return String(value || '').replace(/[^A-Za-z0-9_]/g, '') || 'None';
   if (field.type === 'texture') return value ? `Texture'${String(value).replace(/'/g, '')}'` : 'None';
   if (field.type === 'int') return String(Math.round(Number(value) || 0));
   return (Number(value) || 0).toFixed(6);
@@ -55,6 +69,7 @@ export function formatValue(field, value) {
 export function clampValue(field, value) {
   if (field.type === 'bool') return !!value;
   if (field.type === 'texture') return String(value || '').trim();
+  if (field.type === 'name') return field.options && !field.options.some(([k]) => k === value) ? null : String(value || '');
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   const v = Math.min(field.max ?? Infinity, Math.max(field.min ?? -Infinity, n));
@@ -73,9 +88,10 @@ export function defaultsFrom(classProps) {
   }
   return out;
 }
-// the settings the class has (null: not read yet: all of them are offered)
-export function fieldsOf(classProps) {
-  if (!classProps || !Array.isArray(classProps.props)) return PARTICLE_FIELDS;
+// the settings the class has (classProps null: not read yet: those it may have by its name: UCParticles' own only on it)
+export function fieldsOf(classProps, cls = '') {
+  const name = String(cls || '').split('.').pop().toLowerCase();
+  if (!classProps || !Array.isArray(classProps.props)) return PARTICLE_FIELDS.filter((f) => !f.own || f.own.toLowerCase() === name);
   const has = new Set(classProps.props.map((p) => String(p.name).toLowerCase()));
   return PARTICLE_FIELDS.filter((f) => has.has(f.key.toLowerCase()));
 }
@@ -134,4 +150,20 @@ export function stepSimulation(sim, s, dt, up = [0, 0, 1]) {
 export function particleLook(s, q) {
   const u = Math.min(1, q.age / q.life);
   return { scale: s.bScale ? 1 + 2 * u : 1, alpha: s.bFade ? Math.min(1, u * 8) * (1 - u) : Math.min(1, u * 8) };
+}
+
+// where it hurts, for the preview (null: it hurts no one): a stream of radius round its arrow, reach long (0: a ball)
+export function hurtZone(s) {
+  if (!(s.FxDamage > 0)) return null;
+  return { radius: Math.max(1, s.FxRadius || 0), reach: Math.max(0, s.FxReach || 0) };
+}
+// what is kept of a generator as an effect of your own (Objects > Effects > Yours): its settings that are set, as the
+// map writes them (read(key): the map's or the page's text)
+export function effectOf(read) {
+  const props = {};
+  for (const f of PARTICLE_FIELDS) {
+    const v = read(f.key);
+    if (v !== undefined && v !== null && v !== '') props[f.key] = String(v);
+  }
+  return props;
 }

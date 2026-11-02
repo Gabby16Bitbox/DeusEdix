@@ -115,6 +115,7 @@
     "MedKit": "health medkit medikit cure kit",
     "Light": "lamp",
     "Spotlight": "spot lamp",
-    "ParticleGenerator": "particles particle emitter effect effects fx vfx smoke steam mist sparks dust vapor fog"
+    "ParticleGenerator": "particles particle emitter effect effects fx vfx smoke steam mist sparks dust vapor fog",
+    "UCParticles": "particles particle emitter effect effects fx vfx smoke steam mist sparks dust vapor fog hazard damage gas electric"
   }
 }

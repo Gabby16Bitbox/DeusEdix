@@ -67,7 +67,7 @@ import { createTexturePicker } from './texture-picker.js';
 import { createFavourites } from './browser-favourites.js';
 import { favouriteShelf, installStars, mountTileSize } from './browser-tiles.js';
 import { createSearch, rank as rankSearch } from './search-rank.js';
-import { isParticleClass, PARTICLE_FIELDS, particleSettings, defaultsFrom, fieldsOf, parseValue, formatValue, clampValue } from './particles.js';
+import { isParticleClass, PARTICLE_FIELDS, particleSettings, defaultsFrom, fieldsOf, parseValue, formatValue, clampValue, hurtZone, effectOf } from './particles.js';
 import { createParticleGizmo, stepParticlePreviews, particlePreviewsActive, disposeParticleGizmo } from './particles-view.js';
 import { BLOCK_SHAPES, ROUND_SHAPES, blockShape, blockLabel, blockGeometry, blockOptions, blockPoints } from './block-shapes.js';
 import { createVertexEditor } from './vertex-edit.js';
@@ -5118,19 +5118,52 @@ function particleWant(p) {
   if (!a || !edits) return null;
   if (p !== selected && !edits.particlepreview?.[a.name]?.always) return null;
   const settings = particleSettingsOf(a), tex = particleTexture(settings.particleTexture);
-  return { settings, url: tex.url, size: tex.size };
+  return { settings, url: tex.url, size: tex.size, hurt: hurtZone(settings) };
+}
+// Your effects (Objects > Effects > Yours): particles kept by name with their settings, in the project
+// [{name, cls, props}] (Save as my effect in a generator's Particles section; right click a tile to delete it)
+const myEffectsKey = () => projectStorageKey('myeffects', projectContext);
+function myEffects() {
+  try {
+    const list = JSON.parse(localStorage.getItem(myEffectsKey()) || '[]');
+    return Array.isArray(list) ? list.filter((e) => e && typeof e.name === 'string' && isParticleClass(e.cls) && e.props && typeof e.props === 'object') : [];
+  } catch { return []; }
+}
+function keepMyEffects(list) {
+  try { localStorage.setItem(myEffectsKey(), JSON.stringify(list)); return true; }
+  catch (e) { status('Your effects could not be kept: ' + e.message, 'bad'); return false; }
+}
+function saveMyEffect(a) {
+  const name = (prompt('Name of this effect (Objects > Effects, yours):', hierLabel(a)) || '').trim().slice(0, 60);
+  if (!name) return;
+  const list = myEffects().filter((e) => e.name.toLowerCase() !== name.toLowerCase());
+  list.push({ name, cls: String(a.cls).split('.').pop(), props: effectOf(particleRead(a)) });
+  if (!keepMyEffects(list)) return;
+  buildPalette();
+  status(`"${name}" is one of your effects now: Objects > Effects, in this project.`, 'ok');
+}
+function deleteMyEffect(name) {
+  if (!confirm(`Delete your effect "${name}"? The particles already placed stay as they are.`)) return;
+  keepMyEffects(myEffects().filter((e) => e.name !== name));
+  buildPalette();
 }
 // the Particles section of its Properties: the settings that matter, by name, each a field; the preview's own switch
 function particleSection(a, redraw) {
-  const d = particleDefaultsOf(a.cls), s = particleSettingsOf(a), fields = fieldsOf(d.props), read = particleRead(a);
+  const d = particleDefaultsOf(a.cls), s = particleSettingsOf(a), fields = fieldsOf(d.props, a.cls), read = particleRead(a);
   let h = '<div class="hint" style="margin:2px 0">The cyan arrow is the way the particles are thrown: turn it with E, Rotation and Pitch. The preview plays while it is selected; it follows the game\'s rules closely, Rebuild and Play show it for sure.</div>';
+  const heads = { hurt: 'Damage', switch: 'Switching on and off' };
+  let group = '';
   for (const f of fields) {
+    if ((f.group || '') !== group) { group = f.group || ''; if (heads[group]) h += `<div class="cat" style="margin-top:6px">${heads[group]}</div>`; }
     const own = read(f.key) !== undefined, v = s[f.key];
     const title = escapeHtml(f.tip + (own ? '' : ' (the class\'s own value)'));
     if (f.type === 'bool') h += `<div class="row"><label style="width:auto" title="${title}"><input type="checkbox" data-pt="${f.key}" ${v ? 'checked' : ''}> ${escapeHtml(f.label)}</label></div>`;
+    else if (f.type === 'name') h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><select data-pt="${f.key}" style="flex:1;min-width:0">${f.options.map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select></div>`;
     else if (f.type === 'texture') h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><input data-pt="${f.key}" list="texlist" value="${escapeHtml(String(v || '').split('.').pop())}" title="${escapeHtml(v || '')}" style="flex:1;min-width:0"></div>`;
     else h += `<div class="row"><label title="${title}">${escapeHtml(f.label)}</label><input type="range" data-ptr="${f.key}" min="${f.min}" max="${Math.min(f.max, f.key === 'ejectSpeed' ? 600 : f.key === 'riseRate' ? 300 : f.max)}" step="${f.step}" value="${v}" style="flex:1;min-width:0"><input type="number" data-pt="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}" style="width:64px"></div>`;
   }
+  if (!fields.some((f) => f.own)) h += `<div class="row"><button type="button" data-ptx="upgrade" title="Replace with... UCParticles: the same particles, which can also hurt, start off, be switched on and off by an interaction and stay on for a while">Make it able to hurt and switch on/off</button></div>`;
+  h += `<div class="row"><button type="button" data-ptx="save" title="Keep these settings as an effect of your own, in Objects > Effects of this project">Save as my effect…</button></div>`;
   if (!d.props) h += `<div class="hint" style="margin:2px 0">${d.failed ? 'The class could not be read from the game: every setting is offered, with the usual defaults.' : 'Reading the class from the game…'}</div>`;
   h += `<div class="row"><label style="width:auto" title="Off: only while it is selected (editor only: the game does not read it)"><input type="checkbox" data-ptp="always" ${edits.particlepreview?.[a.name]?.always ? 'checked' : ''}> always play the preview</label></div>`;
   const wire = () => {
@@ -5148,8 +5181,13 @@ function particleSection(a, redraw) {
       const f = PARTICLE_FIELDS.find((x) => x.key === input.dataset.pt);
       input.onchange = async () => {
         if (f.type === 'bool') return put(f, input.checked);
+        if (f.type === 'name') return put(f, input.value);
         if (f.type === 'texture') {                  // the picker gives its short name: the full one is what the map needs
-          const typed = input.value.trim(), ix = await texturePicker.index().catch(() => null);
+          const typed = input.value.trim();
+          // a picture imported into the map (edits.textures): its texture in the map's own package
+          const mine = Object.keys(edits.textures || {}).find((n) => n.toLowerCase() === typed.toLowerCase());
+          if (mine) return put(f, `MyLevel.Imported.${mine}`);
+          const ix = await texturePicker.index().catch(() => null);
           const t = ix && ix.packages.flatMap((p) => p.textures).find((x) => x[0].toLowerCase() === typed.toLowerCase() || x[1].toLowerCase() === typed.toLowerCase());
           if (!t && !typed.includes('.')) { status(`No texture of the game is called ${typed}: pick one with its picture.`, 'warn'); return; }
           return put(f, t ? t[1] : typed);
@@ -5174,6 +5212,10 @@ function particleSection(a, redraw) {
         put(f, r.value);
       };
     }
+    const save = root.querySelector('[data-ptx="save"]');
+    if (save) save.onclick = () => saveMyEffect(a);
+    const upgrade = root.querySelector('[data-ptx="upgrade"]');
+    if (upgrade) upgrade.onclick = () => { void replaceWith({ cls: 'UCParticles', radius: 8, height: 8, name: '', sub: '' }, [proxyOf(a.name)].filter(Boolean)); };
     const always = root.querySelector('[data-ptp]');
     if (always) always.onchange = () => {
       edits.particlepreview = edits.particlepreview || {};
@@ -6240,6 +6282,13 @@ function buildPalette() {
   const shown = [];                          // the items of its buttons (data-pi)
   const mine = window.__characters && window.__characters.paletteCategory();
   const categories = (mine && mine.items.length ? [mine] : []).concat(palette);
+  // your effects (saveMyEffect) under the game's
+  const yours = myEffects().map((e) => ({ cls: e.cls, radius: 8, height: 8, name: e.name, sub: 'yours', preset: { ...e.props }, myEffect: true }));
+  if (yours.length) {
+    const fx = categories.findIndex((c) => c.category === 'Effects');
+    if (fx >= 0) categories[fx] = { ...categories[fx], items: categories[fx].items.concat(yours) };
+    else categories.push({ category: 'Effects', items: yours });
+  }
   categories.splice(Math.max(0, categories.findIndex(c => c.category === 'Most used') + 1), 0, { category: 'Movers', items: [], movingLibrary: true });
   // Favourites first (kept per project); a class or a character no longer there shows as missing
   const byFav = new Map();
@@ -6293,7 +6342,11 @@ function buildPalette() {
     if (d.dataset.cat === 'Movers') { if (d.open) void moversBrowser.render(); else moversBrowser.suspend(); }
     observeThumbs();
   });
-  for (const b of document.querySelectorAll('#palette .item[data-pi]')) b.onclick = () => startPlacing(placingOf(shown[+b.dataset.pi]), b);
+  for (const b of document.querySelectorAll('#palette .item[data-pi]')) {
+    b.onclick = () => startPlacing(placingOf(shown[+b.dataset.pi]), b);
+    const it = shown[+b.dataset.pi];
+    if (it?.myEffect) b.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, [{ label: `Delete your effect "${it.name}"…`, run: () => deleteMyEffect(it.name) }]); };
+  }
   if (bottomTab === 'objects') void moversBrowser.render();
   observeThumbs();
 }

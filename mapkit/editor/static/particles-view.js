@@ -89,16 +89,33 @@ function dropPreview(gz) {
 }
 const q = new THREE.Quaternion(), upV = new THREE.Vector3();
 
+// where it hurts (particles.js hurtZone): a red see-through stream round the arrow, a ball when it has no reach
+function showHurt(gz, hurt) {
+  let mesh = gz.userData.hurtMesh;
+  const key = hurt ? `${hurt.radius}|${hurt.reach}` : '';
+  if (mesh && mesh.userData.key === key) return;
+  if (mesh) { gz.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); delete gz.userData.hurtMesh; }
+  if (!hurt) return;
+  const geo = hurt.reach > 0 ? new THREE.CapsuleGeometry(hurt.radius, hurt.reach, 6, 16) : new THREE.SphereGeometry(hurt.radius, 20, 12);
+  if (hurt.reach > 0) { geo.rotateZ(-Math.PI / 2); geo.translate(hurt.reach / 2, 0, 0); }     // along +X, from the generator
+  mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff3030, wireframe: true, transparent: true, opacity: 0.35, depthWrite: false }));
+  mesh.raycast = () => {};
+  mesh.userData.key = key;
+  gz.add(mesh);
+  gz.userData.hurtMesh = mesh;
+}
+
 let active = false;
 export function particlePreviewsActive() { return active; }
 // every frame: want(proxy) -> null (no preview) or {settings (particles.js particleSettings), url (the texture's
-// picture, '' while unknown), size (the texture's width in units)}
+// picture, '' while unknown), size (the texture's width in units), hurt (particles.js hurtZone: null, none)}
 export function stepParticlePreviews(proxies, dt, want) {
   active = false;
   for (const p of proxies.children) {
     const gz = p.userData && p.userData.particleGizmo;
     if (!gz) continue;
     const w = p.visible ? want(p) : null;
+    showHurt(gz, w && w.hurt);
     if (!w) { dropPreview(gz); continue; }
     const pv = previewOf(gz), s = w.settings;
     // how they are drawn: their texture, added light (the game's translucent particles), or darkening (modulated)
@@ -136,5 +153,6 @@ export function disposeParticleGizmo(p) {
   const gz = p && p.userData && p.userData.particleGizmo;
   if (!gz) return;
   dropPreview(gz);
+  showHurt(gz, null);
   gz.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
 }

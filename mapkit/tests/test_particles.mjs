@@ -34,7 +34,8 @@ test('the class as the game says it: its defaults and the settings it has', () =
     { name: 'particleTexture', index: 0, default: "Texture'Effects.Smoke.SmokePuff1'" }, { name: 'DrawScale', index: 0, default: '1.0' }] };
   assert.deepEqual(defaultsFrom(props), { riseRate: 12, bGravity: true, particleTexture: 'Effects.Smoke.SmokePuff1' });
   assert.deepEqual(fieldsOf(props).map((f) => f.key), ['particleTexture', 'riseRate', 'bGravity']);
-  assert.equal(fieldsOf(null), PARTICLE_FIELDS, 'not read yet: every setting');
+  assert.deepEqual(fieldsOf(null, 'UCParticles'), PARTICLE_FIELDS, 'not read yet: every setting it may have');
+  assert.ok(fieldsOf(null, 'ParticleGenerator').every((f) => !f.own), 'the game\'s class: none of UCParticles\' own');
   // the map's value, else the class's, else the fallback
   const s = particleSettings((k) => ({ ejectSpeed: '70.000000' })[k], defaultsFrom(props));
   assert.equal(s.ejectSpeed, 70);
@@ -99,4 +100,36 @@ test('grow and fade over their life', () => {
   assert.ok(particleLook(s, { age: 0.9, life: 1 }).scale > 2.5);
   assert.ok(particleLook(s, { age: 0.95, life: 1 }).alpha < 0.1);
   assert.equal(particleLook(SETTINGS({ bScale: false, bFade: false }), { age: 0.9, life: 1 }).alpha, 1);
+});
+
+// step 2: UCParticles' own settings (damage, switching), where it hurts, your effects
+import { hurtZone, effectOf } from '../editor/static/particles.js';
+
+test('UCParticles\' settings are offered on it only, before and after its class is read', () => {
+  const keys = (list) => list.map((f) => f.key);
+  assert.ok(keys(fieldsOf(null, 'UCParticles')).includes('FxDamage'));
+  assert.ok(!keys(fieldsOf(null, 'ParticleGenerator')).includes('FxDamage'));
+  assert.ok(keys(fieldsOf(null, 'ParticleGenerator')).includes('riseRate'));
+  const read = { props: [{ name: 'FxDamage', index: 0, default: '0' }, { name: 'riseRate', index: 0, default: '0' }] };
+  assert.deepEqual(keys(fieldsOf(read, 'UCParticles')), ['riseRate', 'FxDamage']);
+});
+
+test('the kind of damage: one of the game\'s names', () => {
+  const kind = field('FxDamageType');
+  assert.equal(parseValue(kind, 'Shocked'), 'Shocked');
+  assert.equal(formatValue(kind, 'PoisonGas'), 'PoisonGas');
+  assert.equal(clampValue(kind, 'Shocked'), 'Shocked');
+  assert.equal(clampValue(kind, 'Nonsense'), null);
+});
+
+test('where it hurts: a stream along the arrow, a ball, or nowhere', () => {
+  const s = (over) => ({ ...particleSettings(() => undefined), ...over });
+  assert.equal(hurtZone(s({})), null, 'no damage: nowhere');
+  assert.deepEqual(hurtZone(s({ FxDamage: 5, FxRadius: 24, FxReach: 200 })), { radius: 24, reach: 200 });
+  assert.deepEqual(hurtZone(s({ FxDamage: 5, FxRadius: 64, FxReach: 0 })), { radius: 64, reach: 0 });
+});
+
+test('an effect of your own keeps the settings that are set, as the map writes them', () => {
+  const set = { riseRate: '90.000000', FxDamage: '5', particleTexture: "Texture'Effects.Smoke.SmokePuff1'", Tag: 'x' };
+  assert.deepEqual(effectOf((k) => set[k]), { particleTexture: set.particleTexture, riseRate: '90.000000', FxDamage: '5' });
 });
