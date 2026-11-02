@@ -5,12 +5,24 @@
 // from the player's own packages the first time a package is opened). A click tries the texture at once,
 // a double click (or Enter) keeps it and closes, Esc closes. The star of a texture keeps it in Favourites (the first
 // source on the left, for this project); the slider at the top, or Ctrl+wheel over the grid, sizes the pictures.
+// The search (search-rank.js) goes word by word through a texture's name, its group and its package, with the words
+// of its theme (texture-words.js: floor finds Flr, wood finds Wd), best match first. The dropper next to the picture
+// (and in the picker's head) takes the texture of what is clicked in the 3D view (pickFromView) and opens the picker
+// on it, among the other textures of its package: a texture like it.
 import { mountTileSize } from './browser-tiles.js';
+import { createSearch, rank } from './search-rank.js';
+import { TEXTURE_THEMES } from './texture-words.js';
 
 const STYLE = `
 .tp-swatch { flex:none; width:22px; height:22px; min-height:22px; padding:0; margin-left:4px; border:1px solid var(--line);
   border-radius:var(--radius-control); background:var(--field) center/cover no-repeat; cursor:pointer; }
 .tp-swatch:hover, .tp-swatch:focus-visible { border-color:var(--accent-border); }
+.tp-dropper { flex:none; width:22px; height:22px; min-height:22px; padding:0; margin-left:2px; border:1px solid var(--line);
+  border-radius:var(--radius-control); background:var(--field); color:var(--text); cursor:pointer; display:inline-flex; align-items:center;
+  justify-content:center; }
+.tp-dropper svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.tp-dropper:hover, .tp-dropper:focus-visible { border-color:var(--accent-border); }
+#texpicker .tp-tile.picked { outline:2px dashed var(--acc); outline-offset:-2px; }
 #texpicker { position:fixed; z-index:30; width:min(640px, calc(100vw - 32px)); height:min(520px, calc(100vh - 80px));
   display:flex; flex-direction:column; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-window);
   box-shadow:0 14px 30px #0009; color:var(--text); font-size:12px; }
@@ -56,11 +68,19 @@ const STYLE = `
 `;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const shortName = (t) => String(t || '').split('.').pop();
+const DROPPER = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 4.5a2.1 2.1 0 0 0-3 0l-2.2 2.2-1.1-1.1-1.4 1.4 1.1 1.1-7.4 7.4V18h2.5l7.4-7.4 1.1 1.1 1.4-1.4-1.1-1.1 2.2-2.2a2.1 2.1 0 0 0 0-3z"/><path d="M4 20l2-2"/></svg>';
+// what the search weighs of a texture: its name, its group, its package (Pkg.Group.Name)
+function textureFields(name, full) {
+  const parts = String(full || '').split('.');
+  return [{ text: name, weight: 3 }, { text: parts.length > 2 ? parts.slice(1, -1).join(' ') : '', weight: 2 }, { text: parts.length > 1 ? parts[0] : '', weight: 1 }];
+}
+const searchOf = (text) => createSearch(text, { synonyms: TEXTURE_THEMES });
 
 // menu(x, y, items): the editor's right-click menu; findInMap(name): the objects of the map that use a texture;
 // favourites: the stars of the textures (browser-tiles.js favouriteShelf), or none; storage(): the editor's storage
-// (the tile size is kept there)
-export function createTexturePicker({ api, getMapTextures, menu, findInMap, favourites = null, storage }) {
+// (the tile size is kept there); pickFromView(done): the texture of what the next click in the 3D view hits, to done(name)
+// (done(null): cancelled, or nothing there has one)
+export function createTexturePicker({ api, getMapTextures, menu, findInMap, favourites = null, storage, pickFromView = null }) {
   const style = document.createElement('style');
   style.textContent = STYLE;
   document.head.appendChild(style);
@@ -70,6 +90,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
   const loadingPkg = new Map();
   let box = null, target = null, source = 'map', query = '';
   let browsed = '';                                  // the texture shown when there is no field to fill (browse)
+  let picked = '';                                   // the texture the dropper took: marked, shown first
 
   async function loadIndex() {
     if (index) return index;
@@ -95,7 +116,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     if (own) return { name: own.name, url: own.url, size: own.size || '' };
     if (!named) {
       named = new Map();
-      for (const p of ix.packages) for (const t of p.textures) if (!named.has(t[0].toLowerCase())) named.set(t[0].toLowerCase(), { name: t[0], pkg: p.name, size: t[2] + '×' + t[3] });
+      for (const p of ix.packages) for (const t of p.textures) if (!named.has(t[0].toLowerCase())) named.set(t[0].toLowerCase(), { name: t[0], full: t[1], pkg: p.name, size: t[2] + '×' + t[3] });
     }
     return named.get(n) ? { ...named.get(n) } : null;
   }
@@ -128,7 +149,38 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     input.addEventListener('change', paint);
     input.addEventListener('focus', () => input.select());     // typing replaces the suggested texture at once
     b.onclick = (e) => { e.preventDefault(); open(input); };
+    if (pickFromView) {
+      const d = document.createElement('button');
+      d.type = 'button';
+      d.className = 'tp-dropper';
+      d.innerHTML = DROPPER;
+      d.title = 'Take a texture from the 3D view: click a wall, floor, block or object, the picker opens on its texture';
+      d.setAttribute('aria-label', 'Take a texture from the 3D view');
+      b.insertAdjacentElement('afterend', d);
+      d.onclick = (e) => { e.preventDefault(); eyedrop(input); };
+    }
     paint();
+  }
+  // the dropper: the picker closes, the next click in the 3D view gives a texture, the picker opens on it (the field
+  // stays as it is until one is chosen)
+  function eyedrop(input) {
+    close();
+    pickFromView((name) => { if (name) openOn(locate(input) || null, name); });
+  }
+  // the picker on a texture: among the textures of its package (the map's, for one only the map has), marked
+  async function openOn(input, name) {
+    const short = shortName(name);
+    open(input, '');
+    picked = short;
+    let ix = null;
+    try { ix = await loadIndex(); } catch { /* the map's textures only */ }
+    if (!box) return;
+    const n = short.toLowerCase(), pkgName = String(name).includes('.') ? String(name).split('.')[0].toLowerCase() : '';
+    const pkg = ix && (ix.packages.find((p) => p.name.toLowerCase() === pkgName && p.textures.some((t) => t[0].toLowerCase() === n))
+      || ix.packages.find((p) => p.textures.some((t) => t[0].toLowerCase() === n)));
+    source = pkg ? 'pkg:' + pkg.name : 'map';
+    renderSources(); render();
+    box.querySelector('.tp-foot').textContent = `${short}${pkg ? ` · first, then the other textures of ${pkg.name}` : ''} · ${hint()}`;
   }
   new MutationObserver(() => { for (const i of document.querySelectorAll('input[list="texlist"]:not([data-tp])')) attach(i); })
     .observe(document.body, { childList: true, subtree: true });
@@ -136,10 +188,10 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
   // ---------------------------------------------------------------- the picker window
   function close() {
     if (box) box.remove();
-    box = null; target = null;
+    box = null; target = null; picked = '';
     document.removeEventListener('pointerdown', outside, true);
   }
-  function outside(e) { if (box && !box.contains(e.target) && !(e.target.classList && e.target.classList.contains('tp-swatch'))) close(); }
+  function outside(e) { if (box && !box.contains(e.target) && !e.target.closest?.('.tp-swatch, .tp-dropper')) close(); }
   // the field again after the Inspector drew itself anew (a change redraws it): by its id or its data-* key
   function locate(i) {
     if (!i || i.isConnected) return i;
@@ -175,6 +227,7 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     box.setAttribute('role', 'dialog');
     box.setAttribute('aria-label', 'Texture picker');
     box.innerHTML = `<div class="tp-head"><b>Textures</b><input type="search" placeholder="Search textures" aria-label="Search textures">
+        ${pickFromView ? `<button type="button" class="tp-dropper" data-tp-drop title="Take a texture from the 3D view (click a wall, floor, block or object)" aria-label="Take a texture from the 3D view">${DROPPER}</button>` : ''}
         <input type="range" class="tp-size" aria-label="Tile size"><button type="button" data-tp-close title="Close (Esc)" aria-label="Close">✕</button></div>
       <div class="tp-body"><div class="tp-src"></div><div class="tp-grid"></div></div>
       <div class="tp-foot">${hint()}</div>`;
@@ -188,11 +241,15 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     mountTileSize({ root: box, slider: box.querySelector('.tp-size'), grid: '.tp-grid', tile: '.tp-tile', key: 'ucmap.tptiles', storage });
     search.oninput = () => {
       query = search.value.trim().toLowerCase();
+      picked = '';
       // a name this map has not: the whole game is searched at once (it said "Try All textures": one more click)
-      if (query && source === 'map' && !mapList().some((t) => t.name.toLowerCase().includes(query))) { source = 'all'; renderSources(); }
+      const words = searchOf(query);
+      if (words && source === 'map' && !mapList().some((t) => words.score(textureFields(t.name, t.full)) > 0)) { source = 'all'; renderSources(); }
       render();
     };
     box.querySelector('[data-tp-close]').onclick = close;
+    const drop = box.querySelector('[data-tp-drop]');
+    if (drop) drop.onclick = () => { const field = target; eyedrop(field); };
     box.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Escape') close();
@@ -218,19 +275,26 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
     for (const d of el.querySelectorAll('[data-src]')) d.onclick = () => { source = d.dataset.src; renderSources(); render(); };
   }
   // missing: a favourite no package nor the map has now (its star unstars it)
-  function tile(name, url, size, current, missing) {
+  function tile(name, url, size, current, missing, isPicked = false) {
     const star = favourites ? favourites.star(name, name) : '';
     if (missing) return `<div class="tp-tile fav-missing" title="${esc(favourites.goneTitle({ label: name }))}"><div class="tp-img">?</div><small>${esc(name)}</small><em>Missing</em>${star}</div>`;
-    return `<div class="tp-tile ${current ? 'on' : ''}" data-name="${esc(name)}" title="${esc(name)}${size ? ' · ' + size : ''}${findInMap ? ' · Right click: Find in map' : ''}">
+    return `<div class="tp-tile ${current ? 'on' : ''}${isPicked ? ' picked' : ''}" data-name="${esc(name)}" title="${esc(name)}${size ? ' · ' + size : ''}${findInMap ? ' · Right click: Find in map' : ''}">
       <div class="tp-img">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : ''}</div><small>${esc(name)}</small>${size ? `<em>${esc(size)}</em>` : ''}${star}</div>`;
   }
   async function render() {
     if (!box) return;
     const grid = box.querySelector('.tp-grid'), cur = shortName(target ? target.value : browsed).toLowerCase();
-    const match = (n) => !query || n.toLowerCase().includes(query);
+    const words = searchOf(query), mark = picked.toLowerCase();
+    const match = (n, full) => !words || words.score(textureFields(n, full)) > 0;
+    // a search: best match first; the dropper's texture first
+    const order = (list) => {
+      const out = words ? rank(list, words, (i) => textureFields(i.name, i.full)) : list;
+      const at = mark ? out.findIndex((i) => i.name.toLowerCase() === mark) : -1;
+      return at > 0 ? [out[at], ...out.slice(0, at), ...out.slice(at + 1)] : out;
+    };
     let items = [], note = '';
     if (source === 'map') {
-      items = mapList().filter((t) => match(t.name)).map((t) => ({ name: t.name, url: t.url, size: t.size || '' }));
+      items = order(mapList().filter((t) => match(t.name, t.full)).map((t) => ({ name: t.name, full: t.full || '', url: t.url, size: t.size || '' })));
       if (!items.length) note = query ? 'No texture of this map has that name. Try All textures.' : 'This map has no textures yet.';
     } else {
       const ix = index || await loadIndex().catch(() => null);
@@ -239,16 +303,17 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
         // the starred ones, in the order they were starred: gone from the map and the game, missing (the game's
         // textures not read: no picture yet, none called missing)
         for (const { fav, item } of favourites.entries((id) => (ix ? textureNamed(id, ix) : { name: id }))) {
-          if (match(fav.label)) items.push(item || { name: fav.id, missing: true });
+          if (match(fav.label, item?.full)) items.push(item || { name: fav.id, missing: true });
         }
         if (!items.length) note = query ? 'No favourite texture has that name.' : 'No favourite textures yet: the star of a texture keeps it here, for this project.';
       } else {
         const pkgs = source === 'all' ? ix.packages : ix.packages.filter((p) => 'pkg:' + p.name === source);
-        for (const p of pkgs) for (const t of p.textures) if (match(t[0])) items.push({ name: t[0], pkg: p.name, size: t[2] + '×' + t[3] });
+        for (const p of pkgs) for (const t of p.textures) if (match(t[0], t[1])) items.push({ name: t[0], full: t[1], pkg: p.name, size: t[2] + '×' + t[3] });
+        items = order(items);
         if (source === 'all' && !query) { items = []; note = 'Type a name to search every texture of the game, or pick a package on the left.'; }
         else if (!items.length) note = 'No texture with that name.';
       }
-      if (items.length > 240) { note = `${items.length} textures: the first 240 are shown, type more of the name.`; items = items.slice(0, 240); }
+      if (items.length > 240) { note = `${items.length} textures: the 240 that match best are shown, type more words.`; items = items.slice(0, 240); }
       // only packages not asked for yet: one whose pictures came without some of its textures asked again for ever
       // (each answer drew the grid, which asked again: the page froze, 24 Oct 2026)
       const need = [...new Set(items.filter((i) => i.pkg && !thumbs.has(i.name.toLowerCase())).map((i) => i.pkg))]
@@ -260,18 +325,18 @@ export function createTexturePicker({ api, getMapTextures, menu, findInMap, favo
       }
       for (const i of items) i.url = i.url || thumbs.get(i.name.toLowerCase()) || '';
     }
-    grid.innerHTML = (note ? `<div class="tp-note">${esc(note)}</div>` : '') + items.map((i) => tile(i.name, i.url, i.size, i.name.toLowerCase() === cur, i.missing)).join('');
+    grid.innerHTML = (note ? `<div class="tp-note">${esc(note)}</div>` : '') + items.map((i) => tile(i.name, i.url, i.size, i.name.toLowerCase() === cur, i.missing, i.name.toLowerCase() === mark)).join('');
     for (const t of grid.querySelectorAll('.tp-tile[data-name]')) {
       t.onclick = () => choose(t.dataset.name, false);
       t.ondblclick = (e) => { if (!e.target.closest('.fav-star')) choose(t.dataset.name, true); };   // a star's: two stars
       // right click: where the map uses it (the picker closes; the field keeps its texture)
       if (findInMap) t.oncontextmenu = (e) => { e.preventDefault(); menu(e.clientX, e.clientY, [{ label: 'Find in map', run: () => { close(); findInMap(t.dataset.name); } }]); };
     }
-    grid.querySelector('.tp-tile.on')?.scrollIntoView({ block: 'nearest' });
+    (grid.querySelector('.tp-tile.picked') || grid.querySelector('.tp-tile.on'))?.scrollIntoView({ block: 'nearest' });
   }
   // a texture shown with no field to fill (the command palette's Enter): the picker opened on its name, its picture
   // marked; right click finds it in the map
   function browse(name) { open(null, shortName(name)); }
   favourites?.subscribe(() => { if (box) { renderSources(); render(); } });   // a star clicked: the count, the grid
-  return { open, close, attach, pictureOf, browse, index: loadIndex };
+  return { open, close, attach, pictureOf, browse, index: loadIndex, openOn };
 }

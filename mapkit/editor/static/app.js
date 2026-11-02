@@ -3831,7 +3831,49 @@ function hiddenByView(o) {
   const st = o.userData.kind === 'structure' ? structures[o.userData.name] : null;
   return !!keyOf(o) && objectHidden(o) && (!st || structureInMap(st));
 }
+// The texture picker's dropper (Gabby, 2 Nov 2026: "click an object that has it and it takes you to that texture"): the
+// next click in the 3D view gives the texture of what it hits first: a wall, floor or ceiling (its texture now, a
+// change not rebuilt yet too), a block, a drawing, an object's model. Esc, or a click on nothing with one, cancels.
+let texturePicking = null;
+function startTexturePick(done) {
+  if (!script || gameView?.active) { status('Open a map (and stop Play) to take a texture from the 3D view.', 'warn'); done(null); return; }
+  endTexturePick(null);
+  if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
+  cancelPlacing();
+  texturePicking = done;
+  canvas.style.cursor = 'crosshair';
+  status('Click a wall, floor, block or object in the 3D view to take its texture  (Esc cancels)');
+}
+function endTexturePick(name) {
+  const done = texturePicking;
+  if (!done) return;
+  texturePicking = null; canvas.style.cursor = '';
+  done(name);
+}
+function textureAt(e) {
+  const r = mouseRay(e);
+  const hits = visibleHits(r.intersectObjects(world.children, true)).concat(visibleHits(r.intersectObjects(proxies.children, true)))
+    .filter((h) => h.object.isMesh).sort((a, b) => a.distance - b.distance);
+  for (const h of hits) {
+    const o = h.object, face = surfaceTools.faceAt(h);
+    if (face) return surfaceTools.textureOf(face) || face.tex || '';
+    if (o.userData.drawnSetting !== undefined) { if (o.userData.drawnTex) return o.userData.drawnTex; continue; }
+    let b = o;
+    while (b && !b.userData?.box && b.parent && b.parent !== proxies) b = b.parent;
+    if (b?.userData?.box) { if (b.userData.box.tex) return b.userData.box.tex; continue; }
+    if (typeof o.userData.tex === 'string' && o.userData.tex && o.userData.tex.toLowerCase() !== 'none') return o.userData.tex;
+  }
+  return '';
+}
+function texturePickClick(e) {
+  const name = textureAt(e);
+  if (!name) { status('Nothing with a texture there: click a wall, floor, block or object (Esc cancels).', 'warn'); return; }
+  status(`Texture ${shortTex(name)} taken from the 3D view.`, 'ok');
+  endTexturePick(name);
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && texturePicking) { e.stopPropagation(); e.preventDefault(); endTexturePick(null); status('Taking a texture cancelled.'); } }, true);
 function pick(e) {
+  if (texturePicking) return void texturePickClick(e);           // the texture picker's dropper: a click is a texture
   if (measure?.active) return void measure.click(e);            // Measure: a click is a point
   if (vertexEdit?.active) return void vertexEdit.click(e);      // Edit vertices: a click picks a corner
   if (textureTransfer?.armed) return void textureTransfer.paint(e);
@@ -14430,13 +14472,13 @@ function mapTextures() {
   const base = `/cache/${mapName}/`;
   const out = texList.map((name) => {
     const t = mapTex && mapTex[texFull[name]];
-    return { name, url: t && t.png ? base + t.png : '', size: t && t.w ? `${t.w}×${t.h}` : '' };
+    return { name, full: texFull[name] || '', url: t && t.png ? base + t.png : '', size: t && t.w ? `${t.w}×${t.h}` : '' };
   });
   for (const n of Object.keys((edits && edits.textures) || {})) out.unshift({ name: n, url: texUrl(n), size: '' });
   return out;
 }
 const texturePicker = createTexturePicker({ api, menu: openMenu, findInMap: (name) => findInMap(searchToken('tex', name, true)), getMapTextures: mapTextures, storage: safeStorage,
-  favourites: favouriteShelf(favourites, 'textures') });
+  favourites: favouriteShelf(favourites, 'textures'), pickFromView: startTexturePick });
 // ---------------------------------------------------------------- the command palette (Ctrl+K; command-palette.js)
 // As Unity's Search window. The menus' commands, the Settings pages and the panels come from the menus (menubar.js);
 // from here the map's objects (as the Hierarchy's search finds them: its words and tokens), the Objects browser's

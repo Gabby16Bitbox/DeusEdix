@@ -46,10 +46,22 @@ function wordScore(typed, word) {
   return 0;
 }
 
-export function createSearch(text) {
+// the other words a word typed stands for (synonyms: groups of words that mean one thing, e.g. a texture's theme:
+// floor, flr, pavimento): the groups with a word that is the word typed, or starts with it (4 letters or more)
+function alternatives(t, synonyms) {
+  const out = new Set();
+  for (const group of synonyms || []) {
+    if (group.some(w => w === t || (t.length >= 4 && w.startsWith(t)))) for (const w of group) if (w !== t) out.add(w);
+  }
+  return [...out];
+}
+
+// synonyms: [[word, word...]] (small letters): a word typed also finds the others of its groups, a little after itself
+export function createSearch(text, { synonyms = null } = {}) {
   const typed = words(text);
   if (!typed.length) return null;
   const whole = typed.join(' ');
+  const others = new Map(typed.map(t => [t, alternatives(t, synonyms)]));
   return {
     words: typed,
     score(fields) {
@@ -62,6 +74,11 @@ export function createSearch(text) {
           for (const w of f.words) s = Math.max(s, wordScore(t, w));
           // words written together in the name ("officechair", "trashcan"), or typed together ("trashcan" for Trash can)
           if (!s && t.length >= 4 && f.joined.includes(t)) s = 4;
+          // a synonym: exactly, or as the start of a word (no typo: the short ones, "wd", "dr", only whole)
+          for (const a of s ? [] : others.get(t)) {
+            for (const w of f.words) s = Math.max(s, a.length < 3 ? (w === a ? 7 : 0) : w === a ? 7 : w.startsWith(a) ? 5 : 0);
+            if (!s && a.length >= 4 && f.joined.includes(a)) s = 3;
+          }
           best = Math.max(best, s * f.weight);
         }
         if (!best) return 0;

@@ -236,6 +236,7 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
     queue,                                    // an operation of the panel on targets (the selected faces), one undo step
     // the faces selected: [{ id: its place in the faces loaded, face, tex: its texture now (a queued one, else as built) }]
     selectedFaces: () => [...chosen].filter(i => faces[i]).map(id => ({ id, face: faces[id], tex: effective(faces[id], 'texture') })),
+    textureOf: (face) => effective(face, 'texture'),          // a face's texture now (a queued one, else as built)
     faceAt(hit) {
       if (!hit || !meshes.includes(hit.object)) return null; // Unbuilt copies share their source's face IDs.
       const id = hit?.object.userData.faces?.[hit.faceIndex];
