@@ -236,7 +236,11 @@ view the map moves as the game does. It is kept for the next time (in the browse
   and the camera fades it out in a third of a second, and back in. Without a Skin the game draws no corona, and
   neither does the editor.
 - Surfaces with **Auto U Pan** or **Auto V Pan** move their texture at their zone's speed (TexUPanSpeed, TexVPanSpeed:
-  35 texels a second at 1), water, waterfalls and clouds.
+  35 texels a second at 1), water, waterfalls and clouds. Select the zone actor and open **Inspector > Texture
+  panning** to set **U speed** and **V speed**: `0` stops, `1` is normal, `2` is twice as fast and `-1` reverses it.
+  These speeds affect every surface with the corresponding Auto Pan flag in that zone, including sky zones.
+  If there is no zone actor, add **Zone Info** from **Objects > Zones** inside the space first. **Rebuild** applies
+  the speeds in the game and updates their **View > Effects** preview.
 - With the camera in a zone that has a view fog (**ViewFog**, **ViewFlash**: water, toxic liquid), the whole view
   takes it as JC's view does with his head in that zone; a zone with a **FogDistance** and a **FogColor** fades to
   that colour with distance. The game's volumetric fog (lamps' fog brightness) is not drawn.
@@ -768,7 +772,7 @@ package: the game's particles, and more). Under the particle settings their sect
   hurt through a wall. While it is selected, a red see-through shape in the 3D view shows where it hurts;
 - **Switching on and off**: **On at the start** (off: it waits), **Stays on (s)** once switched on (0: until switched
   off), and whether **"Switch on" also switches it off**. Switch it with the Interactions' *Switch on* and *Switch
-  off* (when JC uses a button, walks into a collision box, picks something up, a timer runs out...) or with the
+  off* (when the player uses a button, walks into a collision box, picks something up, a timer runs out...) or with the
   game's own triggers through its Tag. Off, it throws no more particles (those in the air finish their life) and its
   sound stops.
 
@@ -1239,8 +1243,10 @@ faces again.
 
 ### Shadow detail
 
-In **Surface > Shadows**, choose **Low**, **Normal** or **High**. High makes finer shadows and
-uses more map memory; Low is coarser. Normal clears both special detail flags. A selected
+In **Surface > Shadows**, choose **Ultra Low**, **Low**, **Normal** or **High**. High makes finer shadows and
+uses more map memory; Low is coarser. Ultra Low gives the coarsest shadows and smallest lightmaps,
+useful for distant surfaces. It uses UnrealEd's combined Low + High shadow detail flags;
+Normal clears both flags. A selected
 structure also has **Shadows for the whole structure**, which includes every face of its brushes.
 
 **Rebuild** recalculates lighting. On an existing map, shadow or UV edits alone do not rebuild
@@ -1542,7 +1548,7 @@ what happens when something happens to it.
   the game cannot do are not offered: an elevator is not switched on, a trigger that only redirects
   others (an alliance or an orders trigger) does not start rules.
 - **+ When it...**: what starts it. A door: *it has opened*, *it starts closing*, *it is blown up*. A
-  button or any object JC uses: *JC uses it*. A keypad: *the right code is typed*, *a wrong code is
+  button or any object the player uses: *the player uses it*. A keypad: *the right code is typed*, *a wrong code is
   typed*. A computer: *JC chooses an option of it* (write the text of the button on its screen and what
   the screen says after). A trigger zone: *JC walks in*. A laser: *JC breaks its beam*. An alarm: *it
   sounds the alarm*. A character: *they are killed or knocked out*. An item: *JC picks it up*. An object:
@@ -1575,7 +1581,7 @@ what happens when something happens to it.
 - **🔗 Connect to...**: click another object, and the rule is made with what the two usually do
   together: a button or a keypad opens a door, a zone sends a guard at JC, a switch turns a light on or
   off. The object that can start something acts on the other; change what it does afterwards.
-- Each rule is also written as a sentence ("When JC uses button UCLButton: open door UCLDoor, turn off
+- Each rule is also written as a sentence ("When the player uses button UCLButton: open door UCLDoor, turn off
   light UCLLamp, after 1 s the message ..."). Green arrows in the 3D view go from the object to what it
   acts on; the Properties of that object list the rules acting on it (click one to go to its object).
 - **Far away or out of view**: when the other end of an arrow is off the screen (or behind you), a
@@ -1662,7 +1668,7 @@ enter `green` in **Tag**, and choose the **Radius** and **Center**. An empty Tag
 **Include newcomers** also adds matching objects in the zone when the action runs. The tag filter
 is checked at execution, and the radius reaches through walls: it does not detect room boundaries.
 
-Try this with a green light, a red light and a button: use the button's **JC uses it** event,
+Try this with a green light, a red light and a button: use the button's **the player uses it** event,
 target `green`, choose the action that turns lights off, then **Rebuild** and test in the game.
 Only matching lights should switch off. Save and Rebuild after changing tags or their interactions.
 
@@ -1763,7 +1769,7 @@ Animation panel opens at the bottom, like Premiere's Motion or Unity's Animation
 - Positions are offsets from where the object stands, so moving the object moves its whole animation.
   Rotation in degrees: 360 is a whole turn (two keys 0 and 360: it spins once).
 - **Doors, elevators and moving blocks** are the engine's movers: up to 8 keys, no scale, and whoever stands
-  on them moves with them. A door you animate still opens when JC uses it, with your movement (a door that
+  on them moves with them. A door you animate still opens when the player uses it, with your movement (a door that
   slides can swing on its hinge instead). A block becomes a **moving block** (*Kind* in its panel, or
   *Animate...* on it) and moves in the game as you animate it: a lift, a platform, a crusher.
 - In the **Interactions**: *Then... → Play its animation*, *Play it backwards*, *Stop its animation*, and
@@ -2000,7 +2006,7 @@ per object in the Inspector.
 
 The **Console** (a tab next to the Browser, or **Window > Console**) shows the game's log while the
 game runs, as it is written: **Logic** shows what the rules and the scripts do, in words (*▶ L3 When
-JC uses Button1: open Door3*, *→ open Door3*, *⏸ L4 did not run: only if JC carries Multitool, and that
+the player uses Button1: open Door3*, *→ open Door3*, *⏸ L4 did not run: only if JC carries Multitool, and that
 does not hold*); a name selects that object in the map, a rule's id goes to its object. **Scripts** shows
 only the lines from scripts (`log()`) and from the Console, **Problems** only errors and warnings.
 As Unity's Console, **Collapse** shows identical lines as one, with how many came at its right (*×240*: a script
@@ -2056,6 +2062,10 @@ to use its appearance in the open map. Alternatively, open **Map settings > Play
 character** and select it under **This map**. **Apply**, **Save**, then **Rebuild**.
 The Player Start inspector has a **Change** shortcut to the same setting; Player
 Start still chooses only where and in which direction the player appears.
+
+**When the player uses it** works with every supported player character. Older versions called
+this event **When JC uses it**; existing rules keep working without being recreated. It refers
+to the controlled player, while **a character has used it** is the separate event for NPC orders.
 
 For a campaign-wide choice, expand **Project default**, choose a character and press
 **Set default**. Rebuild each affected map. A map may inherit that default or override
@@ -2283,6 +2293,23 @@ faces: turn it with **E**) and **✕** takes it out of the route. **+ Add points
 first point; each patrol point's *Next point* is the following one (all of this is also in their
 Properties, and in Connections).
 
+### Sitting and getting up
+
+Use a chair, bench or sofa from **Objects**: these have the game's seat points. A chair made only
+of Pieces or Prefabs is geometry and cannot seat an NPC by itself.
+
+In **Interactions**, choose **Sit on a chair**, then **Pick…** and click the seat in the scene or
+Hierarchy. The character walks to that specific seat and uses the game's sitting animations.
+**Stand up** gets them up again. You can trigger either action from a button, a proximity rule,
+or another event. The **Story** also offers them under **A character…**, including actions after
+a dialogue. A rule **When the map starts** can send a character to their chair at startup.
+
+Keep the front of the chair clear and connect distant seats with AI paths. Occupied or unavailable
+seats are rejected; the character does not choose another chair instead. The body must support
+the game's sitting animations. Commands received during a conversation wait until it ends.
+The original **Behaviour > Orders > Sitting** remains available: its target is the chair's
+engine Tag, or the game chooses a seat if no target is set.
+
 ## Animations
 
 **What a character does when idle**: in its Properties, *Animation > When idle* lists the animations
@@ -2296,7 +2323,7 @@ patrolling through it): they do it while they wait there. When the point had no 
 long enough for the animation.
 
 **When something happens** (an Interaction): *Play a body animation* on a character makes it play one when
-JC uses a button, walks into a collision box, picks something up, when a timer runs out, a cutscene starts...
+the player uses a button, walks into a collision box, picks something up, when a timer runs out, a cutscene starts...
 Choose the character as the target, then its **animation** (the model's own, or one of yours from the
 Animation Studio: it is put on the character's models when you choose it), how many times (**once**, **over and
 over** until *Stop its body animation*, or **over and over, for some seconds**), its **speed**, and whether it
@@ -2754,7 +2781,7 @@ Events, dialogues (step *Actions*) and InfoLinks can do:
 | Set a flag, Goal, Datavault note, On-screen message | the story's memory and what the player reads |
 | Start a dialogue, Play an InfoLink, Play a cutscene | |
 | Trigger an event (Tag) | doors, alarms, lights of the map |
-| A character... | walks or runs to a point, stops, wanders around, follows JC, becomes hostile to JC (attacks when he sees him), attacks JC right now, becomes neutral or friendly, vanishes, reappears, joins a faction |
+| A character... | walks or runs to a point, sits on a chosen chair, gets up, stops, wanders around, follows JC, becomes hostile to JC (attacks when he sees him), attacks JC right now, becomes neutral or friendly, vanishes, reappears, joins a faction |
 | A faction... | becomes hostile, neutral or friendly towards JC or another faction (fixed or not) |
 | A door... | opens, closes, locks, unlocks, blows up |
 | Take JC to another map | with an arrival point (Tag) if you want |

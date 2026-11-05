@@ -102,6 +102,12 @@ function actionProblems(ix, r, act, add, game) {
   // (logic.json inputs[verb].target: the action needs an object; without one the game does nothing: fail cannot)
   if (verb.target && !x.target && !x.area && !x.targetTag) add('error', 'no-object', `"${ix.vocab.verbLabel(x.verb)}" has no object.`, at);
   if (own(NO_NAME, x.verb) && !String(x.a || '').trim()) add('error', 'no-name', NO_NAME[x.verb], at);
+  if (x.verb === 'sit') {
+    const seat = own(ix.actors, x.a);
+    if (!x.a || !present(ix, x.a)) add('error', 'no-seat', 'Choose a chair that is in the map.', at);
+    else if (ix.off.has(x.a)) add('warn', 'seat-disabled', 'The chosen chair is disabled in the game.', at);
+    else if (Array.isArray(seat.chain) && !seat.chain.includes('Seat')) add('error', 'not-seat', 'Choose a game seat from Objects; geometry alone has no seat points.', at);
+  }
   if (game && !ix.vocab.worksIn('verb', x.verb, game)) add('error', 'not-in-game', `"${ix.vocab.verbLabel(x.verb)}" does not work in this game.`, at);
 }
 // "the light Lamp1 cannot Open: try Turn on or off" (its usual input); a script's renamed input

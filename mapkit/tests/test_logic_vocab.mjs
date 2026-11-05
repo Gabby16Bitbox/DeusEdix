@@ -52,7 +52,8 @@ test('the cases cover every output, verb and family app.js and logic.json know',
   assert.deepEqual(VERBS.filter((v) => !verbs.has(v)), []);
   if (!app) { t.skip('app.js has no LK_WHEN any more'); return; }
   assert.deepEqual(Object.keys(app.tables.LK_WHEN).sort(), [...OUTPUTS].sort());
-  assert.deepEqual(Object.keys(app.tables.LK_VERBS).sort(), [...VERBS].sort());
+  // Seating was added after this frozen vocabulary; covered by test_seat_orders.mjs.
+  assert.deepEqual(Object.keys(app.tables.LK_VERBS).sort(), [...VERBS, 'sit', 'standup'].sort());
   assert.deepEqual(Object.keys(app.tables.LK_KIND).filter((f) => !FAMILIES.includes(f)), []);
 });
 
@@ -224,8 +225,8 @@ test('a rule\'s steps in the order the game runs them, one way for its "do" and 
   const acts = [{ verb: 'message', a: 'Later', delay: 2.5 }, { verb: 'open', target: 'Door3' }, { verb: 'message', a: 'Soon', delay: 1 }];
   assert.equal(vocab.steps(acts, world), 'open the door Door3, after 1 s the message "Soon", after 2.5 s the message "Later"');
   assert.equal(vocab.steps([], world), '');
-  assert.equal(vocab.sentence({ src: 'Button1', when: 'used', do: acts }, world), `When JC uses the object Button1: ${vocab.steps(acts, world)}`);
-  assert.equal(vocab.sentence({ src: 'Button1', when: 'used' }, world), 'When JC uses the object Button1: nothing yet');
+  assert.equal(vocab.sentence({ src: 'Button1', when: 'used', do: acts }, world), `When the player uses the object Button1: ${vocab.steps(acts, world)}`);
+  assert.equal(vocab.sentence({ src: 'Button1', when: 'used' }, world), 'When the player uses the object Button1: nothing yet');
   assert.deepEqual(acts.map((x) => x.a || x.verb), ['Later', 'open', 'Soon'], 'the list itself is not sorted');
 });
 

@@ -131,8 +131,8 @@ def commands(edits):
             if mode == 'pan' and any(v != int(v) or abs(v) > 32767 for v in args):
                 raise ValueError('Pan uses whole texels, between -32767 and 32767.')
         elif mode == 'shadows':
-            if len(args) != 1 or args[0] not in ('low', 'normal', 'high'):
-                raise ValueError('Shadow detail must be Low, Normal or High.')
+            if len(args) != 1 or args[0] not in ('ultra-low', 'low', 'normal', 'high'):
+                raise ValueError('Shadow detail must be Ultra Low, Low, Normal or High.')
         elif mode == 'flags':
             if (len(args) != 2 or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in args)
                     or (args[0] | args[1]) & ~FLAG_MASK or args[0] & args[1]):

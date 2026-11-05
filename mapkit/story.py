@@ -354,6 +354,13 @@ def action_code(map_name, a, dialogues, indent, infolinks=None):
                                                      'True' if a.get('alone') else 'False')]
         if act == 'neutral':
             return ["%sNpcNeutral('%s');" % (indent, n)]
+        if act == 'sit':
+            chair = str(a.get('seat') or '')
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', chair):
+                raise ValueError('Sit on a chair: choose a seat for ' + n)
+            return ["%sNpcSit('%s', '%s');" % (indent, n, chair)]
+        if act == 'standup':
+            return ["%sNpcStandUp('%s');" % (indent, n)]
         orders = dict(stop='Standing', wander='Wandering', follow='Following')
         if act in orders:
             return ["%sNpcOrders('%s', '%s');" % (indent, n, orders[act])]

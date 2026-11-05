@@ -19,7 +19,7 @@ const lab = featureLab();
 // ---------------------------------------------------------------- a real map: Feature Test's 01_Feature_Lab
 test('Feature Lab: its things show only the pins in use, with their words', () => {
   const g = graphOf(lab);
-  assert.deepEqual(pins(nodeOf(g, 'obj:UCEdit5'), 'out'), ['out:used=JC uses it']);
+  assert.deepEqual(pins(nodeOf(g, 'obj:UCEdit5'), 'out'), ['out:used=the player uses it']);
   assert.deepEqual(pins(nodeOf(g, 'obj:UCEdit5'), 'in'), []);
   assert.deepEqual(nodeOf(g, 'obj:UCEdit5').more, { out: 2, in: 5 });           // object: gone, near; hide, show, sound...
   const door = nodeOf(g, 'obj:UCEditBox7');
@@ -45,11 +45,11 @@ test('Feature Lab: rule cards, the one simple rule a wire, conditions say who se
   const g = graphOf(lab);
   assert.deepEqual(g.nodes.filter((n) => n.kind === 'rule').map((n) => n.rule), ['L1', 'L2', 'L3', 'L5', 'L6', 'L7', 'L8']);
   const l4 = wireOf(g, 'rule:L4');                                                 // one action on one object: a wire
-  assert.equal(l4.label, 'JC uses it → Start it');
+  assert.equal(l4.label, 'the player uses it → Start it');
   assert.deepEqual([l4.from, l4.to], [{ node: 'obj:UCEdit5', pin: 'out:used' }, { node: 'obj:UCEdit29', pin: 'in:input:Start' }]);
   assert.deepEqual(l4.badges.map((b) => b.text), ['its values: Seconds=1']);
   const l1 = nodeOf(g, 'rule:L1');
-  assert.deepEqual(l1.causes.map((c) => [c.text, c.short, c.node, c.pin]), [['When JC uses Button UCEdit5', 'JC uses it', 'obj:UCEdit5', 'out:used']]);
+  assert.deepEqual(l1.causes.map((c) => [c.text, c.short, c.node, c.pin]), [['When the player uses Button UCEdit5', 'the player uses it', 'obj:UCEdit5', 'out:used']]);
   assert.deepEqual(l1.sections[0].rows.map((r) => [r.timeText, r.text, r.target, r.pin, r.badges.map((b) => b.text)]), [
     ['0 s', 'play the animation of door UCEditBox7', 'obj:UCEditBox7', 'in:anim', []],
     ['0 s', 'Officer Rossi UCEdit8 walks to a place', 'obj:UCEdit8', 'in:goto', ['to 1573, -208, 40']]]);
@@ -59,8 +59,9 @@ test('Feature Lab: rule cards, the one simple rule a wire, conditions say who se
   // what sets the counter reaches what reads it: state wires
   assert.deepEqual(g.wires.filter((w) => w.kind === 'state').map((w) => `${w.from.pin}>${w.to.node}/${w.to.pin}`), ['act:L2/a1>rule:L3/if:0', 'act:L2/a1>rule:L8/if:0']);
   assert.deepEqual(g.states.find((s) => s.name === 'Test_Presses'), { name: 'Test_Presses', type: 'int', setBy: 1, readBy: 2, setters: ['rule:L2'], readers: ['rule:L3', 'rule:L8'], elsewhere: 0 });
-  // every card says what app.js saved as the rule's label (its sentence)
-  for (const l of lab.edits.links) assert.equal((nodeOf(g, 'rule:' + l.id) || wireOf(g, 'rule:' + l.id)).sentence, l.label, l.id);
+  // Old saved labels remain valid; the graph uses the current player-neutral wording.
+  for (const l of lab.edits.links) assert.equal((nodeOf(g, 'rule:' + l.id) || wireOf(g, 'rule:' + l.id)).sentence,
+    l.label.replace(/^When JC (uses|has used) /, 'When the player $1 '), l.id);
   // Officer Rossi's dialogue: started by talking to him, read only
   const d1 = nodeOf(g, 'dlg:d1');
   assert.deepEqual([d1.kind, d1.readOnly, d1.title, d1.first, d1.owner], ['dialogue', true, 'Rossi at the door', 'why are you mad?', 'obj:UCEdit8']);

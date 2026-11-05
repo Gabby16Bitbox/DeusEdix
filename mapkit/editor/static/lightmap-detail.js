@@ -1,6 +1,6 @@
 // View > Lightmap detail (view-modes.js), as Unity's lightmap resolution view: every surface in the colour of how big
 // its lightmap's samples are, from the map's last Rebuild. A sample is a point of the lattice the engine lights a
-// surface on (its shadows are as sharp as that); Shadow detail (Surface > Shadows: Low, Normal, High) and the size of
+// surface on (its shadows are as sharp as that); Shadow detail (Surface > Shadows: Ultra Low, Low, Normal, High) and the size of
 // the surface set how far apart they are. No page.
 //
 // What the editor has: every surface's lightmap packed in an atlas (data.py lightmap_atlas: lightmap.json, its size

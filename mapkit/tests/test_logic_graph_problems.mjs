@@ -57,7 +57,7 @@ test('what the game does on any object is not an error: a sound, an explosion, h
 test('an output the rule hears on the object\'s event, which the object sends: a warning, not an error (the runtime fixture)', () => {
   // used_and_any_one_event: "any" of a decoration is the event "used" sends too, and the game runs both
   assert.deepEqual(brief(problems(fixtureWorld('used_and_any_one_event'))), [
-    'warn same-event rule:L2: Button1 does not offer "it triggers its event", but the rule hears its event: it runs when "JC uses it" happens.']);
+    'warn same-event rule:L2: Button1 does not offer "it triggers its event", but the rule hears its event: it runs when "the player uses it" happens.']);
   // a zone sends its event when JC walks in; a body sends none; a mover's "blown up" is only a door's
   const heard = (src, when) => brief(problems(world([rule({ src, when }, [{ verb: 'message', a: 'x' }])]))).map((p) => p.split(':')[0]);
   assert.deepEqual(heard('Zone1', 'used'), ['warn same-event rule']);
@@ -179,7 +179,7 @@ test('what needs Logic runtime v2, what the project\'s game cannot run', () => {
   narrowed.inputs.open.games = ['revision'];
   narrowed.outputs.used.games = ['revision'];
   const ps = (game) => brief(problems({ ...world([rule({}, [{ verb: 'open', target: 'Door3' }])]), catalog: narrowed }, { game }).filter((p) => p.code === 'not-in-game'));
-  assert.deepEqual(ps('vanilla'), ['error not-in-game rule:L1: "JC uses it" does not work in this game.', 'error not-in-game rule:L1/a1: "Open" does not work in this game.']);
+  assert.deepEqual(ps('vanilla'), ['error not-in-game rule:L1: "the player uses it" does not work in this game.', 'error not-in-game rule:L1/a1: "Open" does not work in this game.']);
   assert.deepEqual(ps('revision'), []);
 });
 

@@ -303,7 +303,7 @@ function storyActions(item) {
 }
 function storyAct(a, alias) {
   switch (a.type) {
-    case 'door': case 'npc': return { verb: own(alias, a.act) || a.act, target: a.actor || '' };
+    case 'door': case 'npc': return { verb: own(alias, a.act) || a.act, target: a.actor || '', ...(a.act === 'sit' ? { a: a.seat || '' } : {}) };
     case 'cutscene': return { verb: 'cutplay', target: a.cutscene || '' };
     case 'flag': return { verb: 'flag', a: a.flag || '', b: a.is === false ? '0' : '1' };
     case 'goal': return { verb: 'goal', a: a.goal || '', b: a.text || '', c: a.done ? 'done' : '' };
@@ -438,7 +438,7 @@ function cardOf(r, ix) {
     sections: sectionsOf(r.acts, ix), otherwise: sectionsOf(r.otherwise, ix)[0].rows, sentence: ix.vocab.sentence(l, ix.ctx),
     pos: posOf(ix, r.node) };
 }
-// A simple rule as a wire from its cause's pin to its object's input: "JC uses it → Open", its badges
+// A simple rule as a wire from its cause's pin to its object's input: "the player uses it → Open", its badges
 function collapsedOf(r, ix) {
   const c = r.causes[0], act = r.acts[0];
   return { id: r.node, kind: kindOfWire(c.node, act.node), part: 'rule', rule: r.id, act: act.id, muted: !!r.l.mute,

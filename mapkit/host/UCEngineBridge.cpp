@@ -1838,7 +1838,7 @@ static int editSurface(const UCSurfaceEdit* edit) {
         y = edit->y;
         if (scale && (x < .001f || y < .001f || x > 1000 || y > 1000)) return surfaceError("Texture scale must be 0.001 to 1000");
     }
-    if (shadow && arg != "low" && arg != "normal" && arg != "high") return surfaceError("Invalid shadow detail");
+    if (shadow && arg != "ultra-low" && arg != "low" && arg != "normal" && arg != "high") return surfaceError("Invalid shadow detail");
     UTexture* tex = NULL;
     if (texture) {
         tex = (UTexture*)UObject::StaticFindObject(UTexture::StaticClass(), ANY_PACKAGE, Wide(arg.c_str()));
@@ -1851,7 +1851,8 @@ static int editSurface(const UCSurfaceEdit* edit) {
         if (p.NumVertices < 3) return surfaceError("Invalid source polygon");
         if (texture) p.Texture = tex;
         else if (shadow) p.PolyFlags = (p.PolyFlags & ~(PF_LowShadowDetail | PF_HighShadowDetail)) |
-            (arg == "low" ? PF_LowShadowDetail : arg == "high" ? PF_HighShadowDetail : 0);
+            (arg == "ultra-low" ? (PF_LowShadowDetail | PF_HighShadowDetail) :
+                arg == "low" ? PF_LowShadowDetail : arg == "high" ? PF_HighShadowDetail : 0);
         else if (fit) { if (!fitSurface(p, mode)) return surfaceError("Cannot fit this face: degenerate UVs or no texture"); }
         else if (floor || wall) {
             FVector n = p.Normal.SafeNormal(), u;

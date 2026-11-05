@@ -155,6 +155,8 @@ def act_string(a):
         fields += [_name(a.get('a')), '%g' % _secs(a.get('b'), 0), body_how(a.get('c'))]
     elif verb == 'npcuse':                      # the character goes to the object (a), b seconds, c pose
         fields += [_name(a.get('a')), '%g' % _secs(a.get('b'), 3), 'stand' if a.get('c') == 'stand' else 'crouch']
+    elif verb == 'sit':                         # exact Seat actor, not its shared engine Tag
+        fields += [_name(a.get('a')), '', '']
     elif verb == 'effect':                      # a kind, b seconds (0 = until stopped), c colour (+ beep)
         kind = str(a.get('a') or 'mist').strip().lower()
         fields += [kind if kind in EFFECTS else 'mist', '%g' % _secs(a.get('b'), 0), _text(a.get('c')).lower()]
@@ -292,7 +294,7 @@ def blocks(edits):
             raise ValueError('Interaction %s (%s): %s' % (rule, _text(link.get('label') or link.get('src')), exc)) from exc
         acts = [a for a in link.get('do') or [] if str(a.get('verb')) in VERBS
                 and not (a.get('target') and a['target'] in deleted)
-                and not (a.get('verb') == 'npcuse' and (not _name(a.get('a')) or a['a'] in deleted))]
+                and not (a.get('verb') in ('npcuse', 'sit') and (not _name(a.get('a')) or a['a'] in deleted))]
         acts = [dict(a, area=area_data(a, deleted | {link.get('src')})) if a.get('area') is not None else a for a in acts]
         if len(acts) > MAX_ACTS:
             raise ValueError('An interaction supports at most 24 actions; create another rule')

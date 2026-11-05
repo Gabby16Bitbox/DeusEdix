@@ -4,7 +4,7 @@
   "behaviour": "A start rule has no object and no one who set it off; it is told at the first run of its half-second timer and never again, refused or not.",
   "derivedFrom": [
     {"file": "UCEditorStory.uc", "lines": [28, 28], "has": "SetTimer(0.5, True);"},
-    {"file": "UCEditorStory.uc", "lines": [1014, 1017], "has": "if (!bStarted)"},
+    {"file": "UCEditorStory.uc", "lines": [1029, 1032], "has": "if (!bStarted)"},
     {"file": "UCLink.uc", "lines": [301, 305], "has": "function StartStory()"}
   ],
   "assumes": ["A8"],

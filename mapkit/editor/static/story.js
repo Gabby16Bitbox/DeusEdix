@@ -53,6 +53,7 @@ const CALLERS = [
 const ident = (s) => String(s || '').replace(/\W/g, '_');
 const NPC_ACTS = {
   goto: 'walks to a point', run: 'runs to a point', stop: 'stops where they are', wander: 'wanders around the area',
+  sit: 'walks to a chair and sits down', standup: 'gets up from their seat',
   follow: 'follows JC', hostile: 'becomes hostile to JC (attacks when he sees him)', attack: 'attacks JC right now',
   neutral: 'becomes neutral to JC', friend: 'becomes friendly to JC',
   hide: 'vanishes (once JC can\'t see them)', show: 'reappears (once JC can\'t see their spot)', join: 'joins a faction',
@@ -265,7 +266,11 @@ function locate(name) {
   $('#st-peekname').textContent = a ? actorLabel(a) : name;
   root.classList.add('peek');
 }
-function unpeek() { root.classList.remove('peek'); }
+let cancelSeatPick = null;
+function unpeek() {
+  cancelSeatPick?.(); cancelSeatPick = null;
+  root.classList.remove('peek');
+}
 function playedFlag(d) { return d.replaces ? `${d.replaces}_Played` : `UCEd${mapCode}_${ident(d.id)}_Played`; }
 function heardFlag(il) { return `UCEd${mapCode}_${ident(il.id)}_Heard`; }
 function blankDialogue(actorName) {
@@ -400,6 +405,7 @@ function actionBody(a) {
   if (a.type === 'infolink') return `<div class="f"><select data-k="infolink"><option value="">(choose)</option>${story.infolinks.map((il) => `<option value="${esc(il.id)}" ${il.id === a.infolink ? 'selected' : ''}>${esc(il.title || il.id)}</option>`).join('')}</select></div>`;
   if (a.type === 'npc') return `<div class="f">${actorSelect(pawns(), a.actor, 'who')}${locButton('data-aloc="1"')} ${optSelect(NPC_ACTS, a.act || 'goto')}</div>`
     + (a.act === 'goto' || a.act === 'run' ? pointHtml(a.at) + `<div class="f"><label title="The way a man would walk, on the walkable area (View > Walkable area), without path nodes; it goes into the map at Rebuild. Off: on the AI paths, as the game's characters go"><input type="checkbox" data-k="nav" ${a.nav ? 'checked' : ''}> on the walkable area</label></div>` : '')
+    + (a.act === 'sit' ? `<div class="f"><label>Chair</label><span style="min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(a.seat || '')}">${esc(a.seat || 'None chosen')}</span><button data-seatpick title="Pick a game chair, bench or sofa in the scene. Pieces alone have no seat points.">${a.seat ? 'Change…' : 'Pick…'}</button></div>` : '')
     + (a.act === 'join' ? `<div class="f">faction ${facInput(a.faction)}</div>` : '')
     + (a.act === 'hostile' || a.act === 'attack' ? `<div class="f"><label><input type="checkbox" data-k="alone" ${a.alone ? 'checked' : ''}> alone: only this character</label></div>
       <div class="tip" style="margin:2px 0">Alone: they leave their faction, so when JC fights back the others neither help them nor turn on JC. Off: as in the game, their friends may join the fight. To turn a whole faction, use "A faction...".</div>` : '')
@@ -433,6 +439,15 @@ function renderActions(box, list) {
     if (act) act.addEventListener('change', redraw);
     const lb = card.querySelector('[data-aloc]');
     if (lb) lb.onclick = () => locate(a.actor);
+    const seatPick = card.querySelector('[data-seatpick]');
+    if (seatPick) seatPick.onclick = () => {
+      unpeek();
+      $('#st-peekname').textContent = 'the scene — click a chair';
+      root.classList.add('peek');
+      cancelSeatPick = E().cutKit.lkStartPick({ hint: 'Click a chair, bench or sofa from Objects',
+        accept: (o, chain) => chain.includes('Seat') || 'Choose a game seat from Objects; a Piece or Prefab alone has no seat points.',
+        done: o => { a.seat = o.name; changed(); unpeek(); redraw(); } });
+    };
     wirePoint(card, a, redraw);
   });
   for (const b of box.querySelectorAll('[data-ax]')) b.onclick = () => { list.splice(+b.dataset.ax, 1); changed(); redraw(); };
@@ -446,6 +461,7 @@ function actionProblems(list, where, out) {
     if (a.type === 'travel' && !a.map) out.push(`${where}: missing the map to take JC to`);
     if (a.type === 'faction' && !a.faction) out.push(`${where}: missing the faction`);
     if (a.type === 'npc' && a.act === 'join' && !a.faction) out.push(`${where}: missing the faction ${a.actor || 'the character'} joins`);
+    if (a.type === 'npc' && a.act === 'sit' && !a.seat) out.push(`${where}: choose the chair for ${a.actor || 'the character'}`);
     if (a.type === 'talk' && !a.dialogue) out.push(`${where}: missing the dialogue to start`);
     if (a.type === 'infolink' && !story.infolinks.some((il) => il.id === a.infolink)) out.push(`${where}: missing the InfoLink to play`);
     if (a.type === 'cutscene' && !cutscenes().some(([n]) => n === a.cutscene)) out.push(`${where}: missing the cutscene to play`);

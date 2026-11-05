@@ -41,13 +41,13 @@ const AIMS = ['AllianceTrigger', 'OrdersTrigger', 'InterpolateTrigger', 'Sequenc
   'LOSHateTrigger', 'PhysicsTrigger', 'SkinColourTrigger', 'TriggerTrigger', 'UnlitTrigger'];
 // the verbs UCLink.DoAct knows (links.py makes navgo / navrun of goto / run on the walkable area): any other "cannot"
 const VERBS = new Set(['open', 'close', 'toggle', 'lock', 'unlock', 'blow', 'key', 'attack', 'hostile', 'friend', 'neutral',
-  'stand', 'wander', 'follow', 'goto', 'run', 'navgo', 'navrun', 'leave', 'appear', 'lighton', 'lightoff', 'lighttoggle', 'hide',
+  'stand', 'sit', 'standup', 'wander', 'follow', 'goto', 'run', 'navgo', 'navrun', 'leave', 'appear', 'lighton', 'lightoff', 'lighttoggle', 'hide',
   'show', 'on', 'off', 'explode', 'sound', 'anim', 'animback', 'animstop', 'cutplay', 'cutstop', 'message', 'goal', 'note', 'flag',
   'count', 'travel', 'timerstart', 'timerstop', 'timerpause', 'timerresume', 'npcuse', 'effect', 'input', 'floor']);
 // what a verb needs of its target (UCLink.DoAct): a class in its chain, true any object; without it, "cannot"
 const NEEDS = { open: 'DeusExMover', close: 'DeusExMover', toggle: 'DeusExMover', key: 'DeusExMover', hide: true, show: true,
   on: true, off: true, effect: true, cutplay: 'UCCutscene', cutstop: 'UCCutscene', timerstart: 'UCTimer', timerstop: 'UCTimer',
-  timerpause: 'UCTimer', timerresume: 'UCTimer' };
+  timerpause: 'UCTimer', timerresume: 'UCTimer', sit: 'ScriptedPawn', standup: 'ScriptedPawn' };
 // what a tag action reaches (UCLink.TagKind): lights, doors or characters by its verb, else any object but the
 // editor's own helpers
 const DOOR_VERBS = new Set(['open', 'close', 'toggle', 'lock', 'unlock', 'blow']);
@@ -343,6 +343,8 @@ function newRun(S) {
     const T = target === '' ? null : target, need = NEEDS[verb];
     if (!VERBS.has(verb) || (need && !(T && (need === true || isa(T, need))))) return fail('cannot');
     switch (verb) {
+      // Path finding and free seat slots are checked by the game, not this logic-only simulation.
+      case 'sit': return a && present(a) && isa(a, 'Seat') ? undefined : fail('seat unavailable or unsupported character');
       case 'flag': return a === '' ? fail('noname', '') : st.flags.set(a, b !== '0');
       case 'goal': return a === '' ? fail('noname', '') : undefined;
       case 'count': return a === '' ? fail('noname', '') : st.counters.set(a, (c === 'set' ? 0 : st.counters.get(a) || 0) + int(b));

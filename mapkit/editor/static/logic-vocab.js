@@ -8,7 +8,7 @@
 //   name(n)            an object as a sentence names it (app.js lkName)
 //   family(n)          its family in logic.json ('other' when unknown: lkCatOf)
 //   word(n)            what a mover is ('bridge', 'lift'...; none: its family's own words)
-//   usable(n)          JC uses it through its Usable settings ("has used")
+//   usable(n)          the player uses it through its Usable settings ("has used")
 //   optionText(l)      the text of the computer's option a rule waits for
 //   portLabel(n, key)  a script's port ('output:<Id>', 'input:<Id>') as the script names it
 //   itemName(cls)      an item as the game names it (the conditions' "JC carries")
@@ -176,7 +176,7 @@ export function vocabulary(data) {
     // the kind of object a verb acts on ('' none: LK_VERBS[v][1]), and a family's kind as a sentence names it
     acts: (v) => (entry('verb', v) || {}).acts || '',
     noun: (id, word) => (word && (mover(word) || {}).noun) || (family(id) || {}).noun || '',
-    // "When JC uses Button1", "open Door3", the whole rule
+    // "When the player uses Button1", "open Door3", the whole rule
     whenText(l, ctx) {
       const e = entry('output', l.when, wordOf(ctx, l.src)) || entry('output', 'any');
       return fill(S.when, { say: render(e, e.say, l, OUTPUT_WORDS, ctx, vocab) });

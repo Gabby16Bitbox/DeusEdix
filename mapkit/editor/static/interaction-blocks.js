@@ -27,6 +27,8 @@ export const BLOCK_VERBS = {
   timerpause: ['Pause the timer', 'timer'],
   timerresume: ['Resume the timer', 'timer'],
   npcuse: ['Go and use an object', 'character'],
+  sit: ['Sit on a chair', 'character'],
+  standup: ['Stand up', 'character'],
   effect: ['An effect on it (mist, sparks, light...)', 'any'],
   body: ['Play a body animation', 'character'],
   bodystop: ['Stop its body animation', 'character'],
@@ -105,6 +107,8 @@ export function blockActText(x, t, nameOf, info = {}) {
     case 'timerstop': return `stop ${t}`;
     case 'timerpause': return `pause ${t}`;
     case 'timerresume': return `resume ${t}`;
+    case 'sit': return `${t} walks to ${nameOf(x.a || '?')} and sits down`;
+    case 'standup': return `${t} gets up from their seat`;
     case 'npcuse': {
       const what = x.a ? nameOf(x.a) : '(an object: choose it)';
       return `${t} goes and uses ${what}${+x.b > 0 ? ` for ${+x.b} s` : ''}${x.c === 'stand' ? '' : ', crouching'}`;
@@ -133,6 +137,9 @@ export function blockActText(x, t, nameOf, info = {}) {
 export function blockRowsHtml(x, j, esc, nameOf, info = {}) {
   const row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
   const num = (k, v, min, step, w = 60, title = '') => `<input type="number" data-lkarg="${j}" data-k="${k}" value="${esc(String(v))}" min="${min}" step="${step}" style="width:${w}px"${title ? ` title="${esc(title)}"` : ''}>`;
+  if (x.verb === 'sit') {
+    return row(`<label style="width:auto">chair</label><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.a ? nameOf(x.a) : 'Choose a game chair, bench or sofa from Objects')}">${esc(x.a ? nameOf(x.a) : 'Choose a chair')}</span><button data-lkseat="${j}" title="Pick a seat in the map">${x.a ? 'Change…' : 'Pick…'}</button>`);
+  }
   if (x.verb === 'timerstart') {
     return row(`<label style="width:auto" title="0: the seconds set in the timer's Properties">for</label>${num('a', +x.a || 0, 0, 1, 64)}<span class="hint" style="margin:0">s (0: its own)</span>`);
   }
@@ -179,19 +186,19 @@ export function usableSummary(u) {
 // the Usable section of an object's Properties (items: [{cls, name, cat}] of the game's inventory)
 export function usableHtml(u, items, esc) {
   const on = !!u;
-  let h = `<div class="row"><label style="width:auto" title="JC can use it: its rules 'When JC uses it' run when he has finished"><input type="checkbox" data-us="on" ${on ? 'checked' : ''}> JC can use it</label></div>`;
+  let h = `<div class="row"><label style="width:auto" title="Works with any player character chosen for this map. The use rules run when the player finishes."><input type="checkbox" data-us="on" ${on ? 'checked' : ''}> Player can use it</label></div>`;
   if (!on) return h + '<div class="hint" style="margin:2px 0">Any model can be used: a bomb to defuse, a generator to sabotage, a lock to cut...</div>';
   const cats = [...new Set(items.map((x) => x.cat))];
   const itemSel = `<select data-us="item" style="flex:1;min-width:0"><option value="">(nothing)</option>${cats.map((c) => `<optgroup label="${esc(c)}">${items.filter((x) => x.cat === c).map((x) => `<option value="${esc(x.cls)}" ${String(x.cls).toLowerCase() === String(u.item || '').toLowerCase() ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}${u.item && !items.some((x) => String(x.cls).toLowerCase() === String(u.item).toLowerCase()) ? `<option value="${esc(u.item)}" selected>${esc(u.item)}</option>` : ''}</select>`;
-  h += `<div class="row"><label style="width:auto;min-width:96px" title="What JC reads when he looks at it">Use text</label><input type="text" data-us="text" value="${esc(u.text || '')}" placeholder="Use" style="flex:1;min-width:0"></div>
-    <div class="row"><label style="width:auto;min-width:96px" title="0: at once. More: JC is busy that long (a bar fills up); walking away cancels it">Takes</label><input type="number" data-us="secs" value="${+u.secs || 0}" min="0" step="0.5" style="width:64px"><span class="hint" style="margin:0">s</span>
-      <label style="width:auto" title="JC crouches while he uses it"><input type="checkbox" data-us="crouch" ${u.crouch ? 'checked' : ''}> crouching</label></div>
-    <div class="row"><label style="width:auto;min-width:96px" title="An item JC must carry (nothing: anyone can)">Needs</label>${itemSel}</div>`;
+  h += `<div class="row"><label style="width:auto;min-width:96px" title="What the player reads when looking at it">Use text</label><input type="text" data-us="text" value="${esc(u.text || '')}" placeholder="Use" style="flex:1;min-width:0"></div>
+    <div class="row"><label style="width:auto;min-width:96px" title="0: at once. More: the player is busy that long (a bar fills up); walking away cancels it">Takes</label><input type="number" data-us="secs" value="${+u.secs || 0}" min="0" step="0.5" style="width:64px"><span class="hint" style="margin:0">s</span>
+      <label style="width:auto" title="The player crouches while using it"><input type="checkbox" data-us="crouch" ${u.crouch ? 'checked' : ''}> crouching</label></div>
+    <div class="row"><label style="width:auto;min-width:96px" title="An item the player must carry (nothing: no item required)">Needs</label>${itemSel}</div>`;
   if (u.item) h += `<div class="row" style="padding-left:12px"><label style="width:auto"><input type="checkbox" data-us="consume" ${u.consume ? 'checked' : ''}> it is used up</label>
       <input type="text" data-us="needtext" value="${esc(u.needtext || '')}" placeholder="message without it (optional)" style="flex:1;min-width:0"></div>`;
-  h += `<div class="row"><label style="width:auto;min-width:96px" title="0: as often as JC likes; after the last time it is an ordinary object">Times</label><input type="number" data-us="uses" value="${+u.uses || 0}" min="0" step="1" style="width:64px"><span class="hint" style="margin:0">0 = always</span></div>
+  h += `<div class="row"><label style="width:auto;min-width:96px" title="0: unlimited uses; after the last time it is an ordinary object">Times</label><input type="number" data-us="uses" value="${+u.uses || 0}" min="0" step="1" style="width:64px"><span class="hint" style="margin:0">0 = always</span></div>
     <div class="row"><label style="width:auto" title="Not there until a rule makes it appear ('Appear again')"><input type="checkbox" data-us="hidden" ${u.hidden ? 'checked' : ''}> hidden at the start</label></div>
-    <div class="hint" style="margin:2px 0">Its rules "When JC uses it" run when he has finished. Characters can use it too ("Go and use an object").</div>`;
+    <div class="hint" style="margin:2px 0">Its rules "When the player uses it" run when the player finishes. NPCs use it through "Go and use an object".</div>`;
   return h;
 }
 

@@ -11872,7 +11872,7 @@ let allMapNames = null;               // every map (Leads to of the map exits, N
 
 // ---------------------------------------------------------------- Interactions: when this happens, do that
 // Like Hammer's outputs and UEFN's direct event binding: no Tag or Event to write. A rule belongs to an object
-// ("When JC uses it") and does things to other objects, each after a delay (edits.links, editor/links.py; in
+// ("When the player uses it") and does things to other objects, each after a delay (edits.links, editor/links.py; in
 // the game the editor's UCLink hooks itself to the object). Connect: click another object, and the rule is made
 // with what the two usually do together. Logic (top bar): every rule of the map, as sentences.
 const chainCache = {}, chainNow = {}, ioNow = {};
@@ -11974,7 +11974,7 @@ function lkApplyVerb(x, key) {
 }
 const lkTlOpen = new Set();
 const LK_WHEN = {
-  opened: 'it has opened', closed: 'it starts closing', destroyed: 'it is blown up', used: 'JC uses it',
+  opened: 'it has opened', closed: 'it starts closing', destroyed: 'it is blown up', used: 'the player uses it',
   code: 'the right code is typed', wrongcode: 'a wrong code is typed', option: 'JC chooses an option of it',
   enter: 'JC walks in', laser: 'JC breaks its beam', alarm: 'it sounds the alarm', dies: 'they are killed or knocked out',
   any: 'it triggers its event', picked: 'JC picks it up', gone: 'it is destroyed', near: 'JC comes near', start: 'the map starts',
@@ -12041,7 +12041,7 @@ function lkWhenText(l) {
     case 'opened': return `When ${s} has opened`;
     case 'closed': return `When ${s} starts closing`;
     case 'destroyed': return `When ${s} is blown up`;
-    case 'used': return (edits.usable || {})[l.src] ? `When JC has used ${s}` : `When JC uses ${s}`;
+    case 'used': return (edits.usable || {})[l.src] ? `When the player has used ${s}` : `When the player uses ${s}`;
     case 'code': return `When the right code is typed on ${s}`;
     case 'wrongcode': return `When a wrong code is typed on ${s}`;
     case 'option': return `When JC chooses "${lkOptionText(l) || 'option ' + ((+l.option || 0) + 1)}" on ${s}`;
@@ -12219,6 +12219,7 @@ function lkStartPick(opts) {
   lkPicking = opts;
   canvas.style.cursor = 'crosshair';
   status(opts.hint + '  (Esc cancels)');
+  return () => { if (lkPicking === opts) lkEndPick(); };
 }
 function lkEndPick() { lkPicking = null; canvas.style.cursor = ''; }
 async function lkPicked(actor, point) {
@@ -12232,6 +12233,7 @@ async function lkPicked(actor, point) {
   }
   if (!actor || !actor.name) { status('Click an object of the map, or one in the Hierarchy (Esc cancels).', 'warn'); return; }
   const chain = await chainOf(actor.cls);
+  if (lkPicking !== pk) return;                // cancelled/replaced while loading the object's class
   const ok = pk.accept ? pk.accept(actor, chain) : true;
   if (ok !== true) { status(ok || 'Not this one: click another object.', 'warn'); return; }
   lkEndPick();
@@ -12524,6 +12526,12 @@ function lkWire(box, redraw) {
         accept: (o, chain) => (o.name === l.src && x.verb !== 'sound' ? 'That is the object of the rule itself: click another one.' : true),
         done: (o) => ch(() => { x.target = o.name; if (x.verb !== 'sound' && !lkInputsOf(o).includes(lkVerbKey(x))) { lkApplyVerb(x, lkDefaultOf(o)); lkDefaults(x, src); } }) });
     };
+    for (const b of q('[data-lkseat]')) b.onclick = () => {
+      const x = act(b);
+      lkStartPick({ hint: 'Click a chair, bench or sofa from Objects',
+        accept: (o, chain) => chain.includes('Seat') ? true : 'Choose a game seat from Objects; a Piece or Prefab alone has no seat points.',
+        done: (o) => ch(() => { x.a = o.name; }) });
+    };
     // the object a character goes and uses; the colour and beep of a light effect
     for (const b of q('[data-lkuse]')) b.onclick = () => {
       const x = act(b);
@@ -12663,7 +12671,7 @@ function usableSection(a, redraw) {
         usableChange(cur, field, input);
         cur.at = lkWhere(a.name);
       }, redraw);
-      if (field === 'on' && input.checked) log(`${hierLabel(a)} can be used by JC: ${usableSummary(edits.usable[a.name])}. Add "When JC uses it" rules in Interactions.`, 'ok');
+      if (field === 'on' && input.checked) log(`${hierLabel(a)} can be used by the player: ${usableSummary(edits.usable[a.name])}. Add "When the player uses it" rules in Interactions.`, 'ok');
     };
   };
   return { html, wire };

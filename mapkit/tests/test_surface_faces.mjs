@@ -45,7 +45,7 @@ function setup({ canEditFace, panel = false, keyOf, slip } = {}) {
   // the triangle of each face: what a click on it hits
   const hit = (id) => { for (const m of [room, side]) { const t = m.userData.faces.indexOf(id); if (t >= 0) return { object: m, faceIndex: t }; } };
   const targets = () => edits.surfaces.at(-1).targets.map((t) => t.brush).sort();
-  return { tools, edits, steps, said, logged, changed, hit, targets, room, side, recent: () => list };
+  return { tools, edits, steps, said, logged, changed, hit, targets, room, side, faces, recent: () => list };
 }
 
 test('a texture put by a drag comes first on the strip; one put from the strip keeps its place; one undo step each', () => {
@@ -181,6 +181,47 @@ function panelPage() {
   const element = (id) => { if (!byId.has(id)) byId.set(id, { id, value: '', hidden: false }); return byId.get(id); };
   return { details, element, document: { querySelector: (sel) => (sel === '#details' ? details : { scrollTop: 0 }), getElementById: element } };
 }
+test('Ultra Low reads both native shadow bits and can be changed from the face panel', () => {
+  const page = panelPage(), before = globalThis.document;
+  globalThis.document = page.document;
+  try {
+    const s = setup({ panel: true });
+    for (const [bits, level] of [[0, 'normal'], [0x8000, 'low'], [0x800000, 'high'], [0x808000, 'ultra-low']]) {
+      s.faces[0].flags = bits | 0x800; // No Smooth must not affect the detail readout.
+      s.tools.pick(s.hit(0), false);
+      assert.ok(page.details.innerHTML.includes(`value="${level}" selected`));
+    }
+    for (const level of ['normal', 'ultra-low']) {
+      page.element('sf-shadows').value = level;
+      page.element('sf-shadows').onchange();
+      assert.deepEqual(s.edits.surfaces.at(-1), { op: 'shadows', args: [level], targets: [{ brush: 'Brush0', poly: 0 }] });
+      assert.ok(page.details.innerHTML.includes(`value="${level}" selected`));
+    }
+    assert.deepEqual(s.steps, ['Shadow detail', 'Shadow detail']);
+    s.tools.pick(s.hit(1), true);
+    assert.ok(page.details.innerHTML.includes('<option value="">Mixed</option>'));
+  } finally { globalThis.document = before; }
+});
+
+test('Ultra Low on a structure targets each complete brush, including its hidden faces', () => {
+  const page = panelPage(), before = globalThis.document;
+  const select = {}, button = {}, box = { innerHTML: '', querySelector: tag => tag === 'select' ? select : button };
+  page.document.createElement = () => box;
+  page.details.appendChild = () => {};
+  globalThis.document = page.document;
+  try {
+    const s = setup();
+    s.faces[0].structure = s.faces[1].structure = 'Wall';
+    s.tools.structurePanel('Wall');
+    assert.ok(box.innerHTML.includes('<option value="ultra-low">Ultra Low</option>'));
+    select.value = 'ultra-low';
+    select.onchange({ target: select });
+    assert.deepEqual(s.edits.surfaces, [{ op: 'shadows', args: ['ultra-low'],
+      targets: [{ brush: 'Brush0', poly: '*' }, { brush: 'Brush1', poly: '*' }] }]);
+    assert.equal(select.value, '');
+    assert.deepEqual(s.steps, ['Shadow detail']);
+  } finally { globalThis.document = before; }
+});
 test('the panel\'s Slip, with its key, starts the Texture Slip as Edit > Slip the texture does', () => {
   const page = panelPage(), before = globalThis.document, started = [];
   let key = 'Y';

@@ -211,7 +211,7 @@ function argsProblem(row) {
     if (op === 'scale' && !args.every((v) => v >= SCALE_MIN && v <= SCALE_MAX)) return 'Scale factors must be between 0.001 and 1000.';
     if (op === 'pan' && !args.every((v) => Number.isInteger(v) && Math.abs(v) <= PAN_LIMIT)) return 'Pan uses whole texels, between -32767 and 32767.';
   } else if (op === 'shadows') {
-    if (args.length !== 1 || !['low', 'normal', 'high'].includes(args[0])) return 'Shadow detail must be Low, Normal or High.';
+    if (args.length !== 1 || !['ultra-low', 'low', 'normal', 'high'].includes(args[0])) return 'Shadow detail must be Ultra Low, Low, Normal or High.';
   } else if (op === 'flags') {
     if (args.length !== 2 || !args.every(isBits) || ((args[0] | args[1]) & ~FLAG_MASK) || (args[0] & args[1])) {
       return 'Surface flags: set and clear are bits of the Look list, never the same one.';

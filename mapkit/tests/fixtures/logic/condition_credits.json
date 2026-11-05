@@ -3,7 +3,7 @@
   "title": "Condition: JC's credits compared with a number",
   "behaviour": "At least 100 holds at exactly 100.",
   "derivedFrom": [
-    {"file": "UCEditorStory.uc", "lines": [859, 860], "has": "if (kind == \"credits\")"},
+    {"file": "UCEditorStory.uc", "lines": [874, 875], "has": "if (kind == \"credits\")"},
     {"file": "UCEditorStory.uc", "lines": [866, 883], "has": "function bool Compare(int a, string op, int b)"}
   ],
   "assumes": [],

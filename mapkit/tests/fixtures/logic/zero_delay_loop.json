@@ -3,9 +3,9 @@
   "title": "A loop with no delay goes round once per tick and never stops",
   "behaviour": "Two rules that set each other off with no delay: each fires once per tick, for ever. There is no recursion and no \"running\" skip, because a rule only acts in its own tick (state code) and has left Running when the other sets it off again.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [674, 684], "has": "function TimerDo(UCTimer T, string how, float secs)"},
+    {"file": "UCLink.uc", "lines": [682, 692], "has": "function TimerDo(UCTimer T, string how, float secs)"},
     {"file": "UCTimer.uc", "lines": [45, 55], "has": "function StopIt()"},
-    {"file": "UCLink.uc", "lines": [829, 848], "has": "state Running"},
+    {"file": "UCLink.uc", "lines": [839, 858], "has": "state Running"},
     {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"}
   ],
   "assumes": ["A1"],

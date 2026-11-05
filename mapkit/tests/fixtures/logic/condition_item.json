@@ -3,8 +3,8 @@
   "title": "Condition: JC carries or does not carry an item",
   "behaviour": "The item is a class (DeusEx.Multitool); JC carries it when he has one of that class.",
   "derivedFrom": [
-    {"file": "UCEditorStory.uc", "lines": [851, 852], "has": "if (kind == \"item\")"},
-    {"file": "UCEditorStory.uc", "lines": [966, 974], "has": "function bool HasItem(string className)"}
+    {"file": "UCEditorStory.uc", "lines": [866, 867], "has": "if (kind == \"item\")"},
+    {"file": "UCEditorStory.uc", "lines": [981, 989], "has": "function bool HasItem(string className)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

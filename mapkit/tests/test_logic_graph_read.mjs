@@ -16,17 +16,18 @@ test('Feature Lab as prose: each rule as app.js said it, by the thing it belongs
     ['Button UCEdit5', 'obj:UCEdit5', ['L1', 'L2', 'L3', 'L4', 'L8']], ['script UCEdit29', 'obj:UCEdit29', ['L5']], ['door UCEditBox7', 'obj:UCEditBox7', ['L6', 'L7']]]]]);
   for (const l of lab.edits.links) {
     const line = view.sections[0].groups.flatMap((g) => g.lines).find((x) => x.rule === l.id);
-    assert.equal(line.text, `${l.id}: ${l.label}`);
+    // Read old rules using the current label without rewriting their saved data.
+    assert.equal(line.text, `${l.id}: ${l.label.replace(/^When JC (uses|has used) /, 'When the player $1 ')}`);
   }
   assert.deepEqual(view.story, [{ node: 'dlg:d1', text: 'Dialogue "Rossi at the door" - "why are you mad?"' }]);
   assert.equal(readText(view), [
     '01_Feature_Lab: logic', '',
     'Button UCEdit5',
-    '  L1: When JC uses Button UCEdit5: play the animation of door UCEditBox7, Officer Rossi UCEdit8 walks to a place',
-    '  L2: When JC uses Button UCEdit5: add 1 to the counter Test_Presses, the message "Press counted"',
-    '  L3: When JC uses Button UCEdit5, only if the counter Test_Presses is at least 2: the message "Second press: the counter holds"',
-    '  L4: When JC uses Button UCEdit5: script UCEdit29: Start it (Seconds=1)',
-    '  L8: When JC uses Button UCEdit5, only if the counter Test_Presses is at least 3: blow up door UCEditBox7 (only once)',
+    '  L1: When the player uses Button UCEdit5: play the animation of door UCEditBox7, Officer Rossi UCEdit8 walks to a place',
+    '  L2: When the player uses Button UCEdit5: add 1 to the counter Test_Presses, the message "Press counted"',
+    '  L3: When the player uses Button UCEdit5, only if the counter Test_Presses is at least 2: the message "Second press: the counter holds"',
+    '  L4: When the player uses Button UCEdit5: script UCEdit29: Start it (Seconds=1)',
+    '  L8: When the player uses Button UCEdit5, only if the counter Test_Presses is at least 3: blow up door UCEditBox7 (only once)',
     'script UCEdit29',
     '  L5: When script UCEdit29 says "it is done": the message "TestBlock said Done", add 1 to the counter Test_Done',
     'door UCEditBox7',
@@ -51,7 +52,7 @@ test('by phase: rules kept to a phase first, the others after under "Always"; op
   assert.deepEqual(view.sections[0].groups[0].lines.map((l) => l.text),
     ['L2: When the right code is typed on the keypad Pad1: after 2 s open the door Door3 [cooldown 5 s, muted]; otherwise: the message "The keypad is dead."']);
   assert.deepEqual(view.sections[1].groups.map((g) => [g.title, g.lines.map((l) => l.text)]), [
-    ['the button Button1', ['L1: When JC uses the button Button1: open the door Door3 (only once)']],
+    ['the button Button1', ['L1: When the player uses the button Button1: open the door Door3 (only once)']],
     ['When the map starts', ['L3: When the map starts: the message "Welcome"']]]);
   // with no phase at all, no section title
   assert.deepEqual(read(world([{ id: 'L1', src: 'Button1', when: 'used', do: [{ verb: 'open', target: 'Door3' }] }])).sections.map((s) => s.title), ['']);

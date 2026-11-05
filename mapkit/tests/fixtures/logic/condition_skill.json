@@ -3,8 +3,8 @@
   "title": "Condition: JC's skill is at least a level",
   "behaviour": "At least: Advanced (2) holds at Advanced and at Master.",
   "derivedFrom": [
-    {"file": "UCEditorStory.uc", "lines": [855, 856], "has": "if (kind == \"skill\")"},
-    {"file": "UCEditorStory.uc", "lines": [887, 897], "has": "function int SkillLevel(string skillName)"}
+    {"file": "UCEditorStory.uc", "lines": [870, 871], "has": "if (kind == \"skill\")"},
+    {"file": "UCEditorStory.uc", "lines": [902, 912], "has": "function int SkillLevel(string skillName)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

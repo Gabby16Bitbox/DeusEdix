@@ -3,7 +3,7 @@
   "title": "Condition: a counter compared with a number",
   "behaviour": "A counter never set reads 0; ==, < and != compare it as the game does.",
   "derivedFrom": [
-    {"file": "UCEditorStory.uc", "lines": [857, 858], "has": "if (kind == \"count\")"},
+    {"file": "UCEditorStory.uc", "lines": [872, 873], "has": "if (kind == \"count\")"},
     {"file": "UCEditorStory.uc", "lines": [866, 883], "has": "function bool Compare(int a, string op, int b)"}
   ],
   "assumes": [],

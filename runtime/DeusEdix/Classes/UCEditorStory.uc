@@ -333,6 +333,7 @@ function NpcGo(name n, vector spot, bool bRun)
 	sp = Pawned(n);
 	if (sp == None || !sp.bInWorld)
 		return;
+	class'UCSeatOrder'.static.Cancel(sp);
 	if (Trace(hitLoc, hitNormal, spot - vect(0,0,2000), spot, False) != None)
 		spot = hitLoc + vect(0,0,1) * sp.CollisionHeight;
 	markTag = StringToName("UCEdGo_" $ n);
@@ -357,6 +358,7 @@ function NpcWalk(name n, vector spot, bool bRun)
 	sp = Pawned(n);
 	if (sp == None || !sp.bInWorld)
 		return;
+	class'UCSeatOrder'.static.Cancel(sp);
 	if (Trace(hitLoc, hitNormal, spot - vect(0,0,2000), spot, False) != None)
 		spot = hitLoc + vect(0,0,1) * sp.CollisionHeight;
 	if (class'UCNavRoute'.static.Send(sp, spot, bRun, StringToName("UCEdGo_" $ n)))
@@ -493,6 +495,17 @@ function TickGoes()
 		}
 }
 
+// A specific seat, by actor name, without changing its legacy Tag or Event.
+function bool NpcSit(name n, name chairName)
+{
+    return class'UCSeatOrder'.static.Send(Pawned(n), Seat(ActorNamed(chairName)));
+}
+
+function bool NpcStandUp(name n)
+{
+    return class'UCSeatOrder'.static.Send(Pawned(n), None, True);
+}
+
 // Standing, Wandering, Following (JC), Attacking (JC).
 function NpcOrders(name n, name orders)
 {
@@ -501,6 +514,7 @@ function NpcOrders(name n, name orders)
 	sp = Pawned(n);
 	if (sp != None && sp.bInWorld)
 	{
+		class'UCSeatOrder'.static.Cancel(sp);
 		Log("UCEd:" @ n @ "orders" @ orders);
 		sp.SetOrders(orders, '', True);
 	}
@@ -559,6 +573,7 @@ function NpcHostile(name n, bool bAttackNow, bool bAlone)
 		sp.bEmitDistress = False;
 	}
 	sp.ChangeAlly('Player', -1.0, True);
+	if (bAttackNow) class'UCSeatOrder'.static.Cancel(sp);
 	if (bAttackNow && sp.bInWorld)
 		sp.SetOrders('Attacking', '', True);
 	Log("UCEd:" @ n @ "hostile to JC, attack now" @ bAttackNow $ ", alone" @ bAlone @ "(faction" @ sp.Alliance $ ")");

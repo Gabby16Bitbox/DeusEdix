@@ -5,7 +5,7 @@
   "derivedFrom": [
     {"file": "UCLink.uc", "lines": [196, 219], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
     {"file": "UCLink.uc", "lines": [266, 288], "has": "function RunRule"},
-    {"file": "UCLink.uc", "lines": [829, 848], "has": "state Running"}
+    {"file": "UCLink.uc", "lines": [839, 858], "has": "state Running"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

@@ -131,6 +131,10 @@ FIELDS = [
     ('Zone', 'ZoneInfo', 'ReverbPreset', 'OpenAL reverb', 'enum', "The reverb Revision's OpenAL audio uses in this zone "
      "(EFX). The Reverb presets set it too (a water zone keeps its own, underwater: None puts it back), and leave the "
      "echo gains to the class (150 and 70, then none): this zone's own Gain is OpenAL's and hides them"),
+    ('Texture panning', 'ZoneInfo', 'TexUPanSpeed', 'U speed', 'float',
+     'Speed of all Auto U Pan surfaces in this zone. 1 = normal (35 texels/s), 0 = stopped; negative reverses it. Rebuild to apply.'),
+    ('Texture panning', 'ZoneInfo', 'TexVPanSpeed', 'V speed', 'float',
+     'Speed of all Auto V Pan surfaces in this zone. 1 = normal (35 texels/s), 0 = stopped; negative reverses it. Rebuild to apply.'),
     ('Rain and snow', 'PrecipitationZone', 'bWeatherActive', 'Falling', 'bool', 'Rain or snow falls in the whole zone, round JC'),
     ('Rain and snow', 'PrecipitationZone', 'PrecipDensity', 'How much', 'byte', 'Drops (flakes) in each batch: 7 = the default'),
     ('Collision box', 'UCTriggerBox', 'bCylinder', 'Shape', 'collision_shape', 'Box or upright cylinder. Tag and interactions stay the same. Rebuild to apply in game.'),
@@ -218,7 +222,7 @@ FIELDS = [
 MOVEMENT = {'GroundSpeed', 'JumpZ', 'MaxStepHeight', 'AirControl'}
 NAMES = sorted({f[2] for f in FIELDS} | {'TextPackage', 'Skin', 'MultiSkins'} | MOVEMENT)
 # read with the class defaults, not in the panel: what a zone does to the 3D view's Effects (zones.look)
-ZONE_LOOK = ('TexUPanSpeed', 'TexVPanSpeed', 'ViewFog', 'ViewFlash', 'bFogZone', 'FogColor', 'FogDistance')
+ZONE_LOOK = ('ViewFog', 'ViewFlash', 'bFogZone', 'FogColor', 'FogDistance')
 
 
 def base(key):

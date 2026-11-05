@@ -86,7 +86,7 @@ Two more files carry binary data after a JSON header line:
 | `UC_MESHES <file>` | `meshes\|N actors\|N triangles`, `mesh fault\|name` | arrays, see the tables below |
 | **Surfaces** | | |
 | `UC_SURFTEX <brush or *> <old texture or *> <new texture>` | `surftex\|ok\|brush\|N`, `surftex\|missing\|...`, `surftex\|notexture\|...` | |
-| `UC_SURFACE <brush> <polygon or *> <mode> [args]`, where mode is floor, wall, tile, tile-u, tile-v, cylinder, pan x y, scale x y, rotate, flip-u, flip-v, texture <name>, shadows <low\|normal\|high> or flags <set> <clear> | `surface\|ok\|mode\|N`, `failed\|surface\|<reason>` | |
+| `UC_SURFACE <brush> <polygon or *> <mode> [args]`, where mode is floor, wall, tile, tile-u, tile-v, cylinder, pan x y, scale x y, rotate, flip-u, flip-v, texture <name>, shadows <ultra-low\|low\|normal\|high> or flags <set> <clear> | `surface\|ok\|mode\|N`, `failed\|surface\|<reason>` | Ultra Low sets both LowShadowDetail and HighShadowDetail; Normal clears both. |
 | **AI paths** | | |
 | `UC_PATHS <file>` | `paths\|N points\|N links` | `{kind: point, name, class, location (.1)}`, `{kind: link, start, end, distance, flags, radius, height}` |
 | `UC_NAVDROP <* \| name ...>` | `navdrop\|name\|z -> z`, `navdrop\|N checked\|N moved` | |

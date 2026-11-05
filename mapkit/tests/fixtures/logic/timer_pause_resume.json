@@ -3,7 +3,7 @@
   "title": "A paused timer keeps what it had left",
   "behaviour": "Started for 3 s, paused 1 s later with 2 s left, resumed 2 s after that: it runs out 2 s after the resume.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [674, 684], "has": "function TimerDo(UCTimer T, string how, float secs)"},
+    {"file": "UCLink.uc", "lines": [682, 692], "has": "function TimerDo(UCTimer T, string how, float secs)"},
     {"file": "UCTimer.uc", "lines": [57, 63], "has": "function PauseIt()"},
     {"file": "UCTimer.uc", "lines": [66, 72], "has": "function ResumeIt()"}
   ],

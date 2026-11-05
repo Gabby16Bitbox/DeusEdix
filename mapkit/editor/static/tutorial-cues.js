@@ -58,7 +58,7 @@ export function lessonCues(step, env = window, doc = document) {
     if (missing) return choice('#st-steps .card.line:last-child [data-k="who"]', [missing], `Set this line’s Speaker to ${missing === 'jc' ? 'JC' : 'the scientist'}, or add a line for them.`);
     return cue('#st-save', story?.saving ? 'Saving the dialogue…' : 'Save the dialogue to finish this exercise.');
   }
-  const WHEN_TEXT = { used: 'When JC uses it', code: 'When the right code is typed', finished: 'When it runs out', enter: 'When JC walks in' };
+  const WHEN_TEXT = { used: 'When the player uses it', code: 'When the right code is typed', finished: 'When it runs out', enter: 'When JC walks in' };
   const VERB_TEXT = { open: 'Opens', timerstart: 'Start the timer', timerstop: 'Stop the timer', explode: 'An explosion there',
     effect: 'An effect on it', blow: 'Blow up', hostile: 'Turn hostile to JC', attack: 'Attack JC', on: 'Switch on' };
   const scriptPackage = env.__scripts?.package;

@@ -509,6 +509,14 @@ function DoAct(string s)
 		NpcNeutral(n);
 	else if (verb == "stand")
 		NpcOrders(n, 'Standing');
+	else if (verb == "sit")
+	{
+		if (!NpcSit(n, StringToName(a))) Report("fail", "sit|" $ target $ "|seat unavailable or unsupported character");
+	}
+	else if (verb == "standup")
+	{
+		if (!NpcStandUp(n)) Report("fail", "standup|" $ target $ "|cannot");
+	}
 	else if (verb == "wander")
 		NpcOrders(n, 'Wandering');
 	else if (verb == "follow")
@@ -692,6 +700,7 @@ function TimerDo(UCTimer T, string how, float secs)
 function NpcUse(string who, string what, float secs, bool bCrouch)
 {
 	local UCNpcUse U;
+	class'UCSeatOrder'.static.Cancel(ScriptedPawn(ActorCalled(who)));
 
 	foreach AllActors(class'UCNpcUse', U)
 		if (U.Who ~= who)
@@ -733,6 +742,7 @@ function Body(ScriptedPawn SP, bool bStop, string anim, string secs, string opts
 
 	if (SP == None)
 		return;
+	// A seated gesture does not cancel the chair order or release its seat.
 	foreach AllActors(class'UCAnimSet', AS)
 		if (AS.AppearanceMesh == None && (AS.Who == SP || string(AS.PawnName) ~= string(SP.Name)))
 			Mine = AS;

@@ -4,6 +4,9 @@ import { faceShapes, growFaces, GROW_ANGLE } from './face-grow.js';
 import { RECENT_ACTIONS } from './recent-textures.js';
 import { indexRows, rowsFor, foldRows, queueProblem, splitTargets, ROW_LIMIT } from './texture-slip.js';
 import { PF_AUTOUPAN, PF_AUTOVPAN } from './light-effects.js';
+const SHADOW_LEVELS = [['ultra-low', 'Ultra Low'], ['low', 'Low'], ['normal', 'Normal'], ['high', 'High']];
+const shadowOptions = (selected = '') => SHADOW_LEVELS.map(([value, label]) =>
+  `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`).join('');
 // the Look of a face: UnrealEd's surface properties (editor/surfaces.py FLAGS, the host's UC_SURFACE flags)
 const FLAGS = [[0x400000, 'Unlit', 'Full brightness, no light or shadow on it (screens, lamps, signs)'],
   [0x4, 'Translucent', 'See-through, adding its colours (glass glare, holograms, light beams)'],
@@ -15,8 +18,8 @@ const FLAGS = [[0x400000, 'Unlit', 'Full brightness, no light or shadow on it (s
   [0x80, 'Fake backdrop', 'Shows the sky (the map\'s sky box) instead of its texture'],
   [0x100000, 'Special lit', 'Lit only by lights set to Special Lit'],
   [0x800, 'No smooth', 'Its texture pixels stay sharp (no filtering)'],
-  [PF_AUTOUPAN, 'Auto U Pan', 'Its texture moves along U at its zone\'s speed (TexUPanSpeed: 35 texels a second at 1), as View > Effects shows after a Rebuild'],
-  [PF_AUTOVPAN, 'Auto V Pan', 'Its texture moves along V at its zone\'s speed (TexVPanSpeed: 35 texels a second at 1), as View > Effects shows after a Rebuild']];
+  [PF_AUTOUPAN, 'Auto U Pan', 'Moves the texture along U. Set the zone\'s Inspector > Texture panning > U speed (shared by its surfaces). View > Effects shows it after Rebuild.'],
+  [PF_AUTOVPAN, 'Auto V Pan', 'Moves the texture along V. Set the zone\'s Inspector > Texture panning > V speed (shared by its surfaces). View > Effects shows it after Rebuild.']];
 // onlyAfterRebuild(ids): how many of these faces show their queued alignment only after a Rebuild (the preview cannot);
 // slip(): the Texture Slip started as Edit > Slip the texture starts it (the panel's Slip)
 export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, deselect, status, log, escapeHtml, textures,
@@ -68,7 +71,9 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
     }
   }
   function effective(f, prop) {
-    let value = prop === 'texture' ? f.tex : f.flags & 0x800000 ? 'high' : f.flags & 0x8000 ? 'low' : 'normal';
+    // UnrealEd's Ultra Low is both detail bits together, not High with an extra flag.
+    let value = prop === 'texture' ? f.tex : (f.flags & 0x808000) === 0x808000 ? 'ultra-low' :
+      f.flags & 0x800000 ? 'high' : f.flags & 0x8000 ? 'low' : 'normal';
     for (const row of rowsFor(f, queued())) if (row.op === prop) value = row.args[0];
     return value;
   }
@@ -197,8 +202,8 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
       <div class="hint">Pan adds texels. Scale multiplies the tile size: 2 = twice as large; 0.5 = half.</div>
       <div class="row"><button id="sf-slip" title="Roll the texture with the pointer and size it with the wheel, live: it starts over one of these faces (Edit &gt; Slip the texture)">Slip${slipKey ? ` (${escapeHtml(slipKey)})` : ''}</button></div>
       <div class="row"><button data-sf-op="rotate">Rotate 90°</button><button data-sf-op="flip-u">Flip U</button><button data-sf-op="flip-v">Flip V</button></div>
-      <label class="surface-label" for="sf-shadows">Shadows</label><select id="sf-shadows">${shadow ? '' : '<option value="">Mixed</option>'}${['low','normal','high'].map(s => `<option value="${s}" ${s === shadow ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select>
-      <div class="hint">High: finer shadows, larger lightmaps.</div>
+      <label class="surface-label" for="sf-shadows">Shadows</label><select id="sf-shadows">${shadow ? '' : '<option value="">Mixed</option>'}${shadowOptions(shadow)}</select>
+      <div class="hint">Ultra Low: coarsest shadows, smallest lightmaps. High: finest, largest.</div>
       <label class="surface-label">Look</label>
       <div class="surface-flags">${FLAGS.map(flagBox).join('')}</div>
       <div class="surface-notice"><b>Save</b> stores edits; the view shows them at once. <b>Rebuild</b> applies them to the map and its lighting.<br>${pending} stored operation${pending === 1 ? '' : 's'} on this selection.${later ? ` ${later} of these faces show${later === 1 ? 's' : ''} it only after a Rebuild.` : ''}</div>
@@ -268,7 +273,7 @@ export function createSurfaceTools({ THREE, getEdits, pushUndo, setDirty, desele
       const ids = faces.map((f, i) => f.structure === name ? i : -1).filter(i => i >= 0);
       if (!ids.length) return;
       const box = document.createElement('div'); box.className = 'box surface-panel';
-      box.innerHTML = `<b>Surfaces</b><div class="row"><button id="sf-structure">Select ${ids.length} faces</button></div><label class="surface-label" for="sf-structure-shadow">Shadows for the whole structure</label><select id="sf-structure-shadow"><option value="">Choose detail…</option><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select><div class="hint">Applies to every face of its brushes. Rebuild recalculates the lighting.</div>`;
+      box.innerHTML = `<b>Surfaces</b><div class="row"><button id="sf-structure">Select ${ids.length} faces</button></div><label class="surface-label" for="sf-structure-shadow">Shadows for the whole structure</label><select id="sf-structure-shadow"><option value="">Choose detail…</option>${shadowOptions()}</select><div class="hint">Applies to every face of its brushes. Rebuild recalculates the lighting.</div>`;
       document.querySelector('#details').appendChild(box);
       box.querySelector('button').onclick = () => selectIds(ids);
       box.querySelector('select').onchange = e => {
