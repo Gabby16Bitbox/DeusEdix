@@ -59,6 +59,8 @@ var config bool bLive;
 var config int LiveSeq;
 var config string LiveCmd;
 var config int LiveDone;
+var int LiveEcho;          // the answer saved again this many more times (a save the game could not write is lost)
+var config int LiveBeat;   // changed at each of those saves, so that they write the file
 var config string LiveResult;
 var config string Setup;
 var config string SetupFlags;
@@ -260,6 +262,11 @@ function float Prepare(int k)
 			// uses an object (name or Tag) as JC would: buttons, doors
 			FrobThing(P, fields[2]);
 			return 0.5;
+		case "pickup":
+			// pickup;NameOrTag: JC picks up an item lying anywhere, as with a click (a test of a rule "when JC picks it
+			// up", a key or a weapon in the inventory before a test)
+			PickupThing(P, fields[2]);
+			return 0.5;
 		case "infolink":
 			// infolink;BindName;name shown;line: an InfoLink of the map editor (its portrait, its text)
 			il = Spawn(class'UCEdInfoLink');
@@ -341,6 +348,18 @@ function float Prepare(int k)
 			// look;NameOrTag: the look of an actor in the log (mesh, skins); look;corpses: of every dead body
 			LookAt(fields[2]);
 			return 0.05;
+		case "prop":
+			// prop;NameOrTag|player;Property[;Property...]: their values at the end of LiveResult, "inv" the player's
+			// inventory (to check what a rule changed without photos)
+			Probe = PropsOf(P);
+			return 0.05;
+		case "hack":
+			// hack;NameOrTag: a device hacked by JC as with a multitool's screen (its HackAction: alarms, keypads...)
+			A = Thing(fields[2]);
+			if (HackableDevices(A) != None)
+				HackableDevices(A).HackAction(P, True);
+			Log("UCShot hack" @ A);
+			return 0.5;
 		case "kill":
 			// kill;NameOrTag: a character dies as if JC shot them (to check its corpse)
 			KillThing(P, fields[2]);
@@ -584,6 +603,44 @@ function NavRouteLog(vector a, vector b)
 	Log(s);
 }
 
+// prop: "Name: Prop=value Prop=value", or "Name: none"; "inv": the player's items, Class xN
+function string PropsOf(DeusExPlayer P)
+{
+	local Actor A;
+	local Inventory I;
+	local string s;
+	local int j;
+
+	if (fields[2] ~= "player")
+		A = P;
+	else
+		A = Thing(fields[2]);
+	if (A == None)
+		return fields[2] $ ": none";
+	s = string(A.Name) $ ":";
+	for (j = 3; j < numFields; j++)
+	{
+		if (fields[j] ~= "inv" && Pawn(A) != None)
+		{
+			s = s @ "inv=";
+			for (I = Pawn(A).Inventory; I != None; I = I.Inventory)
+			{
+				s = s $ string(I.Class.Name);
+				if (Pickup(I) != None && Pickup(I).NumCopies > 1)
+					s = s $ "x" $ Pickup(I).NumCopies;
+				else if (Ammo(I) != None)
+					s = s $ "x" $ Ammo(I).AmmoAmount;
+				s = s $ ",";
+			}
+		}
+		else if (fields[j] ~= "state")
+			s = s @ "state=" $ string(A.GetStateName());
+		else if (fields[j] != "")
+			s = s @ fields[j] $ "=" $ A.GetPropertyText(fields[j]);
+	}
+	return s;
+}
+
 function Actor Thing(string what)
 {
 	local Actor A;
@@ -642,6 +699,21 @@ function KillThing(DeusExPlayer P, string what)
 
 // As if JC clicked on the character with that Tag (its conversation starts).
 // frob;NameOrTag: as if JC used the object (the buttons of elevators, doors)
+function PickupThing(DeusExPlayer P, string what)
+{
+	local Inventory I;
+
+	foreach AllActors(class'Inventory', I)
+		if (I.Owner == None && (string(I.Name) ~= what || string(I.Tag) ~= what || string(I.Class.Name) ~= what))
+		{
+			Log("UCShot pickup" @ I);
+			P.FrobTarget = I;
+			P.HandleItemPickup(I);
+			return;
+		}
+	Log("UCShot pickup: nothing called" @ what);
+}
+
 function FrobThing(DeusExPlayer P, string what)
 {
 	local Actor A;
@@ -917,6 +989,16 @@ LiveStep:
 			LiveResult = MapName() $ "|" $ Plr().Location $ "|" $ Plr().ViewRotation $ "|" $ bTake $ "|" $ Probe;
 		Probe = "";
 		LiveDone = LiveSeq;
+		SaveConfig();
+		LiveEcho = 4;
+	}
+	// the ini can be open in another program (the reader of the answer, an antivirus) when the game writes it: that
+	// write is lost, and as the engine marks the file written before it writes, the same values saved again write
+	// nothing (the reader waited for ever, 5 Nov 2026). Saved again with LiveBeat changed, a few times, it gets there
+	else if (LiveEcho > 0)
+	{
+		LiveEcho--;
+		LiveBeat++;
 		SaveConfig();
 	}
 	Sleep(0.25);

@@ -1,7 +1,7 @@
 import { catalogMatches, rankCatalog, editCatalogDetails } from './asset-catalog.js';
 // Project-local, baked prefabs. Placement and capturing map edits stay with app.js.
 // favourites: the stars of the cards and their group at the top (browser-tiles.js favouriteShelf), or none.
-// Linked prefabs (prefab-links.js): a card is a prefab (its line), placed as its newest version; its ⋯ (or a right
+// Linked prefabs (G22, prefab-links.js): a card is a prefab (its line), placed as its newest version; its ⋯ (or a right
 // click) renames it, deletes it, gives it the 3D view as its picture, and selects or updates its copies in the open map.
 // capture: the 3D view as a JPEG data URL (null with no map open); copiesHere(item): {count, older} of its copies in the
 // open map (null with none open); placedHere: the versions the open map places (kept by a Delete); menu(x, y, items):

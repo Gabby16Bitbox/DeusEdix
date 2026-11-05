@@ -1,0 +1,22 @@
+#story .st-infolink-style { margin:8px 0; min-width:0; }
+#story .st-list #st-istyle { height:22px; line-height:20px; padding:0 8px; display:flex; align-items:center; font:inherit; }
+#story .st-il-mode { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px; }
+#story .st-il-mode label, #story .st-il-theme { display:inline-flex; align-items:center; gap:4px; }
+#story .st-infolink-style fieldset { margin:8px 0; padding:0; border:0; min-width:0; }
+#story .st-infolink-style fieldset:disabled { opacity:.55; }
+#story .st-il-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:4px 0; min-height:22px; }
+#story .st-il-row > span { width:88px; color:var(--dim); }
+#story .st-il-row select { flex:1; width:auto; max-width:220px; min-width:120px; }
+#story .st-il-row input[type=color] { width:32px; height:22px; padding:0 2px; border:1px solid var(--line); border-radius:var(--radius-control); background:var(--field); }
+#story .st-il-preview { border:1px solid var(--line); border-radius:var(--radius-card); padding:8px 12px; max-width:431px; box-sizing:border-box; overflow-wrap:anywhere; }
+#story .st-il-preview b { display:block; border-bottom:1px solid currentColor; padding-bottom:4px; font-size:12px; }
+#story .st-il-preview p { margin:8px 0 0; line-height:1.4; font-size:12px; }
+#story .st-il-preview[data-font=terminal] p { font-family:monospace; }
+#story .st-il-preview[data-font=dialogue] p, #story .st-il-preview[data-font=bold] p { font-family:Arial,sans-serif; }
+#story .st-il-preview[data-font=bold] p { font-weight:bold; }
+/* User content preview follows the selected game text size; editor controls use the design tokens. */
+#story .st-il-preview[data-size=large] p { font-size:20px; }
+#story .st-il-preview[data-font=dialogue] p, #story .st-il-preview[data-font=bold] p { font-size:18px; }
+#story .st-il-preview[data-font=dialogue][data-size=large] p, #story .st-il-preview[data-font=bold][data-size=large] p { font-size:24px; }
+#story .st-il-appearance { border-top:1px solid var(--line); margin:8px 0; padding-top:8px; }
+#story .st-il-appearance > summary { color:var(--heading); cursor:pointer; }

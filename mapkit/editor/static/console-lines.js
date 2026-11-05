@@ -1,4 +1,4 @@
-// The Console's lines as data, for console.js: Collapse (identical lines as one row with how many came, as Unity's
+// The Console's lines as data (G39), for console.js: Collapse (identical lines as one row with how many came, as Unity's
 // Console), Time (seconds since Play started), Copy (the rows as they read) and the names of the open map's objects in
 // any line, as logic-log.js's parts ({ name }: a click selects that object). No DOM here: tests/test_console_lines.mjs.
 //

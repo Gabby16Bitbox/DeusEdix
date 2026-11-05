@@ -2,7 +2,7 @@
   "id": "picked_watch",
   "title": "Picked up is watched every half second",
   "behaviour": "An item JC picks up (owned by a pawn, or gone into a stack) is noticed at the next half-second look.",
-  "derivedFrom": [{"file": "UCLink.uc", "lines": [308, 335], "has": "function TickStory()"}],
+  "derivedFrom": [{"file": "UCLink.uc", "lines": [389, 416], "has": "function TickStory()"}],
   "assumes": ["A8"],
   "map": "LogicFixtures",
   "frame": 0.1,

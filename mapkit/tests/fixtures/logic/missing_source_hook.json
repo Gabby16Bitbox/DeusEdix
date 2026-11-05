@@ -3,9 +3,9 @@
   "title": "A rule that cannot hook itself says so, when and how depends on its output",
   "behaviour": "A rule hooked to an event whose object is not in the map says \"missing\" while the map loads; one on an object that uses its event as a list of targets says \"target\"; a watched \"picked\" says \"missing\" at its first look; a watched \"near\" says nothing. None of them ever runs.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [104, 112], "has": "A = ActorCalled(Source);"},
-    {"file": "UCLink.uc", "lines": [150, 159], "has": "function bool AimsItsEvent(Actor A)"},
-    {"file": "UCLink.uc", "lines": [326, 332], "has": "if (!bPolled)"}
+    {"file": "UCLink.uc", "lines": [148, 156], "has": "A = ActorCalled(Source);"},
+    {"file": "UCLink.uc", "lines": [202, 211], "has": "function bool AimsItsEvent(Actor A)"},
+    {"file": "UCLink.uc", "lines": [412, 418], "has": "if (!bPolled)"}
   ],
   "assumes": ["A6", "A8"],
   "map": "LogicFixtures",

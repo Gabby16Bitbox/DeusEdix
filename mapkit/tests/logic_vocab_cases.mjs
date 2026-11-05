@@ -8,22 +8,24 @@ import { BLOCK_WHEN, BLOCK_VERBS, blockWhenText, blockActText } from '../editor/
 import { conditionText } from '../editor/static/conditions.js';
 import { fateFlag, parseFate, stateLabel } from '../editor/static/state-model.js';
 import { AREA_VERBS } from '../editor/static/connect-area.js';
+import { optionsText } from '../editor/static/logic-rule-ui.js';
+import { stepsText } from '../editor/static/action-list.js';
 
 // the outputs, verbs and families of 27 Oct 2026
 export const OUTPUTS = ['opened', 'closed', 'destroyed', 'used', 'code', 'wrongcode', 'option', 'enter', 'leave', 'laser', 'alarm',
-  'dies', 'any', 'picked', 'gone', 'near', 'arrived', 'start', 'animdone', 'cutstart', 'cutdone', 'npcused', 'finished', 'stopped', 'output',
-  'bodydone', 'keypress'];      // (2 Nov 2026: a character's body animation, a key JC presses)
+  'dies', 'any', 'picked', 'gone', 'near', 'arrived', 'start', 'animdone', 'cutstart', 'cutdone', 'npcused', 'finished', 'stopped', 'output', 'bodydone', 'keypress'];
 export const VERBS = ['open', 'close', 'toggle', 'lock', 'unlock', 'blow', 'key', 'attack', 'hostile', 'friend', 'neutral', 'stand',
   'wander', 'follow', 'goto', 'run', 'leave', 'appear', 'npcuse', 'lighton', 'lightoff', 'lighttoggle', 'on', 'off', 'hide', 'show',
   'explode', 'sound', 'effect', 'anim', 'animback', 'animstop', 'cutplay', 'cutstop', 'timerstart', 'timerstop', 'timerpause',
-  'timerresume', 'input', 'floor', 'message', 'goal', 'note', 'flag', 'count', 'travel',
-  'body', 'bodystop', 'fpmoment'];     // (2 Nov 2026)
+  'timerresume', 'input', 'floor', 'message', 'goal', 'note', 'flag', 'count', 'travel', 'sit', 'standup', 'body', 'bodystop', 'fpmoment'];
 // an object of each family
 export const ACTOR = { other: 'Thing1', door: 'Door3', elevator: 'Lift1', keypad: 'Pad1', computer: 'Comp1', character: 'Guard1',
   carcass: 'Body1', laser: 'Laser1', beam: 'Beam1', alarm: 'Siren1', camera: 'Cam1', turret: 'Gun1', soundfx: 'Music1', zone: 'Zone1',
   targettrigger: 'Orders1', switchtrigger: 'Burn1', moretrigger: 'More1', light: 'Lamp1', switchlight: 'Cage1', item: 'Item1',
   object: 'Button1', timer: 'Timer1', cutscene: 'Cut1', effectpoint: 'P1', script: 'Gen0' };
-export const FAMILIES = Object.keys(ACTOR);
+// the families of 27 Oct, and those P4 added (5 Nov: crates, hackable devices), not in the 27 Oct sentences
+const OCT27 = Object.keys(ACTOR);
+export const FAMILIES = [...OCT27, 'crate', 'hackable'];
 // verbs whose "objects tagged X" sentence was "goe to floor", "goe and uses": not offered for tags (TAG_VERBS), worded
 // right in logic.json ('many') and checked on their own
 export const TAG_FIXED = ['floor', 'npcuse'];
@@ -70,9 +72,6 @@ const ARGS = {
   input: [{ a: 'Start', b: 'Seconds=4;Mode=red' }, { a: 'Start' }, { a: 'Stop', b: '' }, { a: '' }],
   floor: [{ a: '2' }, { a: '-1' }, { a: 'x' }, { a: '' }, { a: 2.7 }],
   timerstart: [{ a: '45' }, { a: '0' }, { a: '' }, { a: '2.5' }],
-  fpmoment: [{ a: 'Inspect' }, { a: '' }],
-  body: [{ a: 'Wave', b: '0', c: 'once x1' }, { a: 'Dance', b: '0', c: 'loop own x1.5' }, { a: 'Wave', b: '6', c: 'time walk x1' },
-    { a: 'Wave', b: '0', c: 'time x1' }, { a: '', c: 'once x1' }, {}],
   npcuse: [{ a: 'Crate', b: '4', c: 'crouch' }, { a: 'Crate', b: '4', c: 'stand' }, { a: '', b: '0' }, { a: 'Crate' }, {}],
   effect: [{ a: 'mist', b: '0' }, { a: 'mist', b: '5' }, { a: 'sparks', b: '5', c: 'exact' }, { a: 'blinklight', b: '30', c: 'red beep' },
     { a: 'pulse', b: '0', c: 'blue' }, { a: 'pulse', c: 'green beep exact' }, { a: 'off' }, { a: 'nonsense', b: '2' },
@@ -87,7 +86,6 @@ export function cases() {
   const show = (v) => (typeof v === 'string' ? `'${v}'` : String(v));     // 2 and '2' are two cases
   // the outputs: as the rules on them begin
   for (const when of OUTPUTS) add(`when:${when}`, 'when', { rule: { id: 'L1', src: SOURCE[when], when, do: [] } });
-  for (const key of ['K', 'F5']) add(`when:keypress:${key}`, 'when', { rule: { id: 'L1', src: '', when: 'keypress', key, do: [] } });
   add('when:used:usable', 'when', { rule: { id: 'L1', src: 'Crate', when: 'used' } });
   for (const option of [0, 1, 2, 3, undefined, '2']) add(`when:option:${show(option)}`, 'when', { rule: { src: 'Comp1', when: 'option', option } });
   add('when:option:other', 'when', { rule: { src: 'Pad1', when: 'option', option: 1 } });
@@ -97,13 +95,14 @@ export function cases() {
   for (const when of ['bogus', 'constructor', '', undefined]) add(`when:unknown:${show(when)}`, 'when', { rule: { src: 'Thing1', when } });
   add('when:opened:missing', 'when', { rule: { src: 'Ghost', when: 'opened' } });
   add('when:start:source', 'when', { rule: { src: 'Button1', when: 'start' } });
+  add('when:keypress:F', 'when', { rule: { src: '', when: 'keypress', key: 'F' } });
   // the verbs: on their usual object, on none, on objects with a tag, with their arguments
   const target = (v) => {
     const fam = { open: 'door', close: 'door', toggle: 'door', lock: 'door', unlock: 'door', blow: 'door', key: 'door', lighton: 'light',
       lightoff: 'light', lighttoggle: 'light', input: 'script', floor: 'elevator', cutplay: 'cutscene', cutstop: 'cutscene', timerstart: 'timer',
       timerstop: 'timer', timerpause: 'timer', timerresume: 'timer', on: 'any', off: 'any', hide: 'any', show: 'any', explode: 'any',
       effect: 'any', anim: 'any', animback: 'any', animstop: 'any', sound: 'any' }[v];
-    return fam ? TARGET[fam] : ['message', 'goal', 'note', 'flag', 'count', 'travel'].includes(v) ? '' : TARGET.character;
+    return fam ? TARGET[fam] : ['message', 'goal', 'note', 'flag', 'count', 'travel', 'fpmoment'].includes(v) ? '' : TARGET.character;
   };
   for (const verb of VERBS) {
     const made = verb === 'effect' ? { a: 'mist', b: '0' } : {};      // blockDefaults: an effect always has its kind
@@ -112,7 +111,7 @@ export function cases() {
     if (!TAG_FIXED.includes(verb)) add(`act:${verb}:tagged`, 'act', { act: { verb, targetTag: 'MONSTER', ...made } });
     (ARGS[verb] || []).forEach((args, i) => add(`act:${verb}:${i}`, 'act', { act: { verb, target: target(verb), ...args } }));
   }
-  for (const fam of FAMILIES) for (const verb of ['on', 'off']) add(`act:${verb}:${fam}`, 'act', { act: { verb, target: ACTOR[fam] } });
+  for (const fam of OCT27) for (const verb of ['on', 'off']) add(`act:${verb}:${fam}`, 'act', { act: { verb, target: ACTOR[fam] } });
   for (const verb of ['bogus', '']) add(`act:unknown:${show(verb)}`, 'act', { act: { verb, target: 'Crate' } });
   add('act:tagged:empty', 'act', { act: { verb: 'attack', target: 'Guard1', targetTag: '' } });
   // a group within a radius (connect-area.js): each kind's verbs
@@ -134,8 +133,8 @@ export function cases() {
   add('rule:area', 'rule', { rule: { id: 'L5', src: 'Siren1', when: 'alarm', do: [{ verb: 'hostile', area: { kind: 'character', members: ['G1', 'G2', 'G3'], dynamic: true, radius: 1024 } }] } });
   // the labels of the menus and chips, the kinds' nouns, the kind of object a verb acts on
   for (const when of OUTPUTS.concat('bogus')) add(`label:when:${when}`, 'outputLabel', { when });
-  for (const verb of VERBS.concat('bogus')) for (const family of FAMILIES.concat('')) add(`label:verb:${verb}:${family}`, 'verbLabel', { verb, family });
-  for (const family of FAMILIES) add(`noun:${family}`, 'noun', { family });
+  for (const verb of VERBS.concat('bogus')) for (const family of OCT27.concat('')) add(`label:verb:${verb}:${family}`, 'verbLabel', { verb, family });
+  for (const family of OCT27) add(`noun:${family}`, 'noun', { family });
   for (const verb of VERBS) add(`acts:${verb}`, 'acts', { verb });
   return out;
 }
@@ -173,7 +172,7 @@ export function declaration(source, name) {
 // app.js's sentence functions by name, run on the world: case -> text (its .tables: LK_WHEN, LK_VERBS, LK_KIND);
 // null when app.js no longer has them.
 export const APP_DECLARATIONS = ['LK_WHEN', 'LK_VERBS', 'lkVerbLabel', 'LK_KIND', 'lkWholeOf', 'lkWhenKey', 'lkVerbKey', 'lkWhenText',
-  'lkActText', 'lkActText1', 'lkCondNames', 'lkSentence'];
+  'lkActText', 'lkActText1', 'lkCondNames', 'lkStepsSaid', 'lkSentence'];
 export function appSentences(source) {
   const lf = source.replace(/\r\n/g, '\n');                      // app.js is saved with CRLF
   const code = APP_DECLARATIONS.map((name) => declaration(lf, name));
@@ -182,6 +181,8 @@ export function appSentences(source) {
     BLOCK_WHEN, BLOCK_VERBS, blockWhenText, blockActText, conditionText, parseFate, stateLabel,
     lkName: world.name, lkActor: (n) => (n && has(FAMILY, n) ? { name: n } : null), lkCatOf: (a) => (a ? world.family(a.name) : 'other'),
     lkPortLabel: world.portLabel, lkOptionText: world.optionText,
+    // what app.js asks the catalogue for (the P4 words: lkVocabWhen, lkVocabAct) and the rule's options (P6)
+    lkVocabWhen: () => '', lkVocabAct: () => '', optionsText, lkMainOf: (l) => l, stepsText,
     edits: { usable: Object.fromEntries([...USABLE].map((n) => [n, { text: 'Use' }])) },
     propItems: Object.entries(ITEMS).map(([cls, name]) => ({ cls, name })),
   });

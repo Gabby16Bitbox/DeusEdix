@@ -803,7 +803,7 @@
      "nav": true
     }
    ],
-   "label": "When JC uses Button UCEdit5: play the animation of door UCEditBox7, Officer Rossi UCEdit8 walks to a place"
+   "label": "When the player uses Button UCEdit5: play the animation of door UCEditBox7, Officer Rossi UCEdit8 walks to a place"
   },
   {
    "id": "L2",
@@ -828,7 +828,7 @@
     0
    ],
    "once": false,
-   "label": "When JC uses Button UCEdit5: add 1 to the counter Test_Presses, the message \"Press counted\""
+   "label": "When the player uses Button UCEdit5: add 1 to the counter Test_Presses, the message \"Press counted\""
   },
   {
    "id": "L3",
@@ -855,7 +855,7 @@
     0
    ],
    "once": false,
-   "label": "When JC uses Button UCEdit5, only if the counter Test_Presses is at least 2: the message \"Second press: the counter holds\""
+   "label": "When the player uses Button UCEdit5, only if the counter Test_Presses is at least 2: the message \"Second press: the counter holds\""
   },
   {
    "id": "L4",
@@ -876,7 +876,7 @@
     0
    ],
    "once": false,
-   "label": "When JC uses Button UCEdit5: script UCEdit29: Start it (Seconds=1)"
+   "label": "When the player uses Button UCEdit5: script UCEdit29: Start it (Seconds=1)"
   },
   {
    "id": "L5",
@@ -967,7 +967,7 @@
     0,
     0
    ],
-   "label": "When JC uses Button UCEdit5, only if the counter Test_Presses is at least 3: blow up door UCEditBox7 (only once)"
+   "label": "When the player uses Button UCEdit5, only if the counter Test_Presses is at least 3: blow up door UCEditBox7 (only once)"
   }
  ],
  "textures": {

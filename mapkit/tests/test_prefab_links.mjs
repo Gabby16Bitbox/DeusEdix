@@ -1,4 +1,4 @@
-// Linked prefabs (editor/static/prefab-links.js): which placed copies are linked to a prefab of the library and at
+// Linked prefabs (editor/static/prefab-links.js, G22): which placed copies are linked to a prefab of the library and at
 // which version, what the user changed on a copy's objects (overrides), Update instances keeping those changes (and
 // where the build looks for each object), Apply to prefab clearing the ones the new version has, Unpack.
 import test from 'node:test';

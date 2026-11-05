@@ -9,9 +9,9 @@ import { conditionProblems, collectDraftStates } from '../editor/static/story-st
 const text = (e) => logicSentence(e).parts.map((p) => (typeof p === 'string' ? p : p.rule || p.name)).join('');
 
 test('a rule that runs: its label, who set it off, links to the rule and the object', () => {
-  const e = parseLogicLine('DeusEdixLogic: fire|01_Crypt|L3|Button1|used|JCDenton0|When JC uses Button1: open Door3');
+  const e = parseLogicLine('DeusEdixLogic: fire|01_Crypt|L3|Button1|used|JCDenton0|When the player uses Button1: open Door3');
   assert.deepEqual(e, { kind: 'fire', map: '01_Crypt', rule: 'L3', source: 'Button1', when: 'used', by: 'JCDenton0',
-    label: 'When JC uses Button1: open Door3' });
+    label: 'When the player uses Button1: open Door3' });
   const s = logicSentence(e);
   assert.equal(s.mark, '▶');
   assert.deepEqual(s.parts.filter((p) => typeof p !== 'string'), [{ rule: 'L3' }, { name: 'JCDenton0' }]);
@@ -23,7 +23,7 @@ test('a label keeps its bars, a map built before rules had ids names the actor',
 });
 
 test('why a rule did not run, conditions in words', () => {
-  assert.match(text(parseLogicLine('DeusEdixLogic: skip|M|L2|cond|item|DeusEx.Multitool|1')), /only if JC carries Multitool/);
+  assert.match(text(parseLogicLine('DeusEdixLogic: skip|M|L2|cond|item|DeusEx.Multitool|1')), /only if the player carries Multitool/);
   assert.match(text(parseLogicLine('DeusEdixLogic: skip|M|L2|cond|count|Levers|>=|3')), /the counter Levers is at least 3/);
   assert.match(text(parseLogicLine('DeusEdixLogic: skip|M|L2|once|')), /runs only once/);
   assert.match(text(parseLogicLine('DeusEdixLogic: hook|M|L2|Pad1|noslot')), /no free slot/);
@@ -66,8 +66,8 @@ test('every condition the editor encodes comes back as itself', () => {
 
 test('the sentences and the problems of each kind', () => {
   assert.equal(conditionText({ type: 'alive', actor: 'Guard1', is: false }, { actor: (n) => `the guard ${n}` }), 'the guard Guard1 is not alive');
-  assert.equal(conditionText({ type: 'skill', skill: 'SkillLockpicking', level: 3 }), "JC's Lockpicking skill is at least Master");
-  assert.equal(conditionText({ type: 'credits', op: '>=', value: 50 }), 'JC has at least 50 credits');
+  assert.equal(conditionText({ type: 'skill', skill: 'SkillLockpicking', level: 3 }), "the player's Lockpicking skill is at least Master");
+  assert.equal(conditionText({ type: 'credits', op: '>=', value: 50 }), 'the player has at least 50 credits');
   for (const kind of ['flag', 'item', 'alive', 'skill', 'counter', 'credits']) assert.equal(kindOf(newCondition(kind)), kind);
   assert.equal(conditionProblem(newCondition('item')), 'choose the item');
   assert.equal(conditionProblem(newCondition('skill')), '');
@@ -90,4 +90,20 @@ test('the Story indexes the counters and the states the rules use', () => {
   assert.equal(found.Levers.type, 'int');
   assert.deepEqual(found.Levers.uses.map((u) => u.kind).sort(), ['read', 'write']);
   assert.equal(found.Gen.type, 'bool');
+});
+
+test('a rule of the Logic runtime v2 names its game time and its step; its Otherwise, a spawn, the new reasons', () => {
+  const e = parseLogicLine('DeusEdixLogic: act|Lab|L7@12.25#a3|message||Hi');
+  assert.equal(e.rule, 'L7'); assert.equal(e.time, 12.25); assert.equal(e.at, 'a3'); assert.equal(e.verb, 'message');
+  const f = parseLogicLine('DeusEdixLogic: fire|Lab|L7@3.50|Button1|used|JCDenton|Open it');
+  assert.equal(f.rule, 'L7'); assert.equal(f.time, 3.5); assert.equal(f.at, undefined); assert.equal(f.label, 'Open it');
+  const o = parseLogicLine('DeusEdixLogic: else|Lab|L7@4.00|Button1|used|JCDenton');
+  assert.equal(o.kind, 'else'); assert.match(logicSentence(o).parts.join(''), /Otherwise/);
+  const s = logicSentence(parseLogicLine('DeusEdixLogic: act|Lab|L8@9.00#a1|spawned|Reinf|3'));
+  assert.equal(s.parts.join(''), '  3 came (Reinf)');
+  const k = logicSentence(parseLogicLine('DeusEdixLogic: skip|Lab|L9@1.00|cooldown|2.5'));
+  assert.match(k.parts.slice(2).join(''), /too soon/);
+  const g = logicSentence(parseLogicLine('DeusEdixLogic: fail|Lab|L9@1.00#a2|giveitem|DeusEx.Nope|missing'));
+  assert.ok(g.parts.includes('DeusEx.Nope')); assert.match(g.parts.join(''), /no such item/);
+  assert.equal(parseLogicLine('DeusEdixLogic: fire|Lab|Old_Rule|B|used||x').rule, 'Old_Rule');   // a UCLink: as it was
 });

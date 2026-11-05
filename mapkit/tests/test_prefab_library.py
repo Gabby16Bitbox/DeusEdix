@@ -1,4 +1,4 @@
-"""The project's prefab library (editor/prefab_library.py) as linked prefabs need it: a prefab's versions (Apply to
+"""The project's prefab library (editor/prefab_library.py) as linked prefabs need it (G22): a prefab's versions (Apply to
 prefab saves a placed copy back as the newest one, in the prefab's own frame, its objects keeping their slots), rename,
 delete (a version a map still places stays, hidden), the picture, and where the objects of a copy stand in a version
 (Update instances). Each map here is a small rebuilt cache written by the test: a floor brush and a light."""

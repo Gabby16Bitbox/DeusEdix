@@ -4,7 +4,7 @@ The server must check draft/build/cache freshness before save(). This module nev
 runs the engine or changes a map: it publishes one immutable, ordinary prefab
 compatible with prefabs.place() and the existing placement preview.
 
-A prefab has versions (Unity's linked prefabs): each one an immutable bundle of its own (prefabs/usr_<id>), its
+A prefab has versions (G22, Unity's linked prefabs): each one an immutable bundle of its own (prefabs/usr_<id>), its
 library.json naming the prefab it belongs to (line: the id of its first version) and its number (revision). A placed
 copy names the version it places (edits.prefabs[].prefab, read again by every build) and stays linked to the prefab:
 Update instances moves it to the newest version, Apply to prefab (new_version) saves a copy back as a new version. The

@@ -3,8 +3,8 @@
   "title": "Walking in and out of one zone",
   "behaviour": "Both rules wait on the same Tag; walking in (Trigger) runs only the enter rule, walking out (UnTrigger) only the leave rule.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [196, 219], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
-    {"file": "UCLink.uc", "lines": [252, 260], "has": "function UnTrigger(Actor Other, Pawn EventInstigator)"}
+    {"file": "UCLink.uc", "lines": [249, 272], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
+    {"file": "UCLink.uc", "lines": [332, 340], "has": "function UnTrigger(Actor Other, Pawn EventInstigator)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

@@ -1,4 +1,4 @@
-// Saved play scenarios and the buttons of a game being played, as Unity's Play mode scenarios and its Pause.
+// Saved play scenarios and the buttons of a game being played (G13), as Unity's Play mode scenarios and its Pause.
 // A scenario is a named way to start Play, kept in the project (app.js: projectStorageKey 'playScenarios'): where JC
 // starts (below the camera, at the map's PlayerStart or where the mission preset puts him, or at a point kept with
 // it on one map), the mission preset (editor/play.py setups), the starting states (play-state.js's raw flags), the

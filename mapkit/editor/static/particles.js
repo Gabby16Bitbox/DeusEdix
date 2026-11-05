@@ -27,7 +27,8 @@ export const PARTICLE_FIELDS = Object.freeze([
   { key: 'bFade', label: 'Fade out', type: 'bool', def: true, tip: 'Each particle fades as it lives' },
   { key: 'bParticlesUnlit', label: 'Glow (unlit)', type: 'bool', def: false, tip: 'Full bright whatever the light, like sparks and flames' },
   { key: 'bModulated', label: 'Darkens (modulated)', type: 'bool', def: false, tip: 'Darkens what is behind it (dark smoke, soot) instead of lighting it' },
-  // UCParticles' own (DeusEdix's class: damage and switching; group 'hurt'): not the game's ParticleGenerator's
+  // UCParticles' own (DeusEdix's class: an area, damage and switching; group 'hurt'): not the game's ParticleGenerator's
+  { key: 'FxArea', label: 'Area', type: 'float', def: 0, min: 0, max: 2000, step: 8, own: 'UCParticles', tip: 'They start anywhere within this distance of it, across its arrow: a pool of gas on the floor, a cloud under a ceiling (0: all from its point)' },
   { key: 'FxDamage', label: 'Damage', type: 'int', def: 0, min: 0, max: 500, step: 1, group: 'hurt', own: 'UCParticles', tip: 'Damage each hit (0: it hurts no one)' },
   { key: 'FxDamageType', label: 'Kind', type: 'name', def: 'Burned', group: 'hurt', own: 'UCParticles', tip: 'The game\'s kind of damage: what JC\'s augmentations and armour resist',
     options: [['Burned', 'Fire (burns)'], ['Shocked', 'Electricity (shocks)'], ['PoisonGas', 'Poison gas'], ['TearGas', 'Tear gas'],
@@ -140,7 +141,13 @@ export function stepSimulation(sim, s, dt, up = [0, 0, 1]) {
         d = d.map((c) => c / l);
       }
       const speed = s.ejectSpeed * (s.bRandomEject ? 0.6 + 0.4 * rand() : 1);
-      sim.list.push({ p: [0, 0, 0], v: d.map((c) => c * speed), age: 0, life: Math.max(0.05, s.particleLifeSpan) });
+      // over an area (UCParticles' FxArea): from a point of the disc round it, across the arrow
+      let p = [0, 0, 0];
+      if (s.FxArea > 0) {
+        const r = s.FxArea * Math.sqrt(rand()), a = rand() * Math.PI * 2;
+        p = [0, r * Math.cos(a), r * Math.sin(a)];
+      }
+      sim.list.push({ p, v: d.map((c) => c * speed), age: 0, life: Math.max(0.05, s.particleLifeSpan) });
     }
   }
   if (sim.acc > every) sim.acc = sim.acc % every;

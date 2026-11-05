@@ -75,7 +75,7 @@ test('the views of the last rebuild come from VIEW_MODES, and Effects is pressed
   assert.equal(on, false);
 });
 
-// Hear the map is the speaker after Effects, pressed on and off
+// G27: Hear the map is the speaker after Effects, pressed on and off
 test('Hear the map is a button pressed on and off', () => {
   let on = false;
   const bar2 = createViewportToolbar({ getMode: () => 'translate', getSnap: () => false, getSteps: () => ({ move: 16, rotate: 15 }),

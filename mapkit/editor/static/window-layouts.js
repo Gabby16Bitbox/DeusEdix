@@ -1,4 +1,4 @@
-// Saved window layouts and the maximized panel, as Unity's Layout menu and Window > Maximize View (Shift+Space).
+// Saved window layouts and the maximized panel (G34), as Unity's Layout menu and Window > Maximize View (Shift+Space).
 // A layout is what workspace.js getState gives (where each panel is docked, how wide the docks are, which tab is in
 // front), kept under a name of the user's in this browser for every project, and written to or read from a JSON
 // file. No DOM here: workspace.js keeps and applies them, menubar.js lists them; tests/test_window_layouts.mjs.

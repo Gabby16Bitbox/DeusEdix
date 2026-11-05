@@ -1,8 +1,6 @@
-// AI paths drawn the modern way (Gabby, 16 Oct): every link of the network PATHS DEFINE made is a soft
-// strip on the floor, as wide as the room the engine gave it (its reach spec's collision radius), coloured
-// by what it is (walk, door, jump, water/air, lift/teleporter) with arrows sliding the way it can be walked
-// (a one-way link has them one way only). "Test a route": the shortest way between two places on the same
-// network the game's AI uses (ScriptedPawn finds its way from point to point along these links).
+// AI paths (Gabby, 16 Oct; thin lines since 5 Nov: path-lines.js draws the network, coloured by who can walk each
+// link, ai-paths.js says who). A link's kind: walk, door, jump, water/air, lift/teleporter. "Test a route": the
+// shortest way between two places on the same network the game's AI uses (ScriptedPawn finds its way from point to point along these links).
 // Pure helpers plus the three.js drawing; app.js gives THREE, the Unreal -> three conversion and a floor finder.
 
 // UE1 reach flags (FReachSpec.reachFlags)
@@ -52,7 +50,7 @@ export function pathStrips(pathData) {
     const back = by.get(l.b + '>' + l.a);
     if (back && l.a > l.b) continue;
     strips.push({ a: l.a, b: l.b, two: !!back, kind: linkKind(l.flags | (back ? back.flags : 0)),
-                  radius: Math.max(l.radius, back ? back.radius : 0) });
+                  radius: Math.max(l.radius, back ? back.radius : 0), height: Math.max(l.height, back ? back.height : 0) });
   }
   return strips;
 }
@@ -62,6 +60,45 @@ export function loosePoints(pathData) {
   const used = new Set();
   for (const l of normLinks(pathData)) { used.add(l.a); used.add(l.b); }
   return Object.keys((pathData && pathData.points) || {}).filter((n) => !used.has(n));
+}
+
+// Who can walk a link (Gabby, 5 Nov 2026: colours by the kind of character). The engine gives each link the room a
+// character has there (its reach spec's collision radius and height, PATHS DEFINE); a character walks it when it is
+// no wider and no taller. The kinds of character by size, from the game's own classes (their collision cylinders):
+// a military bot 80 x 79, a Karkian 54 x 37 (dogs 35-38, Gunther 24 x 53 under it), a person 20 x 47.5, a rat, a
+// cat or a cleaner bot 18 x 12 at most. Each box holds the next one.
+export const SIZE_KINDS = [
+  { key: 'huge', radius: 80, height: 79, color: '#89b9e8', label: 'military bots' },
+  { key: 'large', radius: 54, height: 58, color: '#7fd6c8', label: 'Karkians and dogs' },
+  { key: 'person', radius: 20, height: 47.5, color: '#e3b96b', label: 'people' },
+  { key: 'small', radius: 18, height: 12, color: '#ff9a3c', label: 'rats, cats and small bots' },
+];
+export const EVERYONE = { key: 'everyone', color: '#5fd38a', label: 'every character of this map' };
+export const NOBODY = { key: 'nobody', color: '#f28780', label: 'too narrow for any walking character' };
+
+// a character {radius, height} fits a link {radius, height} (an older cache has no room: everyone fits)
+export function fitsLink(c, s) {
+  if (!s || !s.radius) return true;
+  return c.radius <= s.radius + 0.5 && (!s.height || c.height <= s.height + 0.5);
+}
+// the biggest kind that fits a link: an index of SIZE_KINDS, SIZE_KINDS.length when even the smallest does not
+export function linkSize(s) {
+  const i = SIZE_KINDS.findIndex((k) => fitsLink(k, s));
+  return i < 0 ? SIZE_KINDS.length : i;
+}
+// the kind a character is (the smallest box it fits in; bigger than all: the biggest)
+export function characterSize(c) {
+  let at = 0;
+  SIZE_KINDS.forEach((k, i) => { if (c.radius <= k.radius + 0.5 && c.height <= k.height + 0.5) at = i; });
+  return at;
+}
+// what a link says, for the characters of a map ([{radius, height}]; none: people are assumed): EVERYONE when
+// all of them fit, else the biggest kind that does (or NOBODY): the colours show only where someone cannot pass
+export function linkWho(s, characters) {
+  const need = (characters && characters.length) ? Math.min(...characters.map(characterSize)) : SIZE_KINDS.findIndex((k) => k.key === 'person');
+  const size = linkSize(s);
+  if (size <= need && (!characters || characters.every((c) => fitsLink(c, s)))) return EVERYONE;
+  return SIZE_KINDS[size] || NOBODY;
 }
 
 // the nav point nearest to a place (Unreal coordinates); role 'from': one the AI can leave (it has links
@@ -231,35 +268,8 @@ function ring(THREE, at, color, r, order = 7) {
   return m;
 }
 
-// The width a link is drawn: a bit more than the room the engine gave it, kept slim
-export const stripWidth = (radius) => Math.min(56, Math.max(18, (radius || 22) * 1.2));
-// stencil layers: the area, its arrows, a tested route's area, its arrows
-const ST_AREA = 1, ST_ARROWS = 3, ST_ROUTE = 2, ST_ROUTE_ARROWS = 4;
-
-// The whole network on the floor. floorAt(threeVector) -> the floor under a point (three Vector3);
-// field: floorField() of the map (or null: straight strips).
-export function buildPathView(THREE, pathData, T, floorAt, field) {
-  const grp = new THREE.Group();
-  const pts = (pathData && pathData.points) || {};
-  const floor = new Map();
-  const at = (n) => { if (!floor.has(n)) floor.set(n, floorAt(T(pts[n].slice(1)))); return floor.get(n); };
-  for (const s of pathStrips(pathData)) {
-    const color = PATH_KINDS[s.kind].color, A = at(s.a), B = at(s.b);
-    // the special kinds first, so where they cross a walk their colour is the one that shows
-    const area = layerMaterial(THREE, { color, opacity: s.kind === 'walk' ? 0.22 : 0.3 }, ST_AREA);
-    grp.add(stripMesh(THREE, A, B, stripWidth(s.radius), area, 0.6, s.kind === 'walk' ? 5 : 4, field));
-    // its outline: a slightly wider strip drawn only where nothing is tinted yet, so only the outer edge
-    // of the whole area shows (no lines across crossings)
-    const edge = layerMaterial(THREE, { color, opacity: 0.6, stencilRef: 0, stencilFunc: THREE.EqualStencilFunc,
-                                        stencilZPass: THREE.IncrementStencilOp }, 0);
-    grp.add(stripMesh(THREE, A, B, stripWidth(s.radius) + 5, edge, 0.6, 5.5, field));
-    const arrows = layerMaterial(THREE, { map: arrowTexture(THREE, color, s.two), opacity: 0.75, alphaTest: 0.05 }, ST_ARROWS);
-    grp.add(stripMesh(THREE, A, B, 12, arrows, 0.8, 6, field, 14, 40));
-  }
-  for (const n of Object.keys(pts)) grp.add(ring(THREE, at(n), PATH_KINDS.walk.color, 5));
-  for (const n of loosePoints(pathData)) grp.add(ring(THREE, at(n), PATH_KINDS.problem.color, 16));
-  return grp;
-}
+// stencil layers of a tested route: its area, its arrows (the network itself: path-lines.js, thin lines)
+const ST_ROUTE = 2, ST_ROUTE_ARROWS = 4;
 
 // A tested route: a bright line over the network, arrows sliding along it.
 export function buildRouteView(THREE, pathData, route, T, floorAt, field) {

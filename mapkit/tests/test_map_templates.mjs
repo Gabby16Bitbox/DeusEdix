@@ -1,4 +1,4 @@
-// New map's tiles (static/map-templates.js): An empty room, A copy of a map, then the project's map templates, each
+// New map's tiles (static/map-templates.js, G35): An empty room, A copy of a map, then the project's map templates, each
 // a radio named nmfrom as before, with its picture, its words and a × to delete it; names and words escaped.
 import test from 'node:test';
 import assert from 'node:assert/strict';

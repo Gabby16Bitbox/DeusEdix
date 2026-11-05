@@ -318,6 +318,6 @@ function Tick(float DeltaTime)
 
 defaultproperties
 {
-     IdleRate=1.000000
      bHidden=True
+     IdleRate=1.000000
 }

@@ -33,7 +33,7 @@ def outputs():
 
 def built_rules(actors):
     """The ids of the rules among the compiled actors (a UCLink's Rule: an id is letters, digits, underscores)."""
-    return [a['props']['Rule'].strip('"') for a in actors if a['cls'] == 'UCLink' and 'Rule' in a['props']]
+    return [a['props']['Rule'].strip('"') for a in actors if a['cls'] in ('UCLink', 'UCRule') and 'Rule' in a['props']]
 
 
 def built_whole(edits, link):

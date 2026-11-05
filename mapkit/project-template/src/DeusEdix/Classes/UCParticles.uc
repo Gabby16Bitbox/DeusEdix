@@ -14,7 +14,10 @@
 //   bFxStartOn    on from the start of the map (else off until switched on)
 //   FxOnTime      switched on, it goes off by itself after these seconds (0: until switched off)
 //   bFxToggle     "Switch on" switches it off when it is on
-// Nothing hurts through a wall: a hit needs a clear line from the stream to the one it hurts.
+//   FxArea        its particles start anywhere within this radius round it, across its arrow (a pool of gas on
+//                 the floor, a cloud under a ceiling); 0: all from its point, as the game's generators
+// Nothing hurts through a wall: a hit needs a clear line from the stream to the one it hurts (to its middle or to
+// its eyes). The line starts a little out along the arrow: a generator set on a wall or a floor is not inside it.
 //=============================================================================
 class UCParticles extends ParticleGenerator;
 
@@ -27,6 +30,7 @@ var() bool   bFxHurtAll;
 var() bool   bFxStartOn;
 var() float  FxOnTime;
 var() bool   bFxToggle;
+var() float  FxArea;
 
 var float FxFrequency;          // its frequency, as set, for when it is on
 var Sound FxSound;              // its sound, as set, for when it is on
@@ -34,6 +38,7 @@ var bool  bFxOn;
 var bool  bFxReady;
 var float FxLeft;               // seconds it stays on (FxOnTime)
 var float FxHurtT;              // seconds to the next hit
+var float FxThrowT;             // seconds since the last check of an area's throw (FxArea)
 
 function PostBeginPlay()
 {
@@ -49,7 +54,11 @@ function FxSwitch(bool bOn)
 	bFxOn = bOn;
 	if (bOn)
 	{
-		frequency = FxFrequency;
+		// over an area it throws its particles itself (FxThrow): the game's generator throws none
+		if (FxArea > 0)
+			frequency = 0;
+		else
+			frequency = FxFrequency;
 		AmbientSound = FxSound;
 		FxLeft = FxOnTime;
 		FxHurtT = 0;
@@ -87,7 +96,41 @@ function bool FxReaches(Pawn P, vector dir)
 	from = Location + dir * along;
 	if (VSize(P.Location - from) > FxRadius + P.CollisionRadius)
 		return False;
-	return Trace(hitLoc, hitNormal, P.Location, from, False) == None;
+	from = Location + dir * FMax(along, 8);
+	if (Trace(hitLoc, hitNormal, P.Location, from, False) == None)
+		return True;
+	return Trace(hitLoc, hitNormal, P.Location + vect(0,0,1) * P.BaseEyeHeight, from, False) == None;
+}
+
+// an area's particles (FxArea): as the game's generator throws them (every checkTime, by its chance, numPerSpawn
+// each time), each from a point of the disc round it across its arrow
+function FxThrow(float deltaTime)
+{
+	local ParticleIterator It;
+	local vector X, Y, Z;
+	local float r, a;
+	local int i;
+
+	It = ParticleIterator(RenderInterface);
+	if (It == None || bFrozen || bDying || !bSpewing)
+		return;
+	FxThrowT += deltaTime;
+	if (FxThrowT <= checkTime)
+		return;
+	FxThrowT = 0;
+	if (FRand() > FxFrequency)
+		return;
+	if (spawnSound != None)
+		PlaySound(spawnSound, SLOT_Misc,,, 1024);
+	GetAxes(Rotation, X, Y, Z);
+	for (i = 0; i < numPerSpawn; i++)
+	{
+		r = FxArea * Sqrt(FRand());
+		a = FRand() * 6.283185;
+		pLoc = Location + (Y * Cos(a) + Z * Sin(a)) * r;
+		It.AddParticle();
+	}
+	pLoc = Location;
 }
 
 function Tick(float deltaTime)
@@ -102,6 +145,8 @@ function Tick(float deltaTime)
 	// later, never drawn, would never start (as UCEffect keeps its own awake).
 	if (proxy != None && GetPlayerPawn() != None && VSize(GetPlayerPawn().Location - Location) < 4000)
 		proxy.LastRenderTime = Level.TimeSeconds;
+	if (FxArea > 0)
+		FxThrow(deltaTime);
 	if (FxOnTime > 0)
 	{
 		FxLeft -= deltaTime;

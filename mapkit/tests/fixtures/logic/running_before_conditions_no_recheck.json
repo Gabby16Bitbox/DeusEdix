@@ -3,9 +3,9 @@
   "title": "Running is checked before the conditions, which are not checked again",
   "behaviour": "A re-fire while the rule runs is skipped as \"running\" even when a condition no longer holds; the actions already under way still run, because the conditions are checked only when the rule fires.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"},
-    {"file": "UCLink.uc", "lines": [280, 284], "has": "for (i = 0; i < ArrayCount(Cond); i++)"},
-    {"file": "UCLink.uc", "lines": [839, 858], "has": "state Running"}
+    {"file": "UCLink.uc", "lines": [356, 359], "has": "if (IsInState('Running'))"},
+    {"file": "UCLink.uc", "lines": [361, 365], "has": "for (i = 0; i < ArrayCount(Cond); i++)"},
+    {"file": "UCLink.uc", "lines": [1587, 1606], "has": "state Running"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

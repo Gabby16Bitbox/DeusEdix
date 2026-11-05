@@ -1,4 +1,4 @@
-// Properties… windows, as Unity's floating Inspector (right click > Properties…): each shows the Inspector of one
+// Properties… windows (G41), as Unity's floating Inspector (right click > Properties…): each shows the Inspector of one
 // object of the map, live, while the Inspector panel follows the selection. A window holds its object by key in the
 // map it was opened in (generation), as the panel's padlock does. No DOM here: inspector-windows-view.js draws the
 // windows and app.js its Inspector in each; tests/test_inspector_windows.mjs.

@@ -57,6 +57,34 @@ def game_scale(name, kind=None):
     return 1.0
 
 
+# A lit face's lightmap takes a sample every 32 texels of its texture (the engine lays it on the texture's grid), so
+# a texture scaled up gets a coarser lightmap. The game's own scale for a few textures is far too big for that
+# (ClenGreyCncrt_A, the editor's default block, on walls: 28, a sample every ~900 units): a block's wall got two
+# samples, on its edges with the floor and the ceiling, and was black in the game (5 Nov 2026). A material with
+# lit_guard (the editor's blocks and drawings) takes, on a face with a lightmap, the texture's most usual game
+# scale that is at most LIT_SCALE_MAX (1 for ClenGreyCncrt_A), else LIT_SCALE_MAX.
+LIT_SCALE_MAX = 4.0
+NO_LIGHTMAP = 0x1 | 0x400000 | 0x80000000      # PF_Invisible, PF_Unlit, PF_FakeBackdrop: no lightmap
+
+
+def lit_scale(name, kind=None):
+    """game_scale for a lit face: never coarser than LIT_SCALE_MAX (see above)."""
+    g = game_scale(name, kind)
+    if g <= LIT_SCALE_MAX:
+        return g
+    d = (_GAME or {}).get(name.lower()) or {}
+    for s, share in sorted(d.get('scales', []), key=lambda e: -e[1]):
+        if float(s) <= LIT_SCALE_MAX and share >= 0.1:
+            return float(s)
+    return LIT_SCALE_MAX
+
+
+def _game_factor(m, kind):
+    if getattr(m, 'lit_guard', False) and not (m.flags & NO_LIGHTMAP):
+        return lit_scale(m.tex, kind)
+    return game_scale(m.tex, kind)
+
+
 def face_kind(n, inside=False):
     nz = -n[2] if inside else n[2]
     return 'floor' if nz > 0.7 else ('ceiling' if nz < -0.7 else 'wall')
@@ -92,6 +120,8 @@ class Mat:
 
     def with_(self, **kw):
         m = Mat(self.tex, self.tile, self.flags, self.offset, self.rot, self.planar, self.align)
+        if getattr(self, 'lit_guard', False):
+            m.lit_guard = True
         for k, v in kw.items():
             setattr(m, k, v)
         return m
@@ -144,7 +174,7 @@ def mapping(face, inside):
         u, v = v, -u
     tu, tv = tex_size(m.tex)
     if m.tile is None:
-        g = game_scale(m.tex, face_kind(n, inside))
+        g = _game_factor(m, face_kind(n, inside))
         su, sv = tu * g, tv * g
     elif isinstance(m.tile, (int, float)):
         su = sv = float(m.tile)
@@ -164,7 +194,7 @@ def mapping(face, inside):
 def _scales(m, kind=None):
     tu, tv = tex_size(m.tex)
     if m.tile is None:
-        g = game_scale(m.tex, kind)
+        g = _game_factor(m, kind)
         return tu, tv, tu * g, tv * g
     if isinstance(m.tile, (int, float)):
         return tu, tv, float(m.tile), float(m.tile) * tv / tu

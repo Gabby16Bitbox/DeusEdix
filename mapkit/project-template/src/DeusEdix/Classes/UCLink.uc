@@ -16,7 +16,11 @@
 //            object: UCNpcUse), finished / stopped (a timer, UCTimer, ran out / was stopped), arrived (a
 //            character sent with goto/run is there). "used" on an object made usable (UCUsable): when JC
 //            has finished using it (its UCUsable triggers the link, the link hooks nothing); output (a
-//            script of Tools > Scripts says Port: UCScript.Output sets the link off)
+//            script of Tools > Scripts says Port: UCScript.Output sets the link off); hacked (a hackable device:
+//            a slot of its UnTriggerEvent), killed / knockedout (a character: told apart a tick after its event),
+//            tagfires (the game's own Tag: the link's Tag is it), becomes (the condition Watch becomes true),
+//            changes (the state or counter Watch changes), and the watched properties (bWatchProp: Watch holds
+//            their tests, on Source or, with none, on the player: spotted, alarmoff, hurt, unlocked, atfloor...)
 //   Cond[i]  the conditions: all must hold when it fires, or it does nothing that time (UCEditorStory.Holds)
 //   Act[i]   "delay|verb|target|a|b|c" (see DoAct)
 //
@@ -36,6 +40,27 @@ var() float  NearDist;        // When=near
 var() bool   bOnce;           // only the first time
 var() string Label;           // the sentence the editor shows
 var() string Act[24];
+// A list of steps (the editor's lists: If / Otherwise / Wait until, editor/LOGIC.md "Logic runtime v2"): each Act's
+// delay counts from the step before, and an Act can be a step of the list itself:
+//   "delay|check|all or any|first|count|fail"  the conditions StepCond[first..]: they hold, the next step; they do
+//                                             not, the step `fail` (an index, or "stop")
+//   "delay|jump|||step|"                      on at that step ("stop": the end)
+//   "delay|until|who|arrived or cond|most|k"  wait until who has arrived (sent with goto / run), or StepCond[k]
+//                                             holds, at most `most` seconds (0: as long as it takes)
+//   "delay|wait|||||"                         only its delay
+var() bool   bSteps;
+var() string StepCond[16];
+var int   Runs;               // the steps run since it was set off: a list that goes round with no end is stopped
+var float UntilStart;
+// What a watched output looks at (P4, editor/LOGIC.md "Outputs and inputs"): When=becomes a condition, When=changes
+// "flag|Name" or "count|Name", bWatchProp tests on properties: "Prop=Value", "Prop!=Value", "Prop<N", "Prop>N",
+// "Prop<%N" (under N% of what it had at the first look), "Prop down" (less than at the last look: every time), joined
+// by & (all), alternatives by ; each maybe "?Class:" first (only on that class)
+var() string Watch;
+var() bool   bWatchProp;
+var string WatchBase;
+var ScriptedPawn PendingPawn; // a character killed or knocked out: which of the two is known a tick later (PlayDying)
+var bool  bPawnPending;
 
 var name  PassEvent;          // the object's own event before the link took it: triggered too
 var bool  bDone, bPolled, bWas, bHurry;
@@ -52,6 +77,23 @@ function PostBeginPlay()
 	Super.PostBeginPlay();
 	Disable('Tick');              // only while a door's event waits to be told apart (Trigger)
 	Hook();
+	RememberOrders();
+}
+
+// The characters an action sends back to their own orders: what the map gave them, kept before any rule changes it
+// (one UCOrdersMemory each, saved with the game)
+function RememberOrders()
+{
+	local int i;
+	local ScriptedPawn sp;
+
+	for (i = 0; i < ArrayCount(Act); i++)
+		if (Field(Act[i], 1) == "ownorders")
+		{
+			sp = ScriptedPawn(ActorCalled(Field(Act[i], 2)));
+			if (sp != None)
+				class'UCOrdersMemory'.static.Keep(sp);
+		}
 }
 
 // one line of the logic log about this rule: kind|map|rule|rest (editor/LOGIC.md)
@@ -93,7 +135,8 @@ function Hook()
 		|| When == 'cutstart' || When == 'cutdone'      // a cutscene (UCCutscene) triggers UCL_<name>_Start / _End
 		|| When == 'npcused' || When == 'finished' || When == 'stopped' || When == 'arrived'
 		|| When == 'bodydone'                           // a character's body animation: its UCAnimSet tells UCL_<name>_Body
-		|| When == 'output')                            // a script's output (UCScript.Output) sets the link off
+		|| When == 'output'                             // a script's output (UCScript.Output) sets the link off
+		|| When == 'tagfires' || When == 'becomes' || When == 'changes' || bWatchProp)   // its own Tag, or watched
 		return;                                         // (UCNpcUse, UCTimer trigger their tags; arrived is watched)
 	if (When == 'used' && UsableOf(Source) != None)    // JC has finished using it: its UCUsable triggers this
 		return;
@@ -117,6 +160,14 @@ function Hook()
 	if (When == 'code' && K != None && K.bToggleLock)  // its Event names the doors its code unlocks: keep it
 	{
 		HookUnTrigger(K);
+		return;
+	}
+	if (When == 'hacked')                              // a hackable device untriggers its UnTriggerEvent list
+	{
+		if (HackableDevices(A) != None)
+			HookUnTrigger(HackableDevices(A));
+		else
+			Report("hook", Source $ "|target");
 		return;
 	}
 	if (When == 'wrongcode')
@@ -161,8 +212,9 @@ function bool AimsItsEvent(Actor A)
 }
 
 // A keypad that toggles door locks fires no event, but untriggers its UnTriggerEvent list on the right code
-// (Keypad.RunUntriggers): this link takes a free slot of that list.
-function HookUnTrigger(Keypad K)
+// (Keypad.RunUntriggers), and any hackable device when it is hacked (HackableDevices.HackAction): this link takes a
+// free slot of that list.
+function HookUnTrigger(HackableDevices K)
 {
 	local int i;
 
@@ -204,8 +256,19 @@ function Trigger(Actor Other, Pawn EventInstigator)
 			A.Trigger(Other, EventInstigator);
 	M = DeusExMover(Other);
 	if (When == 'closed' || When == 'leave' || When == 'start' || When == 'picked' || When == 'gone' || When == 'near'
-		|| When == 'arrived')
+		|| When == 'arrived' || When == 'hacked' || When == 'becomes' || When == 'changes' || bWatchProp)
 		return;
+	if (When == 'killed' || When == 'knockedout')
+	{
+		// its event comes before PlayDying says whether it was knocked out (Pawn.Died): told apart on the next tick
+		PendingPawn = ScriptedPawn(ActorCalled(Source));
+		if (PendingPawn == None)
+			PendingPawn = ScriptedPawn(Other);
+		bPawnPending = True;
+		PendingBy = Who(Other, EventInstigator);
+		Enable('Tick');
+		return;
+	}
 	if ((When == 'opened' || When == 'destroyed') && M != None)
 	{
 		// a door blown up triggers its event before it is marked destroyed (DeusExMover.BlowItUp): tell them
@@ -248,6 +311,22 @@ event Tick(float DeltaTime)
 	Disable('Tick');
 	if (M != None && (When == 'destroyed') == M.bDestroyed)
 		RunRule(PendingBy);
+	if (bPawnPending)
+		PawnTold();
+}
+
+// a character's death event, a tick later: killed, or knocked out (bStunned; gone already: killed)
+function PawnTold()
+{
+	local bool bOut;
+
+	bPawnPending = False;
+	bOut = PendingPawn != None && !PendingPawn.bDeleteMe && PendingPawn.bStunned;
+	PendingPawn = None;
+	if ((When == 'knockedout') == bOut)
+		RunRule(PendingBy);
+	else
+		Report("skip", "how|" $ When);
 }
 
 function UnTrigger(Actor Other, Pawn EventInstigator)
@@ -257,7 +336,8 @@ function UnTrigger(Actor Other, Pawn EventInstigator)
 	if (PassEvent != '')
 		foreach AllActors(class'Actor', A, PassEvent)
 			A.UnTrigger(Other, EventInstigator);
-	if (When == 'closed' || When == 'leave' || (When == 'code' && bViaUnTrigger && Keypad(Other) != None))
+	if (When == 'closed' || When == 'leave' || (When == 'code' && bViaUnTrigger && Keypad(Other) != None)
+		|| (When == 'hacked' && bViaUnTrigger))
 		RunRule(Who(Other, EventInstigator));
 }
 
@@ -312,6 +392,11 @@ function TickStory()
 	local DeusExPlayer P;
 	local bool bNow;
 
+	if (bWatchProp || When == 'becomes' || When == 'changes')
+	{
+		TickWatch();
+		return;
+	}
 	if (When != 'picked' && When != 'gone' && When != 'near' && When != 'arrived')
 		return;
 	P = Plr();
@@ -335,6 +420,155 @@ function TickStory()
 	if (bNow && !bWas)
 		RunRule();
 	bWas = bNow;
+}
+
+// The watched outputs of P4 (Watch): a condition that becomes true, a state or a counter that changes, a property that
+// comes to pass its tests (on Source, or the player when the rule has none). Each runs when it becomes true; a "down"
+// test every time the value goes down. The first look only takes how things are.
+function TickWatch()
+{
+	local Actor A;
+	local bool bNow;
+	local string v;
+
+	if (When == 'changes')
+	{
+		v = WatchValue();
+		if (!bPolled)
+		{
+			bPolled = True;
+			WatchBase = v;
+			return;
+		}
+		if (v != WatchBase)
+		{
+			WatchBase = v;
+			RunRule();
+		}
+		return;
+	}
+	if (When == 'becomes')
+		bNow = Holds(Watch);
+	else
+	{
+		if (Source == "")
+			A = Plr();
+		else
+			A = ActorCalled(Source);
+		bNow = A != None && TestsHold(A, Watch);
+	}
+	if (!bPolled)
+	{
+		bPolled = True;
+		bWas = bNow;
+		if (When != 'becomes' && Source != "" && A == None)
+			Report("hook", Source $ "|missing");
+		return;
+	}
+	if (bNow && (!bWas || InStr(Watch, " down") >= 0))
+		RunRule(A);
+	bWas = bNow;
+}
+
+// a state's or a counter's value now (Watch "flag|Name", "count|Name")
+function string WatchValue()
+{
+	if (Field(Watch, 0) == "count")
+		return string(GetI(StringToName(Field(Watch, 1))));
+	if (GetF(StringToName(Field(Watch, 1))))
+		return "1";
+	return "0";
+}
+
+// tests "a&b;c&d": one alternative all of whose tests hold; "?Class:..." only on that class
+function bool TestsHold(Actor A, string tests)
+{
+	local string alt, t;
+	local int i, j;
+	local bool bAll;
+
+	while (tests != "")
+	{
+		i = InStr(tests, ";");
+		if (i < 0)
+		{
+			alt = tests;
+			tests = "";
+		}
+		else
+		{
+			alt = Left(tests, i);
+			tests = Mid(tests, i + 1);
+		}
+		if (Left(alt, 1) == "?")
+		{
+			j = InStr(alt, ":");
+			if (j < 0 || !A.IsA(StringToName(Mid(alt, 1, j - 1))))
+				continue;
+			alt = Mid(alt, j + 1);
+		}
+		bAll = alt != "";
+		while (alt != "" && bAll)
+		{
+			j = InStr(alt, "&");
+			if (j < 0)
+			{
+				t = alt;
+				alt = "";
+			}
+			else
+			{
+				t = Left(alt, j);
+				alt = Mid(alt, j + 1);
+			}
+			bAll = TestHolds(A, t);
+		}
+		if (bAll)
+			return True;
+	}
+	return False;
+}
+
+function bool TestHolds(Actor A, string t)
+{
+	local int i;
+	local string v;
+	local bool bDown;
+
+	i = InStr(t, " down");
+	if (i >= 0)
+	{
+		v = A.GetPropertyText(Left(t, i));
+		if (WatchBase == "")
+		{
+			WatchBase = v;
+			return False;
+		}
+		bDown = float(v) < float(WatchBase);
+		WatchBase = v;
+		return bDown;
+	}
+	i = InStr(t, "<%");
+	if (i >= 0)
+	{
+		v = A.GetPropertyText(Left(t, i));
+		if (WatchBase == "")
+			WatchBase = v;
+		return float(v) < float(WatchBase) * float(Mid(t, i + 2)) / 100.0;
+	}
+	i = InStr(t, "!=");
+	if (i >= 0)
+		return !(A.GetPropertyText(Left(t, i)) ~= Mid(t, i + 2));
+	i = InStr(t, "<");
+	if (i >= 0)
+		return float(A.GetPropertyText(Left(t, i))) < float(Mid(t, i + 1));
+	i = InStr(t, ">");
+	if (i >= 0)
+		return float(A.GetPropertyText(Left(t, i))) > float(Mid(t, i + 1));
+	i = InStr(t, "=");
+	if (i >= 0)
+		return A.GetPropertyText(Left(t, i)) ~= Mid(t, i + 1);
+	return False;
 }
 
 // ---------------------------------------------------------------- the actions (Field: UCEditorStory)
@@ -606,8 +840,416 @@ function DoAct(string s)
 		Report("fail", verb $ "|" $ target $ "|noscript");
 	else if (verb == "floor")                           // an elevator goes to floor a (its sequence, as SequenceTrigger)
 		Floor(T, int(a));
-	else
+	else if (!DoMore(s, verb, T, a, b, c, P))           // the verbs of P4
 		Report("fail", verb $ "|" $ target $ "|cannot");
+}
+
+// The verbs of P4 (editor/LOGIC.md): the player's resources, the view, lights, characters, the world. False: not one
+// of them, or not on this target.
+function bool DoMore(string s, string verb, Actor T, string a, string b, string c, DeusExPlayer P)
+{
+	local int n;
+	local vector spot;
+
+	n = int(a);
+	spot = vect(1,0,0) * float(Field(s, 6)) + vect(0,1,0) * float(Field(s, 7)) + vect(0,0,1) * float(Field(s, 8));
+	// the player's resources: skill points, credits, health (b "set": to that), an item given or taken
+	if (verb == "skillpoints" && P != None)
+	{
+		if (n > 0)
+			P.SkillPointsAdd(n);
+		else
+			P.SkillPointsAvail = Max(0, P.SkillPointsAvail + n);
+	}
+	else if (verb == "credits" && P != None)
+	{
+		P.Credits = Max(0, P.Credits + n);
+		if (n > 0)
+			P.ClientMessage(n @ "credits received");
+		else if (n < 0)
+			P.ClientMessage(-n @ "credits taken");
+	}
+	else if (verb == "health" && P != None)
+		Health(P, n);
+	else if (verb == "giveitem" && P != None)
+		GiveItem(P, a, Clamp(int(b), 1, 20));
+	else if (verb == "takeitem" && P != None)
+		TakeItem(P, a, int(b));
+	// the view: shake (a seconds, b strength), fade (a out / in, b seconds), flash (a colour, b strength)
+	else if (verb == "shake" && P != None)
+		P.ShakeView(FMax(0.1, float(a)), 512.0 + 1024.0 * FMax(0.1, float(b)), 8.0 + 16.0 * FMax(0.1, float(b)));
+	else if (verb == "fade" && P != None)
+		class'UCViewFade'.static.Start(P, a != "in", FMax(0, float(b)));
+	else if (verb == "flash" && P != None)
+		P.ClientFlash(0, ColourOf(a) * 1000.0 * FClamp(float(b), 0.1, 2.0));
+	// lights: flicker (a seconds, 0: until turned on or off), colour (a hue, b saturation), brightness (a)
+	else if ((verb == "flicker" || verb == "lightcolour" || verb == "lightbright") && Light(T) != None)
+		class'UCLightFX'.static.Change(Light(T), verb, a, b);
+	// characters: patrol from a point (a), back to their own orders, moved there at once
+	else if (verb == "patrol" && ScriptedPawn(T) != None)
+		return Patrol(ScriptedPawn(T), a);
+	else if (verb == "ownorders" && ScriptedPawn(T) != None)
+		return class'UCOrdersMemory'.static.GiveBack(ScriptedPawn(T));
+	else if (verb == "teleport" || verb == "moveplayer")   // moveplayer: no object, the player
+		return Teleport(T, P, vect(1,0,0) * float(a) + vect(0,1,0) * float(b) + vect(0,0,1) * float(c));
+	else if (verb == "spawn")                          // a class, b how many, c the tag they get; where: 6-8
+		return class'UCSpawner'.static.Queue(Self, a, Clamp(int(b), 1, 12), c, spot, Field(s, 9) == "attack", Rule);
+	// the world: music, a damaging area, a save, the end, a crate's contents, the next floor, an animation in turn
+	else if (verb == "music" && P != None)
+		return Music(P, a, int(b));
+	else if (verb == "hurtzone")                       // a damage a second, b radius, c seconds, 9 how; where: 6-8 or T
+	{
+		if (T != None)
+			spot = T.Location;
+		class'UCHurtZone'.static.Start(Self, spot, float(a), float(b), float(c), Field(s, 9));
+	}
+	else if (verb == "autosave" && P != None)
+		return AutoSave(P, a);
+	else if (verb == "endgame" && P != None)
+	{
+		if (a == "death")
+			P.TakeDamage(10000, None, P.Location, vect(0,0,0), 'Exploded');
+		else
+			P.ShowCredits(True);
+	}
+	else if (verb == "fillcrate" && Decoration(T) != None)
+		return FillCrate(Decoration(T), a, Clamp(int(b), 1, 3));
+	else if (verb == "nextfloor")
+		return NextFloor(T, a == "down");
+	else if (verb == "animturn")
+		AnimTurn(Field(s, 2), DeusExMover(T));
+	else if (verb == "cancel")                          // another rule stops what it is doing
+		return CancelRule(a);
+	else
+		return False;
+	return True;
+}
+
+// the player healed (n > 0) or hurt (n < 0): n added to every part of the body (up to its most) or taken from it, so
+// the health the game shows (DeusExPlayer.GenerateTotalHealth) goes up or down by n. HealPlayer would share n among
+// the parts (+25 for 100), a shot hits the chest (dead from 80 with 40). No part goes below 1 (a chest or head at 0
+// is death, also when the rest is well): the player dies, the game's way, only when the health would get to nothing
+function Health(DeusExPlayer P, int n)
+{
+	if (n > 0)
+	{
+		P.HealthHead = Min(P.default.HealthHead, P.HealthHead + n);
+		P.HealthTorso = Min(P.default.HealthTorso, P.HealthTorso + n);
+		P.HealthArmLeft = Min(P.default.HealthArmLeft, P.HealthArmLeft + n);
+		P.HealthArmRight = Min(P.default.HealthArmRight, P.HealthArmRight + n);
+		P.HealthLegLeft = Min(P.default.HealthLegLeft, P.HealthLegLeft + n);
+		P.HealthLegRight = Min(P.default.HealthLegRight, P.HealthLegRight + n);
+		P.GenerateTotalHealth();
+	}
+	else if (n < 0)
+	{
+		P.ClientFlash(0.5, vect(500.0, 0.0, 0.0));
+		if (P.Health + n <= 0)
+		{
+			P.TakeDamage(1000, None, P.Location, vect(0,0,0), 'Shot');
+			return;
+		}
+		P.HealthHead = Max(1, P.HealthHead + n);
+		P.HealthTorso = Max(1, P.HealthTorso + n);
+		P.HealthArmLeft = Max(1, P.HealthArmLeft + n);
+		P.HealthArmRight = Max(1, P.HealthArmRight + n);
+		P.HealthLegLeft = Max(1, P.HealthLegLeft + n);
+		P.HealthLegRight = Max(1, P.HealthLegRight + n);
+		P.GenerateTotalHealth();
+	}
+}
+
+// the item called cls given to the player, k of them, as if picked up (DeusExPlayer.HandleItemPickup); with no room
+// it lies at his feet, as an item he cannot take does
+function GiveItem(DeusExPlayer P, string cls, int k)
+{
+	local class<Inventory> C;
+	local Inventory I;
+
+	C = class<Inventory>(DynamicLoadObject(cls, class'Class', True));
+	if (C == None)
+	{
+		Report("fail", "giveitem|" $ cls $ "|missing");
+		return;
+	}
+	while (k > 0)
+	{
+		I = Spawn(C, None,, P.Location);
+		if (I == None)
+			break;
+		P.FrobTarget = I;
+		P.HandleItemPickup(I);
+		k--;
+	}
+}
+
+// k of the player's items of class cls taken away (0: all of them); one in his hand is put away first
+function TakeItem(DeusExPlayer P, string cls, int k)
+{
+	local class<Inventory> C;
+	local Inventory I;
+	local Pickup U;
+	local bool bAll;
+
+	C = class<Inventory>(DynamicLoadObject(cls, class'Class', True));
+	if (C == None)
+		return;
+	bAll = k <= 0;
+	I = P.FindInventoryType(C);
+	while (I != None && (bAll || k > 0))
+	{
+		U = Pickup(I);
+		if (U != None && U.NumCopies > 1 && !bAll)
+		{
+			U.NumCopies--;
+			k--;
+			continue;
+		}
+		if (P.inHand == I)
+			P.PutInHand(None);
+		if (P.Weapon == I)
+			P.Weapon = None;
+		P.DeleteInventory(I);
+		I.Destroy();
+		k--;
+		I = P.FindInventoryType(C);
+	}
+}
+
+// a colour by its word, as a vector of 0..1 (a flash: white when it names none)
+function vector ColourOf(string w)
+{
+	if (w ~= "red") return vect(1, 0.1, 0.1);
+	if (w ~= "green") return vect(0.1, 1, 0.1);
+	if (w ~= "blue") return vect(0.1, 0.3, 1);
+	if (w ~= "yellow") return vect(1, 0.9, 0.2);
+	if (w ~= "orange") return vect(1, 0.5, 0.1);
+	return vect(1, 1, 1);
+}
+
+// patrol from the patrol point called p: its Tag is the route's (ScriptedPawn.PickStartPoint)
+function bool Patrol(ScriptedPawn sp, string p)
+{
+	local PatrolPoint PP;
+
+	PP = PatrolPoint(ActorCalled(p));
+	if (PP == None || PP.Tag == '' || sp.Health <= 0)
+		return False;
+	class'UCSeatOrder'.static.Cancel(sp);
+	sp.SetOrders('Patrolling', PP.Tag, True);         // a walk it was on is forgotten (TickGoes: other orders)
+	return True;
+}
+
+// T (the player when none) put at a place at once
+function bool Teleport(Actor T, DeusExPlayer P, vector spot)
+{
+	if (T == None)
+		T = P;
+	if (T == None)
+		return False;
+	if (!T.SetLocation(spot))                        // a walk it was on goes on from there
+	{
+		Report("fail", "teleport|" $ NameOf(T) $ "|blocked");
+		return True;
+	}
+	T.Velocity = vect(0,0,0);
+	if (Pawn(T) != None && Pawn(T).Physics != PHYS_Walking && Pawn(T).Physics != PHYS_Flying && Pawn(T).Physics != PHYS_Swimming)
+		Pawn(T).SetPhysics(PHYS_Falling);
+	return True;
+}
+
+// a song of the game (Package.Song), from its section; none: silence
+function bool Music(DeusExPlayer P, string song, int section)
+{
+	local Music M;
+
+	if (song == "")
+	{
+		P.ClientSetMusic(None, 0, 255, MTRAN_Fade);
+		return True;
+	}
+	M = Music(DynamicLoadObject(song, class'Music', True));
+	if (M == None)
+	{
+		Report("fail", "music|" $ song $ "|missing");
+		return True;
+	}
+	P.ClientSetMusic(M, Clamp(section, 0, 255), 255, MTRAN_Fade);
+	return True;
+}
+
+// the game saved in its autosave slot (Revision's: -3), not while he cannot save (dead, in a conversation...)
+function bool AutoSave(DeusExPlayer P, string desc)
+{
+	local DeusExLevelInfo info;
+
+	info = P.GetLevelInfo();
+	if ((info != None && info.MissionNumber < 0) || P.IsInState('Dying') || P.IsInState('Paralyzed')
+		|| P.IsInState('Interpolating') || P.dataLinkPlay != None || P.conPlay != None)
+	{
+		Report("fail", "autosave||cannot");
+		return True;
+	}
+	if (desc == "")
+		desc = "Autosave";
+	P.SaveGame(-3, desc);
+	return True;
+}
+
+// a crate's contents chosen now: n of the items "Package.Class:weight;..." picked by their weights
+function bool FillCrate(Decoration D, string items, int n)
+{
+	local string list, one, cls;
+	local float total, pick, w;
+	local int i, k;
+	local class<Inventory> C;
+
+	for (k = 0; k < n; k++)
+	{
+		total = 0;
+		list = items;
+		while (list != "")
+		{
+			NextItem(list, one);
+			total += WeightOf(one);
+		}
+		if (total <= 0)
+			return False;
+		pick = FRand() * total;
+		list = items;
+		cls = "";
+		while (list != "" && cls == "")
+		{
+			NextItem(list, one);
+			w = WeightOf(one);
+			if (pick < w)
+				cls = NameOfItem(one);
+			pick -= w;
+		}
+		if (cls == "")
+			cls = NameOfItem(one);
+		C = class<Inventory>(DynamicLoadObject(cls, class'Class', True));
+		if (k == 0)
+			D.Contents = C;
+		else if (k == 1)
+			D.Content2 = C;
+		else
+			D.Content3 = C;
+		Report("act", "fillcrate|" $ D.Name $ "|" $ cls);
+	}
+	return True;
+}
+
+function NextItem(out string list, out string one)
+{
+	local int i;
+
+	i = InStr(list, ";");
+	if (i < 0)
+	{
+		one = list;
+		list = "";
+	}
+	else
+	{
+		one = Left(list, i);
+		list = Mid(list, i + 1);
+	}
+}
+
+function float WeightOf(string one)
+{
+	local int i;
+
+	i = InStr(one, ":");
+	if (i < 0)
+		return 1;
+	return FMax(0, float(Mid(one, i + 1)));
+}
+
+function string NameOfItem(string one)
+{
+	local int i;
+
+	i = InStr(one, ":");
+	if (i < 0)
+		return one;
+	return Left(one, i);
+}
+
+// an elevator to the floor after the one it is at (before: down), round to the first after the last
+function bool NextFloor(Actor T, bool bDown)
+{
+	local int n, most, i;
+
+	if (ElevatorMover(T) != None)
+	{
+		most = ElevatorMover(T).NumKeys;
+		n = ElevatorMover(T).KeyNum;
+	}
+	else if (MultiMover(T) != None)
+	{
+		for (i = 0; i < 4; i++)
+			if (MultiMover(T).SeqKeys(i, 0) >= 0)
+				most = i + 1;
+		n = MultiMover(T).CurrentSeq;
+	}
+	else
+		return False;
+	if (most <= 0)
+		return False;
+	if (bDown)
+		n = (n + most - 1) % most;
+	else
+		n = (n + 1) % most;
+	Floor(T, n);
+	return True;
+}
+
+// an animated object forwards, or backwards when it last went forwards; a door with no animation opens or shuts
+function AnimTurn(string target, DeusExMover M)
+{
+	local UCMotion Mo;
+	local bool bAny;
+
+	foreach AllActors(class'UCMotion', Mo)
+		if (Mo.Target ~= target)
+		{
+			bAny = True;
+			Mo.Play(Mo.Dir > 0);
+		}
+	if (!bAny && M != None)
+	{
+		if (M.KeyNum == 0 && !M.bOpening)
+			DoorOpen(M);
+		else
+			DoorShut(M);
+	}
+}
+
+// the rule with id r stops what it is doing (its delays, its waits); not this one while it runs (its own steps go on)
+function bool CancelRule(string r)
+{
+	local UCLink L;
+	local bool bAny;
+
+	foreach AllActors(class'UCLink', L)
+		if (L.Rule ~= r && L != Self && UCRuleAlso(L) == None)
+		{
+			bAny = True;
+			L.StopRuns();
+		}
+	return bAny;
+}
+
+// what it is doing stops (CancelRule)
+function StopRuns()
+{
+	if (IsInState('Running'))
+	{
+		Report("skip", "cancelled|");
+		GotoState('');
+	}
 }
 
 // (SetSeq checks nothing: past its last key an ElevatorMover goes to its base, a MultiMover says it arrived)
@@ -814,7 +1456,15 @@ function Animate(string target, string verb, DeusExMover M)
 function LightSet(Actor T, string mode)
 {
 	local UCLightMemory M, Found;
+	local UCLightFX FX;
 	if (T == None) return;
+	foreach AllActors(class'UCLightFX', FX)          // a flicker ends: its own type and period again first
+		if (FX.L == T)
+		{
+			T.LightType = FX.OldType;
+			T.LightPeriod = FX.OldPeriod;
+			FX.Destroy();
+		}
 	foreach AllActors(class'UCLightMemory', M)
 		if (M.Target == T) { Found = M; break; }
 	if (mode == "toggle")
@@ -852,26 +1502,137 @@ function Boom(vector loc, float dmg, float radius)
 		HurtRadius(dmg, radius, 'Exploded', dmg * 100, loc);
 }
 
+// ---------------------------------------------------------------- a list of steps (bSteps)
+// a step of the list: a check goes on or jumps, a jump jumps, a wait has only its delay, any other step is an
+// action -> the step to go on with
+function int DoStep(int i)
+{
+	local string s, verb;
+
+	s = Act[i];
+	verb = Field(s, 1);
+	if (verb == "check")
+		return CheckStep(s, i);
+	if (verb == "jump")
+	{
+		if (Field(s, 4) == "stop" || Field(s, 4) == "")
+			return ArrayCount(Act);       // past the end: the list is over
+		return int(Field(s, 4));
+	}
+	if (verb != "wait")
+		DoAct(s);
+	return i + 1;
+}
+
+// "delay|check|all or any|first|count|fail": the conditions hold -> the next step; else the step fail names (the
+// end of the list for "stop"). The logic log says which way, and the first condition that did not hold.
+function int CheckStep(string s, int i)
+{
+	local int k, n, j;
+	local bool bAny, bOk, bHere;
+	local string failed;
+
+	bAny = Field(s, 2) == "any";
+	k = int(Field(s, 3));
+	n = int(Field(s, 4));
+	bOk = !bAny || n <= 0;
+	for (j = k; j < k + n && j < ArrayCount(StepCond); j++)
+	{
+		bHere = StepCond[j] == "" || Holds(StepCond[j]);
+		if (bHere && bAny)
+			bOk = True;
+		if (!bHere && failed == "")
+			failed = StepCond[j];
+		if (!bHere && !bAny)
+			bOk = False;
+	}
+	if (bOk)
+	{
+		Report("check", "pass|" $ i);
+		return i + 1;
+	}
+	Report("check", "fail|" $ i $ "|" $ failed);
+	if (Field(s, 5) == "" || Field(s, 5) == "stop")
+		return ArrayCount(Act);
+	return int(Field(s, 5));
+}
+
+// "delay|until|who|arrived or cond|most|k": what the step waits for is so, or its time is up (a skipped cutscene's
+// hurry ends it too)
+function bool UntilDone(string s)
+{
+	local float most;
+	local bool bDone;
+
+	most = float(Field(s, 4));
+	if (bHurry)
+		bDone = True;
+	else if (Field(s, 3) == "arrived")
+		bDone = Arrived(ScriptedPawn(ActorCalled(Field(s, 2))));
+	else
+		bDone = StepCond[int(Field(s, 5))] == "" || Holds(StepCond[int(Field(s, 5))]);
+	if (bDone)
+	{
+		Report("until", "done|" $ Step $ "|" $ Field(s, 2));
+		return True;
+	}
+	if (most > 0 && Level.TimeSeconds - UntilStart >= most)
+	{
+		Report("until", "timeout|" $ Step $ "|" $ Field(s, 2));
+		return True;
+	}
+	return False;
+}
+
 state Running
 {
 Begin:
 	Step = 0;
 	Waited = 0;
+	Runs = 0;
 	bHurry = False;
 Next:
-	if (Step < ArrayCount(Act) && Act[Step] != "")
+	if (Step < 0 || Step >= ArrayCount(Act) || Act[Step] == "")
 	{
-		Delay = float(Field(Act[Step], 0));
-		if (!bHurry && Delay > Waited)
+		GotoState('');
+		Stop;
+	}
+	Delay = float(Field(Act[Step], 0));
+	if (bSteps)
+	{
+		Runs++;
+		if (Runs > 256)
 		{
-			Sleep(Delay - Waited);
-			Waited = Delay;
+			Report("fail", "steps||loop");
+			GotoState('');
+			Stop;
 		}
-		DoAct(Act[Step]);
-		Step++;
+		if (!bHurry && Delay > 0)
+			Sleep(Delay);
+		if (Field(Act[Step], 1) == "until")
+		{
+			UntilStart = Level.TimeSeconds;
+			Goto('Until');
+		}
+		Step = DoStep(Step);
 		Goto('Next');
 	}
-	GotoState('');
+	if (!bHurry && Delay > Waited)
+	{
+		Sleep(Delay - Waited);
+		Waited = Delay;
+	}
+	DoAct(Act[Step]);
+	Step++;
+	Goto('Next');
+Until:
+	if (!UntilDone(Act[Step]))
+	{
+		Sleep(0.25);
+		Goto('Until');
+	}
+	Step++;
+	Goto('Next');
 }
 
 defaultproperties

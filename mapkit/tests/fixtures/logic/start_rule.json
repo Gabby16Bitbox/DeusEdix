@@ -5,7 +5,7 @@
   "derivedFrom": [
     {"file": "UCEditorStory.uc", "lines": [28, 28], "has": "SetTimer(0.5, True);"},
     {"file": "UCEditorStory.uc", "lines": [1029, 1032], "has": "if (!bStarted)"},
-    {"file": "UCLink.uc", "lines": [301, 305], "has": "function StartStory()"}
+    {"file": "UCLink.uc", "lines": [382, 386], "has": "function StartStory()"}
   ],
   "assumes": ["A8"],
   "map": "LogicFixtures",

@@ -13,7 +13,7 @@ A rule belongs to an object: "when this happens to it, if these hold, do these t
 map's edits:
 
 ```json
-{"id": "L3", "src": "Button1", "when": "used", "once": false, "label": "When JC uses Button1: open Door3",
+{"id": "L3", "src": "Button1", "when": "used", "once": false, "label": "When the player uses Button1: open Door3",
  "requires": [{"flag": "Crypt_Generator", "is": true}, {"type": "item", "item": "DeusEx.Multitool", "has": true}],
  "do": [{"verb": "open", "target": "Door3", "delay": 0}]}
 ```
@@ -30,6 +30,115 @@ map's edits:
 
 No Tag or Event is written by hand. At Rebuild each rule becomes a `UCLink` actor (`links.blocks`), which hooks itself
 to its object when the map starts.
+
+## Where rules are made
+
+The Inspector shows an object's rules one line each (its **Logic** section: `app.js lkSummary`), with "+ When it…"
+and the way into the **Logic window** (`static/logic-window.js`, a bottom-dock tab). There a rule is edited in
+**List** (a numbered list of steps: `lkRuleHtml`, `static/action-list.js`), seen in **Graph** (`logic-graph-model.js`
+drawn on `graph-canvas.js`), read in **Read**, and played in **Try it** (`static/logic-try.js` on `static/logic-sim.js`).
+
+A rule's list reads top to bottom: **Check** (its `requires`), its actions in the order they run with **Wait** rows
+between them, and **If not**: the steps when the check fails. With exactly one condition the game can turn round
+(not a skill) and none of the options below, "If not" is a second rule on the same cause with the opposite
+condition, naming the first (`"otherwiseOf": "L1"`, kept in step by `action-list.js syncOtherwise`). Otherwise it
+is the rule's own **Otherwise** (`else`, below), edited as a branch of the rule (`app.js lkElseOf`); an "If not" rule
+whose rule gets a second condition or an option becomes its Otherwise (`lkSyncOtherwise`). Duplicate copies the
+rules an object starts (`copyLogicOf`), Delete asks first when rules use what goes (`confirmRuleLoss`).
+
+The Logic window's **The map** list holds the rules with no object: when the map starts, when the player presses a
+key, and the causes of the world from **+ When...**: a condition becomes true, a state or a counter changes, the
+player's health falls low, an event of the game (a Tag) happens.
+
+### The wires in the 3D view
+
+**View > Logic wires** (as TrenchBroom draws a Quake map's target links): *off*, *selected object* (the rules it
+starts and the ones that act on it), *selected chain* (everything it sets off, on and on, and what sets it off,
+back, through states too), *all*; remembered in this browser (`deusedix.logicWires`). `static/logic-wires-model.js`
+says which wires (pure, `tests/test_logic_wires.mjs`), `static/logic-wires.js` draws them (`app.js
+refreshLogicWires` at each selection and rule change):
+
+- an arc from what sets a rule off to each object an action reaches (a tag's or an area's members each get one),
+  green, its dashes flowing that way while the view is drawn every frame (idle they stand still: no extra drawing),
+  an arrowhead near the end, a dark edge under it so it shows on bright floors, faint where it is behind a wall;
+- a list's If / Otherwise / End / Wait are no wires, the actions inside them are; an "otherwise" action is one;
+- a state or counter one object's rule sets and another's reads: one dotted amber wire between the two objects;
+- wires between the same two objects side by side (lanes), the arc higher with the distance;
+- a label at the top of each action ("uses it → Open · 2 s", "chooses "Lights off" → Turn off ×9", "sets GotKit"):
+  one per action however many objects it reaches, over 40 only the selection's, moved up a line when another is
+  there, under the panels; a click opens the rule in the Logic window's List;
+- moved objects (gizmo, Undo, a drop) are looked at every 0.15 s and their wires follow.
+
+## Lists of steps (Logic runtime v2)
+
+A rule with `"steps": true` runs its `do` in its order, and each step's `delay` counts from the step before (not from
+the moment it was set off). Besides actions, its steps can be:
+
+```json
+{"verb": "if", "requires": [{"flag": "Ready", "is": true}], "match": "all"}
+{"verb": "else"}
+{"verb": "end"}
+{"verb": "wait", "until": {"type": "arrived", "actor": "Guard2"}, "max": 15}
+{"verb": "wait", "until": {"type": "counter", "counter": "Keys", "op": ">=", "value": 3}, "max": 0}
+{"verb": "wait", "delay": 2}
+```
+
+* **If / Otherwise / End**: the steps after an If run when its conditions hold (all of them, or any: `match`), the
+  ones after its Otherwise when they do not; Ifs nest; an If with no End ends with the list.
+* **Wait until** waits for a character sent with Walk / Run to arrive, or for a condition, at most `max` seconds
+  (0: as long as it takes), then goes on. **Wait** is only its delay.
+* A rule becomes a list of steps when its first If or Wait until is added (`action-list.js toSteps`: its actions in
+  the order of their time, each delay from the one before).
+
+`links.step_items` compiles it into a `UCLink` with `bSteps=True`: an If becomes a `check` step whose conditions are
+in `StepCond`, an Otherwise a `jump` past the other branch, a Wait until an `until` step (the flow jump is `jump`:
+`goto` is the walk of a character):
+
+| `Act` | what the game does (`UCLink.DoStep`, `CheckStep`, `UntilDone`) |
+|---|---|
+| `delay\|check\|all or any\|first\|count\|fail` | the conditions `StepCond[first..first+count-1]` hold: the next step; else the step `fail` (an index, or `stop`) |
+| `delay\|jump\|\|\|step\|` | on at that step (`stop`: the end) |
+| `delay\|until\|who\|arrived or cond\|most\|k` | looked at every 0.25 s until `who` has arrived or `StepCond[k]` holds, at most `most` seconds |
+| `delay\|wait\|\|\|\|\|` | only its delay |
+
+A list that runs 256 steps with no end (a loop with no wait) is stopped and says so. The rules made before
+(`bSteps` False) run as they did. Try it (`logic-sim.js stepsCode`) runs the same steps the same way; a character a
+Wait until waits for is offered as a decision once he is sent.
+
+## A rule's options (the runtime v2, P6)
+
+A rule's **More options** (`static/logic-rule-ui.js ruleOptionsHtml`, wired in `app.js lkWire`) and its rows:
+
+```json
+{"id": "L4", "src": "Button1", "when": "used", "requires": [{"flag": "A"}, {"flag": "B"}], "match": "any",
+ "also": [{"src": "Lever1", "when": "used"}, {"when": "jchealth", "below": "30"}],
+ "do": [{"verb": "open", "target": "Door1", "id": "a1", "requires": [{"flag": "Power"}]},
+        {"verb": "hide", "target": "@it", "id": "a2"}],
+ "else": [{"verb": "message", "a": "Locked", "id": "e1"}],
+ "again": "each", "max": 3, "cooldown": 2.5, "talkBusy": "wait"}
+```
+
+* `also`: **Or when...**, other causes that set the same rule off (an object's output, or one of the world's);
+  each is a `UCRuleAlso` that starts the rule (`UCRule.Start`), and the log names that cause, not the rule's own.
+* `match: "any"`: the Check goes on when any of its conditions holds (shown with two or more).
+* `else`: the **Otherwise**, the steps when the Check fails, after a jump past the main list (`ElseAt`). It is timed
+  like the rule: each at its time, or, in a list of steps, each delay from the step before.
+* `again`: set off again while it runs: none lets it finish, `restart` starts it again, `each` runs another beside it
+  (8 at most at once; the 9th is refused, `skip ... full`).
+* `max`: at most so many runs; `cooldown`: at least so many seconds from one start to the next.
+* `talkBusy`: a step due while the player is in a conversation: `wait` until it is over, `giveup` that run.
+* An action's **if…**: its own `requires` (and `match`), checked just before it; failing, only it is skipped.
+* An action's object can be `@by` (whoever set the run off: the player, a character) or `@it` (the object it
+  happened to: useful with several causes). They are no objects of the map: no wire, no node in the Graph.
+* Every action has an `id` (`a1`..., the Otherwise's `e1`...: `logic-graph-model.js ensureActionIds`, given at every
+  edit): the log names the step that ran.
+
+A rule with any of these is built as a `UCRule` (`links.needs_rule`), the others stay the `UCLink` they were.
+The verbs and outputs app.js has no rows of its own for (the P4 ones: credits, shake, spawn, fill a crate, hurt
+below N%, a floor reached...) take their rows from their arguments in `config/logic.json` (`logic-rule-ui.js
+argRowsHtml`, `causeRowsHtml`), and their words from the catalogue (`logic-vocab.js`, asked once: `app.js
+lkVocabLoad`). A crate's own contents are in its Inspector (Contents: what drops out when it breaks, the two that
+take its place 3 times in 10 each, how many).
 
 ## Outputs and inputs come from the class: `config/logic.json`
 
@@ -177,13 +286,20 @@ While Play runs, the Console shows what the logic does. Lines are written with t
 | `fire\|map\|rule\|source\|when\|by\|label` | a rule runs (`by`: what set it off: JC, a character using an object, a timer, a script...) |
 | `skip\|map\|rule\|why\|detail` | a rule did not run: `once` (already used), `running` (still doing its actions), `cond` (detail: the condition) |
 | `act\|map\|rule\|verb\|target\|detail` | one of its actions, as it happens (detail: what it says or sets: a message, a counter...) |
-| `fail\|map\|rule\|verb\|target\|why` | an action that could not happen (`missing`, `cannot`, `nosound`, `noscript`, `noname`: a counter or a state with no name, `nofloor`; a script's `output` lost before the map started: `full`) |
+| `fail\|map\|rule\|verb\|target\|why` | an action that could not happen (`missing`, `cannot`, `nosound`, `noscript`, `noname`: a counter or a state with no name, `nofloor`; a script's `output` lost before the map started: `full`; a list of steps that went round 256 times: `steps` with `loop`) |
 | `hook\|map\|rule\|source\|why` | a rule that could not hook itself (`missing`, `noslot`, `target`) |
 | `input\|map\|script\|name\|args` and `output\|map\|script\|name\|count` | a script's inputs and outputs |
 | `noinput\|map\|script\|name` | a script was called on an input its `Input()` does not handle |
 | `bad\|map\|\|condition` | a condition this version of the game classes does not know |
+| `check\|map\|rule\|pass or fail\|step\|condition` | an If of a list of steps held, or did not (the first condition that did not) |
+| `until\|map\|rule\|done or timeout\|step\|who` | a Wait until is over: what it waited for is so, or its time ran out |
+| `else\|map\|rule\|source\|when\|by` | a `UCRule`'s check failed: its Otherwise runs |
 
-`logic-log.js` turns these lines into sentences ("▶ L3 When JC uses Button1: open Door3", "→ open Door3"), and the
+A `UCRule` names its runs `<rule>@<game time>` and a step `#<step id>` (`L4@12.30#a1`); its `skip` reasons add
+`restarted`, `full` (8 runs already), `max`, `cooldown`, `cancelled` (an action stopped it), `talking` (`giveup`)
+and `how` (a killed rule told a knocked out one apart, or the other way round, a tick later).
+
+`logic-log.js` turns these lines into sentences ("▶ L3 When the player uses Button1: open Door3", "→ open Door3"), and the
 Console shows them. A name is a link that selects the object in the map (a line of another map says which map it
 is in); a rule's id goes to the object it belongs to, whose Interactions show it.
 

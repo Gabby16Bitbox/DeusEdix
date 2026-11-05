@@ -1,4 +1,4 @@
-// Map templates (as Unity's scene templates): File > Save map as template... keeps the open map's place in the
+// Map templates (G35, as Unity's scene templates): File > Save map as template... keeps the open map's place in the
 // project with a picture of the 3D view and a description (editor/maptemplates.py says what it keeps and what it
 // leaves out); New map (app.js openNewMap) shows the project's templates as tiles beside An empty room and A copy of
 // a map, each with its picture, and a × that deletes it. The tiles and their words are pure (tests/test_map_templates.mjs).

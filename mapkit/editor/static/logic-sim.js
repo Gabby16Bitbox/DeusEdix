@@ -28,8 +28,15 @@ const LOOK = 0.5;                       // every rule looks this often (UCEditor
 const QUEUE = 8;                        // outputs a script keeps while the map loads (UCScript.WaitingOutputs[8])
 // How a rule hears its Tag (UCLink.Trigger, UnTrigger): Trigger passes over these and what is heard 'start' or
 // 'watch'; UnTrigger runs them, and a keypad's right code (S2)
-const BY_UNTRIGGER = new Set(['closed', 'leave']);
+const BY_UNTRIGGER = new Set(['closed', 'leave', 'hacked']);
 const UNTRIGGERED = new Set([...BY_UNTRIGGER, 'code']);
+// what a rule watches every half second (UCLink.TickStory, TickWatch): the map's objects (hears 'watch'), a property of
+// one (P4 'prop': the camera sees the player, below N% of its health...), a condition ('becomes'), a value ('changes')
+const WATCHED = new Set(['watch', 'prop', 'becomes', 'changes']);
+// a character's Event fires as it dies; killed or knocked out is told apart on the rule's next Tick (UCLink.PawnTold)
+const PAWN_OUTPUTS = new Set(['killed', 'knockedout']);
+const RUNS = 8;                          // UCRule: runs at once (RLive[8])
+const RATE = 20;                         // UCRule: starts in a second before it stops for that second
 const DOOR_OUTPUTS = new Set(['opened', 'destroyed']);     // a door's: told apart on the rule's next Tick (UCLink.Tick)
 // the ways of hearing whose rule hooks its object's event as the map loads (UCLink.Hook; 'motion' hooks the object's
 // UCMotion and says nothing, the others hook nothing)
@@ -43,11 +50,17 @@ const AIMS = ['AllianceTrigger', 'OrdersTrigger', 'InterpolateTrigger', 'Sequenc
 const VERBS = new Set(['open', 'close', 'toggle', 'lock', 'unlock', 'blow', 'key', 'attack', 'hostile', 'friend', 'neutral',
   'stand', 'sit', 'standup', 'wander', 'follow', 'goto', 'run', 'navgo', 'navrun', 'leave', 'appear', 'lighton', 'lightoff', 'lighttoggle', 'hide',
   'show', 'on', 'off', 'explode', 'sound', 'anim', 'animback', 'animstop', 'cutplay', 'cutstop', 'message', 'goal', 'note', 'flag',
-  'count', 'travel', 'timerstart', 'timerstop', 'timerpause', 'timerresume', 'npcuse', 'effect', 'input', 'floor']);
+  'count', 'travel', 'timerstart', 'timerstop', 'timerpause', 'timerresume', 'npcuse', 'effect', 'input', 'floor',
+  // P4 (UCLink.DoMore)
+  'skillpoints', 'credits', 'health', 'giveitem', 'takeitem', 'shake', 'fade', 'flash', 'flicker', 'lightcolour', 'lightbright',
+  'patrol', 'ownorders', 'teleport', 'moveplayer', 'spawn', 'music', 'hurtzone', 'autosave', 'endgame', 'fillcrate', 'nextfloor',
+  'animturn', 'cancel']);
 // what a verb needs of its target (UCLink.DoAct): a class in its chain, true any object; without it, "cannot"
 const NEEDS = { open: 'DeusExMover', close: 'DeusExMover', toggle: 'DeusExMover', key: 'DeusExMover', hide: true, show: true,
   on: true, off: true, effect: true, cutplay: 'UCCutscene', cutstop: 'UCCutscene', timerstart: 'UCTimer', timerstop: 'UCTimer',
-  timerpause: 'UCTimer', timerresume: 'UCTimer', sit: 'ScriptedPawn', standup: 'ScriptedPawn' };
+  timerpause: 'UCTimer', timerresume: 'UCTimer', sit: 'ScriptedPawn', standup: 'ScriptedPawn',
+  flicker: 'Light', lightcolour: 'Light', lightbright: 'Light', patrol: 'ScriptedPawn', ownorders: 'ScriptedPawn',
+  fillcrate: 'Decoration' };
 // what a tag action reaches (UCLink.TagKind): lights, doors or characters by its verb, else any object but the
 // editor's own helpers
 const DOOR_VERBS = new Set(['open', 'close', 'toggle', 'lock', 'unlock', 'blow']);
@@ -64,7 +77,8 @@ const FLOORS = { ElevatorMover: 2, MultiMover: 4 };       // when the world does
 // takes it out of (false): a character who dies is dead, an item picked up is owned, a cutscene that starts plays, has
 // played (UCCutscene.bDone) and waits no more (bQueued)...
 const CHANGES = { dies: [['dead', true]], destroyed: [['destroyed', true]], picked: [['owned', true]], gone: [['missing', true]],
-  arrived: [['arrived', true]], cutstart: [['playing', true], ['played', true], ['queued', false]], cutdone: [['playing', false]] };
+  arrived: [['arrived', true]], cutstart: [['playing', true], ['played', true], ['queued', false]], cutdone: [['playing', false]],
+  killed: [['dead', true]], knockedout: [['dead', true]] };
 // who set an output off when the user does not say (UCLink.Who, UCLink.uc:224-239): the editor's own actors name
 // themselves (a timer, a cutscene), the end of an animation its UCMotion (S4), a character's use nobody; JC otherwise
 const SET_OFF_BY = { timer: 'itself', cut: 'itself', motion: 'motion', npcuse: 'nobody' };
@@ -74,7 +88,8 @@ const SET_OFF_BY = { timer: 'itself', cut: 'itself', motion: 'motion', npcuse: '
 const SENT = ['goto', 'run', 'navgo', 'navrun'];
 const LEADS_TO = { ...Object.fromEntries(SENT.map((v) => [v, { outputs: ['arrived'] }])), anim: { outputs: ['animdone'], by: 'motion' },
   animback: { outputs: ['animdone'], by: 'motion' }, open: { outputs: ['opened'] }, close: { outputs: ['closed'] },
-  toggle: { outputs: ['opened', 'closed'] }, cutplay: { outputs: ['cutdone'] }, npcuse: { outputs: ['npcused'], on: 'a', by: 'target' } };
+  toggle: { outputs: ['opened', 'closed'] }, cutplay: { outputs: ['cutdone'] }, npcuse: { outputs: ['npcused'], on: 'a', by: 'target' },
+  animturn: { outputs: ['animdone'], by: 'motion' }, unlock: { outputs: ['unlocked'] }, nextfloor: { outputs: ['atfloor'] } };
 // the parts of the state (start, set): names whose values are merged one by one, and lists of names replaced whole
 const MERGED = ['flags', 'counters', 'skills', 'at'];
 const LISTS = ['dead', 'owned', 'missing', 'destroyed', 'arrived', 'playing', 'played', 'queued'];
@@ -125,12 +140,19 @@ function setupOf({ actors, outputs, left, world, map, frame }) {
   const rules = [], groups = new Map(), usables = new Map(), tags = new Map();
   for (const a of actors || []) {
     const p = a.props || {};
-    if (a.cls === 'UCLink') {
+    if (a.cls === 'UCLink' || a.cls === 'UCRule' || a.cls === 'UCRuleAlso') {
       const when = String(p.When || '');
-      rules.push({ index: rules.length, id: t3dString(p.Rule) || a.name, tag: low(p.Tag), when, hears: outputs[when]?.hears || '',
+      rules.push({ index: rules.length, id: t3dString(p.Rule) || a.name, name: a.name, tag: low(p.Tag), when, hears: outputs[when]?.hears || '',
+        gameTag: outputs[when]?.hears === 'gametag' ? t3dString(p.Tag) : '',
         source: t3dString(p.Source), port: t3dString(p.Port), option: int(p.Option), near: p.NearDist === undefined ? 256 : +p.NearDist,
         once: p.bOnce === 'True', label: t3dString(p.Label), conds: slots(p, 'Cond', 8).filter(Boolean),
-        acts: upToEmpty(slots(p, 'Act', 24)).map((s) => s.split('|')) });
+        steps: p.bSteps === 'True', stepConds: slots(p, 'StepCond', 16),
+        acts: upToEmpty(slots(p, 'Act', 24)).map((s) => s.split('|')),
+        watch: t3dString(p.Watch), watchProp: p.bWatchProp === 'True',
+        // the Logic runtime v2 (UCRule): up to 8 runs, its options; a UCRuleAlso sets the UCRule called Main off
+        v2: a.cls === 'UCRule', also: a.cls === 'UCRuleAlso', main: t3dString(p.Main), any: p.bAny === 'True',
+        elseAt: p.ElseAt === undefined ? -1 : int(p.ElseAt), again: low(p.Again), maxRuns: int(p.MaxRuns),
+        cooldown: parseFloat(p.Cooldown) || 0, talkBusy: low(p.TalkBusy), actIds: slots(p, 'ActId', 24) });
     } else if (a.cls === 'UCLinkGroup') groups.set(low(a.name), { members: upToEmpty(slots(p, 'Member', 128)), next: t3dString(p.NextGroup) });
     else if (a.cls === 'UCUsable') usables.set(low(t3dString(p.Target)), t3dString(p.UseEvent));
     // a scripting tag set by hand (UCObjectTag.Of); an automatic or original one is the world actor's own `tag`
@@ -147,7 +169,11 @@ function newRun(S) {
   const st = { items: [], credits: 0, jc: null };
   for (const part of [...MERGED, ...LISTS]) st[part] = names();
   const rs = rules.map(() => ({ done: false, running: false, step: 0, waited: 0, wake: 0, asleep: false, hurry: false,
-    started: false, polled: false, was: false, door: null, deaf: false, streak: 0, last: -1 }));
+    runs: 0, slept: false, until: null,
+    started: false, polled: false, was: false, door: null, deaf: false, streak: 0, last: -1,
+    // v2: its runs (8 slots), how often it ran and when, the rate guard; a watched value's base; a pawn told apart
+    slots: Array(RUNS).fill(null), fired: 0, lastFire: 0, rateStart: -Infinity, rateCount: 0, cur: null, base: undefined, pawn: null }));
+  const pulses = names();                // P4 'prop' outputs the user said happened, for the rules' next look (S5)
   const timers = new Map(), scripts = new Map(), sent = names();
   let pending = [];                     // what is left for the user to decide: [{id, thing, output, by}]
   for (const a of S.order) {
@@ -160,13 +186,14 @@ function newRun(S) {
   // ---- the world
   const actorOf = (n) => S.byName.get(low(n));
   const nameOf = (n) => actorOf(n)?.name ?? n;
-  const present = (n) => !!actorOf(n) && !actorOf(n).absent && !st.missing.has(n);
+  const present = (n) => (!!n && low(n) === low(S.player)) || (!!actorOf(n) && !actorOf(n).absent && !st.missing.has(n));
   const isa = (n, cls) => !!actorOf(n)?.chain.includes(cls);
   const placeOf = (n) => st.at.get(n) || actorOf(n)?.at || null;
   const behaviour = (n) => actorOf(n)?.script || {};
   const matches = (n, wanted) => wanted === '' || low(S.tags.has(low(n)) ? S.tags.get(low(n)) : actorOf(n)?.tag) === low(wanted);
   const tagFor = (when, src, option = 0) => fill(S.outputs[when]?.tag || '', { src, option });
-  const listens = (thing, output) => rules.some((r) => low(r.source) === low(thing) && r.when === output);
+  const listens = (thing, output) => rules.some((r) => (low(r.source) === low(thing) && r.when === output)
+    || (output === 'arrived' && r.steps && r.acts.some((s) => s[1] === 'until' && s[3] === 'arrived' && low(s[2]) === low(thing))));
   // who set an output of a thing off, as SET_OFF_BY and LEADS_TO say it: the thing itself, the action's target, the
   // thing's UCMotion (the world actor's `motion`, else the thing: S4) or nobody; undefined when they do not say (JC)
   const setOffBy = (how, thing, target) => ({ itself: thing, target, motion: actorOf(thing)?.motion || thing, nobody: '' })[how];
@@ -191,7 +218,13 @@ function newRun(S) {
 
   // ---- the log: one line as the game writes it, stamped with the tick (load: t = 0, A6) and the rule that wrote it
   const write = (rule, ...fields) => { lines.push({ t: Math.round(tick * frame * 1e6) / 1e6, line: fields.join('|'), rule }); };
-  const report = (r, kind, ...rest) => write(r.id, kind, map, r.id, ...rest);         // UCLink.Report
+  // UCLink.Report; a UCRule's names the game time and the step a run does (UCRule.Report, TimeText)
+  const timeText = () => { const c = Math.floor(tick * frame * 100 + 1e-6); return `${Math.floor(c / 100)}.${String(c % 100).padStart(2, '0')}`; };
+  function report(r, kind, ...rest) {
+    if (!r.v2) return write(r.id, kind, map, r.id, ...rest);
+    const run = rs[r.index].cur, id = run && kind !== 'fire' && kind !== 'skip' ? r.actIds[run.step] || '' : '';
+    return write(r.id, kind, map, `${r.id}@${timeText()}${id ? '#' + id : ''}`, ...rest);
+  }
   // each rule's lines, read (logic-log.js), with its counts: brought up to the end of the log when asked, each line read
   // once, so what the page asks after every step costs the new lines, not the whole log
   const mine = new Map(rules.map((r) => [r.id,
@@ -219,23 +252,94 @@ function newRun(S) {
     if (!c) { write('', 'bad', map, '', text); return false; }
     return conditionHolds(c, game);
   }
+  // the same, writing nothing (what is due next only asks)
+  const holdsQuietly = (text) => { const c = decodeCondition(text); return !!c && conditionHolds(c, game); };
+  // a 'changes' rule's value now (UCLink.WatchValue: "flag|Name" or "count|Name")
+  function watchValue(watch) {
+    const [kind, n] = String(watch).split('|');
+    return kind === 'count' ? String(game.counter(n)) : game.flag(n) ? '1' : '0';
+  }
+  // a P4 'prop' output the user said happened, for the next look of the rules watching that thing (S5)
+  const pulseKey = (thing, output) => `${low(thing)}|${output}`;
   function runRule(i, by) {
     const r = rules[i], x = rs[i];
+    if (r.also) {                                    // UCRuleAlso.RunRule: its rule starts, with this cause's object
+      const m = rules.findIndex((q) => q.v2 && low(q.name) === low(r.main));
+      return m < 0 ? report(r, 'hook', r.main, 'missing') : start(m, by, r.source, r.when);
+    }
+    if (r.v2) return start(i, by, r.source, r.when);
     if (r.once && x.done) return report(r, 'skip', 'once', '');
     if (x.running) return report(r, 'skip', 'running', '');
     const refused = r.conds.find((c) => !holdsNow(c));
     if (refused !== undefined) return report(r, 'skip', 'cond', refused);
     x.done = true;
     report(r, 'fire', r.source, r.when, by || '', r.label);
-    Object.assign(x, { running: true, step: 0, waited: 0, asleep: false, hurry: false, wake: before(i) ? tick : tick + 1 });
+    Object.assign(x, { running: true, step: 0, waited: 0, asleep: false, hurry: false, runs: 0, slept: false, until: null,
+      wake: before(i) ? tick : tick + 1 });
     x.streak = x.last === tick ? x.streak : x.last === tick - 1 ? x.streak + 1 : 1;     // the loop guard's firing rate
     x.last = tick;
   }
+  // UCRule.Start: the rate guard, once, max, cooldown, a run going on (again), 8 at most, its conditions (any or all):
+  // a new run of its steps, or of its Otherwise, from its turn in this tick or the next; the log names the cause that
+  // set it off (it, when: its own, or a UCRuleAlso's)
+  const liveRuns = (x) => x.slots.filter(Boolean).length;
+  function condsHold(r) {
+    let some = false, failed = '';
+    for (const c of r.conds) {
+      some = true;
+      const here = holdsNow(c);
+      if (here && r.any) return { ok: true, failed: '' };
+      if (!here && !failed) failed = c;
+      if (!here && !r.any) return { ok: false, failed };
+    }
+    return { ok: !r.any || !some, failed };
+  }
+  function start(i, by, it, when) {
+    const r = rules[i], x = rs[i], now = tick * frame;
+    if (now - x.rateStart > 1 + 1e-9) { x.rateStart = now; x.rateCount = 0; }
+    if (++x.rateCount > RATE) { if (x.rateCount === RATE + 1) report(r, 'fail', 'rule', '', 'fast'); return; }
+    if (r.once && x.done) return report(r, 'skip', 'once', '');
+    if (r.maxRuns > 0 && x.fired >= r.maxRuns) return report(r, 'skip', 'max', String(r.maxRuns));
+    if (r.cooldown > 0 && x.fired > 0 && now - x.lastFire < r.cooldown - 1e-9) return report(r, 'skip', 'cooldown', r.cooldown.toFixed(2));
+    const live = liveRuns(x);
+    if (live > 0 && r.again !== 'restart' && r.again !== 'each') return report(r, 'skip', 'running', '');
+    if (live >= RUNS && r.again === 'each') return report(r, 'skip', 'full', '');
+    const { ok, failed } = condsHold(r);
+    if (!ok && r.elseAt < 0) return report(r, 'skip', 'cond', failed);
+    if (r.again === 'restart' && live > 0) { report(r, 'skip', 'restarted', ''); x.slots.fill(null); }
+    const slot = Math.max(0, x.slots.indexOf(null));
+    const run = { step: 0, wake: before(i) ? tick : tick + 1, slept: false, until: null, runs: 0, hurry: false, running: true,
+      by: by || '', it: it || '' };
+    if (ok) {
+      x.done = true; x.fired++; x.lastFire = now;
+      report(r, 'fire', it || '', when || '', by || '', r.label);
+    } else {
+      report(r, 'skip', 'cond', failed);
+      report(r, 'else', it || '', when || '', by || '');
+      run.step = r.elseAt;
+    }
+    x.slots[slot] = run;
+    x.streak = x.last === tick ? x.streak : x.last === tick - 1 ? x.streak + 1 : 1;
+    x.last = tick;
+  }
+  // "Stop a rule" (UCLink.CancelRule, StopRuns): every other rule of that id stops what it is doing
+  function cancel(i, id) {
+    let any = false;
+    rules.forEach((q, j) => {
+      if (j === i || q.also || low(q.id) !== low(id)) return;
+      any = true;
+      const x = rs[j];
+      if (q.v2) { if (liveRuns(x)) report(q, 'skip', 'cancelled', ''); x.slots.fill(null); }
+      else if (x.running) { report(q, 'skip', 'cancelled', ''); x.running = false; }
+    });
+    return any;
+  }
   // UCLink.Trigger and UnTrigger on every rule waiting on this Tag, in their order (foreach AllActors with the Tag)
-  function trigger(tag, other, by) {
+  function trigger(tag, other, by, how) {
     rules.forEach((r, i) => {
-      if (r.tag !== low(tag) || rs[i].deaf || BY_UNTRIGGER.has(r.when) || r.hears === 'start' || r.hears === 'watch') return;
+      if (r.tag !== low(tag) || rs[i].deaf || BY_UNTRIGGER.has(r.when) || r.hears === 'start' || WATCHED.has(r.hears)) return;
       if (DOOR_OUTPUTS.has(r.when) && isa(other, 'DeusExMover')) { rs[i].door = { name: other, by, at: before(i) ? tick : tick + 1 }; return; }
+      if (PAWN_OUTPUTS.has(r.when)) { rs[i].pawn = { out: how === 'knockedout', by, at: before(i) ? tick : tick + 1 }; return; }
       if (r.when !== 'destroyed') runRule(i, by);
     });
   }
@@ -248,6 +352,9 @@ function newRun(S) {
   function hurry(tag) {
     rules.forEach((r, i) => {
       if (r.tag === low(tag) && rs[i].running) Object.assign(rs[i], { hurry: true, asleep: false, wake: before(i) ? tick : tick + 1 });
+      if (r.tag === low(tag) && r.v2) {                // UCRule.Hurry: each of its runs
+        for (const run of rs[i].slots) if (run) Object.assign(run, { hurry: true, wake: before(i) ? tick : tick + 1 });
+      }
     });
   }
 
@@ -336,7 +443,10 @@ function newRun(S) {
       for (const n of many) doAct(i, ['0', field(1), n, field(3), field(4), field(5)]);       // UCLink.RunRecipients
       return;
     }
-    const [verb, target, a, b, c] = [1, 2, 3, 4, 5].map(field);
+    const run = rs[i].cur;                             // UCRule.DoAct: "@by" what set the run off, "@it" what it happened to
+    const named = field(2);
+    const [verb, target, a, b, c] = [1, 2, 3, 4, 5].map((k) => (k === 2 && run && low(named) === '@by' ? run.by
+      : k === 2 && run && low(named) === '@it' ? run.it : field(k)));
     const fail = (why, what = target) => report(r, 'fail', verb, what, why);
     report(r, 'act', verb, target, a);
     if (target !== '' && !present(target)) return fail('missing');
@@ -356,6 +466,13 @@ function newRun(S) {
       case 'cutplay': return playCut(T);
       case 'cutstop': return stopCut(T);
       case 'animstop': return drop('animdone', T);
+      // P4: what changes what the conditions read; what the game decides; a rule stopped
+      case 'credits': st.credits = Math.max(0, st.credits + int(a)); return undefined;
+      case 'giveitem': if (a && !game.carries(a)) st.items.push(a); return undefined;
+      case 'takeitem': st.items = st.items.filter((x) => low(x) !== low(a)); return undefined;   // (one of each is all it keeps)
+      case 'nextfloor': if (!Object.keys(FLOORS).some((k) => T && isa(T, k))) return fail('cannot', T ? nameOf(T) : '');
+        return leadsTo(verb, T, a, [a, b, c]);
+      case 'cancel': return cancel(i, a) ? undefined : fail('cannot', '');
       default: return leadsTo(verb, T, a, [a, b, c]);
     }
   }
@@ -420,6 +537,8 @@ function newRun(S) {
   function deliver(h) {
     const e = S.outputs[h.output];
     if (!e) throw new Error(`No output "${h.output}" in the catalogue`);
+    // an event of the game itself (a trigger, the console's causeevent): it triggers what has its Tag, no object needed
+    if (e.hears === 'gametag') { trigger(h.tag || h.thing, '', h.by ?? S.player); return; }
     if (e.hears === 'start' || !present(h.thing)) return;    // the map starts by itself; what is not there says nothing
     const thing = nameOf(h.thing), by = h.by ?? setOffBy(SET_OFF_BY[e.hears], thing) ?? S.player;
     for (const [part, into] of CHANGES[h.output] || []) { if (into) st[part].set(thing, true); else st[part].delete(thing); }
@@ -429,18 +548,87 @@ function newRun(S) {
     drop(h.output, thing);
     if (h.skip) hurry(tagFor('cutstart', thing));
     if (e.hears === 'watch') return;                         // its rules' next look notices it
+    if (e.hears === 'prop') { pulses.set(pulseKey(thing, h.output), true); return; }   // so does a property's (S5)
+    if (e.hears === 'becomes' || e.hears === 'changes') return;   // they read the state, which the user sets
     if (e.hears === 'port') return scripts.has(low(thing)) ? sayOutput(thing, h.port || '') : undefined;
     const tag = (h.output === 'used' && S.usables.get(low(thing))) || tagFor(h.output, thing, int(h.option));
     if (UNTRIGGERED.has(h.output)) untrigger(tag, thing, by);
-    else trigger(tag, thing, by);
+    else trigger(tag, thing, by, h.output);                  // (a death: killed or knocked out, PAWN_OUTPUTS)
   }
 
   // ---- the turns
   // the rule's state code (state Running), from where it stopped: each action after its delay, counted from the start
   // (Sleep for what is left, whole ticks; Waited = Delay once the Sleep is over, so a Hurry that cuts it short leaves
   // Waited as it was), then out of Running in the same turn
+  // A rule of steps (UCLink bSteps, state Running): each step after its delay from the one before (Sleep), then the
+  // step itself: a check goes on or jumps (CheckStep), a jump jumps, a wait has only its delay, an until is looked at
+  // every 0.25 s until what it waits for is so or its time is up (UntilDone), any other step is an action; 256 steps
+  // in one run end it (a loop with no wait)
+  const STEP_LOOK = 0.25;
+  // a UCRule: each of its runs in the order of its slots (UCRule.Tick, Advance), the same steps as a UCLink's
+  function rulesCode(i) {
+    const x = rs[i];
+    x.slots.forEach((run, k) => {
+      if (!run) return;
+      x.cur = run;
+      stepsCode(i, run);
+      x.cur = null;
+      if (!run.running && x.slots[k] === run) x.slots[k] = null;
+    });
+  }
+  function stepsCode(i, x = rs[i]) {
+    const r = rules[i];
+    while (x.running && x.wake <= tick) {
+      const s = r.acts[x.step];
+      if (!s || x.step < 0) { x.running = false; return; }
+      if (x.until) {
+        if (!untilDone(r, x, s)) { x.wake = tick + Math.max(1, Math.round(STEP_LOOK / frame)); return; }
+        Object.assign(x, { until: null, slept: false });
+        x.step++;
+        continue;
+      }
+      if (!x.slept) {
+        if (++x.runs > 256) { report(r, 'fail', 'steps', '', 'loop'); x.running = false; return; }
+        x.slept = true;
+        const delay = parseFloat(s[0]) || 0;
+        if (!x.hurry && delay > 0) { x.wake = tick + Math.max(1, Math.ceil(delay / frame - 1e-6)); continue; }
+      }
+      x.slept = false;
+      if (s[1] === 'until') { x.until = { start: tick }; continue; }
+      x.step = doStep(i, r, x, s);
+    }
+  }
+  const stepIndex = (v, r) => (v === '' || v === 'stop' ? r.acts.length : int(v));
+  function doStep(i, r, x, s) {
+    if (s[1] === 'check') {
+      const any = s[2] === 'any', k = int(s[3]), n = int(s[4]);
+      let ok = !any || n <= 0, failed = '';
+      for (let j = k; j < k + n && j < 16; j++) {
+        const c = r.stepConds[j] || '', here = !c || holdsNow(c);
+        if (here && any) ok = true;
+        if (!here && !failed) failed = c;
+        if (!here && !any) ok = false;
+      }
+      if (ok) { report(r, 'check', 'pass', String(x.step)); return x.step + 1; }
+      report(r, 'check', 'fail', String(x.step), failed);
+      return stepIndex(s[5], r);
+    }
+    if (s[1] === 'jump') return stepIndex(s[4], r);
+    if (s[1] !== 'wait') doAct(i, s);
+    return x.step + 1;
+  }
+  function untilDone(r, x, s) {
+    const most = parseFloat(s[4]) || 0, c = r.stepConds[int(s[5])] || '';
+    const done = x.hurry || (s[3] === 'arrived' ? present(s[2]) && !st.dead.has(s[2]) && st.arrived.has(s[2]) : !c || holdsNow(c));
+    if (done) { report(r, 'until', 'done', String(x.step), s[2] || ''); return true; }
+    if (most > 0 && (tick - x.until.start) * frame >= most - 1e-9) { report(r, 'until', 'timeout', String(x.step), s[2] || ''); return true; }
+    return false;
+  }
   function stateCode(i) {
     const r = rules[i], x = rs[i];
+    if (r.v2) { rulesCode(i); return; }
+    if (r.also) return;
+    if (r.steps) { stepsCode(i); return; }
     while (x.running && x.wake <= tick) {
       const delay = parseFloat(r.acts[x.step]?.[0]) || 0;
       if (x.asleep) x.waited = delay;
@@ -472,6 +660,7 @@ function newRun(S) {
     const r = rules[i], x = rs[i];
     if (st.playing.size) return;
     if (!x.started) { x.started = true; if (r.hears === 'start') runRule(i, ''); }
+    if (r.hears === 'prop' || r.hears === 'becomes' || r.hears === 'changes') return lookWatch(i);
     if (r.hears !== 'watch') return;
     const now = watching(r);
     if (!x.polled) {
@@ -482,6 +671,34 @@ function newRun(S) {
     if (now && !x.was) runRule(i, '');
     x.was = now;
   }
+  // UCLink.TickWatch: a value that changed since the last look ('changes', the first look takes it as the base); a
+  // condition that became so ('becomes'); a property's test (P4 'prop': so at the look after the user said it, S5),
+  // every look while so for a fall (" down": hurt, damaged at all), else when it becomes so. The first look only notes
+  function lookWatch(i) {
+    const r = rules[i], x = rs[i];
+    if (r.hears === 'changes') {
+      const v = watchValue(r.watch);
+      if (!x.polled) { Object.assign(x, { polled: true, base: v }); return; }
+      if (v !== x.base) { x.base = v; runRule(i, ''); }
+      return;
+    }
+    const thing = r.source || S.player;
+    const now = r.hears === 'becomes' ? holdsNow(r.watch) : present(thing) && pulses.has(pulseKey(thing, r.when));
+    if (!x.polled) {
+      Object.assign(x, { polled: true, was: now });
+      if (r.hears === 'prop' && r.source && !present(r.source)) report(r, 'hook', r.source, 'missing');
+      return;
+    }
+    if (now && (!x.was || r.watch.includes(' down'))) runRule(i, r.hears === 'becomes' ? '' : nameOf(thing));
+    x.was = now;
+  }
+  // would a watched rule's next look set it off (what is due next)
+  function watchDue(r, x) {
+    if (!x.polled) return false;
+    if (r.hears === 'changes') return watchValue(r.watch) !== x.base;
+    if (r.hears === 'becomes') return holdsQuietly(r.watch) && !x.was;
+    return pulses.has(pulseKey(r.source || S.player, r.when));
+  }
   const lookTick = (k) => k > 0 && Math.floor(k * frame / LOOK + 1e-6) > Math.floor((k - 1) * frame / LOOK + 1e-6);
   function ruleTurn(i) {
     const r = rules[i], x = rs[i];
@@ -490,6 +707,12 @@ function newRun(S) {
       const d = x.door;
       x.door = null;
       if ((r.when === 'destroyed') === st.destroyed.has(d.name)) runRule(i, d.by);
+    }
+    if (x.pawn && x.pawn.at <= tick) {               // its Tick: killed, or knocked out (UCLink.PawnTold)
+      const p = x.pawn;
+      x.pawn = null;
+      if ((r.when === 'knockedout') === p.out) runRule(i, p.by);
+      else report(r, 'skip', 'how', r.when);
     }
     turn.tickEvent = false;
     stateCode(i);
@@ -530,6 +753,7 @@ function newRun(S) {
         if (isa(a.name, 'UCCutscene')) cutTick(a.name);
       }
       rules.forEach((r, i) => ruleTurn(i));
+      if (lookTick(k)) for (const key of pulses.list()) pulses.delete(key);   // a property's output: one look (S5)
       turn = { kind: 'jc' };
     },
     change(c) { turn = { kind: 'jc' }; change(c); },
@@ -544,9 +768,12 @@ function newRun(S) {
       const due = [];
       rs.forEach((x, i) => {
         if (x.running) due.push(Math.max(x.wake, tick + 1));
+        for (const s of x.slots) if (s?.running) due.push(Math.max(s.wake, tick + 1));     // a UCRule's runs
         if (x.door) due.push(Math.max(x.door.at, tick + 1));
+        if (x.pawn) due.push(Math.max(x.pawn.at, tick + 1));
         const r = rules[i];
-        if ((r.hears === 'start' && !x.started) || (r.hears === 'watch' && x.polled && watching(r) !== x.was)) {
+        if ((r.hears === 'start' && !x.started) || (r.hears === 'watch' && x.polled && watching(r) !== x.was)
+          || ((r.hears === 'prop' || r.hears === 'becomes' || r.hears === 'changes') && watchDue(r, x))) {
           let k = tick + 1;
           while (!lookTick(k)) k++;
           due.push(k);
@@ -654,8 +881,13 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
     const st = run.st;
     return { t: at(run.tick), ...Object.fromEntries(MERGED.map((p) => [p, st[p].plain()])),
       ...Object.fromEntries(LISTS.map((p) => [p, st[p].list()])), items: [...st.items], credits: st.credits, jc: st.jc && [...st.jc],
-      rules: Object.fromEntries(S.rules.map((r, i) => [r.id, { done: run.rs[i].done, running: run.rs[i].running, step: run.rs[i].step,
-        next: run.rs[i].running ? at(run.rs[i].wake) : null }])),
+      rules: Object.fromEntries(S.rules.map((r, i) => [r, run.rs[i]]).filter(([r]) => !r.also).map(([r, x]) => {
+        if (!r.v2) return [r.id, { done: x.done, running: x.running, step: x.step, next: x.running ? at(x.wake) : null }];
+        // a UCRule (its other causes are part of it): its runs going on, the first one's step, the next due
+        const live = x.slots.filter((s) => s?.running);
+        return [r.id, { done: x.done, running: live.length > 0, step: live[0]?.step ?? 0, runs: live.length,
+          next: live.length ? at(Math.min(...live.map((s) => s.wake))) : null }];
+      })),
       timers: Object.fromEntries([...run.timers].map(([k, t]) => [run.nameOf(k), { running: t.running, paused: t.paused, left: at(t.left) }])),
       scripts: Object.fromEntries([...run.scripts].map(([k, s]) => [run.nameOf(k), { started: s.started, waiting: [...s.waiting] }])) };
   }
@@ -665,11 +897,14 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
   function happenings() {
     const out = [];
     for (const r of S.rules) {
-      if (!r.source || r.hears === 'start') continue;
-      const same = (h) => low(h.thing) === low(r.source) && h.output === r.when && h.option === r.option && low(h.port) === low(r.port);
+      // the thing that says it: the rule's object; the player for one of his (his health); the game's event by its
+      // name. A condition that becomes so, a value that changes: the State panel, not a button
+      const thing = r.hears === 'gametag' ? r.gameTag : r.source || (r.hears === 'prop' ? S.player : '');
+      if (!thing || r.hears === 'start' || r.hears === 'becomes' || r.hears === 'changes') continue;
+      const same = (h) => low(h.thing) === low(thing) && h.output === r.when && h.option === r.option && low(h.port) === low(r.port);
       let h = out.find(same);
-      if (!h) out.push(h = { thing: r.source, output: r.when, option: r.option, port: r.port, rules: [], watched: r.hears === 'watch',
-        present: run.present(r.source) });
+      if (!h) out.push(h = { thing, output: r.when, option: r.option, port: r.port, near: r.near, rules: [],
+        watched: r.hears === 'watch' || r.hears === 'prop', present: r.hears === 'gametag' || run.present(thing) });
       h.rules.push(r.id);
     }
     return out;
@@ -704,7 +939,7 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
     if (r.hears === 'start') {
       return x.started ? 'It was refused at the start.' : `The map has not started yet: its first look is at ${secs(LOOK)}.`;
     }
-    return `"${whenText(r)}" never happened in this session.${r.hears === 'watch'
+    return `"${whenText(r)}" never happened in this session.${WATCHED.has(r.hears)
       ? ' It is looked at every half second, and the first look only notes what is already so: it has to become so after.' : ''}`;
   }
   // [{why, t, text}], why: left, unknown, hook, never, once, running, cond, fired, fail, now
@@ -742,6 +977,11 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
       out.push({ why: 'fail', t: e.t, text: `An action of it failed at ${secs(e.t)}: ${said(e)}.` });
     }
     if (x.running) out.push({ why: 'now', t: null, text: `It is doing its actions now: the next at ${secs(at(x.wake))}.` });
+    const live = r.v2 ? x.slots.filter((s) => s?.running) : [];
+    if (live.length) {
+      out.push({ why: 'now', t: null, text: `${live.length === 1 ? 'It is doing its actions now' : `${live.length} runs of it are going on now`}: `
+        + `the next action at ${secs(at(Math.min(...live.map((s) => s.wake))))}.` });
+    }
     return out;
   }
 
@@ -768,7 +1008,8 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
     state,
     // per rule: {fired, once, running, cond (refused for each), acted, failed, last (when it last fired)}
     counts,
-    // what the rules wait for, thing by thing (the world's buttons): [{thing, output, option, port, rules, watched, present}]
+    // what the rules wait for, thing by thing (the world's buttons): [{thing, output, option, port, near, rules, watched,
+    // present}]
     happenings,
     // "Why didn't it fire?" in sentences, from this session's log and the compiled logic
     why,

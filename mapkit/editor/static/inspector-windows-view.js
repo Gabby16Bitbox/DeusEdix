@@ -1,4 +1,4 @@
-// Properties… windows: a tool window each (tool-window.js, not modal: the editor stays usable around it) with the
+// Properties… windows (G41): a tool window each (tool-window.js, not modal: the editor stays usable around it) with the
 // Inspector of one object, drawn in its own #details by app.js's showDetails, the panel's code: the same sections, the
 // same styles, the same ids (app.js looks in the window at work first, see its inspectorView). They follow every change
 // made anywhere (undo, the gizmo, the panel, another window): drawn again in the next frame, and the numbers at once

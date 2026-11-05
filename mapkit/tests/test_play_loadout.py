@@ -1,4 +1,4 @@
-"""A play scenario's loadout: editor/play.py turns it into the game's console commands and the runner's steps,
+"""A play scenario's loadout (G13): editor/play.py turns it into the game's console commands and the runner's steps,
 leaving out what the editor does not know; live.play puts them before the 'play' step (the commands in a file the
 runner execs once, gone after the game); the game's speed saved by its slomo goes with the launch's copy of the ini;
 the server gives Play the loadout's lists and passes a scenario's loadout on."""

@@ -377,6 +377,7 @@ def _mat(s, setting):
     preview (look) tells which setting a texture dropped on a face changes."""
     m = geom.Mat(s[setting])
     m.setting = setting
+    m.lit_guard = True                # a lightmap fine enough on every face (geom.lit_scale)
     return m
 
 

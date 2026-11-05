@@ -1,4 +1,4 @@
-"""The map templates' routes in server.py, on the real handler: Save map as template checks the kept edits as a
+"""The map templates' routes in server.py (G35), on the real handler: Save map as template checks the kept edits as a
 save does and refuses what cannot be one, New map's list needs no game runtime, a template is deleted, and New map
 makes a map from one with the server's own build."""
 import sys

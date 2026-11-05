@@ -64,8 +64,7 @@ class Outputs(unittest.TestCase):
         """The simulator fills in the pattern ({src}, {option}, {key}) to tell the rules: it must be links.tag_of's Tag."""
         for when, entry in logic_compile.outputs().items():
             link = message('L1', src='Thing1', when=when, option=2, port='Ready', key='F')
-            want = (entry['tag'].replace('{src}', 'Thing1').replace('{option}', '2').replace('{key}', 'F')
-                    if entry['tag'] else 'UCLW_L1')
+            want = entry['tag'].replace('{src}', 'Thing1').replace('{option}', '2').replace('{key}', 'F') if entry['tag'] else 'UCLW_L1'
             self.assertEqual(links.tag_of(link), want, when)
 
 

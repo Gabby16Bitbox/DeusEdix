@@ -28,6 +28,8 @@ function setup(){
   structures:{},edits:{groups:{},copies:[],prefabs:[],moved:{},deleted:{},boxes:[],added:[]},scene,world,proxies,groupPivot,mapKind:'script',actorStruct:{},
   selected:null,moveStart:null,mapGeneration:1,script:'fixture',camera:new THREE.PerspectiveCamera(),ray:new THREE.Raycaster(),builtScale:{},altCopyUndo:false,
   isStruct:p=>p?.userData.kind==='structure',objectHidden:()=>false,selectionLocked:()=>false,requireUnlocked:()=>true,
+  // the rules Duplicate copies (copyLogicOf): the page's rule list and its words, stood in for
+  lkList:()=>c.edits.links||=[],lkNewId:()=>'L'+((c.edits.links||[]).length+1),lkWhere:()=>[0,0,0],lkSentence:l=>'rule '+l.id,
   setDirty(){},showDetails(){},buildHierarchy(){},status(){},pushUndo:(label)=>{history.push(JSON.stringify(c.edits));recordStep(c.undoHistory,'',label);},log:(...x)=>logs.push(x),
   undoHistory:createHistory(),renameStep,namedStep,dropStep,currentName,historyChanged(){},objectLabel:p=>[p.userData.name??p.userData.actor?.name,''],tc:{dragging:true,mode:'translate'},
   buildJob:null,transformStep:null,
@@ -39,7 +41,7 @@ function setup(){
   // a structure let go with queued surface rows: their preview drawn again at the next frame (commitStructure)
   surfaceFrame:0,frames:[],requestAnimationFrame:fn=>c.frames.push(fn),refreshSurfaceTexturePreview(){},wake(){},
  });
- for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','replacingOf','carries','carriedBy','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','duplicateSelected','lightProps','stepOf','beginTransformUndo','endTransformUndo','dropUndo'])vm.runInContext(body(name),c);
+ for(const name of ['copyEntry','pasteEntry','poseOf','setPose','relScale','poseToPose','showPose','livePose','objectRotation','setObjectRotation','beginStructMove','followStructure','keptPlaces','replacingOf','carries','carriedBy','commitStructure','bakeOut','structureOf','surfaceHit','solidAlong','facingNormal','dropTarget','stickTarget','selectionParts','memberLocked','placeOnSurfaces','dupStructure','dupOne','ownProps','copyLogicOf','duplicateSelected','lightProps','stepOf','beginTransformUndo','endTransformUndo','dropUndo'])vm.runInContext(body(name),c);
  // a step's verb, the gizmo's pose, snapping's hits (as var: the test reads them on the context)
  for(const start of ['const TOOL_VERBS = ','const gizmoPose = ','const pickableHits = '])vm.runInContext(line(start).replace(/^const /,'var '),c);
  let seq=0;

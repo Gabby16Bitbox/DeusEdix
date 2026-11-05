@@ -410,11 +410,11 @@ look at one thing of an object:
 | `t:` (or `class:`) | its class, the classes it comes from, or its kind: `t:light`, `t:door`, `t:character`, `t:sound`, `t:camera`, `t:zone`, `t:structure`, `t:ScriptedPawn` |
 | `tag:` / `event:` | its Tag / its Event: `tag:alarm` finds what an alarm's Event sets off, `event:alarm` what sets it off |
 | `name:` / `label:` | its name in the map (`name:DeusExMover3`) / the name the Hierarchy shows |
-| `snd:` | a sound it uses: an ambient sound, a door's or an elevator's sounds, a sound effect's, a sound its Interactions rules play (the sounds set on it in the map or here; a class's own default sounds are not known) |
+| `snd:` | a sound it uses: an ambient sound, a door's or an elevator's sounds, a sound effect's, a sound its rules play (the sounds set on it in the map or here; a class's own default sounds are not known) |
 | `tex:` | a texture it uses: its skins, the faces of a structure, a block's, one put on it in the Textures section |
 | `mesh:` | its model: `mesh:Chair`, or a model's package, `mesh:DeusExDeco` |
 | `is:` | `is:hidden`, `is:locked` (by its padlock or its kind's), `is:disabled` (in game), `is:added` (in the editor), `is:original` (of the map), `is:nested` (in a folder, or inside a structure), `is:selected` |
-| `ref:` | `ref:Button1`: that object, what points at it and what it points at (Event to Tag, the keys of a door, the patrols, the Inspector's Connections) and its Interactions rules both ways |
+| `ref:` | `ref:Button1`: that object, what points at it and what it points at (Event to Tag, the keys of a door, the patrols, the Inspector's Connections) and its Logic rules both ways |
 
 `tag:alarm` finds a part of the value; `tag=Alarm` the whole of it (for a sound, a texture or a model also its
 last part: `snd=Hum` for *Ambient.Ambient.Hum*). A value with spaces goes in quotes (`tag:"Alarm Lights"`). A
@@ -598,7 +598,7 @@ pointer it is placed as usual).
   property of the old object the new class also has, checked against the class's full list (as *All properties*
   shows it), values of All properties too. The look (model, skins, collision) is the new class's, or the model's or
   character's you picked.
-- Because the name stays, the **Interactions** that use the object, the patrol routes, the cutscenes that look at it,
+- Because the name stays, the **Logic** that use the object, the patrol routes, the cutscenes that look at it,
   the conditions and the **Story** (dialogues, events) still find it, and so do its animation, its folder, and its
   hidden or disabled state. A conversation name the game's own conversations or a dialogue of the Story use
   stays on it even when the new class has another.
@@ -754,6 +754,10 @@ has its settings by name, each with a slider; the preview follows them as you dr
 
 - **Texture**: the picture of each particle (its small picture opens the texture picker: the game's *Effects*
   package has its smoke, sparks and flames; the dropper takes one from the 3D view);
+- **Colour**: particles in any colour. The game's smoke and sparks are white or grey moving pictures that cannot be
+  painted over, so the colour makes a texture of the map's own: the game's smoke (or the glow of a spark, for sparks)
+  in that colour. The game adds the particles' light to what is behind them: dark colours look thin, bright ones
+  thick. **×** puts the game's smoke or sparks back. Rebuild puts the colour in the game;
 - **Chance** and **Every (s)**: how often it throws a puff; **Particles each time**: how many in a puff;
 - **Speed** along the arrow, **Rise** (below 0 they sink), **Life (s)**, **Size**;
 - **Spread out**, **Gravity**, **Grow**, **Fade out**, **Glow (unlit)**, **Darkens (modulated)**.
@@ -766,17 +770,25 @@ closely, but it is not the game: Rebuild and Play show the particles for sure.
 **Particles that hurt, and switching them on and off.** The Effects of the browser are `UCParticles` (DeusEdix's
 package: the game's particles, and more). Under the particle settings their section has:
 
+- **Area** (`UCParticles` only): the particles start anywhere within this distance of it, across its arrow, not
+  all from its point: a pool of gas on a floor, a cloud under a ceiling (0: from its point);
 - **Damage**: how much each hit, its **Kind** (fire, electricity, poison gas, tear gas, radiation, EMP, explosion,
   shot, stun: what JC's augmentations and armour resist), its **Radius** round the stream, its **Reach** along the
   arrow (0: a ball round it), **Hit every (s)**, and whether it **Hurts characters too** (else JC only). Nothing is
   hurt through a wall. While it is selected, a red see-through shape in the 3D view shows where it hurts;
 - **Switching on and off**: **On at the start** (off: it waits), **Stays on (s)** once switched on (0: until switched
-  off), and whether **"Switch on" also switches it off**. Switch it with the Interactions' *Switch on* and *Switch
+  off), and whether **"Switch on" also switches it off**. Switch it with the Logic' *Switch on* and *Switch
   off* (when the player uses a button, walks into a collision box, picks something up, a timer runs out...) or with the
   game's own triggers through its Tag. Off, it throws no more particles (those in the air finish their life) and its
   sound stops.
 
-The browser has some ready: *Steam that burns*, *Electric hazard*, *Toxic gas*, *Smoke when switched on (10 s)*. A
+The browser has some ready: *Steam that burns*, *Electric hazard*, *Toxic gas*, *Smoke when switched on (10 s)*, and
+the **gas pools** of the campaign: *Toxic gas pool (deadly)*, the game's green gas lying on the floor (an Area of 160,
+poison gas all over it up to about knee height, every half second: whoever stays in it dies in a few seconds, the
+characters too), and *Tear gas pool* (placed in yellow: the game's tear gas picture is almost unseen on a floor).
+Make a pool bigger with **Area** and **Radius** together (Radius a little more than Area, so it hurts all over the
+gas it shows). In the original game every hit hurts much more than in Revision (the campaign's own gas too): a pool
+kills in about a second there. A
 generator of an original map (a `ParticleGenerator`) has **Make it able to hurt and switch on/off**: it becomes a
 `UCParticles` with the same particles (Replace with..., one Undo).
 
@@ -1364,7 +1376,7 @@ properties* below.
 
 **Properties… windows**, as Unity's floating Inspector: **right click > Properties…** on an object, a block, a
 drawing or a structure (in the 3D view or the Hierarchy) opens a window with its Inspector, the same sections as the
-panel (Transform, Properties, Interactions, All properties, Textures...), while the panel goes on following the
+panel (Transform, Properties, Logic, All properties, Textures...), while the panel goes on following the
 selection. Wiring logic often needs two objects in sight: a keypad and its door, a trigger and the SpecialEvent it
 fires, a character and the computer that sets its flag. The window is live: what changes the object anywhere (the
 gizmo, `Ctrl+Z`, the panel, another window) shows in it, and what you change in it is one step of the History, undone
@@ -1535,102 +1547,95 @@ arrow keys step a number. The table follows the changes made elsewhere (the Insp
 shows a light's new colour at once; the walls are lit again by **Map > Rebuild lighting**, and doors and
 characters change in the game after **Rebuild**.
 
-## Interactions (when this happens, do that)
+## Logic (when this happens, do that)
 
-No Tag or Event to write: at the top of an object's Properties, its **Interactions** say in plain words
-what happens when something happens to it.
+No Tag or Event to write: an object's rules say in plain words what happens when something happens to it.
 
-- **What it offers**: first, two rows of buttons. **When it...** lists what can happen to that object
-  (each with the number of its rules): click one to add a rule on it. **It can...** lists what a rule can
-  make it do (with the number of rules that do): click one, then the object that should make it happen.
-  Both come from the object's class, the way the game itself works: a keypad offers *the right code is
-  typed*, a beam *JC breaks its beam*, a camera nothing of its own (the game gives it no event). Things
-  the game cannot do are not offered: an elevator is not switched on, a trigger that only redirects
-  others (an alliance or an orders trigger) does not start rules.
-- **+ When it...**: what starts it. A door: *it has opened*, *it starts closing*, *it is blown up*. A
-  button or any object the player uses: *the player uses it*. A keypad: *the right code is typed*, *a wrong code is
-  typed*. A computer: *JC chooses an option of it* (write the text of the button on its screen and what
-  the screen says after). A trigger zone: *JC walks in*. A laser: *JC breaks its beam*. An alarm: *it
-  sounds the alarm*. A character: *they are killed or knocked out*. An item: *JC picks it up*. An object:
-  *it is destroyed*. Most things: *JC comes near* (within a distance you choose).
-- **+ Then...**: *something to an object (click it)*: click it in the 3D view or in the Hierarchy, and
-  the list shows only what that object can do:
-  - doors: open, close, open or close, lock, unlock, blow up, give JC its key;
-  - characters: attack JC (*alone*: their faction stays out of it), turn hostile, become friendly or
-    neutral, stand still, wander about, follow JC, walk or run to a place (click it), leave or come
-    back (only when JC does not see them);
-  - lights: turn on, turn off, turn on or off;
-  - elevators: go to a floor (0 is where it starts);
-  - cameras, turrets, alarms, lasers: switch on, switch off; a sound effect: play it;
-  - objects, items, bodies, keypads, computers and alarm lights: vanish, appear again;
-  - most devices and objects (not characters, lights or lasers): an explosion there (damage and radius);
-    most things: a sound from it.
+- **In the Inspector**, the **Logic** section lists the selected object's rules, one line each (*When the player
+  uses it, if GotKit is No · 2 steps*), and the rules of other objects that act on it (*← Button: the player uses
+  it*). **+ When it...** adds a rule on something that can happen to it; **Edit logic…** and **Graph** open the
+  **Logic window** on it. Click a line to open that rule.
+- **The Logic window** (Window > Logic, a tab at the bottom): **List** edits the rules, **Graph** shows them as a
+  graph, **Read** as sentences, **Try it** plays them without the game. The index at its side lists the objects
+  with rules (click one to see or edit its rules: it is selected in the map too), the **states and counters** (click
+  one: the rules that set it and read it), and what **To check**.
 
-  Or without an object: a message on the screen, a goal (the same name completes it later), a note in
-  the DataVault, a flag (the Story's flags: an interaction can start a Story event), a **counter** (add
-  to it, take from it, or set it: *the levers pulled*, *the guards down*), a sound (from an object or in
-  JC's head), take JC to another map.
-- **+ Only if...**: conditions, all of which must hold when it happens, or the rule does nothing that
-  time (it is not used up, even with *once*): a state (a flag) is yes or no, JC carries an item (or does
-  not), a character is alive (not killed nor knocked out), JC's skill is at least Trained, Advanced or
-  Master, a counter compared with a number, JC's credits. The Story's events take the same conditions.
-  The conditions are checked the moment it happens, before any rule acts: if one rule on a button adds 1
-  to a counter, another rule on the same button still sees the old number that time.
-- Every action has its **after ... s**: seconds from the moment the rule starts (the door opens, 2 s
-  later the alarm sounds). **once**: only the first time.
-- **🔗 Connect to...**: click another object, and the rule is made with what the two usually do
-  together: a button or a keypad opens a door, a zone sends a guard at JC, a switch turns a light on or
-  off. The object that can start something acts on the other; change what it does afterwards.
-- Each rule is also written as a sentence ("When the player uses button UCLButton: open door UCLDoor, turn off
-  light UCLLamp, after 1 s the message ..."). Green arrows in the 3D view go from the object to what it
-  acts on; the Properties of that object list the rules acting on it (click one to go to its object).
-- **Far away or out of view**: when the other end of an arrow is off the screen (or behind you), a
-  green label on the edge of the view points towards it, with its name and distance (*to light
-  Light114 · 307 m*, or *from ...* for an object acting on this one); click it and the camera goes
-  there. An object in view but very far gets the label just above it. **both** next to an action
-  frames the object and the one it acts on together. A rule that takes JC to another map shows
-  *takes JC to ...* by the object.
-- **Logic** (top bar): every interaction of the map, grouped by object and editable there too, like an
-  event sheet. **+ When the map starts** is for what happens at once (a message, a goal, a guard
-  that leaves).
-- **Check** lists rules whose objects were deleted, actions without an object, sounds not chosen,
-  texts left empty, maps that do not exist.
+### A rule is a list of steps
 
-**Rebuild** puts them in the game. The game's own Tag and Event (**Connections (Tag / Event)**) still
-work: an object with an Event of its own keeps triggering it as well.
+A rule reads top to bottom, numbered like a recipe:
 
-### When JC presses a key
+- **When**: what starts it. A door: *it has opened*, *it starts closing*, *it is blown up*. A button or any object
+  the player uses: *the player uses it*. A keypad: *the right code is typed*, *a wrong code is typed*. A computer:
+  *the player chooses an option of it* (write the text of its button and what the screen says after). A zone: *the
+  player walks in*. A laser: *the player breaks its beam*. A character: *they are killed or knocked out*, *they get
+  where they were sent*, *they are killed*, *they are knocked out*, *they are hurt* (below so many % of their
+  health, or any wound). A camera: *it sees the player*. An alarm: *its alarm stops*, *the player hacks it*. A lift:
+  *it reaches a floor*. An item: *the player picks it up*. Most things: *the player comes near*. **once**: only the
+  first time.
+- **The map**'s own rules (the top of the Logic window's list): *when the map starts*, *when the player presses a
+  key*, and with **+ When...** what happens in the world: *a condition becomes true*, *a state or a counter
+  changes*, *the player's health falls low*, *an event of the game happens* (its Tag).
+- **Check**: conditions, all of which must hold when it happens, or it does nothing that time (it is not used up,
+  even with *once*): a state (a flag) is yes or no, the player carries an item, a character is alive, the player's
+  skill or credits, a counter compared with a number. They are checked the moment it happens, before any rule acts.
+  With two or more you can choose *go on if any of these holds*.
+- **The steps**, in the order they run. **+ Add a step** offers them by kind:
+  - **An object**: click it in the 3D view or the Hierarchy and choose what it does (open a door, a character
+    walks somewhere, sits on a chair or attacks the player, a light turns off...); or objects within a radius, or
+    objects with a scripting tag;
+  - **Messages and goals**, **States and counters**, **Sound and effects** (shake, fade, a flash, music), **The
+    player** (skill points, credits, health, give or take an item, move them, take them to another map, their
+    weapon plays a first-person moment), **The world** (send reinforcements where the player does not see them, a
+    hurting zone, autosave, end the game, stop another rule);
+  - **Flow**: **Wait** (seconds), **Wait until** (a character has arrived, or a condition holds, at most so many
+    seconds), **If…** and **If… otherwise…**.
+- **If** has its own conditions (all of them or any of them); the steps under it run only when they hold, the ones
+  under **Otherwise** when they do not. **+ Add a step here** at the end of each part adds inside it; **↑ ↓** move a
+  step (past an If or an Otherwise: into or out of it), **✕** removes it (removing an If keeps the steps inside it).
+- **if…** on a step: that step only when its own conditions hold (checked just before it); the others go on.
+- An action on a character or an object can act on **whoever set it off** or **the object it happened to** instead
+  of one you click: one rule for several buttons, each one hiding itself.
+- **If not** (under a rule with conditions): *do other steps* gives the steps for when the Check fails.
+- **More options**:
+  - **Or when...**: other things that start the same rule (another object's event, or one of the world's);
+  - **If set off again while running**: let it finish, start it again from the beginning, or run it again
+    alongside (up to 8 at once);
+  - **At most** so many times, **at least** so many seconds apart;
+  - **While the player talks**: go on, wait until the talk is over, or give up that run.
+- A crate's **Inspector** says what drops out when it breaks (**Contains**, two **Or sometimes** that take its place
+  about 3 times in 10, **How many**); the step **Fill it with items** changes it from a rule, each item as likely as
+  its weight.
 
-In the **Logic** window, **+ When JC presses a key** makes a rule that runs when JC presses the key you choose (a
-letter, a digit, F1–F12, Insert, Delete, Home, End, Page Up/Down, the numeric keypad). It works in **Play**: the
-key is bound for that launch in Play's own copy of your settings (yours are left as they are). A key the game
-already uses (W, A, S, D, E, F, the number keys...) is taken from JC for that launch: the rule says so in red.
+A rule that only waits between its steps runs in every version of the game classes; one with **If**, **Wait
+until** or **More options** needs this version's (Rebuild and install as usual: projects get them by themselves).
 
-### First-person moments (the weapon JC holds)
+### Seeing it and trying it
 
-**Tools > First-person moments...** makes moments of the weapon JC holds, seen as the player sees it: an
-inspection of the gun, a gesture when a weapon is picked up, a weapon raised as a door opens.
+- **In the 3D view**: **View > Logic wires** draws the rules as arcs between the objects, flowing from what starts a
+  rule to what it acts on: *selected object* (its own rules), *selected chain* (everything it sets off, and what
+  sets it off), *all*, or *off*. A dotted amber wire goes from an object whose rule sets a state to one whose rule
+  reads it. Click a wire's label to open its rule.
+- **Graph**: each object with only what it uses, each rule a card titled by what starts it, its conditions, its
+  steps (If and Otherwise as heads, the steps inside indented), a simple rule as a labelled wire, and a dotted wire
+  from the rule that sets a state to the rule that reads it. Double-click a card or an object to select it.
+- **Read**: the map's rules as sentences, object by object, and what to check.
+- **Try it**: the buttons on the left make things happen (the player uses the button, a wrong code is typed...);
+  the clock goes on (+0.5 s, +5 s, Next); what only the game decides (a character arriving) is offered as a button
+  after it can happen. **What happened** is the game's own log in words; **Why not?** says why a rule did not run.
+  Try it runs the rules exactly as the game does, so what works there works in Play.
+- **To check** warns about what would not work: an object that is gone, a condition nothing sets, a scripting tag
+  that no object has (it names the tags of that kind the map has: the template lights' tag is *white*, not *Light*).
 
-- **Weapon**: the one it is made for (its first-person model and its place in the view are read from the game).
-  In the game the moment plays only while JC holds that weapon.
-- **Clips**: pieces of the weapon's own animations one after another (Select, Reload, Shoot...): any frames of
-  one, at any speed (**in ... s**), backwards too (**⇄**, or a *to* before the *from*). The last frame stays
-  until the moment ends.
-- **Moves**: keys of the weapon's place in the view (forward, right, up), straight from one to the next; the
-  last one is where it ends (0 0 0: back where it was).
-- **Sounds** at their seconds, and a **shake** of the view (in the game only).
-- ▶ and the timeline play it in the view, with its sounds.
+### Safe edits
 
-An Interaction plays it: **JC's weapon plays a moment** (an action without an object), when JC presses a key,
-uses a button, walks into a collision box, picks something up... JC firing, reloading or putting the weapon away
-ends the moment at once.
+- **Duplicate** (Ctrl+D) copies the rules an object starts: a copied lever opens the same door, a rule on two
+  copied objects is remapped to the copies.
+- **Delete** asks first when rules use what goes, and names them.
+- **🔗 Connect to...**: click another object, and the rule is made with what the two usually do together (a button
+  opens a door, a zone sends a guard somewhere, a switch turns a light on or off).
 
-**New animations from Blender.** **Export the model (.glb)** writes the weapon's first-person model (arms and
-gun) at rest. Animate it in Blender any way you like (an armature, shape keys) without moving its points in edit
-mode, and export it as .glb with its animation. **Import an animation (.glb)...** reads it back frame by frame
-(30 frames a second, or the number you choose) as a new animation of the weapon, `FP_<name>`, in a copy of its
-model in DeusEdix's `DeusEdixAnims` package (as the Animation Studio's), and adds its clip to the moment. In the
-game the weapon wears that copy while the moment plays.
+**Rebuild** puts them in the game. The game's own Tag and Event (**Connections (Tag / Event)**) still work: an object
+with an Event of its own keeps triggering it as well.
 
 ## Scripting tags
 
@@ -1657,7 +1662,7 @@ not `greenish`.
 
 ### Target a tag or filter a group
 
-In an object's **Interactions**, add a starting event, then choose **+ Then... > objects with a
+In an object's rules (**Logic**, edited in the Logic window's **List**), add a starting event, then choose **+ Add a step > Objects with a
 tag…**. Enter the **Tag** and choose the action. A light action affects matching lights, not
 characters that happen to have the same tag. The match count is a preview of the current map;
 automatic tags can change before the action runs in the game.
@@ -1772,7 +1777,7 @@ Animation panel opens at the bottom, like Premiere's Motion or Unity's Animation
   on them moves with them. A door you animate still opens when the player uses it, with your movement (a door that
   slides can swing on its hinge instead). A block becomes a **moving block** (*Kind* in its panel, or
   *Animate...* on it) and moves in the game as you animate it: a lift, a platform, a crusher.
-- In the **Interactions**: *Then... → Play its animation*, *Play it backwards*, *Stop its animation*, and
+- In the rules (**Logic**): *+ Add a step → Play its animation*, *Play it backwards*, *Stop its animation*, and
   *When → its animation has finished* to chain things. Each rule has a **Timeline**: its actions as bars at
   their time (an animation as long as it lasts); drag a bar to when it should happen.
 - **Events** (the last row, like Unity's Animation Events): things that happen at a time of the animation,
@@ -1791,9 +1796,9 @@ Animation panel opens at the bottom, like Premiere's Motion or Unity's Animation
 ## Collision boxes
 
 **Objects > Triggers > Collision box**: a box (purple in the 3D view; its **Width**, **Depth** and **Height**
-in its Properties, or drag the dot of one side in the 3D view: see *Drag handles* in *Objects*). In its Interactions: *JC walks in* and *JC walks out*; *Anyone, not only JC* counts the
+in its Properties, or drag the dot of one side in the 3D view: see *Drag handles* in *Objects*). In its Logic: *the player walks in* and *the player walks out*; *Anyone, not only JC* counts the
 characters too; *Only once*; a *Message to JC*. Tick **Solid** and it is an **invisible wall** (orange):
-JC cannot walk through it (Rebuild makes the wall), and *JC walks in* is when he touches it, to keep him in
+JC cannot walk through it (Rebuild makes the wall), and *the player walks in* is when they touch it, to keep him in
 an area or tell him why he cannot go on.
 
 ## Cutscenes
@@ -1825,7 +1830,7 @@ the Minecraft film mods: the player watches, then gets JC back where he was.
    as the text needs), a sound or a voice. Drag them along the timeline.
 8. **Events**: **+** at the playhead, then click a door, a character, a light... in the 3D view or the
    Hierarchy: it happens at that second (the door opens at 3.2 s, the guard runs off). They are the
-   Interactions *When it starts* of the cutscene (in its Properties, where you can add messages, sounds,
+   Logic *When it starts* of the cutscene (in its Properties, where you can add messages, sounds,
    goals): drag them along the timeline to change their second. *When it has ended* is in its Properties
    too (a guard attacks, JC goes to another map).
 9. Options: *Fade in* / *out* (seconds from and to black), *black bars*, *can be skipped* (a click or
@@ -1846,7 +1851,7 @@ the Minecraft film mods: the player watches, then gets JC back where he was.
     shows, and plays to its end). **👁 Preview** off: the objects stay where they are and the voices are silent.
 
 **What plays it**: an interaction **Play the cutscene** (select a collision box, **🔗 Connect to...**, click
-the camera: *When JC walks into it: play the cutscene*), a button, a door, a character killed...; a Story
+the camera: *When the player walks into it: play the cutscene*), a button, a door, a character killed...; a Story
 event or dialogue (action **Play a cutscene**: under a flag, after a talk); or *at the start of the map*.
 A cutscene that starts during a conversation waits for its end.
 
@@ -1862,7 +1867,7 @@ mods (Packages...) and yours (**DeusEdixModels**). Search by name; a package sho
 is opened (a few seconds). Click a model, then a floor or a wall: it is placed as an object of its own (DeusEdix's
 `UCMeshDeco`) with a collision round it, at the size the game uses it. Its Properties: **Model**
 (*Replace…*: click another one in the Models tab), name, solid, cannot be destroyed, strength, JC can push
-it, and the Interactions of any object. Right click a model > **Find in map**: the objects of the map that
+it, and the Logic of any object. Right click a model > **Find in map**: the objects of the map that
 have it (the Hierarchy's search `mesh=`, see *Searching the map*).
 
 **Replace a model, keep the logic:** select a mesh object, then **Inspector > Model > Replace…**.
@@ -1973,7 +1978,7 @@ that the editor does not load yet (`Deus Ex\System`, `Revision\System`, `Revisio
 and **Another .u file** takes one kept elsewhere. Tick them and **Apply**: the page loads again and
 their actors are in the palette. Decorations, characters, weapons and items with a 3D model go to their
 usual group, with the real model. Triggers, zones and other logic go under the package's name. They have
-their Properties and Interactions, and are placed, saved and rebuilt like the game's own.
+their Properties and Logic, and are placed, saved and rebuilt like the game's own.
 
 A map that uses them needs the package in the game too: a package kept outside the game's folders must
 also be copied into `Deus Ex\System` (or `Revision\System`). Packages with only textures, sounds or
@@ -1999,7 +2004,7 @@ Outputs(0)=(Id="Done",Label="it is done")
 ```
 
 and written in `Input(InputName, Args, Caller)` (a `switch` on the input's name; `ArgFloat(Args,
-"Seconds")` reads an argument) and with `Output("Done")`. Then the Interactions offer *Start it* as
+"Seconds")` reads an argument) and with `Output("Done")`. Then the rules offer *Start it* as
 something to do to the script (with a field for each argument), and *it says "it is done"* as something
 that can happen to it. The template **A block** of **+ New** has both. A `var()` of the script is set
 per object in the Inspector.
@@ -2064,7 +2069,7 @@ The Player Start inspector has a **Change** shortcut to the same setting; Player
 Start still chooses only where and in which direction the player appears.
 
 **When the player uses it** works with every supported player character. Older versions called
-this event **When JC uses it**; existing rules keep working without being recreated. It refers
+this event **When the player uses it**; existing rules keep working without being recreated. It refers
 to the controlled player, while **a character has used it** is the separate event for NPC orders.
 
 For a campaign-wide choice, expand **Project default**, choose a character and press
@@ -2232,9 +2237,15 @@ The characters of Deus Ex walk on a network of **path nodes**: they go from node
 the links the editor of the game works out from them (UnrealEd's *Paths Define*). The map editor
 makes that network at every **Rebuild**.
 
-- **AI paths** in the top bar (or **P**) shows the network as the last rebuild made it: green lines
-  are links both ways, yellow lines one way only. A place without lines is a place characters
-  cannot find their way to (they can still walk there in a straight line when they see it).
+- **AI paths** in the top bar (or **P**) shows the network as the last rebuild made it, as thin lines
+  on the floor. Their **colour** says who can walk them, for the characters of this map: green where
+  all of them fit; elsewhere the biggest kind that still gets through (blue: up to military bots, teal:
+  Karkians and dogs, amber: people, orange: rats, cats and small bots), red where no walking character
+  does. Their **stroke** says how: a mark across for a door, dashed for a jump or a drop, dotted to swim
+  or fly, a cross for a lift or a teleporter. An **arrow**: one way only (no arrow: both ways). Select a
+  character and the links too narrow for it turn grey; select a path point and only its own links
+  stay lit. A place without lines is a place characters cannot find their way to (they can still walk
+  there in a straight line when they see it).
 - To add paths: **Objects > AI > Path node**, click the floor where characters must be able to
   walk (along corridors, through doors, round corners: one every 300-500 units, each in sight of the
   next), then **Rebuild**. The other points of the same group: *Patrol point*, *Wander point*
@@ -2298,7 +2309,7 @@ Properties, and in Connections).
 Use a chair, bench or sofa from **Objects**: these have the game's seat points. A chair made only
 of Pieces or Prefabs is geometry and cannot seat an NPC by itself.
 
-In **Interactions**, choose **Sit on a chair**, then **Pick…** and click the seat in the scene or
+In a rule's steps (**Logic** › **List**), choose **Sit on a chair**, then **Pick…** and click the seat in the scene or
 Hierarchy. The character walks to that specific seat and uses the game's sitting animations.
 **Stand up** gets them up again. You can trigger either action from a button, a proximity rule,
 or another event. The **Story** also offers them under **A character…**, including actions after
@@ -2504,7 +2515,7 @@ The game's `Cigarettes` object is a packet, not a single cigarette.
 without the gizmo, outlines and icons, becomes its picture (frame a nice view first). It keeps the place:
 blocks, drawings, structures (pasted and the map's own, moved or deleted), objects, lights, the start, map
 exits, zones, sounds, the sky, the time of day and Map settings, folders, and the pictures they use. It leaves
-out what belongs to that map's story: the characters (with their tactics and animations), Interactions (and
+out what belongs to that map's story: the characters (with their tactics and animations), Logic (and
 usable objects and scripting tags), cutscenes and their cameras, the texts of computers, books and data cubes,
 the Story itself, the *Conversation name* (BindName) of any object, the place name and the opening lines of
 Map settings; the walkable area is made again by the next Rebuild. Only maps made with New map (an empty room or
@@ -2792,7 +2803,7 @@ not in the map when it starts (the editor still shows them, in the Hierarchy too
 with *reappears* (a story event) or the interaction **Come back** (after a button, a zone...), then
 **Walk to a place** sends them on.
 
-**On the walkable area** (under *Walk / Run to a place*, in the Interactions and in the Story; on by
+**On the walkable area** (under *Walk / Run to a place*, in the Logic and in the Story; on by
 default for the ones you make now): the character finds the way on the walkable area (*View >
 Walkable area*), the way a man would walk, and needs no path nodes on the way. Each **Rebuild** of a
 map that uses it puts the walkable area into the map (*Walkable area for the game: N polygons* in
@@ -3187,7 +3198,7 @@ The feature uses the engine from your installed game. No game maps, packages, te
   game, with an audio that plays reverb (Galaxy, or Revision's OpenAL audio with its reverb on).
 - A zone works only when its area is closed: walls and zone portals all round. Water and portals change the
   geometry: they need a map that can be rebuilt.
-- Interactions, stories, cutscenes and the editor's characters run through DeusEdix's package
+- Logic, stories, cutscenes and the editor's characters run through DeusEdix's package
   (`DeusEdix.u`, which Install puts in the game): a map that uses them needs it.
   Security cameras give no event when they see JC (the game has none): use a zone instead.
 - A door opened by an interaction or a Story action behaves as when JC opens it (it triggers its Event

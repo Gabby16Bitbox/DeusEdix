@@ -20,7 +20,7 @@ const fixture = (id) => fixtures.find((fx) => fx.id === id);
 
 const sessionOf = (fx, more = {}) => createSession({ actors: fx.compiled, outputs: logic.outputs, world: fx.world, start: fx.start,
   map: fx.map, frame: fx.frame, ...more });
-// a fixture played: each input at its time (JC's part of its tick), then on to its last tick
+// a fixture played: each input at its time (the player's part of its tick), then on to its last tick
 function play(fx, more) {
   const s = sessionOf(fx, more);
   for (const input of fx.inputs) {
@@ -131,7 +131,7 @@ test('the end of an animation is set off by its UCMotion (UCLink.Who), or by the
 
 test('a cutscene: its start rules at once, no looks while it plays, and skipped its start rules hurry', () => {
   const s = open('cutscene');
-  at(s, 1, () => s.set({ jc: [0, 0, 0] }));                 // JC near the crate while it plays: nobody looks
+  at(s, 1, () => s.set({ jc: [0, 0, 0] }));                 // the player near the crate while it plays: nobody looks
   s.scrub(2);
   assert.deepEqual(s.decisions().map((d) => d.id), ['cutdone:Cut1', 'skip:Cut1']);
   s.decide('skip:Cut1');
@@ -214,7 +214,7 @@ test('a cutscene stopped while it waits never starts', () => {
 test("a cutscene's end is the user's to decide even when no rule waits for it, so one waiting behind it never waits for ever", () => {
   // the cutplay map without L7: no rule waits for Cut1's end; L6 waits for Cut2's start
   const map = { actors: cases.cutplay.actors.filter((a) => a.name !== 'UCLink_L7') };
-  for (const [id, ends] of [['cutdone:Cut1', 'ended'], ['skip:Cut1', 'skipped by JC']]) {
+  for (const [id, ends] of [['cutdone:Cut1', 'ended'], ['skip:Cut1', 'skipped by the player']]) {
     const s = open('cutplay', map);
     at(s, 1, () => s.fire({ thing: 'Button1', output: 'used' }));
     at(s, 2, () => s.fire({ thing: 'Button2', output: 'used' }));
@@ -271,7 +271,7 @@ test('a script switched on says what its Triggered() says, and its rules are tol
 test('a watched output made to happen changes the world, and its rule notices at its next look', () => {
   const s = open('why');
   at(s, 1.2, () => s.fire({ thing: 'Crate1', output: 'near' }));
-  assert.deepEqual(s.state().jc, [300, 0, 0], 'JC is at the crate');
+  assert.deepEqual(s.state().jc, [300, 0, 0], 'the player is at the crate');
   s.scrub(1.6);
   assert.deepEqual(lines(s).slice(-2), ['1.5 fire|M|L8|Crate1|near||Crate1 near', '1.6 act|M|L8|message||near']);
   const fx = fixture('picked_watch'), p = sessionOf(fx);
@@ -299,7 +299,7 @@ test('the clock goes back and forward again; something new after going back is a
   s.scrub(6.5);
   const whole = s.log();
   assert.deepEqual(s.scrub(2), { t: 2, stopped: null });
-  assert.deepEqual(s.log(), whole.filter((l) => l.t <= 2), 'as it was at 2 s, what JC did then included');
+  assert.deepEqual(s.log(), whole.filter((l) => l.t <= 2), 'as it was at 2 s, what the player did then included');
   assert.equal(s.back().t, 1.9);
   s.scrub(6.5);
   assert.deepEqual(s.log(), whole, 'and forward again the same');
@@ -345,7 +345,7 @@ function whyPlayed(more) {
   return s;
 }
 
-test("the state: the world, JC's, and each block's own", () => {
+test("the state: the world, the player's, and each block's own", () => {
   const s = whyPlayed();
   s.scrub(4.5);
   const st = s.state();
@@ -396,13 +396,13 @@ test('why did it not fire: in sentences, from the session and the compiled logic
   const why = (id) => s.why(id).map((w) => `${w.why}: ${w.text}`);
   assert.deepEqual(why('L1'), ['cond: It heard it at 3 s, but "Power is Yes" did not hold. Only L2 sets Power to Yes, and it had not done it by then.']);
   assert.deepEqual(why('L3'), ['cond: It heard it at 3 s, but "the counter Levers is at least 2" did not hold. L4 had changed the counter Levers 1 time by then: not enough.']);
-  assert.deepEqual(why('L5'), ['cond: It heard it at 3 s, but "JC carries Multitool" did not hold. That is up to the game: change it in the State panel to try it.']);
+  assert.deepEqual(why('L5'), ['cond: It heard it at 3 s, but "the player carries Multitool" did not hold. That is up to the game: change it in the State panel to try it.']);
   assert.deepEqual(why('L9'), ['cond: It heard it at 3 s, but "Nobody is Yes" did not hold. No rule sets Nobody to Yes (the Story or the game may): to try it, set it in the State panel.']);
   assert.deepEqual(why('L6'), ['running: It was still doing its actions (they take 3 s) when it was set off again at 3 s: a rule that is running ignores that.',
     'fired: It ran once, the last at 2 s.', 'now: It is doing its actions now: the next at 5.1 s.']);
   assert.deepEqual(why('L13'), ['once: It had already run (at 1.5 s) and runs only once: it was refused 1 time after.', 'fired: It ran once, the last at 1.5 s.']);
   assert.deepEqual(why('L7'), ['hook: L7 Ghost1 is not in the map: the rule never runs.']);
-  assert.deepEqual(why('L8'), ['never: "When JC comes within 256 units of Crate1" never happened in this session. It is looked at every half second, '
+  assert.deepEqual(why('L8'), ['never: "When the player comes within 256 units of Crate1" never happened in this session. It is looked at every half second, '
     + 'and the first look only notes what is already so: it has to become so after.']);
   assert.deepEqual(why('L10'), ['left: L10 is not in the game: its object is deleted.']);
   assert.deepEqual(why('L11'), ['fired: It ran 2 times, the last at 3 s.', 'fail: An action of it failed at 3.1 s: hide Crate9: it is not in the map.']);
@@ -427,6 +427,6 @@ test("why, with no vocabulary and the page's own names", () => {
   const s = open('why', { vocab: null, ctx: { name: (n) => `the ${n}` } });
   assert.match(s.why('L8')[0].text, /^"When the Crate1: near" never happened/);
   at(s, 1, () => s.fire({ thing: 'Button1', output: 'used' }));
-  assert.match(s.why('L5')[0].text, /"JC carries Multitool"/);
+  assert.match(s.why('L5')[0].text, /"the player carries Multitool"/);
   assert.deepEqual(s.decisions(), []);
 });

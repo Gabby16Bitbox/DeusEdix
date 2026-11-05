@@ -40,7 +40,7 @@ function setup({ automaticResponses = false } = {}) {
     Date: class extends Date { static now() { return now; } },
     normalizeAutosaveSettings, exerciseOnly, forgetGoneDefault, publishedLayout: null,
     isTemporaryTutorial: (project, script) => project?.kind === 'tutorial' && script === 'deusedix_tutorial',
-    showChanges: () => notices.push('changes'), buildStructList() {}, buildHierarchy() {},
+    showChanges: () => notices.push('changes'), buildStructList() {}, buildHierarchy() {}, logicChanged() {},
     status: (...args) => statuses.push(args), log: (...args) => logs.push(args),
     api: (url, body) => {
       const gate = deferred();

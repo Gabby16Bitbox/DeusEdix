@@ -106,7 +106,7 @@ test('the Settings window keeps the keys from the 3D view under it, but Esc', ()
   open = false;
   assert.equal(stopped('Delete'), false);              // closed: the 3D view has its keys again
 });
-// Copy moved to another key silences Ctrl+C in the 3D view, but not in the Console's log, whose data-keys keep it
+// G39: Copy moved to another key silences Ctrl+C in the 3D view, but not in the Console's log, whose data-keys keep it
 test("a panel's own keys (its data-keys) are left to it, whatever the 3D view's keys are", () => {
   const context = vm.createContext({ dialog: null, keySearch: false, recording: null,
     ed: () => ({ playing: false }), window: { __projects: { visible: false } },
@@ -175,7 +175,7 @@ test('View > Lightmap detail and View > Effects', () => {
   assert.equal(item(ctx,'Effects').checked,true);
   assert.equal(ctx.api.runCommand(item(ctx,'Effects').id),true); assert.equal(on,false);
 });
-// View > Hear the map needs a map, is ticked while on and turns it over
+// G27: View > Hear the map needs a map, is ticked while on and turns it over
 test('View > Hear the map', () => {
   const ctx = setup({id:'legacy',kind:'legacy',name:'Existing workspace'});
   let on = false;
@@ -188,7 +188,7 @@ test('View > Hear the map', () => {
   assert.equal(item(ctx,'Hear the map').checked,true);
   assert.equal(ctx.api.runCommand(item(ctx,'Hear the map').id),true); assert.equal(on,false);
 });
-// the keys' layer (ACTIONS to remap, and recordKey) with a 3D view in Face selection or not, the Texture Editor
+// G30: the keys' layer (ACTIONS to remap, and recordKey) with a 3D view in Face selection or not, the Texture Editor
 // open or not, a cutscene panel open or not
 function keyLayers() {
   const editor = { playing: false, cam: { look: false }, surfaceTools: { mode: false } }, texedit = { open: false };

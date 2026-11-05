@@ -18,11 +18,16 @@ assistant; static/logic-vocab.js makes the page's sentences from the same table.
     pairs_for('keypad', 'door')        [{'when': 'code', 'do': ['unlock', 'open'], 'ask': ['code', 'lockAtStart']}, ...]
 """
 import json
+import re
 from pathlib import Path
 
 CONFIG = Path(__file__).resolve().parent / 'config' / 'logic.json'
 HEARS_KINDS = {'event', 'fail', 'keypad', 'option', 'motion', 'watch', 'start', 'cut', 'npcuse', 'timer', 'port',
-               'key'}         # key: a key JC presses (no object: the key is the link's own, UCMutator.Mutate tells it)
+               'key',         # key: a key JC presses (no object: the key is the link's own, UCMutator.Mutate tells it)
+               # P4 (5 Nov 2026): prop: properties watched by their tests ('test', 'testNone'; 'of': 'player' when the
+               # player's own: no object); untrigger: a slot of a hackable device's UnTriggerEvent; becomes / changes: a
+               # condition, a state or a counter (no object); gametag: the game's own Tag (no object)
+               'prop', 'untrigger', 'becomes', 'changes', 'gametag'}
 
 
 def _load(path=CONFIG):
@@ -103,7 +108,8 @@ def io_for(chain, ports=None):
     'input:<Id>' in front, with their labels and arguments."""
     family = family_of(chain)
     out = dict(family=family['id'], outputs=list(family['outputs']), inputs=list(family['inputs']),
-               default=family['inputs'][0] if family['inputs'] else '', free=list(FREE))     # the first: the usual one
+               default=family.get('default') or (family['inputs'][0] if family['inputs'] else ''),     # Connect's first verb
+               free=list(FREE))     # a family's own default (a character walks, never attacks), else its first input
     if ports:
         out['outputs'] = ['output:' + p['id'] for p in ports.get('outputs', [])] + out['outputs']
         out['inputs'] = ['input:' + p['id'] for p in ports.get('inputs', [])] + out['inputs']
@@ -184,9 +190,9 @@ def search(text, level=None, game=None):
     found = []
     for kind, table in _KINDS.items():
         for key, item in table.items():
-            words_of = ' '.join([item.get('label', ''), *item.get('kw', []), key]).lower()
+            words_of = re.split(r'[^a-z0-9]+', ' '.join([item.get('label', ''), *item.get('kw', []), key]).lower())
             if (level is None or shown_at(kind, key, level)) and (game is None or works_in(kind, key, game)) \
-                    and all(w in words_of for w in words):
+                    and all(any(h.startswith(w) for h in words_of) for w in words):   # a word's start: "kill" not "skill"
                 found.append((kind, key, item.get('label') or key))
     return found
 

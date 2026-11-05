@@ -3,9 +3,9 @@
   "title": "A script's input and output",
   "behaviour": "A rule calls a script's input (input line), the script says an output inside that call, and the rules waiting for it are told at once; the output line counts every rule told, the skipped one too. A rule told during an earlier rule's action acts in that same tick.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [634, 639], "has": "function ScriptInput(UCScript S, string inputName, string args)"},
+    {"file": "UCLink.uc", "lines": [1281, 1286], "has": "function ScriptInput(UCScript S, string inputName, string args)"},
     {"file": "UCScript.uc", "lines": [55, 78], "has": "final function Output(string OutputName)"},
-    {"file": "UCLink.uc", "lines": [224, 235], "has": "function Actor Who(Actor Other, Pawn EventInstigator)"}
+    {"file": "UCLink.uc", "lines": [288, 299], "has": "function Actor Who(Actor Other, Pawn EventInstigator)"}
   ],
   "assumes": ["A1", "A9"],
   "map": "LogicFixtures",

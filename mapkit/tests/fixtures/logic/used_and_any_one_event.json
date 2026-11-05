@@ -3,8 +3,8 @@
   "title": "Outputs heard on the same event run together",
   "behaviour": "\"used\" and \"any\" of a decoration are the same event of the object (its Event becomes UCL_<object>): one use runs both rules, in rule order. A watched output of the same object is not touched.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [196, 219], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
-    {"file": "UCLink.uc", "lines": [139, 142], "has": "else if (A.Event != Tag)"}
+    {"file": "UCLink.uc", "lines": [249, 272], "has": "function Trigger(Actor Other, Pawn EventInstigator)"},
+    {"file": "UCLink.uc", "lines": [191, 194], "has": "else if (A.Event != Tag)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

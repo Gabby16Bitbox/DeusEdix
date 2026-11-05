@@ -13,6 +13,7 @@
 //   portLabel(n, key)  a script's port ('output:<Id>', 'input:<Id>') as the script names it
 //   itemName(cls)      an item as the game names it (the conditions' "JC carries")
 import { conditionText } from './conditions.js';
+import { FLOW, flowText, stepsText } from './action-list.js';
 import { EFFECT_KINDS, effectOptions } from './interaction-blocks.js';
 import { parseFate, stateLabel } from './state-model.js';
 
@@ -61,7 +62,33 @@ const TYPES = {
   button: { value: (v) => +v || 0, text: (n) => String(n + 1) },
   bool: { value: (v, arg) => (v === undefined ? !!arg.default : !!v), text: () => '' },
   place: { value: (v) => (Array.isArray(v) ? v : null), text: () => '' },
+  // P4: a share of a whole, a class of the game (Package.Class: its own name), a crate's items with their weights,
+  // a colour #rrggbb, another rule, a kind of harm
+  percent: { value: (v, arg) => Math.max(0, Math.min(100, wholeOf(v, arg.default ?? 0))), text: (n) => String(n) },
+  itemclass: { value: TEXT.value, text: (v) => className(v) },
+  pawnclass: { value: TEXT.value, text: (v) => className(v) },
+  song: { value: TEXT.value, text: (v) => className(v) },
+  items: { value: TEXT.value, text: (v) => String(v).split(';').map((s) => s.trim()).filter(Boolean)
+    .map((s) => { const [c, w] = s.split(':'); return className(c) + (w && +w !== 1 ? ` (×${+w || 0} as likely)` : ''); }).join(', ') },
+  hex: { value: TEXT.value, text: (v) => colourName(v) },
+  rule: { value: TEXT.value, text: (v, ctx) => (ctx.ruleLabel ? ctx.ruleLabel(v) : String(v)) },
+  hurtkind: { value: TEXT.value, text: (v) => ({ fire: 'fire', poison: 'poison gas', shock: 'electricity', radiation: 'radiation' })[v] || String(v) },
 };
+// "DeusEx.WeaponPistol" -> "Weapon Pistol"
+function className(v) {
+  const n = String(v || '').split('.').pop();
+  return n.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+}
+// a colour as a word when it is near one ("red"), else its #rrggbb
+function colourName(v) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(v || '').trim());
+  if (!m) return String(v || '');
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+  const NAMED = [['red', 255, 48, 32], ['orange', 255, 140, 0], ['yellow', 255, 230, 40], ['green', 40, 220, 60], ['cyan', 40, 220, 230],
+    ['blue', 40, 80, 255], ['purple', 160, 60, 230], ['pink', 255, 100, 190], ['white', 255, 255, 255]];
+  const near = NAMED.map(([n, R, G, B]) => [n, (r - R) ** 2 + (g - G) ** 2 + (b - B) ** 2]).sort((x, y) => x[1] - y[1])[0];
+  return near[1] < 3600 ? near[0] : '#' + m[1].toLowerCase();
+}
 export const ARG_TYPES = Object.keys(TYPES);
 
 // The words a sentence takes from the page (besides the arguments): of a rule's output, and of an action
@@ -72,6 +99,13 @@ const OUTPUT_WORDS = {
   port: (l, ctx) => PORT(ctx, l.src, whenKey(l)),
   optionText: (l, ctx) => (ctx.optionText && ctx.optionText(l)) || '',
   usable: (l, ctx) => !!(ctx.usable && ctx.usable(l.src)),
+  // what a "becomes true" / "changes" rule watches: a condition, or a state or a counter
+  watch: (l, ctx) => {
+    const w = l.watch && typeof l.watch === 'object' ? l.watch : null;
+    if (!w) return '?';
+    if (l.when === 'changes') return w.counter ? `the counter ${w.counter}` : w.flag ? `the state ${w.flag}` : '?';
+    return conditionText(w, ctx.names || {});
+  },
 };
 const VERB_WORDS = {
   // the object it acts on; objects with a scripting tag are many (its 'many' sentence)
@@ -182,6 +216,8 @@ export function vocabulary(data) {
       return fill(S.when, { say: render(e, e.say, l, OUTPUT_WORDS, ctx, vocab) });
     },
     actText(x, ctx) {
+      // a step of a list of steps (If, Otherwise, End, Wait until): action-list.js says it
+      if (FLOW.has(x.verb)) return flowText(x, { name: (n) => ctx.name(n), cond: (c) => conditionText(c, conditionNames(ctx)) });
       if (x.area) {
         const a = x.area;
         return fill(S.area, { verb: vocab.verbLabel(x.verb, a.kind).toLowerCase(), count: a.members.length,
@@ -198,7 +234,8 @@ export function vocabulary(data) {
     sentence(l, ctx) {
       const names = conditionNames(ctx);
       return fill(S.rule, { when: vocab.whenText(l, ctx), checks: (l.requires || []).map((c) => conditionText(c, names)).join(S.checks),
-        steps: vocab.steps(l.do, ctx) || S.nothing, once: l.once ? S.once : '' });
+        steps: (l.steps ? stepsText(l, (x) => vocab.actText(x, ctx), { name: (n) => ctx.name(n), cond: (c) => conditionText(c, names) })
+          : vocab.steps(l.do, ctx)) || S.nothing, once: l.once ? S.once : '' });
     },
     // the verb that undoes it ('' none), what an output or a verb takes
     inverse: (v) => (entry('verb', v) || {}).inverse || '',
@@ -213,7 +250,7 @@ export function vocabulary(data) {
     // level and working in the game asked for: [{kind, id, label}], outputs first, in the catalogue's order.
     search(text, { level = LEVELS[LEVELS.length - 1], game = '' } = {}) {
       const want = String(text).toLowerCase().split(/\s+/).filter(Boolean);
-      const found = (id, e) => { const hay = [e.label, ...(e.kw || []), id].join(' ').toLowerCase(); return want.every((w) => hay.includes(w)); };
+      const found = (id, e) => { const hay = [e.label, ...(e.kw || []), id].join(' ').toLowerCase().split(/[^a-z0-9]+/); return want.every((w) => hay.some((h) => h.startsWith(w))); };   // a word's start: "kill" not "skill"
       return Object.entries(tables).flatMap(([kind, table]) => Object.entries(table)
         .filter(([id, e]) => vocab.shownAt(kind, id, level) && (!game || vocab.worksIn(kind, id, game)) && found(id, e))
         .map(([id, e]) => ({ kind, id, label: e.label || id })));

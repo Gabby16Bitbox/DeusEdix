@@ -179,7 +179,7 @@ const experimentalGeometryItem = () => ({
 // the editor's panels (workspace.js): the Window menu shows and hides them, the command palette shows them; a third
 // item is the panel's key (History's Ctrl+U: it brings the panel to the front first)
 const PANELS = [['hierarchy', 'Hierarchy'], ['inspector', 'Inspector'], ['browser', 'Asset browser'], ['console', 'Console'],
-  ['history', 'History', 'history']];
+  ['history', 'History', 'history'], ['logic', 'Logic', 'logic']];
 function themes() {
   return [['classic', 'Deus Ex · Classic'], ['classic-rounded', 'Deus Ex · Classic Rounded'], ['mankind', 'Mankind Divided'],
     ['mankind-rounded', 'Mankind Divided · Rounded']].map(([v, label]) => ({
@@ -300,6 +300,9 @@ const MENUS = [
     { label: 'AI paths', key: 'paths', checked: () => !!document.getElementById('pathsbtn')?.classList.contains('on'), run: click('pathsbtn') },
     { label: 'Test a route', map: true, run: () => { const p = document.getElementById('pathsbtn'), n = document.getElementById('navbtn'); if (p && n && !p.classList.contains('on') && !n.classList.contains('on')) p.click(); click('routebtn')(); } },
     { label: 'Walkable area', map: true, checked: () => !!document.getElementById('navbtn')?.classList.contains('on'), run: click('navbtn') },
+    // the logic's wires in the 3D view (logic-wires.js), as TrenchBroom's entity links
+    ...[['off', 'Logic wires: off'], ['selected', 'Logic wires: selected object'], ['chain', 'Logic wires: selected chain'], ['all', 'Logic wires: all']]
+      .map(([mode, label]) => ({ label, map: true, checked: () => ed()?.logicWireMode === mode, run: () => ed()?.setLogicWireMode(mode) })),
     { label: 'Frame selection', key: 'focus', map: true, run: () => press('focus') },
     { label: 'Align view to selected', key: 'viewtoselected', map: true, run: () => press('viewtoselected') },
     { label: 'Pilot selection', key: 'pilot', map: true, checked: () => !!ed()?.piloting, run: () => press('pilot') },

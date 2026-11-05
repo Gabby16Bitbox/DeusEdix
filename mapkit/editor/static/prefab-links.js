@@ -1,4 +1,4 @@
-// Linked prefabs, as Unity's prefab instances: a copy of a prefab of the project's library placed in a map (an
+// Linked prefabs, as Unity's prefab instances (G22): a copy of a prefab of the project's library placed in a map (an
 // entry of edits.prefabs) stays linked to its prefab, by the prefab's line (the id of its first version,
 // prefab_library.py) and the version it was placed at or last updated to. The objects of a copy are named after the
 // copy and their slot in the prefab (prefabs.py place): an object keeps its name in every version, so what the user

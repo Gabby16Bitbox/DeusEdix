@@ -1,4 +1,4 @@
-// Check map's rules about where things are, as Unity's Search finds renderers overlapping others: the same
+// Check map's rules about where things are (G31), as Unity's Search finds renderers overlapping others: the same
 // object twice at one spot, probably a double paste (Ctrl+D, Ctrl+V, an Alt+drag let go where it began: in Deus Ex
 // two pickups, two lights, a door twice), and a decoration or a thing to pick up left in the air. Pure: app.js
 // (checkMap) gives the objects as the 3D view has them, their classes' chains and the rays down, and runs the fixes

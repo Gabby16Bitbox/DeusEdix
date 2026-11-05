@@ -8,7 +8,7 @@ import { conditionHolds, conditionText, mountConditions, newCondition, CONDITION
 import { decodeCondition } from '../editor/static/logic-log.js';
 import { holds as storyHolds } from '../editor/static/story-sim.js';
 
-// the game as Holds reads it: states, counters, JC's items, credits and skills, who is alive
+// the game as Holds reads it: states, counters, the player's items, credits and skills, who is alive
 const game = ({ flags = {}, counters = {}, items = [], alive = [], skills = {}, credits = 0 } = {}) => ({
   flag: (n) => !!flags[n], counter: (n) => counters[n] || 0, carries: (cls) => items.includes(cls), alive: (n) => alive.includes(n),
   skill: (n) => skills[n] ?? 0, credits });
@@ -31,7 +31,7 @@ test('a state: Yes or No as asked, and a state never set is No', () => {
   assert.equal(conditionHolds({ flag: 'Power' }, g), true, 'no "is": Yes, as the editor writes it (conditions.py _yes)');
 });
 
-test('JC carries an item, or does not', () => {
+test('the player carries an item, or does not', () => {
   const g = game({ items: ['DeusEx.Multitool'] });
   assert.equal(conditionHolds({ type: 'item', item: 'DeusEx.Multitool', has: true }, g), true);
   assert.equal(conditionHolds({ type: 'item', item: 'DeusEx.Multitool', has: false }, g), false);
@@ -47,7 +47,7 @@ test('a character is alive (not killed, not knocked out, still there), or not', 
   assert.equal(conditionHolds({ type: 'alive', actor: 'Guard2', is: true }, g), false);
 });
 
-test("JC's skill is at least the level; a skill the game does not know (-1) never is", () => {
+test("the player's skill is at least the level; a skill the game does not know (-1) never is", () => {
   const g = game({ skills: { SkillLockpicking: 2 } });
   assert.equal(conditionHolds({ type: 'skill', skill: 'SkillLockpicking', level: 2 }, g), true);
   assert.equal(conditionHolds({ type: 'skill', skill: 'SkillLockpicking', level: 3 }, g), false);
@@ -55,7 +55,7 @@ test("JC's skill is at least the level; a skill the game does not know (-1) neve
   assert.equal(conditionHolds({ type: 'skill', skill: 'SkillNone', level: 0 }, { skill: () => -1 }), false);
 });
 
-test("a counter and JC's credits, with each comparison as the game's Compare makes it", () => {
+test("a counter and the player's credits, with each comparison as the game's Compare makes it", () => {
   // [value, op, number, holds]: each op on both sides of its edge
   const table = [[2, '<', 3, true], [3, '<', 3, false], [3, '<=', 3, true], [4, '<=', 3, false], [3, '==', 3, true], [2, '==', 3, false],
     [2, '!=', 3, true], [3, '!=', 3, false], [3, '>=', 3, true], [2, '>=', 3, false], [4, '>', 3, true], [3, '>', 3, false]];

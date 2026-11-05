@@ -3,8 +3,8 @@
   "title": "A counter, a state or a goal with no name fails, the next actions still run",
   "behaviour": "The editor builds such an action with no name and the game refuses it with \"noname\" after its act line.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [576, 587], "has": "else if (verb == \"goal\" && a == \"\")"},
-    {"file": "UCLink.uc", "lines": [625, 628], "has": "if (counter == '')"}
+    {"file": "UCLink.uc", "lines": [815, 826], "has": "else if (verb == \"goal\" && a == \"\")"},
+    {"file": "UCLink.uc", "lines": [1270, 1273], "has": "if (counter == '')"}
   ],
   "assumes": ["A5"],
   "map": "LogicFixtures",

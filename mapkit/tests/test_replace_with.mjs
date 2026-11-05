@@ -38,7 +38,7 @@ function fixture() {
         { id: 'L2', src: 'Button1', when: 'used', do: [{ verb: 'attack', target: 'Troop1' }] }] },
     baseActors: [troop, door], structures: {}, actorStruct: {}, proxies, mapGeneration: 1, propertySlider: null, anim: null,
     selected: null, groupPivot: { userData: {} }, members: () => [], placing: null, answer: true, asked: [],
-    ...replace, baseOf, unquote, isEffectPoint: (a) => a.cls === 'UCEffectPoint', isParticleClass: (cls) => /ParticleGenerator$/.test(cls), window: {}, console,
+    ...replace, baseOf, unquote, isEffectPoint: (a) => a.cls === 'UCEffectPoint', window: {}, console,
     r1: (x) => Math.round(x * 10) / 10, UE: (v) => [v.x, v.y, v.z], builtOf: () => 1, objectRotation: (p) => p.rot,
     modelClassInfo: () => ({}), addedKind: (cls) => (cls === 'Light' ? 'light' : 'prop'), hierLabel: (a) => a.name, routeUsers: () => [],
     isCharacter: (a) => a.kind === 'pawn' || !!CLASSES[a.cls]?.character, hasOriginalConversations: () => false,

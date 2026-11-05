@@ -1,4 +1,4 @@
-// The editor's panels (Hierarchy, Inspector, Browser, Console, History), in the same webview. Only the panel roots are moved;
+// The editor's panels (Hierarchy, Inspector, Browser, Console, History, Logic), in the same webview. Only the panel roots are moved;
 // their contents and event handlers remain owned by the editor.
 import { readLayouts, findLayout, layoutName, withLayout, withoutLayout, layoutsFile, importLayouts, nextMaximized, shownLayout,
   uncovered } from './window-layouts.js';
@@ -6,13 +6,14 @@ import { readLayouts, findLayout, layoutName, withLayout, withoutLayout, layouts
 const STORAGE = 'deusedix.workspace.v1';
 // the layouts saved under a name (Window > Save layout as…): the user's, kept in this browser for every project
 const LAYOUTS = 'deusedix.workspace.layouts.v1';
-const IDS = ['hierarchy', 'inspector', 'browser', 'console', 'history'];
+const IDS = ['hierarchy', 'inspector', 'browser', 'console', 'history', 'logic'];
 const DOCKS = ['left', 'right', 'bottom'];
-const LABELS = { hierarchy: 'Hierarchy', inspector: 'Inspector', browser: 'Browser', console: 'Console', history: 'History' };
-const ROOTS = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'console', history: 'history' };
+const LABELS = { hierarchy: 'Hierarchy', inspector: 'Inspector', browser: 'Browser', console: 'Console', history: 'History', logic: 'Logic' };
+const ROOTS = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'console', history: 'history', logic: 'logic' };
 // where each panel docks at first: the Console a tab of the bottom dock next to the Browser (Unity's Project | Console),
-// History a tab of the right one next to the Inspector (where Unity's Undo History is often docked)
-const HOME = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'bottom', history: 'right' };
+// History a tab of the right one next to the Inspector (where Unity's Undo History is often docked), Logic a tab of
+// the bottom one (a wide graph)
+const HOME = { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'bottom', history: 'right', logic: 'bottom' };
 const clone = value => JSON.parse(JSON.stringify(value));
 const bounded = (value, min, max, fallback) => Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 

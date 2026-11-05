@@ -35,7 +35,9 @@ HIDE = {'UCTriggerBox': ('CollisionRadius', 'CollisionHeight', 'TriggerType')}
 # Their defaults are fixed here; no expensive SDK defaults scan is needed on upgrade.
 EDITOR_DEFAULTS = {'UCTriggerBox': {'bCylinder': ['False'], 'CylinderRadius': ['64.000000'], 'CylinderHeight': ['64.000000']},
                    'UCSoundFX': {'FXSounds': ['None'] * 7, 'FXOrder': ['0'], 'RandomPitch': ['0.000000'],
-                                 'RandomVolume': ['0.000000'], 'RepeatMin': ['0.000000'], 'RepeatMax': ['0.000000']}}
+                                 'RandomVolume': ['0.000000'], 'RepeatMin': ['0.000000'], 'RepeatMax': ['0.000000']},
+                   # how many of its contents drop out (Containers.numThings, default 1): not in the class dump
+                   'Containers': {'numThings': ['1']}}
 CHOICES = {'DamageType': ['Radiation', 'Burned', 'Shocked', 'PoisonGas', 'Poison', 'TearGas', 'HalonGas', 'Drowned']}
 FIELDS = [
     ('Links', 'Actor', 'Tag', 'Tag', 'name', 'The name other objects use to find it (the door a button opens, a story action...)'),
@@ -74,9 +76,12 @@ FIELDS = [
      'puts it in the DataVault. Your text replaces the game text below'),
     ('Text', 'InformationDevices', 'textTag', 'Game text', 'name', 'A text of the game it shows instead (e.g. 01_Datacube03); '
      'None when it shows your own text'),
-    ('Contents', 'Containers', 'Contents', 'Contains', 'item', 'What drops out when it is broken'),
-    ('Contents', 'Containers', 'Content2', 'Also contains', 'item', ''),
-    ('Contents', 'Containers', 'Content3', 'Also contains', 'item', ''),
+    # Containers.Destroyed: Content2, then Content3, each takes the place of Contents 3 times in 10 (with all three:
+    # about 5 in 10 the first, 2 the second, 3 the third); nothing drops out without Contents
+    ('Contents', 'Containers', 'Contents', 'Contains', 'item', 'What drops out when it is broken (the two below count only with this one)'),
+    ('Contents', 'Containers', 'Content2', 'Or sometimes', 'item', 'Drops out instead about 3 times in 10'),
+    ('Contents', 'Containers', 'Content3', 'Or sometimes', 'item', 'Drops out instead about 3 times in 10 (with all three: about 5 in 10 the first, 2 the second, 3 this one)'),
+    ('Contents', 'Containers', 'numThings', 'How many', 'int', 'How many of it drop out'),
     ('Character', 'ScriptedPawn', 'Orders', 'Orders', 'choice', 'What they do when the map starts'),
     # Gabby, 17 Oct 2026: a character the story or an interaction brings in later (a button, a zone...): the
     # game's own bInWorld (out of the world until EnterWorld; the interaction "Come back" does it, out of JC's sight)
@@ -220,7 +225,14 @@ FIELDS = [
 # Appearance-only replacement clears the old actor's skin overrides without touching its class.
 # the Inspector's Movement of a character (static/behaviours.js): set there, not in the Properties panel
 MOVEMENT = {'GroundSpeed', 'JumpZ', 'MaxStepHeight', 'AirControl'}
-NAMES = sorted({f[2] for f in FIELDS} | {'TextPackage', 'Skin', 'MultiSkins'} | MOVEMENT)
+# the Inspector's Particles section of a generator (static/particles.js PARTICLE_FIELDS): set there, not in the
+# Properties panel. Without them here a change made there (a damage, a texture, a colour) never reached the game:
+# only the values the generator was placed with did (5 Nov 2026).
+PARTICLES = {'particleTexture', 'frequency', 'checkTime', 'numPerSpawn', 'ejectSpeed', 'riseRate', 'particleLifeSpan',
+             'particleDrawScale', 'bRandomEject', 'bGravity', 'bScale', 'bFade', 'bParticlesUnlit', 'bModulated',
+             'FxArea', 'FxDamage', 'FxDamageType', 'FxRadius', 'FxReach', 'FxEvery', 'bFxHurtAll', 'bFxStartOn', 'FxOnTime',
+             'bFxToggle'}
+NAMES = sorted({f[2] for f in FIELDS} | {'TextPackage', 'Skin', 'MultiSkins'} | MOVEMENT | PARTICLES)
 # read with the class defaults, not in the panel: what a zone does to the 3D view's Effects (zones.look)
 ZONE_LOOK = ('ViewFog', 'ViewFlash', 'bFogZone', 'FogColor', 'FogDistance')
 

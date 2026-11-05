@@ -71,4 +71,30 @@ class CpuPolicy(unittest.TestCase):
             self.assertEqual(worker(),42)
 
 
+
+class BackgroundWork(unittest.TestCase):
+    def test_a_background_process_runs_below_normal_and_gets_no_fast_cores(self):
+        # the Pieces scan (pieces_library._read_map): its engine processes give way to the person's programs
+        import subprocess
+        import sys
+        proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'])
+        try:
+            with build_cpu.background():
+                self.assertEqual(build_cpu.prefer_performance(int(proc._handle)), [])
+                self.assertIsNone(build_cpu._prefer_thread())
+            if os.name == 'nt':
+                import ctypes
+                k = ctypes.WinDLL('kernel32')
+                k.GetPriorityClass.argtypes = [ctypes.c_void_p]
+                self.assertEqual(k.GetPriorityClass(ctypes.c_void_p(int(proc._handle))), 0x4000)
+        finally:
+            proc.kill()
+            proc.wait()
+
+    def test_outside_background_nothing_changes(self):
+        with build_cpu.background():
+            pass
+        self.assertFalse(getattr(build_cpu._local, 'background', False))
+
+
 if __name__=='__main__': unittest.main()

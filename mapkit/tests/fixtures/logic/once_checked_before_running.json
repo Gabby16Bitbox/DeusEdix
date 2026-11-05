@@ -3,8 +3,8 @@
   "title": "Only once is checked before running",
   "behaviour": "A rule that runs only once and is still doing its delayed actions is skipped as \"once\", not \"running\": RunRule checks once first.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [270, 273], "has": "if (bOnce && bDone)"},
-    {"file": "UCLink.uc", "lines": [275, 278], "has": "if (IsInState('Running'))"}
+    {"file": "UCLink.uc", "lines": [351, 354], "has": "if (bOnce && bDone)"},
+    {"file": "UCLink.uc", "lines": [356, 359], "has": "if (IsInState('Running'))"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

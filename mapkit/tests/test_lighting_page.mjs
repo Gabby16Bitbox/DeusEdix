@@ -1,4 +1,4 @@
-// app.js's own code for the lighting of the 3D view (G25), run as it is on stand-ins: a view of the last rebuild
+// app.js's own code for the lighting of the 3D view (G25, G26), run as it is on stand-ins: a view of the last rebuild
 // chosen while View > Effects shows lights the map again (setViewMode, setLightMode), Effects does not draw every frame
 // while Play runs (drawEveryFrame); the lamps as the project's game shows them (part B, 1 Nov 2026: Revision never lights
 // a flickering lamp: the live preview and Lights here leave it out, Effects gives it no light; a corona only with a Skin;
@@ -34,8 +34,8 @@ function viewPage({ effects = true } = {}) {
     viewModes: { mode: null, set(mode) { this.mode = mode; return Promise.resolve(); } },
     applyLighting() { c.lit++; }, wake() {},
     // drawEveryFrame's
-    awakeUntil: 0, cam: { look: false }, previewing: null, tc: { dragging: false }, anim: null, effectPreviewsActive: () => false, particlePreviewsActive: () => false,
-    weatherPreview: {active: false}, skyPreview: {animating: false}, showPaths: false, gameView: { active: false },
+    awakeUntil: 0, cam: { look: false }, previewing: null, tc: { dragging: false }, anim: null, effectPreviewsActive: () => false,
+    showPaths: false, gameView: { active: false },
   });
   vm.runInContext(['effectsShown', 'setViewMode', 'setLightMode', 'drawEveryFrame'].map(body).join('\n'), c);
   return c;

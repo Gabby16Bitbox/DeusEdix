@@ -17,12 +17,12 @@ import logic_catalog  # noqa: E402
 class Words(unittest.TestCase):
     def test_labels_as_the_menus_say_them(self):
         self.assertEqual(logic_catalog.label('output', 'dies'), 'they are killed or knocked out')
-        self.assertEqual(logic_catalog.label('verb', 'attack'), 'Attack JC')
+        self.assertEqual(logic_catalog.label('verb', 'attack'), 'Attack the player')
         self.assertEqual(logic_catalog.label('verb', 'on', 'soundfx'), 'Play it')          # its family's own words
         self.assertEqual(logic_catalog.label('verb', 'off', 'alarm'), 'Stop the alarm')
         self.assertEqual(logic_catalog.label('verb', 'on', 'door'), 'Switch on')
-        self.assertEqual(logic_catalog.label('verb', 'leave'), 'Leave (when JC does not see)')
-        self.assertEqual(logic_catalog.label('output', 'leave'), 'JC walks out')            # the same id, another table
+        self.assertEqual(logic_catalog.label('verb', 'leave'), 'Leave (when the player does not see)')
+        self.assertEqual(logic_catalog.label('output', 'leave'), 'the player walks out')            # the same id, another table
         self.assertEqual(logic_catalog.label('verb', 'bogus'), 'bogus')
 
     def test_a_mover_says_what_it_is(self):
@@ -60,7 +60,8 @@ class Words(unittest.TestCase):
 
     def test_search_by_label_keyword_and_id(self):
         self.assertEqual(logic_catalog.search('kill'), [('output', 'dies', 'they are killed or knocked out'),
-                                                        ('verb', 'attack', 'Attack JC')])
+                                                        ('output', 'killed', 'they are killed'),
+                                                        ('verb', 'attack', 'Attack the player')])   # not "skill points"
         self.assertIn(('verb', 'floor', 'Go to a floor'), logic_catalog.search('elevator'))
         self.assertEqual(logic_catalog.search('keypad wrong'), [('output', 'wrongcode', 'a wrong code is typed')])
         self.assertIn('input', [k for _, k, _ in logic_catalog.search('script')])

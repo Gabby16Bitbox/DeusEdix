@@ -1,0 +1,1956 @@
+{
+  "version": 1,
+  "reviewed": {
+    "4296fa1473924c41fcd5b24e": {
+      "label": "Hanging monitor",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "monitor",
+        "screen",
+        "schermo",
+        "terminal",
+        "hanging",
+        "suspended",
+        "soffitto"
+      ],
+      "source": "10_Paris_Catacombs_Metro~613"
+    },
+    "47a4efecf986f6877b2d9d2f": {
+      "label": "Hanging monitor",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "monitor",
+        "screen",
+        "schermo",
+        "terminal",
+        "hanging",
+        "suspended",
+        "soffitto"
+      ],
+      "source": "14_Oceanlab_Silo~2303"
+    },
+    "d6c1d136833199415765fc85": {
+      "label": "Hanging monitor",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "monitor",
+        "screen",
+        "schermo",
+        "terminal",
+        "hanging",
+        "suspended",
+        "soffitto"
+      ],
+      "source": "11_Paris_Underground~907"
+    },
+    "393a69195d6bef5804bc41ab": {
+      "label": "Computer cabinet",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "cabinet",
+        "console",
+        "terminal",
+        "terminale",
+        "armadio"
+      ],
+      "source": "09_NYC_Ship~1022"
+    },
+    "021ed3b98096a00316a278b3": {
+      "label": "Computer cabinet",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "cabinet",
+        "console",
+        "terminal",
+        "terminale",
+        "armadio"
+      ],
+      "source": "09_NYC_ShipBelow~870"
+    },
+    "e3836ef6a582e5b84257d088": {
+      "label": "Computer cabinet",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "cabinet",
+        "console",
+        "terminal",
+        "terminale",
+        "armadio"
+      ],
+      "source": "09_NYC_Ship~985"
+    },
+    "fbf64b7ab37cc1013629677a": {
+      "label": "Circular computer kiosk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "kiosk",
+        "terminal",
+        "circular",
+        "rotondo",
+        "chiosco"
+      ],
+      "source": "06_HongKong_TongBase~195"
+    },
+    "50882cd11faea3c83d8f7720": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2249"
+    },
+    "8ad49a9ec5cb2ca69f29ef1d": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "15_Area51_Entrance~2070"
+    },
+    "e0bdf465096c7ff21e99a0de": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~1572"
+    },
+    "2576c6f52f96e1421147ced0": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~1573"
+    },
+    "70cfc0fee0cd7804bc2992ca": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~1575"
+    },
+    "85bc4165673e8620d7c6f18e": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~1576"
+    },
+    "036de7f7398fcf85c710c87a": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2152"
+    },
+    "66eb6413e03179a354b2f2b6": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2153"
+    },
+    "eaab2437e5a44c1037d5223b": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2154"
+    },
+    "a6023c899f40e8a4e127d2f5": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2164"
+    },
+    "b178d1c43080360d5538b2f0": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2165"
+    },
+    "b36f9d1f21d962dbfdc59dc0": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2166"
+    },
+    "7fb6da91fc6c74f03ab98270": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "14_Oceanlab_UC~1260"
+    },
+    "88e2c2ead6dfd43c18733037": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "14_Oceanlab_UC~3526"
+    },
+    "3258f2ee5a149fcc47b0d18c": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "14_Oceanlab_UC~3528"
+    },
+    "8df17b6a7b2f55d8b6a43854": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "14_Oceanlab_UC~3529"
+    },
+    "e32d34a5d27b8950e0fdd0f0": {
+      "label": "Display panel",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "screen",
+        "display",
+        "monitor",
+        "schermo",
+        "pannello",
+        "terminal",
+        "terminale"
+      ],
+      "source": "14_Oceanlab_UC~1261"
+    },
+    "90ea7ffaef47ef4e978b3863": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "12_Vandenberg_Computer~253"
+    },
+    "b323249ee7775ec61f141761": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Oceanlab_UC~1244"
+    },
+    "61f51c869866b1bfde482edd": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Vandenberg_Sub~967"
+    },
+    "ef8ffabb07caf93b6e0d7ac2": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Oceanlab_UC~1231"
+    },
+    "03a590acc99753a3e97c5350": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Oceanlab_UC~1249"
+    },
+    "902f52397ed053cfee35622a": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Vandenberg_Sub~962"
+    },
+    "5f8394aff7c58dcd2e3efafe": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Vandenberg_Sub~2868"
+    },
+    "4ee542f98ebfe569a44b3192": {
+      "label": "Computer console desk",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "console",
+        "desk",
+        "terminal",
+        "terminale",
+        "scrivania",
+        "workstation",
+        "monitor",
+        "keyboard"
+      ],
+      "source": "14_Vandenberg_Sub~3260"
+    },
+    "75b2dffb3ad96f60d16f2196": {
+      "label": "Equipment control cabinet",
+      "category": "Electronics · Control panels",
+      "keywords": [
+        "equipment",
+        "control",
+        "cabinet",
+        "panel",
+        "console",
+        "machine",
+        "pannello",
+        "macchina",
+        "armadio"
+      ],
+      "source": "03_NYC_BatteryPark~447"
+    },
+    "9784bd8da8272befa497ed75": {
+      "label": "Equipment control cabinet",
+      "category": "Electronics · Control panels",
+      "keywords": [
+        "equipment",
+        "control",
+        "cabinet",
+        "panel",
+        "console",
+        "machine",
+        "pannello",
+        "macchina",
+        "armadio"
+      ],
+      "source": "02_NYC_BatteryPark~688"
+    },
+    "02be1d5119cbb7772b38d158": {
+      "label": "Equipment control cabinet",
+      "category": "Electronics · Control panels",
+      "keywords": [
+        "equipment",
+        "control",
+        "cabinet",
+        "panel",
+        "console",
+        "machine",
+        "pannello",
+        "macchina",
+        "armadio"
+      ],
+      "source": "02_NYC_Warehouse~741"
+    },
+    "5d79100d53e42324ed1d699a": {
+      "label": "Equipment control cabinet",
+      "category": "Electronics · Control panels",
+      "keywords": [
+        "equipment",
+        "control",
+        "cabinet",
+        "panel",
+        "console",
+        "machine",
+        "pannello",
+        "macchina",
+        "armadio"
+      ],
+      "source": "02_NYC_Warehouse~770"
+    },
+    "85a9e76c0ad0e732b59f042e": {
+      "label": "Equipment control cabinet",
+      "category": "Electronics · Control panels",
+      "keywords": [
+        "equipment",
+        "control",
+        "cabinet",
+        "panel",
+        "console",
+        "machine",
+        "pannello",
+        "macchina",
+        "armadio"
+      ],
+      "source": "09_NYC_Dockyard~494"
+    },
+    "154d87d35376fcb5364e962c": {
+      "label": "Equipment control cabinet",
+      "category": "Electronics · Control panels",
+      "keywords": [
+        "equipment",
+        "control",
+        "cabinet",
+        "panel",
+        "console",
+        "machine",
+        "pannello",
+        "macchina",
+        "armadio"
+      ],
+      "source": "14_Oceanlab_Silo~2057"
+    },
+    "26491446f931bb0e1cec1e46": {
+      "label": "Monitor array",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "monitors",
+        "monitor",
+        "display",
+        "array",
+        "screens",
+        "schermi",
+        "terminal",
+        "terminals"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~2241"
+    },
+    "408d144a84cb7d3dad6007ae": {
+      "label": "Monitor array",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "monitors",
+        "monitor",
+        "display",
+        "array",
+        "screens",
+        "schermi",
+        "terminal",
+        "terminals"
+      ],
+      "source": "05_NYC_UNATCOMJ12lab~1929"
+    },
+    "86e1fed2eb0e3188dd7abf14": {
+      "label": "Monitor array",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "monitors",
+        "monitor",
+        "display",
+        "array",
+        "screens",
+        "schermi",
+        "terminal",
+        "terminals"
+      ],
+      "source": "11_Paris_Underground~1539"
+    },
+    "0f5cfbca95708b12eaa9f6d9": {
+      "label": "Computer workstation",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "pc",
+        "workstation",
+        "monitor",
+        "desk",
+        "terminal",
+        "terminale"
+      ],
+      "source": "09_NYC_ShipBelow~1426"
+    },
+    "b63c077a4941187d2d73946f": {
+      "label": "Computer workstation",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "computer",
+        "pc",
+        "workstation",
+        "monitor",
+        "desk",
+        "terminal",
+        "terminale"
+      ],
+      "source": "11_Paris_Cathedral~4992"
+    },
+    "9198c059450ff8988af1e383": {
+      "label": "Planter",
+      "category": "Decorations · Plants",
+      "keywords": [
+        "plant",
+        "planter",
+        "pianta",
+        "vaso",
+        "plants",
+        "piante"
+      ],
+      "source": "02_NYC_Street~2577"
+    },
+    "47667cef2a02ff91e9aff21d": {
+      "label": "Planter",
+      "category": "Decorations · Plants",
+      "keywords": [
+        "plant",
+        "planter",
+        "pianta",
+        "vaso",
+        "plants",
+        "piante"
+      ],
+      "source": "04_NYC_NSFHQ~1611"
+    },
+    "362eb133a9cfada021a255c9": {
+      "label": "Planter",
+      "category": "Decorations · Plants",
+      "keywords": [
+        "plant",
+        "planter",
+        "pianta",
+        "vaso",
+        "plants",
+        "piante"
+      ],
+      "source": "06_HongKong_WanChai_Compound~1540"
+    },
+    "628539a4f87e01042c4ceced": {
+      "label": "Planter",
+      "category": "Decorations · Plants",
+      "keywords": [
+        "plant",
+        "planter",
+        "pianta",
+        "vaso",
+        "plants",
+        "piante"
+      ],
+      "source": "11_Paris_Underground~1070"
+    },
+    "d97245a1e80065f09ab88865": {
+      "label": "Planter",
+      "category": "Decorations · Plants",
+      "keywords": [
+        "plant",
+        "planter",
+        "pianta",
+        "vaso",
+        "plants",
+        "piante"
+      ],
+      "source": "06_HongKong_WanChai_Compound~2289"
+    },
+    "51cc95fed0379f5738130650": {
+      "label": "Plant",
+      "category": "Decorations · Plants",
+      "keywords": [
+        "plant",
+        "tree",
+        "pianta",
+        "albero",
+        "foliage"
+      ],
+      "source": "11_Paris_Underground~82"
+    },
+    "30f96212aed979501e3e2681": {
+      "label": "Bench",
+      "category": "Furniture · Seating",
+      "keywords": [
+        "bench",
+        "seat",
+        "panchina",
+        "seduta",
+        "sedia"
+      ],
+      "source": "04_NYC_NSFHQ~2191"
+    },
+    "e25649a2fbf88f27641d4775": {
+      "label": "Bench",
+      "category": "Furniture · Seating",
+      "keywords": [
+        "bench",
+        "seat",
+        "panchina",
+        "seduta",
+        "sedia"
+      ],
+      "source": "02_NYC_BatteryPark~541"
+    },
+    "82be1254d7d7144159ada95b": {
+      "label": "Pipe elbow",
+      "category": "Pipes, vents and cables",
+      "keywords": [
+        "pipe",
+        "elbow",
+        "tubo",
+        "tubi",
+        "curva",
+        "gomito"
+      ],
+      "source": "08_NYC_Street~2532"
+    },
+    "d2939281af7304430e19e529": {
+      "label": "Stair railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "stair",
+        "stairs",
+        "ringhiera",
+        "scale",
+        "parapetto"
+      ],
+      "source": "12_Vandenberg_Cmd~3549"
+    },
+    "860e2cdc92ac2ccc63acb71c": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~1871"
+    },
+    "0ef85a75e4e19370a5229e1d": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_Street~655"
+    },
+    "185f71161361783bf3c012a1": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "09_NYC_ShipBelow~1713"
+    },
+    "428cbc89651e9e5816e470b7": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~666"
+    },
+    "048c680fded3a5319643b2a0": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~670"
+    },
+    "138c925b51b28054f4b06238": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "03_NYC_BrooklynBridgeStation~1030"
+    },
+    "9ff46e200ae42de597c193fe": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~665"
+    },
+    "aa433fc28bef1f73974f693e": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "03_NYC_BrooklynBridgeStation~1029"
+    },
+    "2205166a0b75debd34316fbf": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "08_NYC_Street~3727"
+    },
+    "2ee9c0eab4c287c48cb75b88": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "10_Paris_Catacombs_Tunnels~1606"
+    },
+    "7093b1a5f75f3212a8489597": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~664"
+    },
+    "3e59a3d957447e1394a2dac6": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~669"
+    },
+    "de3880abe926f8a6f4396db8": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_BatteryPark~678"
+    },
+    "13ec07b280894ef75625b22f": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "02_NYC_Hotel~307"
+    },
+    "14cbdaf151a4764fb4555d96": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "06_HongKong_WanChai_Canal~1601"
+    },
+    "4d492ad6fcb64f7626a2e4f7": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "08_NYC_Street~3813"
+    },
+    "3d8bc3405721304e2d2851d9": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "10_Paris_Catacombs_Tunnels~1456"
+    },
+    "a5ec43677e7cdac8e9e1b793": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "10_Paris_Catacombs_Tunnels~1457"
+    },
+    "bfe4c88bbbf775e2c5b1b8f9": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "11_Paris_Cathedral~4064"
+    },
+    "6e3627cdb5d78199138ee3d7": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "11_Paris_Cathedral~4065"
+    },
+    "59d5d01c835dbd24609b0d18": {
+      "label": "Mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "cot",
+        "dormitory",
+        "bedroom"
+      ],
+      "source": "12_Vandenberg_Gas~1031"
+    },
+    "ab812e68f68aa6066c8ec1ba": {
+      "label": "Bed mattress",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "hospital",
+        "medical",
+        "pillow",
+        "cuscino"
+      ],
+      "source": "09_NYC_Ship~1035"
+    },
+    "0838e125452b0b3b0b33f0ab": {
+      "label": "Single bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "single",
+        "singolo",
+        "hospital",
+        "infirmary",
+        "dormitory"
+      ],
+      "source": "02_NYC_Hotel~581"
+    },
+    "16e1c39d600780ca399eebb7": {
+      "label": "Single bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "single",
+        "singolo",
+        "hospital",
+        "infirmary",
+        "dormitory"
+      ],
+      "source": "02_NYC_Underground~651"
+    },
+    "582c4df225a4667008077f70": {
+      "label": "Single bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "single",
+        "singolo",
+        "hospital",
+        "infirmary",
+        "dormitory"
+      ],
+      "source": "09_NYC_Graveyard~326"
+    },
+    "1a91a58b8a10831807cd1597": {
+      "label": "Single bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "single",
+        "singolo",
+        "hospital",
+        "infirmary",
+        "dormitory"
+      ],
+      "source": "09_NYC_Ship~923"
+    },
+    "75324f4feaf6e64e27e78cf6": {
+      "label": "Single bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "single",
+        "singolo",
+        "hospital",
+        "infirmary",
+        "dormitory"
+      ],
+      "source": "08_NYC_Hotel~479"
+    },
+    "11808e7b920df85821d001e5": {
+      "label": "Bunk bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "bunk",
+        "castello",
+        "cuccetta",
+        "cot",
+        "dormitory"
+      ],
+      "source": "09_NYC_Dockyard~1295"
+    },
+    "2c28c5d81e153ffd4dd6b88b": {
+      "label": "Wooden bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "wood",
+        "wooden",
+        "legno",
+        "bedroom",
+        "camera"
+      ],
+      "source": "02_NYC_Hotel~175"
+    },
+    "e0d0fe700d2c0973580fa882": {
+      "label": "Wooden bed",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "wood",
+        "wooden",
+        "legno",
+        "bedroom",
+        "camera"
+      ],
+      "source": "08_NYC_Street~480"
+    },
+    "6ce1b386a57269ba56426e40": {
+      "label": "Bed and curtains",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "curtain",
+        "tende",
+        "bedroom",
+        "group",
+        "assembly"
+      ],
+      "source": "02_NYC_Hotel~870"
+    },
+    "6fbf5c89874450cc8e0ded34": {
+      "label": "Bed and curtains",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "curtain",
+        "tende",
+        "bedroom",
+        "group",
+        "assembly"
+      ],
+      "source": "04_NYC_Hotel~769"
+    },
+    "fd239a16236fbfaeaf03aa43": {
+      "label": "Mattresses · group",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "mattress",
+        "materasso",
+        "materassi",
+        "group",
+        "assembly"
+      ],
+      "source": "03_NYC_BrooklynBridgeStation~1026"
+    },
+    "c8bc65920b21ae6f11bed6a1": {
+      "label": "Cots · group",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "cots",
+        "group",
+        "assembly",
+        "dormitory"
+      ],
+      "source": "02_NYC_Underground~292"
+    },
+    "e2b78050457f306992ea825b": {
+      "label": "Beds and table",
+      "category": "Furniture · Beds",
+      "keywords": [
+        "bed",
+        "beds",
+        "letto",
+        "letti",
+        "cot",
+        "table",
+        "tavolo",
+        "hospital",
+        "infirmary",
+        "group",
+        "assembly"
+      ],
+      "source": "09_NYC_Ship~924"
+    },
+    "4c7426a5d327b78710e1b84c": {
+      "label": "Equipment plinth",
+      "category": "Machines and panels",
+      "keywords": [
+        "equipment",
+        "plinth",
+        "base",
+        "macchina",
+        "piedistallo",
+        "platform"
+      ],
+      "source": "02_NYC_BatteryPark~1919"
+    },
+    "ba9d4c129605248a1730bbf6": {
+      "label": "Pedestal",
+      "category": "Furniture · Tables",
+      "keywords": [
+        "pedestal",
+        "base",
+        "table",
+        "stand",
+        "tavolo",
+        "piedistallo"
+      ],
+      "source": "02_NYC_Bar~551"
+    },
+    "54f504f7e7aafc214d23a424": {
+      "label": "Bar stool",
+      "category": "Furniture · Seating",
+      "keywords": [
+        "stool",
+        "seat",
+        "bar",
+        "sgabello",
+        "sedia",
+        "seduta"
+      ],
+      "source": "10_Paris_Club~306"
+    },
+    "e509c9952797a21cba90d5e3": {
+      "label": "Bar stool",
+      "category": "Furniture · Seating",
+      "keywords": [
+        "stool",
+        "seat",
+        "bar",
+        "sgabello",
+        "sedia",
+        "seduta"
+      ],
+      "source": "03_NYC_AirfieldHeliBase~1252"
+    },
+    "2b298cb88f139a0f1a4f2a06": {
+      "label": "Table",
+      "category": "Furniture · Tables",
+      "keywords": [
+        "table",
+        "desk",
+        "tavolo",
+        "tavoli",
+        "scrivania",
+        "medical"
+      ],
+      "source": "02_NYC_FreeClinic~264"
+    },
+    "41db52f3af3bf407f79c7139": {
+      "label": "Wall shelf",
+      "category": "Furniture · Storage",
+      "keywords": [
+        "shelf",
+        "shelves",
+        "scaffale",
+        "mensola",
+        "parete",
+        "storage"
+      ],
+      "source": "02_NYC_BatteryPark~764"
+    },
+    "601770d32307de0891814a28": {
+      "label": "Metal beam",
+      "category": "Beams, columns and supports",
+      "keywords": [
+        "beam",
+        "metal",
+        "support",
+        "trave",
+        "supporto",
+        "metallo"
+      ],
+      "source": "09_NYC_ShipBelow~903"
+    },
+    "8af4157be355a8013ce6c577": {
+      "label": "Pipe outlet",
+      "category": "Pipes, vents and cables",
+      "keywords": [
+        "pipe",
+        "outlet",
+        "tubo",
+        "curva",
+        "gomito"
+      ],
+      "source": "02_NYC_Warehouse~794"
+    },
+    "7d210b61ff9799daadc88c77": {
+      "label": "Chair",
+      "category": "Furniture · Seating",
+      "keywords": [
+        "chair",
+        "seat",
+        "sedia",
+        "sedie",
+        "seduta"
+      ],
+      "source": "09_NYC_Ship~917"
+    },
+    "ebde70ff7ec0baaa09bb8c18": {
+      "label": "Metal panel",
+      "category": "Wall and floor panels",
+      "keywords": [
+        "metal",
+        "panel",
+        "wall",
+        "pannello",
+        "metallo",
+        "parete"
+      ],
+      "source": "09_NYC_ShipBelow~603"
+    },
+    "c93c34f02de8edd7a74a5d86": {
+      "label": "Corner beam",
+      "category": "Beams, columns and supports",
+      "keywords": [
+        "beam",
+        "corner",
+        "support",
+        "trave",
+        "supporto",
+        "angolo"
+      ],
+      "source": "02_NYC_BatteryPark~711"
+    },
+    "173c0ded156a4ce2461abecd": {
+      "label": "Metal column",
+      "category": "Beams, columns and supports",
+      "keywords": [
+        "metal",
+        "column",
+        "pillar",
+        "colonna",
+        "pilastro"
+      ],
+      "source": "02_NYC_Warehouse~736"
+    },
+    "1c8af35b39d2db6a1fa0d517": {
+      "label": "Roof panel",
+      "category": "Awnings, roofs and canopies",
+      "keywords": [
+        "roof",
+        "panel",
+        "tetto",
+        "tettoia",
+        "pannello"
+      ],
+      "source": "03_NYC_BatteryPark~77"
+    },
+    "4fe6e69fbc7d1a7a961ab235": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_Dockyard~784"
+    },
+    "4a8a162955698fe16476d4a9": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_Ship~855"
+    },
+    "5273d5124ad1a54531eaf7e8": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_Ship~856"
+    },
+    "25200210238670c675cb8fe5": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_Ship~858"
+    },
+    "fd6cbaa95435f39426551abc": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_ShipBelow~562"
+    },
+    "3771bff703664124f3914d83": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_ShipBelow~635"
+    },
+    "a871de6d07713f72ffdabd96": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_ShipBelow~766"
+    },
+    "bd819c7016919ea872fe4a40": {
+      "label": "Safety railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "rail",
+        "railing",
+        "safety",
+        "fence",
+        "ringhiera",
+        "parapetto",
+        "barriera"
+      ],
+      "source": "09_NYC_ShipBelow~907"
+    },
+    "adc73ef354502657fc325401": {
+      "label": "Platform frame",
+      "category": "Beams, columns and supports",
+      "keywords": [
+        "platform",
+        "frame",
+        "support",
+        "piattaforma",
+        "telaio",
+        "supporto"
+      ],
+      "source": "09_NYC_Dockyard~830"
+    },
+    "f9a2c9b840750b06f5d36ca3": {
+      "label": "Curved support",
+      "category": "Beams, columns and supports",
+      "keywords": [
+        "support",
+        "curved",
+        "beam",
+        "trave",
+        "curva",
+        "supporto"
+      ],
+      "source": "09_NYC_ShipBelow~692"
+    },
+    "d006e6926a1c67449ace699d": {
+      "label": "Stairs and railing",
+      "category": "Stairs and ladders",
+      "keywords": [
+        "stairs",
+        "stair",
+        "steps",
+        "railing",
+        "scala",
+        "scale",
+        "gradini",
+        "ringhiera"
+      ],
+      "source": "09_NYC_ShipBelow~788"
+    },
+    "48ceeb67810915634bab50b4": {
+      "label": "Railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "railing",
+        "rail",
+        "fence",
+        "ringhiera",
+        "parapetto"
+      ],
+      "source": "09_NYC_ShipBelow~874"
+    },
+    "dd1dd7bdd2ecf8d1ddc29c2e": {
+      "label": "Railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "railing",
+        "rail",
+        "fence",
+        "ringhiera",
+        "parapetto"
+      ],
+      "source": "09_NYC_Dockyard~549"
+    },
+    "c447fc37d11ed5165649baa9": {
+      "label": "Railing",
+      "category": "Fences, grates and railings",
+      "keywords": [
+        "railing",
+        "rail",
+        "fence",
+        "ringhiera",
+        "parapetto"
+      ],
+      "source": "09_NYC_Dockyard~194"
+    },
+    "0de7954a6af9046d680d5a8f": {
+      "label": "Metal panel",
+      "category": "Wall and floor panels",
+      "keywords": [
+        "metal",
+        "panel",
+        "pannello",
+        "metallo"
+      ],
+      "source": "09_NYC_Dockyard~1268"
+    },
+    "db794d242b3d9fe1f344c388": {
+      "label": "Phone booth",
+      "category": "Electronics · Computers",
+      "keywords": [
+        "phone",
+        "telephone",
+        "booth",
+        "cabina",
+        "telefono",
+        "terminal"
+      ],
+      "source": "02_NYC_Bar~450"
+    }
+  },
+  "aliases": {
+    "Fences, grates and railings": [
+      "fence",
+      "fences",
+      "railing",
+      "rail",
+      "grate",
+      "grating",
+      "recinzione",
+      "ringhiera",
+      "grata",
+      "cancello"
+    ],
+    "Pipes, vents and cables": [
+      "pipe",
+      "pipes",
+      "vent",
+      "vents",
+      "ventilation",
+      "duct",
+      "ducts",
+      "tubo",
+      "tubi",
+      "condotto",
+      "condotti",
+      "cavo",
+      "cavi"
+    ],
+    "Signs and neon": [
+      "sign",
+      "signs",
+      "neon",
+      "cartello",
+      "cartelli",
+      "insegna",
+      "insegne",
+      "poster"
+    ],
+    "Lamps and lights": [
+      "lamp",
+      "lamps",
+      "light",
+      "lights",
+      "lampada",
+      "lampade",
+      "luce",
+      "luci"
+    ],
+    "Windows and glass": [
+      "window",
+      "windows",
+      "glass",
+      "finestra",
+      "finestre",
+      "vetro",
+      "vetrata"
+    ],
+    "Architecture · Windows": [
+      "window",
+      "windows",
+      "glass",
+      "finestra",
+      "finestre",
+      "vetro",
+      "vetrata"
+    ],
+    "Doors and frames": [
+      "door",
+      "doors",
+      "frame",
+      "porta",
+      "porte",
+      "telaio"
+    ],
+    "Stairs and ladders": [
+      "stairs",
+      "steps",
+      "ladder",
+      "stair",
+      "scala",
+      "scale",
+      "scaletta",
+      "gradini"
+    ],
+    "Beams, columns and supports": [
+      "beam",
+      "beams",
+      "column",
+      "columns",
+      "support",
+      "trave",
+      "travi",
+      "colonna",
+      "colonne",
+      "pilastro"
+    ],
+    "Awnings, roofs and canopies": [
+      "roof",
+      "awning",
+      "canopy",
+      "tetto",
+      "tettoia",
+      "tenda"
+    ],
+    "Shelves, counters and furniture": [
+      "furniture",
+      "shelf",
+      "shelves",
+      "cabinet",
+      "arredo",
+      "mobili",
+      "scaffale",
+      "armadio"
+    ],
+    "Machines and panels": [
+      "machine",
+      "machines",
+      "panel",
+      "panels",
+      "machine",
+      "machinery",
+      "macchina",
+      "macchine",
+      "pannello",
+      "pannelli"
+    ],
+    "Wall and floor panels": [
+      "wall",
+      "floor",
+      "panel",
+      "panels",
+      "parete",
+      "pavimento",
+      "pannello",
+      "pannelli"
+    ],
+    "Furniture · Beds": [
+      "bed",
+      "beds",
+      "letto",
+      "letti",
+      "mattress",
+      "materasso"
+    ],
+    "Furniture · Seating": [
+      "seat",
+      "seats",
+      "chair",
+      "chairs",
+      "seduta",
+      "sedia",
+      "sedie"
+    ],
+    "Furniture · Tables": [
+      "table",
+      "tables",
+      "desk",
+      "tavolo",
+      "tavoli",
+      "scrivania"
+    ],
+    "Furniture · Storage": [
+      "shelf",
+      "shelves",
+      "cabinet",
+      "locker",
+      "scaffale",
+      "armadio",
+      "mensola"
+    ],
+    "Electronics · Computers": [
+      "computer",
+      "pc",
+      "terminal",
+      "terminale",
+      "monitor",
+      "schermo",
+      "console"
+    ],
+    "Electronics · Control panels": [
+      "control",
+      "panel",
+      "console",
+      "pannello",
+      "comandi",
+      "controllo"
+    ],
+    "Decorations · Pictures": [
+      "picture",
+      "painting",
+      "poster",
+      "quadro",
+      "quadri",
+      "dipinto"
+    ],
+    "Decorations · Plants": [
+      "plant",
+      "plants",
+      "planter",
+      "pianta",
+      "piante",
+      "vaso"
+    ]
+  }
+}

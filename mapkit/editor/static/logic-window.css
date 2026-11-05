@@ -1,0 +1,102 @@
+/* Window > Logic (logic-window.js), with DESIGN.md's tokens and sizes: a 28 px toolbar (the views, what the graph
+   shows, Fit), an index at the side (22 px rows), the graph, the Read view or Try it. The nodes follow the Story's
+   Graph: a thing with its picture, a rule card with a bar on its left, Story nodes read only. Status colours are for
+   status only. */
+#logic { position:relative; display:flex; flex-direction:column; min-height:0; height:100%; background:var(--panel); overflow:hidden; }
+#logic .lw-bar { flex:none; display:flex; gap:4px; align-items:center; height:28px; padding:0 6px; border-bottom:1px solid var(--line); }
+#logic .lw-tabs { display:flex; gap:2px; }
+#logic .lw-tabs[hidden], #logic .lw-div[hidden], #logic .lw-fit[hidden] { display:none; }
+#logic .lw-tabs button { height:22px; padding:0 8px; line-height:20px; }
+#logic .lw-tabs button.on { background:var(--accent-soft); color:var(--heading); border-color:var(--accent-border); }
+#logic .lw-div { width:1px; height:16px; margin:0 4px; background:var(--line); }
+#logic .lw-fit { height:22px; padding:0 8px; line-height:20px; }
+#logic .lw-info { margin-left:auto; font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#logic .lw-info.warn { color:var(--warn); }
+#logic .lw-body { flex:1; min-height:0; display:flex; }
+#logic .lw-main { position:relative; flex:1; min-width:0; }
+#logic .lw-graph, #logic .lw-read, #logic .lw-try, #logic .lw-list { position:absolute; inset:0; }
+/* List: the rules of the object chosen, as lists of steps (app.js lkRuleHtml), in a readable column */
+#logic .lw-list { overflow:auto; padding:8px 12px 16px; }
+#logic .lw-list > * { max-width:560px; }
+#logic .lw-listhead { display:flex; align-items:baseline; gap:8px; height:22px; margin:0 0 4px; }
+#logic .lw-listhead b { font-size:13px; font-weight:600; color:var(--heading); }
+#logic .lw-listhead span { font-size:11px; color:var(--dim); }
+#logic .lk-rule.lk-flash { outline:2px solid var(--acc); outline-offset:1px; }
+#logic .lw-graph[hidden], #logic .lw-list[hidden], #logic .lw-read[hidden], #logic .lw-try[hidden], #logic .lw-side[hidden], #logic .lw-crumb[hidden] { display:none; }
+#logic .lw-graph > .gc { width:100%; height:100%; }
+
+/* where one is in the graph: one dim line over it */
+#logic .lw-crumb { position:absolute; left:8px; top:6px; z-index:2; max-width:calc(100% - 200px); height:22px; padding:0 8px; line-height:22px;
+  font-size:11px; color:var(--dim); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-control);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
+
+/* the index */
+#logic .lw-side { flex:none; width:188px; overflow:auto; border-right:1px solid var(--line); padding:4px 0 8px; }
+#logic .lw-side section + section { margin-top:6px; }
+#logic .lw-side h4 { display:flex; align-items:center; height:22px; margin:0; padding:0 8px; font-size:11px; font-weight:400; color:var(--dim);
+  text-transform:none; letter-spacing:0; }
+#logic .lw-side h4 span { margin-left:auto; font-variant-numeric:tabular-nums; }
+#logic .lw-side button { display:flex; align-items:center; gap:6px; width:100%; height:22px; padding:0 8px 0 14px; line-height:22px; text-align:left;
+  background:transparent; border:0; border-radius:0; color:var(--text); }
+#logic .lw-side button:hover { background:var(--hover); }
+#logic .lw-side button.on { background:var(--accent-soft); color:var(--heading); }
+#logic .lw-side button span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#logic .lw-side button i { flex:none; font-style:normal; font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; }
+#logic .lw-side button.warn span { color:var(--warn); }
+#logic .lw-side button.bad span { color:var(--bad); }
+#logic .lw-side .hint { margin:6px 8px; font-size:11px; color:var(--dim); }
+
+/* the nodes of the logic: a rule card has the accent's border colour as its bar, a Story node a dim one, a thing its
+   picture; the selection's outline stays the canvas's */
+#logic .gc-node.k-rule { --gc-bar:inset 3px 0 0 var(--accent-border); background:var(--surface); }
+#logic .gc-node.k-rule .gc-h { padding-left:11px; }
+#logic .gc-node.k-rule .gc-r { padding-left:14px; }
+#logic .gc-node.k-rule .gc-r.head .gc-tx { font-size:11px; color:var(--dim); }
+#logic .gc-node.k-rule .gc-b:last-of-type { border-color:transparent; }
+#logic .gc-node.k-story { --gc-bar:inset 3px 0 0 var(--dim); }
+#logic .gc-node.k-world .gc-ic, #logic .gc-node.k-thing .gc-ic { color:var(--heading); }
+#logic .gc-node .gc-time { min-width:34px; }
+
+/* Read */
+#logic .lw-read { overflow:auto; padding:8px 12px 12px; font-size:12px; }
+#logic .lw-read h3 { margin:10px 0 4px; font-size:13px; font-weight:600; color:var(--heading); }
+#logic .lw-read h3:first-child { margin-top:2px; }
+#logic .lw-group { margin:0 0 8px; }
+#logic .lw-group h4 { margin:0; height:22px; line-height:22px; font-size:12px; font-weight:600; color:var(--heading); }
+#logic .lw-read ul { margin:0; padding:0; list-style:none; }
+#logic .lw-read li { display:flex; gap:8px; padding:2px 0 2px 10px; border-left:1px solid var(--line); }
+#logic .lw-read li span { flex:1; min-width:0; }
+#logic .lw-read li i { flex:none; font-style:normal; font-size:11px; color:var(--dim); }
+#logic .lw-read li.bad span { color:var(--bad); }
+#logic .lw-read li.warn span { color:var(--warn); }
+#logic .lw-read li.dim span { color:var(--dim); }
+#logic .lw-read .hint { font-size:11px; color:var(--dim); }
+
+/* Try it (logic-try.js) */
+#logic .lw-try { display:flex; flex-direction:column; font-size:12px; }
+#logic .lt-bar { display:flex; gap:4px; align-items:center; height:28px; padding:0 8px; border-bottom:1px solid var(--line); flex:none; }
+#logic .lt-bar button { height:22px; padding:0 8px; line-height:20px; }
+#logic .lt-clock { font-variant-numeric:tabular-nums; color:var(--playhead); margin-left:6px; }
+#logic .lt-note { margin:0 0 0 auto; font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#logic .lt-body { flex:1; min-height:0; display:flex; gap:12px; padding:6px 10px; overflow:hidden; }
+#logic .lt-col { flex:1 1 0; min-width:0; overflow:auto; }
+#logic .lt-wide { flex:1.6 1 0; display:flex; flex-direction:column; }
+#logic .lt-col h4 { margin:6px 0 4px; height:22px; line-height:22px; font-size:12px; font-weight:600; color:var(--heading); }
+#logic .lt-happen button, #logic .lt-decide button { display:block; width:100%; height:22px; padding:0 8px; line-height:20px; text-align:left;
+  margin:0 0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#logic .lt-state > div { min-height:22px; line-height:22px; }
+#logic .lt-state button { margin-left:6px; height:20px; padding:0 6px; line-height:18px; }
+#logic .lt-log { flex:1; min-height:60px; overflow:auto; margin:0; padding:0; list-style:none; }
+#logic .lt-log li { display:flex; gap:6px; min-height:20px; line-height:20px; }
+#logic .lt-log li b { flex:none; min-width:42px; font-weight:400; font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; text-align:right; }
+#logic .lt-log li span { flex:1; min-width:0; }
+#logic .lt-log li i { flex:none; font-style:normal; font-size:11px; color:var(--dim); margin-left:auto; padding-left:8px; }
+#logic .lt-log .lt-fire span { color:var(--heading); }
+#logic .lt-log .lt-act { padding-left:14px; }
+#logic .lt-log .lt-skip span { color:var(--dim); }
+#logic .lt-log .lt-fail span { color:var(--bad); }
+#logic .lt-why { margin:4px 0 0 18px; padding:0; }
+#logic .lt-rule { height:22px; }
+/* zoomed out (only titles): a rule card's title, a sentence, goes onto as many lines as the card has room for */
+#logic .gc-node.k-rule .gc-big b { white-space:normal; text-align:center; line-height:1.2; padding:0 6px; display:-webkit-box;
+  -webkit-box-orient:vertical; -webkit-line-clamp:4; }

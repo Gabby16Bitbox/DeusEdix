@@ -1,4 +1,4 @@
-// Saved play scenarios (static/play-scenarios.js), as Unity's Play mode scenarios: names kept clean and once, at
+// Saved play scenarios (static/play-scenarios.js, G13), as Unity's Play mode scenarios: names kept clean and once, at
 // most MAX_SCENARIOS, what was stored read back with what does not fit left out, the classes and the preset checked
 // against those there are (and left out), and what Play sends with a scenario.
 import test from 'node:test';

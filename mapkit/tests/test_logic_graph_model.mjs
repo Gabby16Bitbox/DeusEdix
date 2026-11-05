@@ -96,7 +96,7 @@ const RULE_SAMPLES = {
   do: { value: [{ verb: 'close', target: 'Door3' }] },
   option: { value: 2, base: { src: 'Comp1', when: 'option' } }, near: { value: 512, base: { when: 'near' } },
   port: { value: 'Other', base: { src: 'Gen0', when: 'output', port: 'Sabotaged' } },
-  label: { value: 'anything', none: true }, at: { value: [10, 20, 30], base: { do: [{ verb: 'explode', a: '50' }] } },
+  label: { value: 'anything', none: true }, otherwiseOf: { value: 'L9', none: true }, steps: { value: true, none: true }, at: { value: [10, 20, 30], base: { do: [{ verb: 'explode', a: '50' }] } },
   also: { value: [{ src: 'Button2', when: 'used' }] }, match: { value: 'any', base: { requires: [{ flag: 'A' }, { flag: 'B' }] } },
   phase: { value: { set: 'Base', in: ['Alarm'] } }, max: { value: 3 }, cooldown: { value: 5 }, again: { value: 'restart' },
   talkBusy: { value: 'skip' }, else: { value: [{ verb: 'message', a: 'No power.' }] }, while: { value: true }, mute: { value: true },
@@ -114,7 +114,9 @@ function sampleOf(arg) {
   const by = { text: 'Vault key', state: 'Vault_Power', counter: 'Levers', goal: 'G9', map: '02_Next', tag: 'Arrive1', port: 'Start',
     args: 'Seconds=4', toggle: arg.value, yesno: '0', look: 'blue beep', sound: 'Ambient.Group.Hum', object: 'Crate', place: [10, 20, 30],
     whole: '7', amount: '7', number: '77', seconds: '9', floor: '2', button: 2, effect: 'sparks', line: 'Hello there', bool: !arg.default,
-    choice: (arg.choices || []).map((c) => c[0]).find((v) => v !== (arg.default ?? '')) };
+    choice: (arg.choices || []).map((c) => c[0]).find((v) => v !== (arg.default ?? '')),
+    percent: '40', itemclass: 'DeusEx.Medkit', pawnclass: 'DeusEx.MJ12Troop', song: 'Revision_Music.Combat', items: 'DeusEx.Medkit:3;DeusEx.Flare',
+    hex: '#20ff40', rule: 'L5', hurtkind: 'poison' };
   return by[arg.type];
 }
 // what is drawn for a rule: its card (causes, id, badges, chips, sections and rows, otherwise) or its wire (label, badges)
@@ -144,7 +146,7 @@ test('the badge rule: every field of a rule away from its default shows on its c
 });
 
 test('the badge rule: every field and argument of an action away from its default shows on its row and on its wire', () => {
-  const ARGS = ['a', 'b', 'c', 'at', 'nav'];
+  const ARGS = ['a', 'b', 'c', 'at', 'nav', 'attack', 'kind'];   // attack, kind: P4's reinforcements and damaging area
   assert.deepEqual([...Object.keys(ACTION_SAMPLES)].sort(), Object.keys(ACTION_FIELDS).sort());
   const argIds = new Set(Object.values(catalog.inputs).flatMap((v) => (v.args || []).map((a) => a.id)));
   assert.deepEqual([...argIds].sort(), [...ARGS].sort(), 'the verbs take no argument the badges do not know');
@@ -366,7 +368,7 @@ test('the Story, read only: its events act on things, start dialogues, set the s
   assert.deepEqual(nodeOf(lost, 'story:e2').rows.map((r) => r.text), ['start d9 (missing)']);
   assert.equal(nodeOf(lost, 'dlg:d9').missing, true);
   assert.deepEqual(wireOf(g, 'story:e1/s2').to, { node: 'dlg:d1', pin: 'in:start' });          // into the dialogue's Start
-  assert.deepEqual(pins(nodeOf(g, 'obj:Guard1'), 'out'), ['out:story:near=JC gets close (dialogue)']);
+  assert.deepEqual(pins(nodeOf(g, 'obj:Guard1'), 'out'), ['out:story:near=the player gets close (dialogue)']);
   assert.deepEqual(nodeOf(g, 'dlg:d1').checks.map((c) => [c.text, c.unset]), [['Met is Yes', true]]);
   const [roof, nobody] = nodeOf(g, 'rule:L1').checks;
   assert.deepEqual([roof.setBy, roof.unset], [[{ node: 'info:i1', text: 'the InfoLink "Jock calls"' }], false]);

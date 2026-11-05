@@ -370,7 +370,8 @@ test('Revert all changes: what the Texture Slip\'s slips know goes with the edit
   const c = vm.createContext({ textureSlip, buildJob: { edits: JSON.stringify(built), map: 'Lab' }, edits: JSON.parse(JSON.stringify(built)),
     undoHistory: createHistory(), recordStep, travelStep, historyChanged() {}, rebuildProxies() {}, showDetails() {}, log() {}, waitsForRebuild: () => false,
     forgetGoneDefault() {}, EMPTY: () => ({ surfaces: [] }), withPublishedLayout: (e) => e, publishedLayout: null, confirm: () => true, editRevision: 0,
-    dirty: false, showChanges() {}, buildStructList() {}, buildHierarchy() {}, status() {}, mapName: 'Lab', logicBox: { style: {} }, renderLogic() {} });
+    dirty: false, showChanges() {}, buildStructList() {}, buildHierarchy() {}, logicChanged() {}, status() {}, mapName: 'Lab', logicBox: { style: {} },
+    renderLogic() {} });
   vm.runInContext([body('pushUndo'), body('keepBuiltEdits'), oneLine('function setDirty()'), oneLine('function afterHistory()'), body('travel'),
     body('historyStep'), `const r = {};\n${between('if (r) r.onclick = ', '\n')}\nthis.revert = r.onclick;`].join('\n'), c);
   c.revert();

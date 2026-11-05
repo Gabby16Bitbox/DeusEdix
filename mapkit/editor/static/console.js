@@ -2,7 +2,7 @@
 // line for the game's own console while Play runs (server: /api/console_log, /api/console; in the game:
 // UCConsoleLink). Script lines (log() in UnrealScript) stand out; errors and warnings are coloured. The logic log
 // (what the rules and the scripts do, editor/LOGIC.md) reads as sentences: a name selects its object, a rule's id
-// opens its rule. As Unity's Console: Collapse shows identical lines as one with how many came, Time the seconds
+// opens its rule. As Unity's Console (G39): Collapse shows identical lines as one with how many came, Time the seconds
 // since Play started, Copy (Ctrl+C in the log) the lines picked or every line shown, and the name of an object of the
 // open map in any line selects it (the lines as data: console-lines.js).
 import { LOGIC_TAG } from './logic-log.js';

@@ -169,81 +169,52 @@ class ProjectsTests(unittest.TestCase):
         self.assertEqual(local.read_text(), '// Claude changed this')
         self.assertEqual(server.read_bytes(), before)
 
-    def test_infolink_style_is_project_data_even_if_old_manifest_owned_it(self):
-        self.write('tools/mapkit/project-template/src/DeusEdix/Classes/UCInfoLinkStyle.uc', '// default style')
-        meta = self.manager.create('Style')
-        root = Path(meta['path'])
-        rel = 'src/' + meta['package'] + '/Classes/UCInfoLinkStyle.uc'
-        owned = json.loads((root / projects.OWNED).read_text())
-        owned['files'][rel] = projects._hash(b'// default style')
-        (root / projects.OWNED).write_text(json.dumps(owned))
-        (root / rel).write_text('// generated red Contractor style')
-        self.write('tools/mapkit/editor/static/app.js', '// particles update')
-        result = self.manager.provision(meta['id'], preserve_local=True)
-        self.assertNotIn('updateWarning', result)
-        self.assertEqual((root / rel).read_text(), '// generated red Contractor style')
-        self.assertEqual((root / 'tools/mapkit/editor/static/app.js').read_text(), '// particles update')
-        self.assertNotIn(rel, json.loads((root / projects.OWNED).read_text())['files'])
-        self.assertTrue(Path(result['updateNotice']['backup']).is_dir())
+    def test_identical_deployment_reconciles_ownership(self):
+        meta=self.manager.create('Same');root=Path(meta['path'])
+        rel='tools/mapkit/editor/static/app.js'
+        self.write(rel,'// already deployed update')
+        (root/rel).write_bytes((self.app/rel).read_bytes())
+        self.manager.provision(meta['id'])
+        owned=json.loads((root/projects.OWNED).read_text())['files']
+        self.assertEqual(owned[rel],projects._hash((root/rel).read_bytes()))
+        self.write(rel,'// next update')
+        self.manager.provision(meta['id'])
+        self.assertEqual((root/rel).read_text(),'// next update')
 
-    def test_updates_merge_separate_local_changes_and_keep_them_next_time(self):
-        rel = 'tools/mapkit/editor/static/app.js'
-        self.write(rel, 'const version = 1;\nconst custom = false;\nconst end = 0;\n')
-        meta = self.manager.create('Merge')
-        root = Path(meta['path'])
-        (root / rel).write_text('const version = 1;\nconst custom = true;\nconst end = 0;\n')
-        self.write(rel, 'const version = 2;\nconst custom = false;\nconst end = 0;\n')
-        result = self.manager.provision(meta['id'], preserve_local=True)
-        self.assertNotIn('updateWarning', result)
-        self.assertEqual((root / rel).read_text(), 'const version = 2;\nconst custom = true;\nconst end = 0;\n')
-        backup = Path(result['updateNotice']['backup']) / 'files' / rel
-        self.assertIn('const version = 1;', backup.read_text())
-        self.write(rel, 'const version = 3;\nconst custom = false;\nconst end = 0;\n')
-        self.manager.provision(meta['id'], preserve_local=True)
-        self.assertEqual((root / rel).read_text(), 'const version = 3;\nconst custom = true;\nconst end = 0;\n')
-        count = len(list((root / '.deusedix-updates').iterdir()))
-        self.manager.provision(meta['id'], preserve_local=True)
-        self.assertEqual(count, len(list((root / '.deusedix-updates').iterdir())))
+    def test_conflict_open_retains_entire_snapshot_and_maps(self):
+        meta=self.manager.create('Local');root=Path(meta['path'])
+        rel='tools/mapkit/editor/static/app.js'
+        (root/rel).write_text('// user code')
+        (root/'maps/User.dx').write_bytes(b'USER MAP')
+        before={p.relative_to(root):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        self.write(rel,'// canonical update')
+        self.write('tools/mapkit/editor/server.py','# new server')
+        self.write('tools/mapkit/editor/static/new.js','// new dependency')
+        result=self.manager.provision(meta['id'],preserve_local=True)
+        self.assertEqual(result['updateWarning']['files'],[rel])
+        self.assertEqual(before,{p.relative_to(root):p.read_bytes() for p in root.rglob('*') if p.is_file()})
+        self.assertNotIn('updateWarning',self.manager.get_project(meta['id']))
 
-    def test_conflict_can_update_with_backup_without_replacing_map_data(self):
-        meta = self.manager.create('Repair')
-        root = Path(meta['path'])
-        rel = 'tools/mapkit/editor/static/app.js'
-        (root / rel).write_text('// local editor patch')
-        (root / 'maps/Keep.dx').write_bytes(b'private map')
-        self.write(rel, '// newer editor')
-        warning = self.manager.provision(meta['id'], preserve_local=True)['updateWarning']
-        self.assertTrue(warning['canUpdate'])
-        self.assertEqual((root / rel).read_text(), '// local editor patch')
-        result = self.manager.provision(meta['id'], update_local=True)
-        self.assertEqual((root / rel).read_text(), '// newer editor')
-        self.assertEqual((Path(result['updateNotice']['backup']) / 'files' / rel).read_text(), '// local editor patch')
-        self.assertEqual((root / 'maps/Keep.dx').read_bytes(), b'private map')
+    def test_incomplete_local_application_cannot_be_opened(self):
+        meta=self.manager.create('Incomplete');root=Path(meta['path'])
+        (root/'tools/mapkit/editor/static/app.js').write_text('// user code')
+        (root/'tools/mapkit/editor/server.py').unlink()
+        with self.assertRaises(projects.ProjectConflictError):
+            self.manager.provision(meta['id'],preserve_local=True)
 
-    def test_failed_update_rolls_back_files_and_ownership(self):
-        meta = self.manager.create('Rollback')
-        root = Path(meta['path'])
-        app = 'tools/mapkit/editor/static/app.js'
-        server = 'tools/mapkit/editor/server.py'
-        before = {rel: (root / rel).read_bytes() for rel in (app, server, projects.OWNED, projects.BASE)}
-        self.write(app, '// new app')
-        self.write(server, '# new server')
-        write = projects._write
-        def fail(path, data):
-            if path == root / app and data == b'// new app':
-                raise OSError('simulated locked file')
-            return write(path, data)
-        with patch.object(projects, '_write', side_effect=fail):
-            with self.assertRaises(OSError):
-                self.manager.provision(meta['id'])
-        for rel, data in before.items():
-            self.assertEqual((root / rel).read_bytes(), data)
+    def test_local_open_still_validates_namespace(self):
+        meta=self.manager.create('Config');root=Path(meta['path'])
+        (root/'tools/mapkit/editor/static/app.js').write_text('// user code')
+        cfg=json.loads((root/'deusedix.json').read_text());cfg['package']='Wrong'
+        (root/'deusedix.json').write_text(json.dumps(cfg))
+        with self.assertRaisesRegex(ValueError,'namespace'):
+            self.manager.provision(meta['id'],preserve_local=True)
 
-    def test_merge_refuses_overlap_and_same_position_insertions(self):
-        self.assertIsNone(projects._merge_editor(b'a\nb\n', b'a\nlocal\nb\n', b'a\nnew\nb\n'))
-        self.assertIsNone(projects._merge_editor(b'a\nb\n', b'a\nlocal\n', b'a\nnew\n'))
-        self.assertEqual(projects._merge_editor(b'a\nb\nc\n', b'local\r\nb\r\nc\r\n', b'a\nb\nnew\n'),
-                         b'local\r\nb\r\nnew\r\n')
+    def test_local_open_rejects_directory_as_code(self):
+        meta=self.manager.create('Directory');root=Path(meta['path'])
+        p=root/'tools/mapkit/editor/static/app.js';p.unlink();p.mkdir()
+        with self.assertRaises(projects.ProjectConflictError):
+            self.manager.provision(meta['id'],preserve_local=True)
 
     def test_create_rejects_unsafe_names_and_existing_content(self):
         for name in ('', '  ', '../Bad', 'Bad\\Name', 'CON', 'A\x00B', 'x' * 81):
@@ -370,42 +341,6 @@ class ProjectsTests(unittest.TestCase):
         duplicate = self.workspace('Duplicate mod', 'MyMod')
         with self.assertRaises(ValueError):
             self.manager.open_project(duplicate)
-
-    def test_untracked_workspace_explains_why_installer_did_not_update_it(self):
-        root = self.workspace()
-        meta = self.manager.open_project(root)
-        before = self.snapshot(root)
-        result = self.manager.provision(meta['id'], preserve_local=True)
-        self.assertIn('updateWarning', result)
-        self.assertFalse(result['updateWarning']['canUpdate'])
-        self.assertEqual(self.snapshot(root), before)
-
-    def test_integrated_workspace_updates_and_keeps_private_campaign_and_aliases(self):
-        root = self.workspace()
-        meta = self.manager.open_project(root)
-        payload, _ = self.manager._payload(meta)
-        # A maintainer has integrated the shared files once and recorded the baseline.
-        for rel, data in payload.items():
-            if rel.startswith('src/'):
-                continue
-            target = root / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-        baseline = {rel: value for rel, value in payload.items() if not rel.startswith('src/')}
-        (root / projects.BASE).write_bytes(projects._base_bytes(baseline))
-        (root / projects.OWNED).write_text(json.dumps(dict(version=1,files={rel:projects._hash(b) for rel,b in baseline.items()})))
-        custom = root / 'src' / DEV['package'] / 'Classes/UCBoot.uc'
-        custom.write_text('// private campaign startup')
-        self.write('tools/mapkit/project-template/src/DeusEdix/Classes/UCParticles.uc', 'class UCParticles extends Actor;')
-        self.write('tools/mapkit/project-template/src/DeusEdix/Classes/UCViewMoment.uc', 'X="DeusEdixAnims.Mesh";')
-        self.write('tools/mapkit/editor/static/app.js', '// updated Effects browser')
-        result = self.manager.provision(meta['id'], preserve_local=True)
-        self.assertNotIn('updateWarning', result)
-        self.assertEqual(custom.read_text(), '// private campaign startup')
-        self.assertEqual((root / 'maps/roof.dx').read_bytes(), b'authored map')
-        self.assertEqual((root / 'tools/mapkit/editor/static/app.js').read_text(), '// updated Effects browser')
-        self.assertIn('ExistingAnims.Mesh', (root / 'src' / DEV['package'] / 'Classes/UCViewMoment.uc').read_text())
-        self.assertTrue((root / 'src' / DEV['package'] / 'Classes/UCParticles.uc').is_file())
 
     def test_incomplete_or_old_workspace_is_not_registered(self):
         root = self.workspace()

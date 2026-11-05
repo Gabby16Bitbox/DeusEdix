@@ -17,6 +17,22 @@ test('Feature Lab has nothing wrong: only a counter and a state nobody reads', (
     'info never-read dlg:d1: Nothing reads the state UCEd9fd2_d1_Played.']);
 });
 
+test('a scripting tag no object of the map has: a warning naming the tags there; any case finds it (as the game)', () => {
+  const act = (tag) => [{ verb: 'lightoff', targetTag: tag, delay: 0 }];
+  const tags = { white: ['Lamp1'], VAULT: ['Door3'] };
+  const ps = brief(problems(world([rule({ id: 'L1' }, act('Light'))], { tags })));
+  assert.deepEqual(ps.filter((p) => p.includes('tag-empty')), ['warn tag-empty rule:L1/a1: No object on this map has the scripting tag '
+    + '"Light": this action reaches nothing. Tags here: VAULT, white. (An object\'s tag is its Scripting tag in the Inspector.)']);
+  // the kinds of the tags known: a light action lists the lights' tags
+  const kinds = brief(problems(world([rule({ id: 'L1' }, act('Light'))], { tags: { ...tags, red: ['Crate'] },
+    tagFamilies: { white: ['light'], VAULT: ['door'], red: ['object'] } })));
+  assert.deepEqual(kinds.filter((p) => p.includes('tag-empty')), ['warn tag-empty rule:L1/a1: No object on this map has the scripting tag '
+    + '"Light": this action reaches nothing. The lights here are tagged: white. (An object\'s tag is its Scripting tag in the Inspector.)']);
+  assert.deepEqual(brief(problems(world([rule({ id: 'L1' }, act('WHITE'))], { tags }))).filter((p) => p.includes('tag-empty')), []);
+  assert.deepEqual(brief(problems(world([rule({ id: 'L1' }, act('Light'))]))).filter((p) => p.includes('tag-empty')), [],
+    'the tags not given: nothing said');
+});
+
 test('objects that are gone or disabled, outputs and inputs the class does not have', () => {
   const light = [{ verb: 'lighton', target: 'Lamp1' }];
   const ps = problems(world([
@@ -58,7 +74,7 @@ test('an output the rule hears on the object\'s event, which the object sends: a
   // used_and_any_one_event: "any" of a decoration is the event "used" sends too, and the game runs both
   assert.deepEqual(brief(problems(fixtureWorld('used_and_any_one_event'))), [
     'warn same-event rule:L2: Button1 does not offer "it triggers its event", but the rule hears its event: it runs when "the player uses it" happens.']);
-  // a zone sends its event when JC walks in; a body sends none; a mover's "blown up" is only a door's
+  // a zone sends its event when the player walks in; a body sends none; a mover's "blown up" is only a door's
   const heard = (src, when) => brief(problems(world([rule({ src, when }, [{ verb: 'message', a: 'x' }])]))).map((p) => p.split(':')[0]);
   assert.deepEqual(heard('Zone1', 'used'), ['warn same-event rule']);
   assert.deepEqual(heard('Body1', 'used'), ['error cannot-output rule']);
@@ -116,7 +132,7 @@ test('a state or counter read and never set stays No or 0; one set elsewhere is 
 test('a door opened by logic but not locked: "Lock it"; not when locked, nor when a rule locks it', () => {
   const opens = (links, actors) => brief(problems({ ...world(links), ...(actors ? { actors } : {}) }).filter((p) => p.code === 'not-locked'));
   assert.deepEqual(opens([rule({}, [{ verb: 'open', target: 'VaultDoor' }]), rule({ id: 'L2', src: 'Pad1', when: 'code' }, [{ verb: 'unlock', target: 'VaultDoor' }])]),
-    ['warn not-locked obj:VaultDoor: the door VaultDoor opens by logic (L1 and L2) but is not locked: JC can open it by hand.']);
+    ['warn not-locked obj:VaultDoor: the door VaultDoor opens by logic (L1 and L2) but is not locked: the player can open it by hand.']);
   assert.equal(problems(world([rule({}, [{ verb: 'open', target: 'VaultDoor' }])])).find((p) => p.code === 'not-locked').fix, 'lock');
   assert.deepEqual(opens([rule({}, [{ verb: 'open', target: 'Door3' }])]), []);
   assert.deepEqual(opens([rule({}, [{ verb: 'open', target: 'VaultDoor' }]), rule({ id: 'L2', src: '', when: 'start' }, [{ verb: 'lock', target: 'VaultDoor' }])]), []);
@@ -166,6 +182,26 @@ test('no loop for ever: through a rule that runs once, or cutscenes played with 
   const mixed = [...plays, rule({ id: 'L3', src: 'Gen0', when: 'output', port: 'Sabotaged' }, [{ verb: 'input', target: 'Gen0', a: 'Start' }, { verb: 'cutplay', target: 'Cut1' }]),
     rule({ id: 'L4', src: 'Gen0', when: 'output', port: 'Sabotaged' }, [{ verb: 'on', target: 'Gen0' }])];
   assert.deepEqual(cycles({ ...world(mixed), actors }), ['L3', 'L4']);
+});
+
+test('the rule options (P6): at most N or a cooldown end a loop; a rule that starts again while it runs loops on itself', () => {
+  const cycles = (input) => problems(input).filter((p) => p.code === 'zero-delay-cycle');
+  const fx = fixtureWorld('zero_delay_loop');
+  const withL2 = (more) => { const w = JSON.parse(JSON.stringify(fx)); Object.assign(w.edits.links.find((l) => l.id === 'L2'), more); return { ...w, catalog }; };
+  assert.deepEqual(cycles(withL2({ max: 3 })), []);
+  assert.deepEqual(cycles(withL2({ cooldown: 1 })), []);
+  assert.deepEqual(cycles(withL2({ again: 'each' })).map((p) => p.rule), ['L2', 'L3'], 'still a loop of two');
+  // a script answering its own input at once, the rule starting again each time: itself
+  const self = (again) => cycles(world([rule({ id: 'L1', src: 'Gen0', when: 'output', port: 'Sabotaged', again },
+    [{ verb: 'input', target: 'Gen0', a: 'Start' }])]));
+  assert.deepEqual(self(undefined), [], 'still running: it skips');
+  assert.deepEqual(brief(self('restart')), ['warn zero-delay-cycle rule:L1: L1 sets itself off again with no delay and starts again while it runs: it runs every tick, for ever.']);
+  assert.equal(self('each').length, 1);
+  // its Otherwise counts too
+  const other = cycles(world([
+    rule({ id: 'L1', src: 'Gen0', when: 'output', port: 'Sabotaged', requires: [{ flag: 'Never' }], else: [{ verb: 'input', target: 'Gen0', a: 'Start' }] }, [{ verb: 'message', a: 'x' }]),
+    rule({ id: 'L2', src: 'Gen0', when: 'output', port: 'Sabotaged' }, [{ verb: 'on', target: 'Gen0' }])]));
+  assert.deepEqual(other.map((p) => p.rule), ['L1', 'L2']);
 });
 
 test('what needs Logic runtime v2, what the project\'s game cannot run', () => {

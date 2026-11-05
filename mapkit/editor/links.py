@@ -46,6 +46,7 @@ VERBS = set(logic_catalog.INPUTS)
 OPTIONS = 4                                  # a computer's special options (Computers.specialOptions[4])
 EFFECTS = ('mist', 'smoke', 'sparks', 'fire', 'blinklight', 'pulse', 'off')
 LIGHT_VERBS = {'lighton', 'lightoff', 'lighttoggle'}
+LIGHT_CHANGES = {'flicker', 'lightcolour', 'lightbright'}     # P4: the light changes too (non-static)
 MAX_ACTS = 24
 
 AREA_VERBS = {
@@ -115,6 +116,8 @@ def tag_of(link, usable=()):
     src, when = _name(link.get('src')), link.get('when')
     if when == 'used' and src in usable:       # JC has finished using it: its UCUsable triggers this
         return 'UCL_%s_Used' % src
+    if WHEN.get(when) == 'gametag' and _name(link.get('gameTag')):     # the game's own Tag: what triggers it, triggers this
+        return _name(link['gameTag'])
     return logic_catalog.tag(when, src, option_of(link), key_of(link)) or 'UCLW_' + _name(link.get('id') or 'x')
 
 
@@ -140,7 +143,9 @@ def act_string(a):
     target_tag = object_tags.value(a.get('targetTag',''))
     if target_tag and (verb not in object_tags.TAG_VERBS or a.get('area') is not None):
         raise ValueError('Invalid scripting-tag action.')
-    fields = ['%g' % max(0.0, float(a.get('delay') or 0)), verb, '' if target_tag else _name(a.get('target'))]
+    target = a.get('target')
+    target = target if target in SPECIAL_TARGETS else '' if target_tag else _name(target)
+    fields = ['%g' % max(0.0, float(a.get('delay') or 0)), verb, target]
     if verb in ('goto', 'run') and a.get('nav') and not target_tag:
         fields[1] = 'nav' + ('go' if verb == 'goto' else 'run')    # on the walkable area (navbake.py, UCNavMesh)
     if verb in ('goto', 'run'):
@@ -168,6 +173,8 @@ def act_string(a):
         fields += [_game_name(a.get('a')), '%d' % _whole(a.get('b'), 1), 'set' if a.get('c') == 'set' else '']
     elif verb == 'floor':                       # an elevator goes to its floor a (its sequence: SetSeq)
         fields += ['%d' % max(0, _whole(a.get('a'), 0)), '', '']
+    elif verb in P4_FIELDS:                     # the verbs of P4 (UCLink.DoMore)
+        fields += P4_FIELDS[verb](a)
     else:
         fields += [_text(a.get(k)) for k in ('a', 'b', 'c')]
         if verb in ('flag', 'goal'):            # the names of the Story and of the conditions (conditions.ident)
@@ -182,6 +189,76 @@ def act_string(a):
     if len(result) > 900:
         raise ValueError('Interaction text is too long for the engine; shorten this action')
     return result
+
+
+# The objects a rule of the Logic runtime v2 names by what happened (UCRule.DoAct): who set it off, what it happened to
+SPECIAL_TARGETS = ('@by', '@it')
+_CLASS = re.compile(r'\w+\.\w+', re.ASCII)
+
+
+def _cls(v):
+    """A class of the game, Package.Class ('' when it is not one)."""
+    v = str(v or '').strip()
+    return v if _CLASS.fullmatch(v) else ''
+
+
+def _at(a):
+    """A place [x, y, z] as three fields."""
+    at = list(a.get('at') or [0, 0, 0]) + [0, 0, 0]
+    return ['%.1f' % (float(v) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0) for v in at[:3]]
+
+
+def hue_sat(hexcolour):
+    """A colour #rrggbb as a light of the engine takes it: its hue (0-255 round the wheel) and its saturation (0: the
+    full colour, 255: white)."""
+    import colorsys
+    m = re.fullmatch(r'#?([0-9a-fA-F]{6})', str(hexcolour or '').strip())
+    rgb = [int(m.group(1)[i:i + 2], 16) / 255.0 for i in (0, 2, 4)] if m else [1.0, 1.0, 1.0]
+    h, sat, _v = colorsys.rgb_to_hsv(*rgb)
+    return int(round(h * 255)) % 256, int(round((1 - sat) * 255))
+
+
+def _items(v):
+    """A crate's items and how likely each is: "Package.Class:weight;..." (no weight: 1), only real classes."""
+    out = []
+    for part in str(v or '').split(';'):
+        cls, _, w = part.partition(':')
+        if _cls(cls):
+            weight = _secs(w, 1) if w.strip() else 1.0
+            out.append('%s:%g' % (_cls(cls), weight))
+    return ';'.join(out)
+
+
+HURT_KINDS = ('fire', 'poison', 'shock', 'radiation')
+# a P4 verb's fields after delay|verb|target: a, b, c and, for some, a place (fields 6-8) and how (field 9)
+P4_FIELDS = {
+    'skillpoints': lambda a: ['%d' % _whole(a.get('a'), 100), '', ''],
+    'credits': lambda a: ['%d' % _whole(a.get('a'), 100), '', ''],
+    'health': lambda a: ['%d' % _whole(a.get('a'), 25), '', ''],
+    'giveitem': lambda a: [_cls(a.get('a')), '%d' % min(20, max(1, _whole(a.get('b'), 1))), ''],
+    'takeitem': lambda a: [_cls(a.get('a')), '%d' % max(0, _whole(a.get('b'), 1)), ''],
+    'shake': lambda a: ['%g' % (_secs(a.get('a'), 1) or 1), '%g' % (_secs(a.get('b'), 1) or 1), ''],
+    'fade': lambda a: ['in' if a.get('a') == 'in' else 'out', '%g' % _secs(a.get('b'), 1), ''],
+    'flash': lambda a: [_name(a.get('a')).lower() or 'white', '%g' % (_secs(a.get('b'), 1) or 1), ''],
+    'flicker': lambda a: ['%g' % _secs(a.get('a'), 2), '', ''],
+    'lightcolour': lambda a: ['%d' % hue_sat(a.get('a'))[0], '%d' % hue_sat(a.get('a'))[1], ''],
+    'lightbright': lambda a: ['%d' % min(255, max(0, _whole(a.get('a'), 64))), '', ''],
+    'music': lambda a: [_cls(a.get('a')), '%d' % min(255, max(0, _whole(a.get('b'), 0))), ''],
+    'patrol': lambda a: [_name(a.get('a')), '', ''],
+    'ownorders': lambda a: ['', '', ''],
+    'teleport': lambda a: _at(a),
+    'moveplayer': lambda a: _at(a),
+    'spawn': lambda a: [_cls(a.get('a')), '%d' % min(12, max(1, _whole(a.get('b'), 2))), object_tags.value(str(a.get('c') or ''))]
+                       + _at(a) + ['attack' if a.get('attack', True) else ''],
+    'hurtzone': lambda a: ['%g' % _secs(a.get('a'), 10), '%g' % (_secs(a.get('b'), 192) or 192), '%g' % _secs(a.get('c'), 10)]
+                          + _at(a) + [a.get('kind') if a.get('kind') in HURT_KINDS else 'fire'],
+    'autosave': lambda a: [_text(a.get('a'))[:60], '', ''],
+    'endgame': lambda a: ['death' if a.get('a') == 'death' else 'credits', '', ''],
+    'fillcrate': lambda a: [_items(a.get('a')), '%d' % min(3, max(1, _whole(a.get('b'), 1))), ''],
+    'nextfloor': lambda a: ['down' if a.get('a') == 'down' else 'up', '', ''],
+    'animturn': lambda a: ['', '', ''],
+    'cancel': lambda a: [_name(a.get('a')), '', ''],
+}
 
 
 BODY_MODES = ('once', 'loop', 'time')
@@ -259,17 +336,249 @@ def usable_block(name, u):
     return dict(cls='UCUsable', name='UCUse_' + name, loc=[float(v) for v in at], props=props)
 
 
-def valid(link):
-    when = link.get('when')
+# the ways of hearing an output that need no object (the map's start, a key, P4's conditions, states, the game's Tags)
+NO_OBJECT = ('start', 'key', 'becomes', 'changes', 'gametag')
+
+
+def cause_ok(c):
+    """Whether a cause can set a rule off: an output the catalogue knows, with what it needs (its object, key, port...)."""
+    when = c.get('when')
     if when not in WHEN:
         return False
-    if WHEN[when] == 'key':                      # a key: no object, a key the engine names
-        return bool(key_of(link)) and any(str(a.get('verb')) in VERBS for a in link.get('do') or [])
-    if WHEN[when] != 'start' and not _name(link.get('src')):
+    hears = WHEN[when]
+    if hears == 'key':                           # a key: no object, a key the engine names
+        return bool(key_of(c))
+    if hears == 'becomes':
+        return isinstance(c.get('watch'), dict) and bool(conditions.complete([c['watch']]))
+    if hears == 'changes':
+        return bool(watch_name(c))
+    if hears == 'gametag':
+        return bool(_name(c.get('gameTag')))
+    if hears == 'prop' and logic_catalog.OUTPUTS[when].get('of') == 'player':
+        return True
+    if hears not in NO_OBJECT and not _name(c.get('src')):
         return False
-    if WHEN[when] == 'port' and not _name(link.get('port')):     # a script's output: which one
+    if hears == 'port' and not _name(c.get('port')):     # a script's output: which one
         return False
-    return any(str(a.get('verb')) in VERBS for a in link.get('do') or [])
+    return True
+
+
+def valid(link):
+    return cause_ok(link) and any(str(a.get('verb')) in VERBS for a in link.get('do') or [])
+
+
+def watch_name(c):
+    """When = changes: the state or the counter it watches, as UCLink.Watch has it ("flag|Name", "count|Name"), or ''."""
+    w = c.get('watch') if isinstance(c.get('watch'), dict) else {}
+    if str(w.get('counter') or '').strip():
+        return 'count|' + _game_name(w['counter'])
+    if str(w.get('flag') or '').strip():
+        return 'flag|' + _game_name(w['flag'])
+    return ''
+
+
+def watch_test(c):
+    """When = a watched property (hears 'prop'): its tests (UCLink.TestsHold), the cause's arguments put in: an argument
+    of 0 or none takes the output's testNone when it has one ("Health down": any wound)."""
+    entry = logic_catalog.OUTPUTS[c['when']]
+    args = {x['id']: x for x in entry.get('args', [])}
+    values = {}
+    for key, arg in args.items():
+        v = _whole(c.get(key), arg.get('default', 0))
+        values[key] = max(0, min(100, v)) if arg.get('type') == 'percent' else max(0, v)
+    test = entry['test']
+    if entry.get('testNone') and any(not values.get(k) for k in re.findall(r'\{(\w+)\}', test)):
+        test = entry['testNone']
+    return re.sub(r'\{(\w+)\}', lambda m: str(values.get(m.group(1), 0)), test)
+
+
+def cause_props(c, usable, rule):
+    """What a UCLink (or a UCRuleAlso) needs to hear one cause: its Tag, When, Source and what the output needs."""
+    when = c['when']
+    props = {'Tag': tag_of(c, usable), 'When': when, 'Rule': '"%s"' % rule}
+    if _name(c.get('src')):
+        props['Source'] = '"%s"' % _name(c['src'])
+    if when == 'option':
+        props['Option'] = str(option_of(c))
+    if WHEN[when] == 'port':
+        props['Port'] = '"%s"' % _name(c['port'])
+    if when == 'near':
+        props['NearDist'] = '%.6f' % max(32.0, float(c.get('near') or 256))
+    if WHEN[when] == 'prop':
+        props['bWatchProp'] = 'True'
+        props['Watch'] = _quoted(watch_test(c))
+    elif WHEN[when] == 'becomes':
+        props['Watch'] = '"%s"' % conditions.encode(conditions.check([c['watch']], limit=1)[0])
+    elif WHEN[when] == 'changes':
+        props['Watch'] = '"%s"' % watch_name(c)
+    return props
+
+
+# ---------------------------------------------------------------- the Logic runtime v2 (UCRule: P6)
+AGAIN = ('restart', 'each')                  # 'ignore' (none): as UCLink, a cause while it runs is let go
+TALK_BUSY = ('wait', 'giveup')
+
+
+def causes(link):
+    """A rule's other causes ("Or when..."): its `also`, those that can set it off."""
+    return [c for c in link.get('also') or [] if isinstance(c, dict) and cause_ok(c)]
+
+
+def _all_actions(link):
+    return [a for key in ('do', 'else') for a in link.get(key) or [] if isinstance(a, dict)]
+
+
+def needs_rule(link):
+    """Whether a rule needs the Logic runtime v2 (a UCRule): another cause, any of its conditions, an Otherwise, set off
+    again while it runs (restart, each), at most N runs, a cooldown, the player talking, an action on what set it off."""
+    reqs = conditions.complete(link.get('requires') or [])
+    return bool(causes(link) or (link.get('match') == 'any' and len(reqs) > 1) or _else_of(link)
+                or link.get('again') in AGAIN or _whole(link.get('max'), 0) > 0 or _secs(link.get('cooldown'), 0) > 0
+                or link.get('talkBusy') in TALK_BUSY
+                or any(a.get('target') in SPECIAL_TARGETS for a in _all_actions(link)))
+
+
+def _else_of(link):
+    return [a for a in link.get('else') or [] if isinstance(a, dict) and str(a.get('verb')) in VERBS | FLOW]
+
+
+def as_steps(actions):
+    """Actions at their times (each delay from the start) as a list of steps (each delay from the one before), in the
+    order the game runs them (by time, then as listed): UCLink waits from one to the next the same way."""
+    acts = sorted(enumerate(actions), key=lambda p: (_secs(p[1].get('delay'), 0), p[0]))
+    out, t = [], 0.0
+    for _j, a in acts:
+        at = _secs(a.get('delay'), 0)
+        out.append(dict(a, delay=round(at - t, 4)))
+        t = at
+    return out
+
+
+FLOW = {'if', 'else', 'end', 'wait'}       # the steps of a list that are not actions (UCLink bSteps)
+MAX_STEP_CONDITIONS = 16                   # UCLink.StepCond[16]
+
+
+def is_steps(link):
+    """A rule that is a list of steps (the editor's lists: If / Otherwise / End, Wait until): run in its order."""
+    return bool(link.get('steps'))
+
+
+def step_items(link, deleted, rule, conds=None, ids=None):
+    """A list of steps as UCLink runs it (bSteps): [action dict | fields list], and the StepCond strings. If becomes a
+    check step that fails to its Otherwise (or its End), Otherwise a goto to its End; an If left open ends with the
+    list; Wait until an until step (a character arriving, or a condition, at most `max` seconds). An action with its own
+    `requires` (P6: checked again just before it) gets a check step before it that skips it alone. conds: the StepCond
+    of the steps before (an Otherwise's list follows its rule's); ids: filled with each step's editor id."""
+    items, open_ifs = [], []
+    conds = [] if conds is None else conds
+    ids = [] if ids is None else ids
+
+    class _Items(list):                         # each step appended with its editor id (ids stays beside items)
+        sid = ''
+
+        def append(self, item):
+            list.append(self, item)
+            ids.append(_name(self.sid) or '')
+
+    items = _Items()
+
+    def cond_slots(reqs):
+        k = len(conds)
+        conds.extend(conditions.encode(c) for c in reqs)
+        if len(conds) > MAX_STEP_CONDITIONS:
+            raise ValueError('Interaction %s: its If and Wait until steps have more than %d conditions in all.' % (rule, MAX_STEP_CONDITIONS))
+        return k
+
+    for a in link.get('do') or []:
+        verb = str(a.get('verb') or '')
+        delay = '%g' % _secs(a.get('delay'), 0)
+        items.sid = a.get('id') or ''
+        if verb == 'if':
+            try:
+                reqs = conditions.check(a.get('requires'), limit=conditions.MAX_CONDITIONS)
+            except ValueError as exc:
+                raise ValueError('Interaction %s, an If step: %s' % (rule, exc)) from exc
+            k = cond_slots(reqs)
+            items.append([delay, 'check', 'any' if a.get('match') == 'any' else 'all', str(k), str(len(reqs)), 'stop'])
+            open_ifs.append({'check': len(items) - 1, 'goto': None})
+        elif verb == 'else':
+            if not open_ifs or open_ifs[-1]['goto'] is not None:
+                raise ValueError('Interaction %s: an Otherwise step with no If before it.' % rule)
+            items.append([delay, 'jump', '', '', 'stop', ''])
+            open_ifs[-1]['goto'] = len(items) - 1
+            items[open_ifs[-1]['check']][5] = str(len(items))           # the check fails to the other branch
+        elif verb == 'end':
+            if not open_ifs:
+                raise ValueError('Interaction %s: an End step with no If before it.' % rule)
+            block, here = open_ifs.pop(), len(items)
+            if block['goto'] is None:
+                items[block['check']][5] = str(here)                   # no other branch: past the If
+            else:
+                items[block['goto']][4] = str(here)                    # the first branch goes past the other one
+            if _secs(a.get('delay'), 0) > 0:
+                items.append([delay, 'wait', '', '', '', ''])
+        elif verb == 'wait':
+            until, most = a.get('until') or {}, '%g' % _secs(a.get('max'), 0)
+            if until.get('type') == 'arrived':
+                who = _name(until.get('actor'))
+                if not who or who in deleted:
+                    continue
+                items.append([delay, 'until', who, 'arrived', most, ''])
+            elif until:
+                try:
+                    reqs = conditions.check([until], limit=1)
+                except ValueError as exc:
+                    raise ValueError('Interaction %s, a Wait until step: %s' % (rule, exc)) from exc
+                if reqs:
+                    items.append([delay, 'until', '', 'cond', most, str(cond_slots(reqs))])
+            elif _secs(a.get('delay'), 0) > 0:
+                items.append([delay, 'wait', '', '', '', ''])
+        elif verb in VERBS and not (a.get('target') and a['target'] in deleted) \
+                and not (verb in ('npcuse', 'sit') and (not _name(a.get('a')) or a['a'] in deleted)):
+            try:
+                own = conditions.check(a.get('requires'), limit=conditions.MAX_CONDITIONS)
+            except ValueError as exc:
+                raise ValueError('Interaction %s, an action: %s' % (rule, exc)) from exc
+            if own:                             # checked again just before it: when it fails, only it is skipped
+                k = cond_slots(own)
+                items.append([delay, 'check', 'any' if a.get('match') == 'any' else 'all', str(k), str(len(own)),
+                              str(len(items) + 2)])
+                a = dict(a, delay=0)
+            items.append(dict(a, area=area_data(a, deleted | {link.get('src')})) if a.get('area') is not None else a)
+    for block in open_ifs:                     # an If with no End: its branches end with the list
+        if block['goto'] is None:
+            items[block['check']][5] = 'stop'
+        else:
+            items[block['goto']][4] = 'stop'
+    return list(items), conds
+
+
+def _plain_acts(link, deleted):
+    """A rule's actions that are built: not on a deleted or disabled object, a character's use with its object."""
+    acts = [a for a in link.get('do') or [] if str(a.get('verb')) in VERBS
+            and not (a.get('target') and a['target'] in deleted)
+            and not (a.get('verb') in ('npcuse', 'sit') and (not _name(a.get('a')) or a['a'] in deleted))]
+    return [dict(a, area=area_data(a, deleted | {link.get('src')})) if a.get('area') is not None else a for a in acts]
+
+
+def _has_own_checks(link):
+    """An action with its own conditions: the rule is built as a list of steps (a check before that action)."""
+    return any(a.get('verb') not in FLOW and conditions.complete(a.get('requires') or []) for a in _all_actions(link))
+
+
+def _group_blocks(rule, i, a, out):
+    """An area action's saved members: UCLinkGroup actors (128 a chunk); the action names the first."""
+    area = a.get('area')
+    if not (area and area['members']):
+        return a
+    stem = 'UCLG_' + rule + '_' + str(i)
+    chunks = [area['members'][j:j + 128] for j in range(0, len(area['members']), 128)]
+    for j, members in enumerate(chunks):
+        group_props = {'Member(%d)' % k: n for k, n in enumerate(members)}
+        if j + 1 < len(chunks):
+            group_props['NextGroup'] = stem + '_' + str(j + 1)
+        out.append(dict(cls='UCLinkGroup', name=stem + '_' + str(j), loc=list(area['at']), props=group_props))
+    return dict(a, _group=stem + '_0')
 
 
 def blocks(edits):
@@ -292,43 +601,73 @@ def blocks(edits):
             reqs = conditions.check(link.get('requires'), limit=conditions.MAX_CONDITIONS)
         except ValueError as exc:               # name the rule: the Rebuild stops on it
             raise ValueError('Interaction %s (%s): %s' % (rule, _text(link.get('label') or link.get('src')), exc)) from exc
-        acts = [a for a in link.get('do') or [] if str(a.get('verb')) in VERBS
-                and not (a.get('target') and a['target'] in deleted)
-                and not (a.get('verb') in ('npcuse', 'sit') and (not _name(a.get('a')) or a['a'] in deleted))]
-        acts = [dict(a, area=area_data(a, deleted | {link.get('src')})) if a.get('area') is not None else a for a in acts]
+        v2 = needs_rule(link)
+        stepconds, ids, else_at = [], [], -1
+        steps = is_steps(link) or v2 or _has_own_checks(link)
+        if steps:                               # a list of steps: in its order, If / Otherwise / Wait until (bSteps)
+            main = link if is_steps(link) else dict(link, do=as_steps(_plain_acts(link, deleted)))
+            acts, stepconds = step_items(main, deleted, rule, stepconds, ids)
+            other = _else_of(link) if v2 else []
+            if other:                           # its Otherwise: after the end of the main list (UCRule.ElseAt)
+                acts.append(['0', 'jump', '', '', 'stop', ''])
+                ids.append('')
+                else_at = len(acts)
+                # a rule that is a list of steps has its Otherwise as one too (each delay from the step before);
+                # a rule of actions at their times, its Otherwise the same, unless it has an If or a Wait
+                flow = is_steps(link) or any(a.get('verb') in FLOW for a in other)
+                more, stepconds = step_items({'do': other if flow else as_steps(_plain_acts({'do': other}, deleted)),
+                                              'src': link.get('src')}, deleted, rule, stepconds, ids)
+                acts += more
+        else:
+            acts = _plain_acts(link, deleted)
         if len(acts) > MAX_ACTS:
             raise ValueError('An interaction supports at most 24 actions; create another rule')
-        if not acts:
+        if not any(isinstance(a, dict) for a in acts):   # nothing it does (only checks and waits): not built
             continue
-        acts.sort(key=lambda a: float(a.get('delay') or 0))       # the link waits from one to the next
-        props = {'Tag': tag_of(link, usable), 'When': link['when'], 'Rule': '"%s"' % rule,
-                 'Label': _quoted(_text(link.get('label') or link['when']))}
-        if _name(link.get('src')):
-            props['Source'] = '"%s"' % _name(link['src'])
-        if link['when'] == 'option':
-            props['Option'] = str(option_of(link))
-        if WHEN[link['when']] == 'port':
-            props['Port'] = '"%s"' % _name(link['port'])
+        if not steps:
+            acts.sort(key=lambda a: float(a.get('delay') or 0))       # the link waits from one to the next
+        props = cause_props(link, usable, rule)
+        props['Label'] = _quoted(_text(link.get('label') or link['when']))
         for i, c in enumerate(reqs):
             props['Cond(%d)' % i] = '"%s"' % conditions.encode(c)
-        if link['when'] == 'near':
-            props['NearDist'] = '%.6f' % max(32.0, float(link.get('near') or 256))
         if link.get('once'):
             props['bOnce'] = 'True'
+        if steps:
+            props['bSteps'] = 'True'
+            for i, c in enumerate(stepconds):
+                props['StepCond(%d)' % i] = '"%s"' % c
         for i, a in enumerate(acts[:MAX_ACTS]):
-            area = a.get('area')
-            if area and area['members']:
-                stem = 'UCLG_' + rule + '_' + str(i)
-                chunks = [area['members'][j:j + 128] for j in range(0, len(area['members']), 128)]
-                for j, members in enumerate(chunks):
-                    group_props = {'Member(%d)' % k: n for k, n in enumerate(members)}
-                    if j + 1 < len(chunks):
-                        group_props['NextGroup'] = stem + '_' + str(j + 1)
-                    out.append(dict(cls='UCLinkGroup', name=stem + '_' + str(j),
-                                    loc=list(area['at']), props=group_props))
-                a = dict(a, _group=stem + '_0')
-            props['Act(%d)' % i] = _quoted(act_string(a))
-        out.append(dict(cls='UCLink', name='UCLink_' + rule,
+            if isinstance(a, list):                 # a step of the list: check, goto, until, wait
+                props['Act(%d)' % i] = _quoted('|'.join(a))
+                continue
+            props['Act(%d)' % i] = _quoted(act_string(_group_blocks(rule, i, a, out)))
+        cls = 'UCLink'
+        if v2:                                  # the Logic runtime v2: a UCRule, a UCRuleAlso for each other cause
+            cls = 'UCRule'
+            if link.get('match') == 'any' and len(reqs) > 1:
+                props['bAny'] = 'True'
+            if else_at >= 0:
+                props['ElseAt'] = str(else_at)
+            if link.get('again') in AGAIN:
+                props['Again'] = link['again']
+            if _whole(link.get('max'), 0) > 0:
+                props['MaxRuns'] = str(_whole(link['max'], 0))
+            if _secs(link.get('cooldown'), 0) > 0:
+                props['Cooldown'] = '%.6f' % _secs(link['cooldown'], 0)
+            if link.get('talkBusy') in TALK_BUSY:
+                props['TalkBusy'] = link['talkBusy']
+            for i, sid in enumerate(ids[:MAX_ACTS]):
+                if sid:
+                    props['ActId(%d)' % i] = '"%s"' % sid
+            for k, c in enumerate(causes(link)):
+                if c.get('src') in deleted:
+                    continue
+                also = cause_props(dict(c, id='%s_%d' % (rule, k + 1)), usable, rule)   # its own Tag (a watched one)
+                also['Main'] = '"UCLink_%s"' % rule
+                also['Label'] = props['Label']
+                out.append(dict(cls='UCRuleAlso', name='UCRuleAlso_%s_%d' % (rule, k + 1),
+                                loc=[float(v) for v in (c.get('at') or link.get('at') or [0, 0, 0])][:3], props=also))
+        out.append(dict(cls=cls, name='UCLink_' + rule,
                         loc=[float(v) for v in (link.get('at') or [0, 0, 0])][:3], props=props))
     return out
 
@@ -339,16 +678,16 @@ def light_targets(edits, map_lights=()):
     for link in edits.get('links') or []:
         if not valid(link) or link.get('src') in deleted:
             continue
-        for a in link.get('do') or []:
+        for a in _all_actions(link):
             area = area_data(a, deleted | {link.get('src')})
-            if area is not None and a.get('verb') in LIGHT_VERBS:
+            if area is not None and a.get('verb') in LIGHT_VERBS | LIGHT_CHANGES:
                 candidates=object_tags.matching_lights(map_lights,area.get('tag',''),edits)
                 names.update(set(area['members']) & candidates if isinstance(map_lights,dict) else area['members'])
                 if area['dynamic']:
                     names.update(candidates - deleted - {link.get('src')})
-            if a.get('verb') in LIGHT_VERBS and a.get('targetTag'):
+            if a.get('verb') in LIGHT_VERBS | LIGHT_CHANGES and a.get('targetTag'):
                 names.update(object_tags.matching_lights(map_lights,a['targetTag'],edits) - deleted - {link.get('src')})
-            if a.get('verb') in LIGHT_VERBS and _name(a.get('target')) and a['target'] not in deleted:
+            if a.get('verb') in LIGHT_VERBS | LIGHT_CHANGES and _name(a.get('target')) and a['target'] not in deleted:
                 names.add(a['target'])
     return sorted(names)
 

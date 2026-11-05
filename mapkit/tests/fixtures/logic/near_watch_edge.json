@@ -2,7 +2,7 @@
   "id": "near_watch_edge",
   "title": "Near is watched every half second and happens when it becomes true",
   "behaviour": "Each rule looks every half second; it runs when JC is within its distance and was not at the look before (the distance itself counts as near). The first look only notes, so JC standing near at the start does not count until he has left. A rule refused while JC is near does not try again until he has left and come back.",
-  "derivedFrom": [{"file": "UCLink.uc", "lines": [308, 335], "has": "function TickStory()"}],
+  "derivedFrom": [{"file": "UCLink.uc", "lines": [389, 416], "has": "function TickStory()"}],
   "assumes": ["A8"],
   "map": "LogicFixtures",
   "frame": 0.1,

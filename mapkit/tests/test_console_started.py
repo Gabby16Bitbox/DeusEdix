@@ -1,4 +1,4 @@
-"""The Console's Time: when the editor's own game started, from its session's process creation time."""
+"""The Console's Time (G39): when the editor's own game started, from its session's process creation time."""
 import sys
 import unittest
 from pathlib import Path

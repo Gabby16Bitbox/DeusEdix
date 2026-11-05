@@ -11,7 +11,7 @@ export const BLOCK_WHEN = {
   stopped: 'an action stops it',
   arrived: 'they get where they were sent (Walk / Run to a place)',
   bodydone: 'its body animation has finished',
-  keypress: 'JC presses a key',
+  keypress: 'the player presses a key',
 };
 // the keys a rule can wait for, as the engine names them (editor/links.py KEYS)
 export const KEYS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'].concat(Array.from({ length: 12 }, (_, i) => `F${i + 1}`),
@@ -32,7 +32,7 @@ export const BLOCK_VERBS = {
   effect: ['An effect on it (mist, sparks, light...)', 'any'],
   body: ['Play a body animation', 'character'],
   bodystop: ['Stop its body animation', 'character'],
-  fpmoment: ["JC's weapon plays a moment", ''],
+  fpmoment: ["The player's weapon plays a moment", ''],
 };
 
 // How a body animation plays (the action's c, as links.py body_how writes it): mode once / loop (until stopped) / time
@@ -107,7 +107,10 @@ export function blockActText(x, t, nameOf, info = {}) {
     case 'timerstop': return `stop ${t}`;
     case 'timerpause': return `pause ${t}`;
     case 'timerresume': return `resume ${t}`;
-    case 'sit': return `${t} walks to ${nameOf(x.a || '?')} and sits down`;
+    case 'sit': {                                  // objects tagged alike: "walk ... and sit down" (logic.json many)
+      const many = /^objects tagged /.test(t);
+      return `${t} ${many ? 'walk' : 'walks'} to ${x.a ? nameOf(x.a) : 'Choose a chair'} and ${many ? 'sit' : 'sits'} down`;
+    }
     case 'standup': return `${t} gets up from their seat`;
     case 'npcuse': {
       const what = x.a ? nameOf(x.a) : '(an object: choose it)';
@@ -120,7 +123,7 @@ export function blockActText(x, t, nameOf, info = {}) {
       return `${t} plays the animation ${anim}`;
     }
     case 'bodystop': return `${t} stops its body animation`;
-    case 'fpmoment': return `JC's weapon plays the moment ${x.a || '?'}`;
+    case 'fpmoment': return `the player's weapon plays the moment ${x.a || '?'}`;
     case 'effect': {
       if (x.a === 'off') return `stop the effects on ${t}`;
       const o = effectOptions(x.c), light = isLightEffect(x.a);

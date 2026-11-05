@@ -3,10 +3,10 @@
   "title": "Area target with current entrants: saved members, then what is in the radius now",
   "behaviour": "An area action that also takes current entrants acts on its saved members wherever they are now, then on everything of its kind inside the radius when the action runs, each once.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [408, 437], "has": "function DoArea(string s)"},
-    {"file": "UCLink.uc", "lines": [342, 348], "has": "function bool AreaKind(Actor A, string kind)"},
-    {"file": "UCLink.uc", "lines": [354, 368], "has": "function QueueRecipient("},
-    {"file": "UCLink.uc", "lines": [452, 452], "has": "Report(\"act\", Field(s, 1) $ \"|area \" $ Field(s, 7));"}
+    {"file": "UCLink.uc", "lines": [643, 672], "has": "function DoArea(string s)"},
+    {"file": "UCLink.uc", "lines": [577, 583], "has": "function bool AreaKind(Actor A, string kind)"},
+    {"file": "UCLink.uc", "lines": [589, 603], "has": "function QueueRecipient("},
+    {"file": "UCLink.uc", "lines": [686, 686], "has": "Report(\"act\", Field(s, 1) $ \"|area \" $ Field(s, 7));"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

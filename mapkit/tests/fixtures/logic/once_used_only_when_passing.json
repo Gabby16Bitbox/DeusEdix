@@ -3,8 +3,8 @@
   "title": "Only once is used up only when the rule passes",
   "behaviour": "A rule that runs only once and is refused by a condition is not used up: it runs the next time its output happens and the condition holds, and is skipped as \"once\" after that.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [266, 288], "has": "function RunRule"},
-    {"file": "UCLink.uc", "lines": [36, 36], "has": "// only the first time"}
+    {"file": "UCLink.uc", "lines": [347, 369], "has": "function RunRule"},
+    {"file": "UCLink.uc", "lines": [40, 40], "has": "// only the first time"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

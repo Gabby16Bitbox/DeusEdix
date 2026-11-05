@@ -550,6 +550,7 @@ class Scene:
                         self.add(turn(br), flags=fl)
                 continue
             mat = geom.Mat(b.get('tex') or 'ClenGreyCncrt_A')
+            mat.lit_guard = True                   # a lightmap fine enough on every face (geom.lit_scale)
             if b.get('sign'):                      # a sign: its text on the front face (editor/textures.py)
                 import sys as _sys
                 _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
@@ -1199,8 +1200,9 @@ class Scene:
             for f in b.faces:
                 m = f.mat
                 # hazard bands are fitted to their band width (maps' hazard()), like the originals
+                # an editor block's own scale (geom.lit_scale: a lightmap fine enough) is meant, no warning for it
                 if (m is None or f.u is not None or m.flags & PF_UNLIT or m.tex.startswith('UC')
-                        or m.tex == 'WarnYeloStrip_A'):
+                        or m.tex == 'WarnYeloStrip_A' or (getattr(m, 'lit_guard', False) and m.tile is None)):
                     continue
                 d = db.get(m.tex.lower())
                 if d is None or d['faces'] < 8:

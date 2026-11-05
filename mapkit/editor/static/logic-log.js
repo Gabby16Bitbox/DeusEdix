@@ -4,6 +4,10 @@
 //   fire|map|rule|source|when|by|label      skip|map|rule|why|detail      act|map|rule|verb|target|detail
 //   fail|map|rule|verb|target|why           hook|map|rule|source|why
 //   input|map|script|name|args              output|map|script|name|count  noinput|map|script|name
+//   check|map|rule|pass or fail|step|cond   until|map|rule|done or timeout|step|who   (a list of steps, Logic v2)
+//   else|map|rule|source|when|by            (a rule's Otherwise runs: its conditions do not hold)
+// A rule of the Logic runtime v2 (UCRule) names itself "rule@time#step": the game time of the line in seconds
+// (entry.time) and the editor's id of the step doing it (entry.at).
 import { conditionText } from './conditions.js';
 
 export const LOGIC_TAG = 'DeusEdixLogic: ';
@@ -13,6 +17,8 @@ const FIELDS = {
   act: ['map', 'rule', 'verb', 'target', 'detail'], fail: ['map', 'rule', 'verb', 'target', 'why'], hook: ['map', 'rule', 'source', 'why'],
   input: ['map', 'script', 'name', 'args'], output: ['map', 'script', 'name', 'count'], noinput: ['map', 'script', 'name'],
   bad: ['map', 'rule', 'detail'],
+  check: ['map', 'rule', 'result', 'step', 'detail'], until: ['map', 'rule', 'result', 'step', 'who'],
+  else: ['map', 'rule', 'source', 'when', 'by'],
 };
 
 // a line of the game's log -> {kind, map, rule, ...}, or null when it is not one of the logic log
@@ -25,6 +31,12 @@ export function parseLogicLine(line) {
   // the last field keeps any | after it (a label, a condition's own fields)
   names.forEach((name, i) => { entry[name] = i === names.length - 1 ? parts.slice(i + 1).join('|') : parts[i + 1] ?? ''; });
   if (/^UCLink_/.test(entry.rule || '')) entry.rule = entry.rule.slice(7);      // a map built before rules had an id
+  const m = /^([^@#]*)(?:@(\d+(?:\.\d+)?))?(?:#(\w+))?$/.exec(entry.rule || '');
+  if (m && (m[2] || m[3])) {                          // UCRule: rule@time#step
+    entry.rule = m[1];
+    if (m[2]) entry.time = +m[2];
+    if (m[3]) entry.at = m[3];
+  }
   return entry;
 }
 
@@ -42,10 +54,17 @@ export function decodeCondition(text) {
   }
 }
 
-const SKIPS = { once: 'it runs only once, and has run', running: 'it is still doing its actions' };
+const SKIPS = { once: 'it runs only once, and has run', running: 'it is still doing its actions',
+  max: 'it has run as many times as it may', cooldown: 'too soon after its last run', restarted: 'set off again: it starts over',
+  cancelled: 'another rule stopped it', talking: 'the player is talking: it gives up', full: 'it already runs 8 times at once',
+  how: 'it happened the other way (killed, not knocked out, or the other way round)' };
 const FAILS = { missing: 'it is not in the map', cannot: 'it cannot do that', nosound: 'there is no such sound',
   noname: 'it has no name', noscript: 'it is not a script', nofloor: 'it has no such floor',
-  full: 'it said more than 8 outputs before the map started: this one was lost' };
+  full: 'it said more than 8 outputs before the map started: this one was lost',
+  loop: 'its steps went round 256 times with no end: stopped (a wait in the loop lets it go on)',
+  fast: 'it was set off more than 20 times in a second: it waits for the next second (do rules set each other off?)',
+  blocked: 'there is no room there' };
+const NOCLASS = { giveitem: 'the game has no such item', spawn: 'the game has no such character', music: 'the game has no such music' };
 const NONAME = { count: 'the counter has no name', flag: 'no state chosen', goal: 'the goal has no name' };
 const HOOKS = { missing: 'is not in the map: the rule never runs', noslot: 'has no free slot left for this rule (4 untrigger events in use)',
   target: 'uses its event as a list of targets, or never sends it: a rule cannot start from it this way' };
@@ -59,14 +78,23 @@ export function logicSentence(e, names = {}) {
     case 'skip': return { mark: '⏸', parts: [...rule, 'did not run: ', e.why === 'cond'
       ? 'only if ' + (decodeCondition(e.detail) ? conditionText(decodeCondition(e.detail), names) : e.detail) + ' — and that does not hold'
       : SKIPS[e.why] || e.why] };
-    case 'act': return { mark: '→', parts: ['  ', e.verb, ' ', ...(e.target ? [/^(area|tag) /.test(e.target) ? e.target : { name: e.target }] : []),
+    case 'else': return { mark: '↪', parts: [...rule, 'its Otherwise', ...(e.by ? [' (by ', { name: e.by }, ')'] : [])] };
+    case 'act': if (e.verb === 'spawned') return { mark: '→', parts: ['  ', `${+e.detail || 0} came`, ...(e.target ? [` (${e.target})`] : [])] };
+      return { mark: '→', parts: ['  ', e.verb, ' ', ...(e.target ? [/^(area|tag) /.test(e.target) ? e.target : { name: e.target }] : []),
       ...(e.detail ? [`${e.target ? ' ' : ''}"${e.detail}"`] : [])] };
-    case 'fail': return { mark: '✗', parts: ['  ', e.verb, ' ', ...(e.target ? [e.why === 'nosound' ? e.target : { name: e.target }] : []), ': ',
-      (e.why === 'noname' && NONAME[e.verb]) || FAILS[e.why] || e.why] };     // (a sound's name: not an object)
+    case 'fail': return { mark: '✗', parts: ['  ', e.verb, ' ', ...(e.target ? [e.why === 'nosound' || NOCLASS[e.verb] ? e.target : { name: e.target }] : []), ': ',
+      (e.why === 'noname' && NONAME[e.verb]) || (e.why === 'missing' && NOCLASS[e.verb]) || FAILS[e.why] || e.why] };     // (a sound's name: not an object)
     case 'hook': return { mark: '⚠', parts: [...rule, { name: e.source }, ' ', HOOKS[e.why] || e.why] };
     case 'input': return { mark: '↘', parts: [{ name: e.script }, ': input ', e.name, ...(e.args ? [' (', e.args.replace(/;/g, ', '), ')'] : [])] };
     case 'output': return { mark: '↗', parts: [{ name: e.script }, ' says ', e.name, ` (${+e.count || 0} rule${+e.count === 1 ? '' : 's'})`] };
     case 'noinput': return { mark: '✗', parts: [{ name: e.script }, ' has no input ', e.name, ': add it to its Input() switch'] };
+    case 'check': {                                   // an If of a list of steps
+      const c = e.result === 'fail' && e.detail ? decodeCondition(e.detail) : null;
+      return { mark: '◇', parts: [...rule, e.result === 'pass' ? 'the If holds: its steps' : `the If does not hold`
+        + `${c ? ` (${conditionText(c, names)})` : ''}: its Otherwise, or on after it`] };
+    }
+    case 'until': return { mark: '⏱', parts: [...rule, ...(e.result === 'timeout' ? ['the wait ran out: on with the next step']
+      : e.who ? [{ name: e.who }, ' has arrived: on'] : ['what it waited for is so: on'])] };
     case 'bad': return { mark: '⚠', parts: [...rule, 'a condition this version of the game classes does not know: ', e.detail] };
     default: return { mark: '·', parts: [JSON.stringify(e)] };
   }

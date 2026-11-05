@@ -3,8 +3,8 @@
   "title": "Counters: set and add, read by another rule",
   "behaviour": "The action count sets a counter (c = set) or adds to it, a negative number too; the log names only the counter, the state at the end shows the value.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [621, 631], "has": "function Count(name counter, int n, bool bSet)"},
-    {"file": "UCLink.uc", "lines": [591, 592], "has": "else if (verb == \"count\")"}
+    {"file": "UCLink.uc", "lines": [1268, 1278], "has": "function Count(name counter, int n, bool bSet)"},
+    {"file": "UCLink.uc", "lines": [825, 826], "has": "else if (verb == \"count\")"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

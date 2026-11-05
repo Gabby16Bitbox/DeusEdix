@@ -1,4 +1,4 @@
-"""Map templates (editor/maptemplates.py): what a template keeps of a map and what it leaves out, a New map room
+"""Map templates (editor/maptemplates.py, G35): what a template keeps of a map and what it leaves out, a New map room
 read back from its script, saving, listing, deleting, and new maps made from one (a room built now, a map file
 copied), leaving nothing behind when that fails."""
 import base64

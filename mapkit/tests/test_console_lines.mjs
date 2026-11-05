@@ -1,4 +1,4 @@
-// The Console's lines as data (static/console-lines.js), as Unity's Console: Collapse merges identical lines into
+// The Console's lines as data (static/console-lines.js, G39), as Unity's Console: Collapse merges identical lines into
 // one row with how many came, Time is the seconds since Play started, Copy writes the rows as they read, and the names
 // of the open map's objects in any line become parts a click selects (logic-log.js's { name }).
 import test from 'node:test';

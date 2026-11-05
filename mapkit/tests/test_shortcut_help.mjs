@@ -191,7 +191,7 @@ test('a modifier alone: what holding it does with the mouse', () => {
   assert.deepEqual(findKey('Shift+click', keymap).map((f) => f.where[0]), ['Selecting', 'Placing', 'Edit vertices', 'Face selection']);
 });
 
-// Face selection's keys: Grow and Grow (any angle) with the mode's own, with Alt held the ten recent textures as one
+// G30: Face selection's keys: Grow and Grow (any angle) with the mode's own, with Alt held the ten recent textures as one
 // entry (their own keys, or each written out once one has another) before Grow, the 3D view's commands with Alt after
 test('Face selection: Grow, and Alt+1…0 for the recent textures', () => {
   assert.deepEqual(shown(stripFor('faces', '', keymap)).slice(0, 4), ['click Pick a face', 'Q End', 'Alt+G Grow', 'Alt+Shift+G Grow (any angle)']);
@@ -213,7 +213,7 @@ test('Face selection: Grow, and Alt+1…0 for the recent textures', () => {
     ['Alt+G: Grow the face selection (faces in its plane) @ Face selection']);
 });
 
-// Ctrl+Alt+click lists the lamps lighting a point (Lights here), where things are picked and in Face selection
+// G25: Ctrl+Alt+click lists the lamps lighting a point (Lights here), where things are picked and in Face selection
 test('Ctrl+Alt held: Lights here with the mouse first', () => {
   for (const mode of ['select', 'move', 'faces']) assert.equal(shown(stripFor(mode, 'Ctrl+Alt', keymap))[0], 'Ctrl+Alt+click Lights here', mode);
   assert.ok(shown(stripFor('select', 'Ctrl+Alt', keymap)).includes('Ctrl+Alt+1…9 Keep the selection'));

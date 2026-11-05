@@ -78,7 +78,7 @@ def start(map_name, at, yaw, pitch, setup, flags, display_mode='external', steps
                      steps=steps, commands=commands)
 
 
-# ---------------------------------------------------------------- JC's loadout (play scenarios)
+# ---------------------------------------------------------------- JC's loadout (play scenarios, G13)
 # The game's console commands for it: the cheats (summon, augadd, god, invisible) work only with the game's cheats on,
 # which `set` turns on for this game; the rest is `set` on the player and his skills. The runner execs them from a
 # file (live.LOADOUT) in one step, and puts each item in front of JC with a step of its own (half a second each).

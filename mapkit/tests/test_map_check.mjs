@@ -1,4 +1,4 @@
-// Check map's rules about where things are (static/map-check.js): the same object twice at one spot, and what the
+// Check map's rules about where things are (static/map-check.js, G31): the same object twice at one spot, and what the
 // game drops to the floor when the map starts, so that a thing left in the air is reported, and what hangs is not.
 import test from 'node:test';
 import assert from 'node:assert/strict';

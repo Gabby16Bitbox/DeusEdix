@@ -85,9 +85,15 @@ function cannotSay(ix, c, a) {
   const note = ((ix.catalog.families || []).find((f) => f.id === a.family) || {}).note || '';
   return `"${ix.vocab.outputLabel(c.cause.when)}" never happens to ${ix.ctx.name(c.src)}.${note ? ' ' + note : ''}`;
 }
+// the names with a scripting tag, compared as the game does (UCObjectTag.Matches: ~=, case-insensitive)
+// what a tag action reaches (UCLink.TagKind): lights, doors or characters by its verb, else any object
+const TAG_KIND = (verb) => (verb.startsWith('light') ? 'light' : ['open', 'close', 'toggle', 'lock', 'unlock', 'blow'].includes(verb) ? 'door'
+  : ['attack', 'hostile', 'friend', 'neutral', 'stand', 'wander', 'follow', 'goto', 'run', 'leave', 'appear'].includes(verb) ? 'character' : '');
+const KIND_PLURAL = { light: 'lights', door: 'doors', character: 'characters' };
+const tagMembers = (tags, tag) => Object.entries(tags).filter(([t]) => t.toLowerCase() === String(tag).toLowerCase()).flatMap(([, n]) => n);
 function actionProblems(ix, r, act, add, game) {
   const x = act.x, at = { node: r.node, rule: r.id, act: act.id, wire: act.wire };
-  if (x.verb === 'wait') return;                         // a wait is Logic runtime v2's (laterFields)
+  if (['wait', 'if', 'else', 'end'].includes(x.verb)) return;     // a step of a list of steps, not an action
   const verb = own(ix.catalog.inputs, x.verb);
   if (!verb) { add('error', 'unknown-verb', `"${x.verb}" is not an action the game classes know.`, at); return; }
   if (x.target && !x.area && !x.targetTag) {
@@ -98,6 +104,16 @@ function actionProblems(ix, r, act, add, game) {
       if (TRIGGERS.has(x.verb)) add('warn', 'may-ignore', `${ix.ctx.name(x.target)} may ignore "${ix.vocab.verbLabel(x.verb)}": the game only passes it a trigger, and its class decides.`, at);
       else add('error', 'cannot-input', cannotDo(ix, x, a), at);
     }
+  }
+  // objects tagged alike (input.tags: tag -> the names that have it, UCObjectTag.Of): a tag no object has reaches nothing
+  if (x.targetTag && ix.input.tags && !tagMembers(ix.input.tags, x.targetTag).length) {
+    const kind = TAG_KIND(x.verb), fams = ix.input.tagFamilies || {};
+    const all = Object.keys(ix.input.tags).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    const fit = kind ? all.filter((t) => (fams[t] || []).includes(kind)) : [];
+    const here = (fit.length ? fit : all).slice(0, 8);
+    const said = fit.length ? ` The ${KIND_PLURAL[kind]} here are tagged: ` : ' Tags here: ';
+    add('warn', 'tag-empty', `No object on this map has the scripting tag "${x.targetTag}": this action reaches nothing.`
+      + `${here.length ? said + here.join(', ') + '.' : ''} (An object's tag is its Scripting tag in the Inspector.)`, at);
   }
   // (logic.json inputs[verb].target: the action needs an object; without one the game does nothing: fail cannot)
   if (verb.target && !x.target && !x.area && !x.targetTag) add('error', 'no-object', `"${ix.vocab.verbLabel(x.verb)}" has no object.`, at);
@@ -130,7 +146,7 @@ function stateProblems(ix, add) {
   }
 }
 
-// a door opened by logic that is not locked: JC can open it by hand anyway (one problem per door, its "Lock it")
+// a door opened by logic that is not locked: the player can open it by hand anyway (one problem per door, its "Lock it")
 function doorProblems(ix, add) {
   const opened = new Map(), locked = new Set();
   const acts = [...ix.rules.flatMap((r) => [...r.acts, ...r.otherwise].map((act) => [r.id, act.x])), ...ix.story.flatMap((s) => s.acts.map((act) => [s.node, act.x]))];
@@ -141,29 +157,39 @@ function doorProblems(ix, add) {
   for (const [name, by] of opened) {
     const a = own(ix.actors, name);
     if (!a || a.family !== 'door' || a.locked !== false || a.frobbable === false || locked.has(name)) continue;
-    add('warn', 'not-locked', `${ix.ctx.name(name)} opens by logic (${words([...new Set(by)])}) but is not locked: JC can open it by hand.`, { node: thingId(name), fix: 'lock' });
+    add('warn', 'not-locked', `${ix.ctx.name(name)} opens by logic (${words([...new Set(by)])}) but is not locked: the player can open it by hand.`, { node: thingId(name), fix: 'lock' });
   }
 }
 
 // Rules that set each other off with no time between (logic.json setsOff: what an action makes its object say again
-// at once) run again every tick, for ever. Not one: a rule setting off itself (it is still running and skips), a
-// loop through a rule that runs once (UCLink.RunRule refuses it the second time), a loop of cutscenes played with no
-// rule of it stopping one (NEEDS_STOP).
+// at once) run again every tick, for ever. Not one: a loop through a rule that runs once (UCLink.RunRule refuses it
+// the second time), at most so many times (UCRule MaxRuns) or not again before a cooldown (time passes); a loop of
+// cutscenes played with no rule of it stopping one (NEEDS_STOP). A rule setting off itself is one only when it starts
+// again while it runs (UCRule Again restart or each): else it is still running and skips. Its Otherwise counts too.
+// (The game stops a rule started more than 20 times in a second for the rest of that second: UCRule.Start.)
 function cycleProblems(ix, add) {
-  const rules = ix.rules.filter((r) => !r.l.once);                          // truthy, as links.py writes bOnce
+  const rules = ix.rules.filter((r) => !r.l.once && !(+r.l.max > 0) && !(+r.l.cooldown > 0));   // truthy, as links.py writes them
+  const again = (r) => r.l.again === 'restart' || r.l.again === 'each';
   const next = new Map(rules.map((r) => [r.id, []]));                       // id -> [{to, verb}]
+  const quick = (acts) => {                                                 // after a wait, time has passed
+    const wait = acts.findIndex((act) => act.x.verb === 'wait');
+    return (wait < 0 ? acts : acts.slice(0, wait)).filter((a) => !(+a.x.delay > 0) && a.node);
+  };
   for (const r of rules) {
-    const wait = r.acts.findIndex((act) => act.x.verb === 'wait');            // after a wait, time has passed
-    for (const act of (wait < 0 ? r.acts : r.acts.slice(0, wait)).filter((a) => !(+a.x.delay > 0) && a.node)) {
+    for (const act of [...quick(r.acts), ...quick(r.otherwise || [])]) {
       const says = own(ix.catalog.setsOff, act.x.verb) || [];
       const said = (key) => says.includes(key) || (says.includes('output') && key.startsWith('output:'));
-      for (const other of rules) if (other !== r && other.causes.some((c) => c.node === act.node && said(c.key))) next.get(r.id).push({ to: other.id, verb: act.x.verb });
+      for (const other of rules) {
+        if ((other !== r || again(r)) && other.causes.some((c) => c.node === act.node && said(c.key))) next.get(r.id).push({ to: other.id, verb: act.x.verb });
+      }
     }
   }
   const byId = new Map(rules.map((r) => [r.id, r]));
   const stops = (id, verb) => byId.get(id).acts.some((act) => act.x.verb === NEEDS_STOP[verb]);
   for (const loop of loops(next, stops)) {
-    for (const id of loop) add('warn', 'zero-delay-cycle', `${words(loop)} set each other off with no delay: they run again every tick, for ever.`, { node: ruleId(id), rule: id });
+    const text = loop.length === 1 ? `${loop[0]} sets itself off again with no delay and starts again while it runs: it runs every tick, for ever.`
+      : `${words(loop)} set each other off with no delay: they run again every tick, for ever.`;
+    for (const id of loop) add('warn', 'zero-delay-cycle', text, { node: ruleId(id), rule: id });
   }
 }
 // The loops of a graph {id: [{to, verb}]}: its strongly connected components of more than one rule, once the edges of
@@ -171,7 +197,8 @@ function cycleProblems(ix, add) {
 // until none is left out
 function loops(next, stops) {
   for (;;) {
-    const found = components(next).filter((c) => c.length > 1), loopOf = new Map(found.flatMap((c, k) => c.map((id) => [id, k])));
+    const self = (id) => (next.get(id) || []).some((e) => e.to === id);
+    const found = components(next).filter((c) => c.length > 1 || self(c[0])), loopOf = new Map(found.flatMap((c, k) => c.map((id) => [id, k])));
     const kept = (id, e) => !own(NEEDS_STOP, e.verb) || loopOf.get(id) === undefined || loopOf.get(id) !== loopOf.get(e.to)
       || found[loopOf.get(id)].some((other) => stops(other, e.verb));
     if ([...next].every(([id, out]) => out.every((e) => kept(id, e)))) return found;

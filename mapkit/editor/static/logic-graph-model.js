@@ -93,6 +93,10 @@ export const RULE_FIELDS = {
   do: { shown: 'rows' },
   once: { dflt: false, badge: () => '1×', title: 'Only once' },
   label: { none: 'made again from the rule (lkFixLabels), saved for the log' },
+  // the rule whose "If not" steps this rule is (action-list.js: the same cause, the opposite condition)
+  otherwiseOf: { none: 'the rule its "If not" steps belong to' },
+  // a list of steps run in its order (action-list.js, UCLink bSteps): its rows say so already
+  steps: { none: 'its steps run in their order, each after its wait' },
   // where links.py places the rule's actor (the source's place when the rule was made; none: the map's origin): it
   // shows only when something happens there
   at: { applies: (l) => happensAtRule(l), absent: [0, 0, 0], badge: (v) => 'at ' + placeText(v), title: 'Where its explosion or its sound with no object happens' },
@@ -137,7 +141,7 @@ function happensAtRule(l) {
 
 // What a rule uses that today's UCLink does not run (Logic runtime v2): [{field, word}], each once, in the tables' order
 export function laterFields(l) {
-  const acts = [...list(l.do), ...list(l.else)];
+  const acts = l.steps ? [] : [...list(l.do), ...list(l.else)];      // a list of steps: the game runs its Ifs and waits
   return [...Object.entries(RULE_FIELDS).filter(([field, f]) => f.needs && !isDefault(l[field], f.dflt)).map(([field, f]) => ({ field, word: f.word })),
     ...(acts.some((x) => !isDefault(x.requires, [])) ? [{ field: 'step-requires', word: ACTION_FIELDS.requires.word }] : []),
     ...(acts.some((x) => x.verb === 'wait') ? [WAIT] : [])];
@@ -263,7 +267,7 @@ function storyActors(story) {
 function contextOf(input, actors) {
   const edits = input.edits || {}, actor = (n) => own(actors, n);
   return {
-    name: (n) => (!n ? 'nothing' : actor(n) ? actor(n).title || n : `${String(n).replace(QUALIFIED, '')} (missing)`),
+    name: (n) => (!n ? 'nothing' : own(SPECIAL, n) ? SPECIAL[n] : actor(n) ? actor(n).title || n : `${String(n).replace(QUALIFIED, '')} (missing)`),
     family: (n) => (actor(n) && actor(n).family) || 'other',
     word: (n) => own(own(edits.logic, 'words'), n) || (actor(n) && actor(n).word) || '',
     usable: (n) => !!own(edits.usable, n),
@@ -279,10 +283,12 @@ function causesOf(l) {
   return [l, ...list(l.also)].map((c) => ({ src: c.when === 'start' ? '' : c.src || '', key: whenKey(c), cause: c,
     node: thingId(c.when === 'start' ? '' : c.src), pin: 'out:' + whenKey(c) }));
 }
+// what set the rule's run off (UCRule: @by, @it) is no object of the map: no node, no wire, its words in the row
+const SPECIAL = { '@by': 'whoever set it off', '@it': 'the object it happened to' };
 function targetOf(rule, x, id) {
   if (x.area) return `${GROUP_KINDS.area}${rule}/${id}`;
   if (x.targetTag) return GROUP_KINDS.tag + x.targetTag;
-  return x.target ? thingId(x.target) : null;
+  return x.target && !own(SPECIAL, x.target) ? thingId(x.target) : null;
 }
 function actsOf(l, acts, prefix) {
   const ids = actionIds(acts, prefix);
@@ -419,14 +425,22 @@ function sectionTitle(x, ix) {
     : kindOf(u) ? conditionText(u, conditionNames(ix.ctx)) : 'the wait';
   return `After ${what}${+x.max > 0 ? ` (at most ${+x.max} s)` : ''}:`;
 }
-// the rows of a list in sections: a wait starts one, the rows of each in time order (links.blocks sorts them so)
-function sectionsOf(acts, ix) {
+// the rows of a list in sections: a wait starts one, the rows of each in time order (links.blocks sorts them so).
+// A list of steps (rule.steps, action-list.js): its rows in their order, each with its depth in If blocks and, for
+// If / Otherwise / End, its flow; a Wait of its own is a row, a Wait until starts a section the game now runs
+function sectionsOf(acts, ix, steps = false) {
   const out = [{ title: '', rows: [] }];
+  let depth = 0;
   for (const act of acts) {
-    if (act.x.verb === 'wait') out.push({ title: sectionTitle(act.x, ix), wait: act.wire, needs: V2, rows: [] });
-    else out[out.length - 1].rows.push(rowOf(act, ix));
+    const v = act.x.verb, flow = ['if', 'else', 'end'].includes(v) ? v : '';
+    if (v === 'wait' && (!steps || act.x.until)) { out.push({ title: sectionTitle(act.x, ix), wait: act.wire, needs: steps ? '' : V2, rows: [] }); continue; }
+    if (flow === 'else' || flow === 'end') depth = Math.max(0, depth - 1);
+    const row = rowOf(act, ix);
+    if (steps) Object.assign(row, { depth, flow, pause: v === 'wait' });
+    out[out.length - 1].rows.push(row);
+    if (flow === 'if' || flow === 'else') depth++;
   }
-  for (const s of out) s.rows.sort((p, q) => p.time - q.time);
+  if (!steps) for (const s of out) s.rows.sort((p, q) => p.time - q.time);
   return out.filter((s, k) => k === 0 || s.rows.length || s.title);
 }
 // A rule card (an articy fragment crossed with a PlayMaker state)
@@ -435,7 +449,8 @@ function cardOf(r, ix) {
   return { id: r.node, kind: 'rule', rule: r.id, readOnly: false, muted: !!l.mute,
     causes: r.causes.map((c) => ({ node: c.node, pin: c.pin, text: ix.vocab.whenText(c.cause, ix.ctx), short: ix.vocab.whenLabel(c.key, c.src, ix.ctx) })),
     badges: ruleBadges(l, ix), match: l.match === 'any' ? 'any' : 'all', checks: list(l.requires).map((c, i) => chipOf(c, i, ix)),
-    sections: sectionsOf(r.acts, ix), otherwise: sectionsOf(r.otherwise, ix)[0].rows, sentence: ix.vocab.sentence(l, ix.ctx),
+    sections: sectionsOf(r.acts, ix, !!l.steps), otherwise: sectionsOf(r.otherwise, ix)[0].rows, sentence: ix.vocab.sentence(l, ix.ctx),
+    otherwiseOf: l.otherwiseOf || null,
     pos: posOf(ix, r.node) };
 }
 // A simple rule as a wire from its cause's pin to its object's input: "the player uses it → Open", its badges
@@ -556,7 +571,11 @@ const stateSummary = (s) => ({ name: s.name, type: s.type, setBy: s.setters.leng
 // a group an action makes on the spot: its words and members (what its tag reaches, or its area's saved members)
 function groupOf(ix, x) {
   const S = ix.catalog.sentence;
-  if (x.targetTag) return { label: fill(S.tagged, { tag: x.targetTag }), members: own(ix.input.tags, x.targetTag) || null };
+  if (x.targetTag) {                     // its members as the game compares tags (UCObjectTag.Matches: case-insensitive)
+    const tags = ix.input.tags, want = String(x.targetTag).toLowerCase();
+    const members = tags ? Object.entries(tags).filter(([t]) => t.toLowerCase() === want).flatMap(([, n]) => n) : null;
+    return { label: fill(S.tagged, { tag: x.targetTag }), members: members && members.length ? members : (tags ? [] : null) };
+  }
   const area = x.area, members = Array.isArray(area.members) ? area.members : [];
   return { label: `${members.length} saved ${own(S.members, area.kind) || S.members.object}${area.dynamic ? ` + newcomers within ${area.radius} units` : ''}`,
     members, radius: area.radius || 0, at: area.at || null };
@@ -567,7 +586,7 @@ function storyGraph(ix, node, nodes, wires) {
     const n = nodes.get(s.node);
     if (s.kind === 'dialogue' && n.owner) {
       const how = s.item.start === 'near' ? 'near' : 'talk';
-      const pin = usePin(node(n.owner), 'out', 'story:' + how, how === 'near' ? 'JC gets close (dialogue)' : 'JC talks to them (dialogue)');
+      const pin = usePin(node(n.owner), 'out', 'story:' + how, how === 'near' ? 'the player gets close (dialogue)' : 'the player talks to them (dialogue)');
       wires.push({ id: `${s.node}/start`, kind: 'causes', part: 'story', readOnly: true, from: { node: n.owner, pin }, to: { node: s.node, pin: 'in:start' } });
     }
     for (const row of n.rows.filter((x) => x.target)) {

@@ -17,11 +17,11 @@
 // graph-layout.js (the layout, which a library could replace: options.layout).
 //
 // set({nodes, wires, frames, notes}):
-//   node  {id, title, sub?, icon? (a key of options.icons), thumb? (a key for options.thumb), at? [x, y] (none: placed
+//   node  {id, title, kind? (a word: class k-<kind>, the caller's style), sub?, icon? (a key of options.icons), thumb? (a key for options.thumb), at? [x, y] (none: placed
 //          by the layout, not saved until moved), w?, badges? [{text, title?}], live? (a live value: "2 / 3", "open"),
 //          tone? 'ok'|'warn'|'bad' (status only), dim?, bar? (a block: a bar on its left), pinned?, label? (for screen
 //          readers), in? / out? (header pins), rows? [row], foot?}
-//   row   {id, text, title?, time? ("2 s"), head? (a section title), sep? (a line above), tone?, dim?, chips? [{text,
+//   row   {id, text, title?, time? ("2 s"), head? (a section title), sep? (a line above), indent? (px), tone?, dim?, chips? [{text,
 //          title?, tone?}], in? / out? (pins)}
 //   pin   {id, type?, label?, title?, free? (goes nowhere yet)}
 //   wire  {id, from: {node, pin}, to: {node, pin}, kind? (WIRE_KINDS), label?, delay? (seconds: a chip to drag),
@@ -141,7 +141,7 @@ export function createGraphCanvas(host, options = {}) {
       + (n.pinned ? `<i class="gc-pinned" title="Pinned: Arrange leaves it where it is">${iconHtml('pinned')}</i>` : '')
       + (n.live != null && n.live !== '' ? `<span class="gc-live">${esc(n.live)}</span>` : '') + `${pin(n.out, 'out')}</div>`;
     const rows = (n.rows || []).map((r, i) => `<div class="gc-r${r.head ? ' head' : ''}${r.sep ? ' sep' : ''}${r.dim ? ' dim' : ''}${tone(r.tone)}"`
-      + ` data-row="${i}"${r.title ? ` title="${esc(r.title)}"` : ''}>${pin(r.in, 'in')}`
+      + ` data-row="${i}"${r.title ? ` title="${esc(r.title)}"` : ''}${+r.indent > 0 ? ` style="padding-left:${12 + Math.min(96, +r.indent)}px"` : ''}>${pin(r.in, 'in')}`
       + (r.time != null && r.time !== '' ? `<span class="gc-time">${esc(r.time)}</span>` : '')
       + `<span class="gc-tx">${esc(r.text)}</span>${(r.chips || []).map(chip).join('')}${pin(r.out, 'out')}</div>`).join('');
     // zoomed out, a cover shows the title and live value only (the rows stay laid out under it: no layout to redo)
@@ -153,12 +153,13 @@ export function createGraphCanvas(host, options = {}) {
     return `<svg class="gc-ic" viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
   }
   // what a node looks like, apart from where it is: drawn again only when this changes
-  const lookOf = (n) => JSON.stringify([n.title, n.sub, n.icon, n.thumb, thumbs.get(n.thumb) || '', n.badges, n.live, n.tone, n.dim, n.bar,
+  const lookOf = (n) => JSON.stringify([n.kind, n.title, n.sub, n.icon, n.thumb, thumbs.get(n.thumb) || '', n.badges, n.live, n.tone, n.dim, n.bar,
     n.pinned, n.label, n.w, n.in, n.out, n.rows, n.foot]);
 
   function drawNode(e) {
     const n = e.data, el = e.el;
     el.className = 'gc-node' + (TONES.includes(n.tone) ? ' ' + n.tone : '') + (n.dim ? ' dim' : '') + (n.bar ? ' bar' : '')
+      + (/^[a-z]+$/.test(n.kind || '') ? ' k-' + n.kind : '')
       + (sel.nodes.has(n.id) ? ' sel' : '') + (cursor === n.id ? ' cur' : '') + (lit.nodes.has(n.id) ? ' hot' : '');
     el.innerHTML = nodeHtml(n);
     el.setAttribute('aria-label', n.label || [n.title, n.sub, n.live].filter((t) => t != null && t !== '').join(', '));

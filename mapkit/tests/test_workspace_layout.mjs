@@ -30,6 +30,7 @@ test('narrow windows retain scene space and constrain every floating frame', () 
   layout.sizes.left = 700; layout.sizes.right = 700; layout.sizes.bottom = 800;
   layout.panels.browser.dock = 'float';
   layout.panels.console.dock = 'float';
+  layout.panels.logic.dock = 'float';
   layout.panels.browser.rect = { x: 9999, y: 9999, w: 2000, h: 2000 };
   for (const [width, height] of [[1440, 900], [640, 400], [320, 200], [100, 80]]) {
     const fit = fitLayout(layout, width, height);
@@ -51,6 +52,7 @@ test('hidden or floating panels do not reserve any scene area', () => {
   layout.panels.browser.hidden = true;
   layout.panels.console.hidden = true;
   layout.panels.history.hidden = true;
+  layout.panels.logic.hidden = true;
   assert.deepEqual(fitLayout(layout, 1280, 720).sizes, { left: 0, right: 0, bottom: 0 });
 });
 
@@ -60,6 +62,7 @@ test('layout round trip preserves user docking and does not modify the supplied 
   layout.panels.browser.dock = 'float';
   layout.panels.browser.rect = { x: 100, y: 80, w: 500, h: 300 };
   layout.panels.console.hidden = true;
+  layout.panels.logic.hidden = true;
   layout.active.left = null;
   layout.active.right = 'hierarchy';
   layout.active.bottom = null;
@@ -113,7 +116,7 @@ test('History is a tab of the right dock behind the Inspector; a key brings it t
   const layout = defaultLayout();
   assert.deepEqual([layout.panels.history.dock, layout.panels.history.hidden, layout.active.right], ['right', false, 'inspector']);
   assert.deepEqual(Object.fromEntries(Object.entries(layout.panels).map(([id, p]) => [id, p.dock])),
-    { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'bottom', history: 'right' });
+    { hierarchy: 'left', inspector: 'right', browser: 'bottom', console: 'bottom', history: 'right', logic: 'bottom' });
   assert.equal(inFront(layout, 'history'), false);                 // behind the Inspector's tab: Ctrl+U shows it
   assert.equal(inFront(layout, 'inspector'), true);
   layout.active.right = 'history';

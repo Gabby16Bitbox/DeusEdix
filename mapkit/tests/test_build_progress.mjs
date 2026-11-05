@@ -37,7 +37,7 @@ test('keys that only look go on during a build, the others wait', () => {
     assert.equal(waitsForBuild(combo), true, combo);
   assert.equal(waitsForBuild(''), false);                  // a modifier alone
   assert.ok(LOOK_KEYS.has('Ctrl+U'));
-  // Face selection's Grow selects (it goes on); Alt+0 puts a recent texture on faces (it waits)
+  // G30: Face selection's Grow selects (it goes on); Alt+0 puts a recent texture on faces (it waits)
   for (const combo of ['Alt+G', 'Alt+Shift+G']) assert.equal(waitsForBuild(combo), false, combo);
   assert.equal(waitsForBuild('Alt+0'), true);
 });

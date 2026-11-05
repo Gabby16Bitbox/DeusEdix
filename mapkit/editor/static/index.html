@@ -333,8 +333,19 @@
   #mimportbox canvas { max-width:100%; border-radius:6px; }
   #pkgbox .pk-i { display:flex; gap:6px; align-items:baseline; padding:3px 2px; border-bottom:1px solid var(--line); width:auto; }
   #logicbox .lg-head { font-weight:600; margin:12px 0 2px; } #logicbox .lg-head a { color:var(--acc); }
-  .lk-rule { border-left:3px solid #6fdc8c; background:#6fdc8c0d; border-radius:4px; padding:4px 4px 4px 8px; margin:6px 0; }
-  .lk-rule a { color:var(--acc); } .lk-rule .row { flex-wrap:wrap; row-gap:3px; } .lk-act { border-top:1px dashed var(--line); margin-top:3px; padding-top:3px; }
+  /* an Interaction: a list of numbered steps (action-list.js), the "If not" steps under it */
+  .lk-rule { border-left:3px solid var(--accent-border); background:var(--surface); border-radius:var(--radius-card); padding:4px 4px 4px 8px; margin:6px 0; }
+  .lk-rule.lk-branch { margin:-4px 0 6px 14px; border-left-color:var(--dim); }
+  .lk-rule a { color:var(--acc); } .lk-rule .row { flex-wrap:wrap; row-gap:3px; } .lk-step { border-top:1px solid var(--line); margin-top:3px; padding-top:3px; }
+  .lk-n { flex:none; width:18px; height:18px; line-height:18px; text-align:center; font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:var(--radius-control); font-variant-numeric:tabular-nums; }
+  /* the Inspector's Logic summary: one line per rule, into the Logic window */
+  .lk-open { gap:4px; } .lk-sum { display:flex; gap:8px; align-items:center; min-height:22px; padding:0 6px; color:var(--text); text-decoration:none; border-radius:var(--radius-row); }
+  .lk-sum:hover { background:var(--hover); } .lk-sum span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lk-sum i { flex:none; font-style:normal; font-size:11px; color:var(--dim); } .lk-sum-in span { color:var(--dim); }
+  /* a list of steps: If and Otherwise heads, the End, Wait until; the branches indented (app.js lkRuleHtml) */
+  .lk-if b, .lk-else2 b, .lk-until b { color:var(--heading); font-weight:600; } .lk-end .hint { font-size:11px; }
+  .lk-addhere select { height:22px; color:var(--dim); }
+  .lk-n:empty { visibility:hidden; } .lk-wait b, .lk-check b { color:var(--heading); font-weight:600; } .lk-else { border-top:1px solid var(--line); margin-top:3px; padding-top:3px; }
   .lk-say { font-size:11px; font-style:italic; opacity:.75; margin:3px 0 1px; }
   .lk-in a { color:#6fdc8c; font-size:12px; }
   .lk-io { display:flex; flex-wrap:wrap; gap:3px; align-items:center; margin:3px 0; } .lk-io .hint { margin:0 4px 0 0; }
@@ -420,6 +431,7 @@
 <canvas id="view"></canvas>
 <div id="console" aria-label="Console"></div>
 <div id="history" aria-label="History"></div>
+<div id="logic" aria-label="Logic"></div>
 <div id="bottom">
   <!-- the media browser: its sections on the left (the game's, then what you imported), the toolbar of the
        section shown on top; drag anything onto the 3D view (sounds also onto an object or the Inspector) -->

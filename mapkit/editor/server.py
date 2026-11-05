@@ -724,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, [])
                 return self._send(409, dict(error='Choose a project first.'))
             with project_server.operation():
-                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/prefab_usage', '/api/pieces', '/api/build_status'):
+                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/logic_vocab', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/prefab_usage', '/api/pieces', '/api/build_status'):
                     project_server.ensure_runtime()
                 return self._project_GET()
         except (ValueError, RuntimeError, OSError) as exc:
@@ -741,6 +741,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, prefab_library.usage(q.get('line')))
             if u.path == '/api/missiongraph':
                 return self._send(200, mission_graph.status())
+            if u.path == '/api/logic_vocab':          # config/logic.json: the Logic window's words (logic-graph-model.js)
+                return self._send(200, logic_catalog.vocabulary())
             if u.path == '/api/state_catalog':
                 import statecatalog
                 return self._send(200, statecatalog.catalog())
@@ -946,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
                 import blocks
                 name = textures.short(q.get('tex', ''))
                 tu, tv = geom.tex_size(name)
-                out = {k: [tu * geom.game_scale(name, k), tv * geom.game_scale(name, k)] for k in ('wall', 'floor', 'ceiling')}
+                out = {k: [tu * geom.lit_scale(name, k), tv * geom.lit_scale(name, k)] for k in ('wall', 'floor', 'ceiling')}
                 return self._send(200, dict(out, ref=blocks.texture_ref(q.get('tex', ''))))
             if u.path == '/api/texture_library':
                 return self._send(200, dict(textures=textures.library()))
@@ -1724,6 +1726,9 @@ class Handler(BaseHTTPRequestHandler):
                     if u.path == '/api/weapon_save':
                         return self._send(200, weapons.save(body))
                     return self._send(200, weapons.delete(str(body.get('name', ''))))
+            if u.path == '/api/logic/compile':        # Window > Logic > Try it: the edits as the game gets them
+                import logic_compile
+                return self._send(200, logic_compile.compiled(body.get('edits') or {}))
             if u.path == '/api/scripts_compile':
                 import scripts as user_scripts
                 with LOCK:

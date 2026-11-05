@@ -731,7 +731,8 @@ def structures(map_name):
 
 
 EDITABLE_SKIP = ('Brush', 'LevelInfo', 'DeusExLevelInfo', 'ZoneInfo', 'SkyZoneInfo', 'Camera', 'InterpolationPoint',
-                 'UCLink', 'UCLinkGroup', 'UCLightMemory', 'UCObjectTag')     # the interactions: made again from the edits at every build (links.py)
+                 'UCLink', 'UCLinkGroup', 'UCLightMemory', 'UCObjectTag', 'UCRule', 'UCRuleAlso',
+                 'UCLightFX', 'UCSpawner', 'UCHurtZone', 'UCViewFade', 'UCOrdersMemory')     # the interactions: made again from the edits at every build (links.py)
 
 
 def object_tags(map_name):
@@ -889,6 +890,8 @@ def items():
 # are the game's Effects package's). Values as the map writes them.
 _SMOKE = "Texture'Effects.Smoke.SmokePuff1'"
 _SPARK = "Texture'Effects.Fire.SparkFX1'"
+_GAS_POISON = "Texture'Effects.Smoke.Gas_Poison'"     # the campaign's green gas (and the poison gas grenade's)
+_GAS_TEAR = "Texture'Effects.Smoke.Gas_Tear_A'"   # the tear gas cloud's (TearGas): the still Gas_Tear is too dark
 PARTICLE_PRESETS = [
     ('Smoke (rising)', {'particleTexture': _SMOKE, 'particleDrawScale': '1.500000', 'frequency': '0.900000', 'checkTime': '0.120000',
                         'riseRate': '90.000000', 'ejectSpeed': '40.000000', 'bRandomEject': 'True'}),
@@ -919,11 +922,25 @@ PARTICLE_PRESETS = [
                            'particleLifeSpan': '4.000000', 'checkTime': '0.100000', 'numPerSpawn': '2', 'bRandomEject': 'True',
                            'FxDamage': '3', 'FxDamageType': 'PoisonGas', 'FxRadius': '128.000000', 'FxEvery': '1.000000',
                            'bFxHurtAll': 'True'}),
+    # a pool of gas, as the campaign's (a gas cloud on the floor over a DamageTrigger): low, slow and wide, deadly while
+    # one stays in it; its particles start all over its area (FxArea), it hurts within it up to FxReach high
+    ('Toxic gas pool (deadly)', {'particleTexture': _GAS_POISON, 'particleDrawScale': '1.200000', 'frequency': '1.000000',
+                                 'checkTime': '0.150000', 'numPerSpawn': '2', 'ejectSpeed': '6.000000', 'riseRate': '4.000000',
+                                 'particleLifeSpan': '4.500000', 'bRandomEject': 'True', 'FxArea': '160.000000', 'FxDamage': '5',
+                                 'FxDamageType': 'PoisonGas', 'FxRadius': '176.000000', 'FxReach': '56.000000', 'FxEvery': '0.500000',
+                                 'bFxHurtAll': 'True'}),
+    ('Tear gas pool', {'particleTexture': _GAS_TEAR, 'particleDrawScale': '1.200000', 'frequency': '1.000000', 'checkTime': '0.150000',
+                       'numPerSpawn': '2', 'ejectSpeed': '6.000000', 'riseRate': '4.000000', 'particleLifeSpan': '4.500000',
+                       'bRandomEject': 'True', 'FxArea': '160.000000', 'FxDamage': '2', 'FxDamageType': 'TearGas',
+                       'FxRadius': '176.000000', 'FxReach': '56.000000', 'FxEvery': '0.500000', 'bFxHurtAll': 'True'}),
     ('Smoke when switched on (10 s)', {'particleTexture': _SMOKE, 'particleDrawScale': '1.500000', 'frequency': '0.900000',
                                        'checkTime': '0.120000', 'riseRate': '90.000000', 'ejectSpeed': '40.000000', 'bRandomEject': 'True',
                                        'bFxStartOn': 'False', 'FxOnTime': '10.000000'}),
     ('Particles (as the game makes them)', {}),
 ]
+# the presets placed in a colour of their own (the Particles section's Colour: a texture of the map's own, made when it
+# is placed): the game's tear gas pictures are drawn almost unseen on the floor
+PARTICLE_COLOURS = {'Tear gas pool': '#e0c840'}
 
 
 ORDER = ['Most used', 'Level', 'Triggers', 'AI', 'Sounds', 'Zones', 'Effects', 'Decorations', 'Pickups', 'Weapons', 'Ammo', 'Characters', 'Bodies', 'Lights']
@@ -986,7 +1003,8 @@ def palette():
     # particles: the game's ParticleGenerator (its steam vents' and smoke's), set as UCEffect sets its mist, smoke and
     # sparks; placed with its arrow out of the surface clicked (the way they are thrown), shown and set in the 3D view
     # and the Inspector's Particles section (static/particles.js)
-    groups['Effects'] = [dict(cls='UCParticles', radius=8, height=8, name=name, sub='particles', preset=preset)
+    groups['Effects'] = [dict(cls='UCParticles', radius=8, height=8, name=name, sub='particles', preset=preset,
+                              **({'colour': PARTICLE_COLOURS[name]} if name in PARTICLE_COLOURS else {}))
                          for name, preset in PARTICLE_PRESETS]
     # more words the search finds them by (palette.json searchAliases: the game's sink is Faucet)
     for items in groups.values():

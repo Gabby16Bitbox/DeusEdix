@@ -6,8 +6,8 @@
 // state field: state-editor.js).
 import { SKILLS } from './behaviours.js';
 
-export const CONDITION_KINDS = [['flag', 'A state'], ['item', 'JC carries'], ['alive', 'A character is alive'],
-  ['skill', "JC's skill"], ['counter', 'A counter'], ['credits', "JC's credits"]];
+export const CONDITION_KINDS = [['flag', 'A state'], ['item', 'The player carries'], ['alive', 'A character is alive'],
+  ['skill', "The player's skill"], ['counter', 'A counter'], ['credits', "The player's credits"]];
 export const OPS = [['>=', 'at least'], ['>', 'more than'], ['==', 'exactly'], ['!=', 'not'], ['<=', 'at most'], ['<', 'less than']];
 export const LEVELS = [[1, 'Trained'], [2, 'Advanced'], [3, 'Master']];
 export const MAX_CONDITIONS = 8;                // a rule's (UCLink.Cond[8], conditions.py); the Story's events take as many
@@ -41,11 +41,11 @@ export function conditionText(c, names = {}) {
   const actor = names.actor || ((n) => n), item = names.item || ((cls) => String(cls).split('.').pop());
   switch (kindOf(c)) {
     case 'flag': return names.state ? names.state({ ...c, is: yesOf(c, 'is') }) : `${c.flag || '?'} is ${yesOf(c, 'is') ? 'Yes' : 'No'}`;
-    case 'item': return `JC ${yesOf(c, 'has') ? 'carries' : 'does not carry'} ${c.item ? item(c.item) : '?'}`;
+    case 'item': return `the player ${yesOf(c, 'has') ? 'carries' : 'does not carry'} ${c.item ? item(c.item) : '?'}`;
     case 'alive': return `${c.actor ? actor(c.actor) : '?'} is ${yesOf(c, 'is') ? 'alive' : 'not alive'}`;
-    case 'skill': return `JC's ${skillName(c.skill)} skill is at least ${(LEVELS.find((l) => l[0] === +c.level) || [0, '?'])[1]}`;
+    case 'skill': return `the player's ${skillName(c.skill)} skill is at least ${(LEVELS.find((l) => l[0] === +c.level) || [0, '?'])[1]}`;
     case 'counter': return `the counter ${c.counter || '?'} is ${opText(c.op)} ${+c.value || 0}`;
-    case 'credits': return `JC has ${opText(c.op)} ${+c.value || 0} credits`;
+    case 'credits': return `the player has ${opText(c.op)} ${+c.value || 0} credits`;
     default: return '?';
   }
 }
@@ -91,14 +91,14 @@ function rowFields(c, ctx) {
   const number = (key) => `<input type="number" data-cf="${key}" value="${+c[key] || 0}" step="1" style="width:70px">`;
   switch (kindOf(c)) {
     case 'flag': return '<div class="cond-state" style="flex:1;min-width:0"></div>';
-    case 'item': return `${yesNo('has', 'JC carries', 'JC does not carry')}<select data-cf="item" style="flex:1;min-width:0"><option value="">(choose the item)</option>${
+    case 'item': return `${yesNo('has', 'The player carries', 'The player does not carry')}<select data-cf="item" style="flex:1;min-width:0"><option value="">(choose the item)</option>${
       [...new Set((ctx.items || []).map((x) => x.cat))].map((cat) => `<optgroup label="${esc(cat)}">${options((ctx.items || []).filter((x) => x.cat === cat).map((x) => [x.cls, x.name]), c.item)}</optgroup>`).join('')}${
       c.item && !(ctx.items || []).some((x) => x.cls === c.item) ? `<option selected value="${esc(c.item)}">${esc(c.item)}</option>` : ''}</select>`;
     case 'alive': return `<select data-cf="actor" style="flex:1;min-width:0"><option value="">(choose the character)</option>${options((ctx.characters || []).map((a) => [a.name, a.label]), c.actor)}${
       c.actor && !(ctx.characters || []).some((a) => a.name === c.actor) ? `<option selected value="${esc(c.actor)}">${esc(c.actor)}</option>` : ''}</select>${yesNo('is', 'is alive', 'is not alive')}`;
     case 'skill': return `<select data-cf="skill" style="flex:1;min-width:0">${options(SKILLS, c.skill)}</select><span class="hint" style="margin:0">at least</span><select data-cf="level">${options(LEVELS, c.level)}</select>`;
     case 'counter': return `<input type="text" data-cf="counter" value="${esc(c.counter || '')}" placeholder="counter name" list="${ctx.counterList}" style="flex:1;min-width:0"><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}`;
-    case 'credits': return `<span class="hint" style="margin:0">JC has</span><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}<span class="hint" style="margin:0">credits</span>`;
+    case 'credits': return `<span class="hint" style="margin:0">The player has</span><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}<span class="hint" style="margin:0">credits</span>`;
     default: return '';
   }
 }

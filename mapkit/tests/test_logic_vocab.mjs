@@ -52,8 +52,7 @@ test('the cases cover every output, verb and family app.js and logic.json know',
   assert.deepEqual(VERBS.filter((v) => !verbs.has(v)), []);
   if (!app) { t.skip('app.js has no LK_WHEN any more'); return; }
   assert.deepEqual(Object.keys(app.tables.LK_WHEN).sort(), [...OUTPUTS].sort());
-  // Seating was added after this frozen vocabulary; covered by test_seat_orders.mjs.
-  assert.deepEqual(Object.keys(app.tables.LK_VERBS).sort(), [...VERBS, 'sit', 'standup'].sort());
+  assert.deepEqual(Object.keys(app.tables.LK_VERBS).sort(), [...VERBS].sort());
   assert.deepEqual(Object.keys(app.tables.LK_KIND).filter((f) => !FAMILIES.includes(f)), []);
 });
 

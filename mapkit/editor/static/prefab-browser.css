@@ -14,7 +14,7 @@
 .prefab-dialog #prefab-name { width:100%; box-sizing:border-box; }
 .prefab-dialog .hint { margin:12px 0 0; line-height:1.5; }
 .prefab-dialog .map-error { margin:10px 0 0; overflow-wrap:anywhere; }
-/* linked prefabs: a card's picture (the 3D view), its copies in the open map, its menu */
+/* linked prefabs (G22): a card's picture (the 3D view), its copies in the open map, its menu */
 .prefab-thumb { flex:none; width:72px; height:40px; border-radius:4px; object-fit:cover; background:var(--line); }
 .prefab-copy small.prefab-here { color:var(--acc); }
 .prefab-copy small.prefab-here.old { color:var(--warn); }
