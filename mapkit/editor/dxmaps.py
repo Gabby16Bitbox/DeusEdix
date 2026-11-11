@@ -126,9 +126,16 @@ def edits_path(map_name):
 
 
 def load_edits(map_name):
+    """The map's edits as the build reads them: a Phases block linked to the project's mission phases takes them
+    (missionphases.apply), and the project's Logic runtime is in them (logicruntime.apply), so a changed set or
+    runtime makes the build out of date (_edits_fingerprint); so are the versions of the patterns placed in it
+    (logicpatterns.apply)"""
     p = edits_path(map_name)
     if p.exists():
-        return json.loads(p.read_text(encoding='utf-8'))
+        import logicpatterns
+        import logicruntime
+        import missionphases
+        return logicpatterns.apply(logicruntime.apply(missionphases.apply(json.loads(p.read_text(encoding='utf-8')), kit=KIT), kit=KIT), kit=KIT)
     return dict(moved={}, deleted={}, added=[], boxes=[], groups={}, copies=[])
 
 
@@ -692,7 +699,8 @@ def build(map_name, log=print, options=None, watch=None):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += behaviours.report(edits)
     # the interactions (when this happens, do that): UCLink actors of the editor's package (links.py)
-    for a in links.blocks(edits):
+    link_blocks = links.blocks(edits)
+    for a in link_blocks:
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += links.report(edits)
     # the first-person moments the rules play: UCViewMoment actors (fpmoments.py)
@@ -721,6 +729,12 @@ def build(map_name, log=print, options=None, watch=None):
         # every build as the walkable area is (UCBoot.PostBeginPlay keeps one when the map has another of its own)
         cmds.append('UC_DEL UCBoot0')
         blocks.append(Scene._block('UCBoot', (0, 0, 0), 'UCBoot0', (0, 0, 0), '', {}))
+        # the map's logic hub (UCLogicHub0, links.hub): states watched while playing, start values; made again at every build
+        cmds.append('UC_DEL ' + links.HUB)
+        h = links.hub(edits)
+        if h:
+            blocks.append(Scene._block(h['cls'], tuple(h['loc']), h['name'], (0, 0, 0), '', h['props']))
+            lines.append(links.hub_report(edits))
     for b in edits.get('boxes') or []:
         if b.get('mover') and all(b['hi'][k] > b['lo'][k] for k in range(3)):
             blocks.append(motions.mover_block_t3d(b))
@@ -745,6 +759,12 @@ def build(map_name, log=print, options=None, watch=None):
         lights = True
     tag_blocks = ['UCTag_' + name for name in links.object_tags.entries(edits)]     # made again (links.blocks)
     cmds += ['UC_DEL ' + name for name in tag_blocks]
+    # rule actors an earlier Install baked into the map (before 10 Nov 2026 it did for a map copy, under other
+    # names): the rules built now replace them, never a second actor for the same rule
+    baked = baked_rule_actors(scene_actors, link_blocks)
+    cmds += ['UC_DEL ' + name for name in baked]
+    if baked:
+        lines.append('  EDIT replaced %d rule actor(s) an earlier Install had put into the map' % len(baked))
     import patrol_paths
     walking, retired, route_report = patrol_paths.prepare(scene_actors + list(t3d.actors('\n'.join(blocks))), edits)
     cmds += ['UC_DEL ' + name for name in retired]
@@ -885,7 +905,7 @@ def build(map_name, log=print, options=None, watch=None):
     if surface_cmds and lights:
         lines += surfaces.report(text)
     for m in re.finditer(r'UCMapKit\|(?:set|del)\|missing\|(\S+)', text):
-        if m.group(1) in {documents.tag(map_name, name) for name in documents.validate(edits)} | set(tag_blocks) | {'UCNavMesh0', 'UCBoot0'}:
+        if m.group(1) in {documents.tag(map_name, name) for name in documents.validate(edits)} | set(tag_blocks) | {'UCNavMesh0', 'UCBoot0', links.HUB}:
             continue  # replacing a document block (or an object tag, the walkable area, UCBoot0) that did not exist in the base map yet
         lines.append('  EDIT skipped %s (not in the map any more)' % m.group(1))
     shutil.copy2(out, OUT / (map_name + '.dx'))
@@ -905,10 +925,39 @@ def build(map_name, log=print, options=None, watch=None):
     return True, lines
 
 
+def baked_rule_actors(map_actors, link_blocks):
+    """The names of the map's own UCLink / UCRule / UCRuleAlso actors that belong to a rule being built now (the same
+    Rule, or a UCRuleAlso whose Main is that rule's actor): copies a past Install baked into the map. Anything else
+    of those classes (another tool's, a rule no longer in the edits) stays as the map has it."""
+    tail = lambda cls: str(cls).rsplit('.', 1)[-1]
+    rules ={a['props'].get('Rule') for a in link_blocks if tail(a['cls']) in ('UCLink', 'UCRule') and a['props'].get('Rule')}
+    mains = {'"%s"' % a['name'] for a in link_blocks if tail(a['cls']) in ('UCLink', 'UCRule')}
+    out = []
+    for a in map_actors:
+        kind, props = tail(a['cls']), a.get('props') or {}
+        if (kind in ('UCLink', 'UCRule') and props.get('Rule') in rules) or (kind == 'UCRuleAlso' and props.get('Main') in mains):
+            out.append(a['name'])
+    return out
+
+
+def has_logic(edits):
+    """The edits hold something the Logic window makes: rules (links), named groups, watched states, start values and
+    mission phases (logic), usable objects, scripting tags, and the cutscenes and first-person moments the rules play.
+    Install keeps such edits editable, with the map's source, instead of baking them in (10 Nov 2026: a map copy's
+    rules went into the map as UCLink/UCRule actors, its edits were archived, so they vanished from the Logic window
+    while still running in the game, and no rebuild or Map > Classic rules reached them any more)."""
+    def filled(value):
+        return any(filled(v) for v in value.values()) if isinstance(value, dict) else bool(value)
+    if not isinstance(edits, dict):
+        return False
+    return any(filled(edits.get(key)) for key in ('links', 'logic', 'usable', 'objectTags', 'cutscenes', 'fpmoments'))
+
+
 def install(map_name):
     """Put the private build in maps\\ (the game reads it from settings.MAPS_DIR): refused when the project's copy
     changed after the build (somebody else edited it). The previous copy goes to maps\\backup and the
-    edits, now part of the map, are archived."""
+    edits, now part of the map, are archived; edits that must stay editable (activation names, disabled objects,
+    player profiles, the map's Logic: has_logic) keep the map's source instead, in maps\\.authoring."""
     import player_profiles
     if not built_current(map_name):
         return False, ['The map changed after the last rebuild (another tool?): rebuild before installing.']
@@ -921,10 +970,12 @@ def install(map_name):
     if _authoring(map_name):
         info['authoring'] = _authoring(map_name)
     preserve = bool(activation.names(edits) or info.get('authoring')
-                    or (info.get('built') or {}).get('disabled') or player_profiles.blocks(edits))
+                    or (info.get('built') or {}).get('disabled') or player_profiles.blocks(edits)
+                    or has_logic(edits))
     if preserve and not info.get('authoring'):
-        # Retain overlays for inactive actors AND player choices. Baking a profile
-        # into the source and archiving its setting would lose the map override.
+        # Retain overlays for inactive actors, player choices AND the map's Logic. Baking a profile
+        # into the source and archiving its setting would lose the map override; baking the rules
+        # would take them out of the Logic window and out of reach of later rebuilds.
         private = _authoring_path(map_name)
         private.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source(map_name), private)

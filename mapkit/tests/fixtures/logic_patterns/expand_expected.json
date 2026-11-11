@@ -1,0 +1,175 @@
+{
+ "about": "What expand_input.json writes out to: its links and logic (the rest of the edits as they were).",
+ "links": [
+  {
+   "id": "L1",
+   "src": "Btn09",
+   "when": "used",
+   "do": [
+    {
+     "verb": "message",
+     "a": "own rule"
+    }
+   ]
+  },
+  {
+   "id": "P1_R1",
+   "src": "Btn01",
+   "when": "used",
+   "do": [
+    {
+     "id": "P1_R1_a1",
+     "verb": "input",
+     "target": "UCEdit40",
+     "a": "Add"
+    }
+   ],
+   "instance": "P1"
+  },
+  {
+   "id": "P1_R2",
+   "src": "UCEdit40",
+   "when": "output",
+   "port": "Done",
+   "do": [
+    {
+     "id": "P1_R2_a1",
+     "verb": "unlock",
+     "target": "",
+     "group": "P1_B1"
+    },
+    {
+     "id": "a2",
+     "verb": "message",
+     "a": "{not_a_slot}"
+    }
+   ],
+   "instance": "P1"
+  },
+  {
+   "id": "P1_R3",
+   "otherwiseOf": "P1_R2",
+   "src": "UCEdit40",
+   "when": "output",
+   "port": "Done",
+   "do": [
+    {
+     "verb": "message",
+     "a": "no"
+    }
+   ],
+   "instance": "P1"
+  },
+  {
+   "id": "P3_R1",
+   "src": "Btn05",
+   "when": "used",
+   "do": [
+    {
+     "id": "P3_R1_a1",
+     "verb": "input",
+     "target": "UCEdit41",
+     "a": "Add"
+    }
+   ],
+   "instance": "P3"
+  },
+  {
+   "id": "P3_R2",
+   "src": "UCEdit41",
+   "when": "output",
+   "port": "Done",
+   "do": [
+    {
+     "id": "P3_R2_a1",
+     "verb": "unlock",
+     "target": "",
+     "group": "P3_B1"
+    },
+    {
+     "id": "a2",
+     "verb": "message",
+     "a": "{not_a_slot}"
+    }
+   ],
+   "instance": "P3"
+  },
+  {
+   "id": "P3_R3",
+   "otherwiseOf": "P3_R2",
+   "src": "UCEdit41",
+   "when": "output",
+   "port": "Done",
+   "do": [
+    {
+     "verb": "message",
+     "a": "no"
+    }
+   ],
+   "instance": "P3"
+  }
+ ],
+ "logic": {
+  "groups": [
+   {
+    "id": "G1",
+    "name": "Map's own",
+    "members": [
+     "Lamp1"
+    ]
+   },
+   {
+    "id": "P1_B1",
+    "name": "Gates",
+    "members": [
+     "Gate1",
+     "Gate2"
+    ]
+   },
+   {
+    "id": "P3_B1",
+    "name": "Gates",
+    "members": []
+   }
+  ],
+  "instances": [
+   {
+    "id": "P1",
+    "pattern": "gate-network",
+    "v": 2,
+    "name": "North gates",
+    "slots": {
+     "button": "Btn01",
+     "door": "Gate1",
+     "door2": "Gate2",
+     "all_of_these_block": "UCEdit40"
+    }
+   },
+   {
+    "id": "P2",
+    "pattern": "gone",
+    "v": 1,
+    "slots": {}
+   },
+   {
+    "id": "P3",
+    "pattern": "gate-network",
+    "v": 2,
+    "slots": {
+     "button": "Btn05",
+     "all_of_these_block": "UCEdit41"
+    }
+   },
+   {
+    "id": "bad",
+    "pattern": "gate-network",
+    "v": 2
+   },
+   {
+    "id": "P4",
+    "pattern": "../x",
+    "v": 1
+   }
+  ]
+ }
+}

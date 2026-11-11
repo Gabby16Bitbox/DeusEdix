@@ -59,9 +59,8 @@ test('Feature Lab: rule cards, the one simple rule a wire, conditions say who se
   // what sets the counter reaches what reads it: state wires
   assert.deepEqual(g.wires.filter((w) => w.kind === 'state').map((w) => `${w.from.pin}>${w.to.node}/${w.to.pin}`), ['act:L2/a1>rule:L3/if:0', 'act:L2/a1>rule:L8/if:0']);
   assert.deepEqual(g.states.find((s) => s.name === 'Test_Presses'), { name: 'Test_Presses', type: 'int', setBy: 1, readBy: 2, setters: ['rule:L2'], readers: ['rule:L3', 'rule:L8'], elsewhere: 0 });
-  // Old saved labels remain valid; the graph uses the current player-neutral wording.
-  for (const l of lab.edits.links) assert.equal((nodeOf(g, 'rule:' + l.id) || wireOf(g, 'rule:' + l.id)).sentence,
-    l.label.replace(/^When JC (uses|has used) /, 'When the player $1 '), l.id);
+  // every card says what app.js saved as the rule's label (its sentence)
+  for (const l of lab.edits.links) assert.equal((nodeOf(g, 'rule:' + l.id) || wireOf(g, 'rule:' + l.id)).sentence, l.label, l.id);
   // Officer Rossi's dialogue: started by talking to him, read only
   const d1 = nodeOf(g, 'dlg:d1');
   assert.deepEqual([d1.kind, d1.readOnly, d1.title, d1.first, d1.owner], ['dialogue', true, 'Rossi at the door', 'why are you mad?', 'obj:UCEdit8']);
@@ -101,6 +100,19 @@ const RULE_SAMPLES = {
   phase: { value: { set: 'Base', in: ['Alarm'] } }, max: { value: 3 }, cooldown: { value: 5 }, again: { value: 'restart' },
   talkBusy: { value: 'skip' }, else: { value: [{ verb: 'message', a: 'No power.' }] }, while: { value: true }, mute: { value: true },
   note: { value: 'Second keypad on the roof?' }, origin: { value: { story: 'e3' } },
+  // a cause's other values (P3: no longer unknown badges): in its words
+  signal: { value: 'Other', base: { src: '', when: 'signal', signal: 'Alarm' } }, key: { value: 'F', base: { src: '', when: 'keypress', key: 'G' } },
+  gameTag: { value: 'Two', base: { src: '', when: 'gametag', gameTag: 'One' } }, below: { value: 20, base: { src: '', when: 'jchealth', below: 50 } },
+  floor: { value: 2, base: { src: 'Lift1', when: 'atfloor', floor: 1 } },
+  // a dialogue's end, an InfoLink heard (P5): the one it waits for, in its words
+  dialogue: { value: 'd2', base: { src: '', when: 'ended', dialogue: 'd1' } }, infolink: { value: 'i2', base: { src: '', when: 'heard', infolink: 'i1' } },
+  // what a "becomes" rule watches (P9 slice 2: the player's own say how they come true)
+  watch: { value: { type: 'energy', op: '<', value: 10 }, base: { src: '', when: 'becomes', watch: { type: 'water', is: true } } },
+  // the world's own (P9 slice 3): a goal's name, the kind of noise and how near, a character or a body
+  goal: { value: 'FindIt', base: { src: '', when: 'goaldone', goal: '' } },
+  noise: { value: 'alarm', base: { src: '', when: 'noise', noise: 'loud' } },
+  within: { value: 300, base: { src: '', when: 'noise', noise: 'loud', within: 100 } },
+  what: { value: 'body', base: { src: '', when: 'appears', what: 'character' } },
 };
 // Every field of an action (the verbs' own arguments are below, by verb)
 const ACTION_SAMPLES = {
@@ -116,7 +128,8 @@ function sampleOf(arg) {
     whole: '7', amount: '7', number: '77', seconds: '9', floor: '2', button: 2, effect: 'sparks', line: 'Hello there', bool: !arg.default,
     choice: (arg.choices || []).map((c) => c[0]).find((v) => v !== (arg.default ?? '')),
     percent: '40', itemclass: 'DeusEx.Medkit', pawnclass: 'DeusEx.MJ12Troop', song: 'Revision_Music.Combat', items: 'DeusEx.Medkit:3;DeusEx.Flare',
-    hex: '#20ff40', rule: 'L5', hurtkind: 'poison' };
+    hex: '#20ff40', rule: 'L5', hurtkind: 'poison', signal: 'Alarm', dialogue: 'd2', infolink: 'i3',
+    aug: 'AugCloak', faction: 'MJ12', prop: 'DrawScale', propvalue: '3' };
   return by[arg.type];
 }
 // what is drawn for a rule: its card (causes, id, badges, chips, sections and rows, otherwise) or its wire (label, badges)
@@ -146,7 +159,7 @@ test('the badge rule: every field of a rule away from its default shows on its c
 });
 
 test('the badge rule: every field and argument of an action away from its default shows on its row and on its wire', () => {
-  const ARGS = ['a', 'b', 'c', 'at', 'nav', 'attack', 'kind'];   // attack, kind: P4's reinforcements and damaging area
+  const ARGS = ['a', 'b', 'c', 'at', 'nav', 'attack', 'kind', 'both'];   // attack, kind: P4's reinforcements and damaging area; both: P9's factions
   assert.deepEqual([...Object.keys(ACTION_SAMPLES)].sort(), Object.keys(ACTION_FIELDS).sort());
   const argIds = new Set(Object.values(catalog.inputs).flatMap((v) => (v.args || []).map((a) => a.id)));
   assert.deepEqual([...argIds].sort(), [...ARGS].sort(), 'the verbs take no argument the badges do not know');
@@ -208,9 +221,15 @@ test('the badge rule: a field nobody knows still shows, with its name', () => {
   assert.match(drawn(rule({ hurry: 2 })), /hurry/);
   assert.match(drawn(rule({}, [{ verb: 'open', target: 'Door3', speed: 3 }])), /speed/);
   assert.match(drawn(rule({}, [{ verb: 'open', target: 'Door3', speed: 3 }, { verb: 'message', a: 'Hi' }])), /speed/);
-  // what Logic runtime v2 runs is greyed out with its reason
-  const g = graphOf(world([rule({ cooldown: 5 })]));
-  assert.deepEqual(wireOf(g, 'rule:L1').badges.find((b) => b.field === 'cooldown'), { field: 'cooldown', text: 'cooldown 5 s', title: 'Not again for this long', needs: 'Logic runtime v2' });
+  // what no build runs yet is greyed out with its reason; what the game runs (a cooldown: UCRule.Cooldown) is not
+  const g = graphOf(world([rule({ cooldown: 5, while: true })]));
+  assert.deepEqual(wireOf(g, 'rule:L1').badges.find((b) => b.field === 'cooldown'), { field: 'cooldown', text: 'cooldown 5 s', title: 'Not again for this long', needs: '' });
+  assert.deepEqual(wireOf(g, 'rule:L1').badges.find((b) => b.field === 'while'), { field: 'while', text: 'while', title: 'Undone when it stops', needs: '' });
+  // in a conversation: wait is built (UCRule.TalkBusy) and shows; none goes on
+  const talk = (v) => wireOf(graphOf(world([rule({ talkBusy: v })])), 'rule:L1').badges.filter((b) => b.field === 'talkBusy').map((b) => [b.text, b.needs]);
+  assert.deepEqual(talk('wait'), [['in a conversation: wait', '']]);
+  assert.deepEqual(talk('giveup'), [['in a conversation: give up', '']]);
+  assert.deepEqual(talk(''), []);
 });
 
 test('a rule is a wire only with one cause, no checks, one action on one object', () => {

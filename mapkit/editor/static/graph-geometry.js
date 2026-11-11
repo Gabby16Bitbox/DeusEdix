@@ -6,7 +6,7 @@
 // the page, so a move needs no layout and a pin's place can be kept until its node moves or changes.
 
 // a node: its width, header and row heights (graph-canvas.js gives them to its stylesheet, so the two agree)
-export const NODE = { w: 220, header: 28, row: 22 };
+export const NODE = { w: 220, header: 28, row: 22, line: 17, body: 10 };   // body: a text block's padding (a line of the Story)
 export const ZOOM = { min: 0.1, max: 2 };
 // what a node shows at a zoom (semantic zoom): everything; from below 50% only titles and live values; from below
 // 25% only frames, with the wires between them bundled
@@ -75,14 +75,21 @@ export function pinsFit(out, into) {
 }
 
 export function nodeSize(node) {
-  return [node.w || NODE.w, NODE.header + ((node.rows || []).length + (node.foot ? 1 : 0)) * NODE.row];
+  return [node.w || NODE.w, NODE.header + bodyHeight(node) + ((node.rows || []).length + (node.foot ? 1 : 0)) * NODE.row];
+}
+
+// a node's text block under its header (body: {text, lines}): `lines` lines tall whatever its text, so the pins under it
+// stay where the geometry puts them (a longer text is cut, the whole of it is in the node's tooltip and its editor)
+export function bodyHeight(node) {
+  const lines = node.body ? Math.max(1, Math.min(8, Math.round(+node.body.lines) || 1)) : 0;
+  return lines ? lines * NODE.line + NODE.body : 0;
 }
 
 // where a pin is: on the node's left edge (in) or right edge (out), level with its row. Zoomed out too (the rows are
 // under a cover then): a change of zoom level moves no wire
 export function pinPoint(node, at, entry) {
   const x = entry.side === 'in' ? at[0] : at[0] + nodeSize(node)[0];
-  return [x, at[1] + (entry.row < 0 ? NODE.header / 2 : NODE.header + entry.row * NODE.row + NODE.row / 2)];
+  return [x, at[1] + (entry.row < 0 ? NODE.header / 2 : NODE.header + bodyHeight(node) + entry.row * NODE.row + NODE.row / 2)];
 }
 
 // ---------------------------------------------------------------- wires

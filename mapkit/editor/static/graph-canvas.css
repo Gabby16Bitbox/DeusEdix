@@ -25,6 +25,9 @@
 .gc-node.ok { --gc-ring:var(--ok); }
 .gc-node.warn { --gc-ring:var(--warn); }
 .gc-node.bad { --gc-ring:var(--bad); }
+/* proposed, not made yet (the AI assistant's proposal in the Logic window): a dashed edge, a little see-through */
+.gc-node.ghost { --gc-ring:transparent; outline:1.5px dashed var(--acc); outline-offset:0; background:color-mix(in srgb, var(--panel) 82%, transparent); }
+.gc-node.ghost.sel { outline-style:solid; outline-width:2px; outline-offset:1px; }
 .gc-node.hot { outline:1px solid var(--accent-border); outline-offset:1px; }
 .gc-node.sel { outline:2px solid var(--acc); outline-offset:1px; }
 .gc.gc-kbd:focus .gc-node.cur { outline:2px solid var(--acc); outline-offset:3px; }
@@ -71,6 +74,7 @@
 .gc-wire, .gc-bundle, .gc-ghost { fill:none; stroke-width:1.5; vector-effect:non-scaling-stroke; }
 .gc-wire { stroke:var(--gc-stroke, var(--dim)); }
 .gc-wire.warn { stroke:var(--warn); }
+.gc-wire.ghost { stroke:var(--acc); }
 .gc-wire.bad { stroke:var(--bad); stroke-dasharray:5 4; }
 .gc-lit .gc-wire:not(.hot):not(.sel) { opacity:.25; }
 .gc-wire.hot, .gc-wire.sel { stroke:var(--acc); stroke-width:2.5; }
@@ -142,3 +146,28 @@
 .gc-zoom:focus-visible { outline:none; border-color:var(--accent-border); }
 .gc-mini { width:168px; height:112px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); cursor:pointer; }
 .gc-sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+
+/* a node's text block (body: a line of the Story) under its header, --gc-lines tall (graph-geometry.js bodyHeight):
+   the text is cut there, its whole in the tooltip. A field written in place (the Story's) fills it */
+.gc-body { position:relative; height:calc(var(--gc-lines, 1) * 17px + 10px); padding:5px 8px; overflow:hidden; line-height:17px;
+  white-space:pre-wrap; overflow-wrap:anywhere; border-bottom:1px solid var(--line); }
+.gc-node:not(:has(.gc-r)) .gc-body { border-bottom:0; }
+.gc-bt { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--gc-lines, 1); overflow:hidden; }
+.gc-body.empty .gc-bt { color:var(--dim); font-style:italic; }
+.gc-node:has(.gc-body) .gc-h { border-bottom:0; }
+/* who speaks (colour): a bar on the node's left, under the status ring; an answer's way (a row's colour): a bar on the
+   row's left, its out pin in that colour */
+.gc-node.accent { --gc-bar:inset 4px 0 0 var(--gc-accent); }
+.gc-node.accent .gc-h, .gc-node.accent .gc-body { padding-left:12px; }
+.gc-r.way::before { content:''; position:absolute; left:3px; top:5px; bottom:5px; width:3px; border-radius:2px; background:var(--gc-way); }
+.gc-r.way .gc-pin.out { border-color:var(--gc-way); }
+.gc-r.way .gc-pin.out.on { background:var(--gc-way); }
+/* a text written in place (gc-field on a textarea): the size of the part it fills, scrolled when longer */
+textarea.gc-field { display:block; width:100%; height:100%; min-height:20px; margin:0; padding:2px 4px; resize:none; font:inherit; line-height:17px;
+  color:var(--text); background:var(--field); border:1px solid var(--accent-border); border-radius:var(--radius-control); white-space:pre-wrap;
+  user-select:text; }
+.gc-r textarea.gc-field { height:20px; line-height:16px; padding:1px 4px; overflow:hidden; white-space:nowrap; }
+.gc-body:has(textarea.gc-field) { padding:3px 6px; }
+/* zoomed out, a node's text (body) under its title on the cover, as many lines as fit */
+.gc-bc { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; max-width:100%; overflow:hidden; font-style:normal;
+  font-size:calc(12px * var(--gc-inv, 1)); line-height:1.2; color:var(--text); }

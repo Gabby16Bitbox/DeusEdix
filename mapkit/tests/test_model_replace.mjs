@@ -27,6 +27,7 @@ function fixture() {
     meshInfo:async()=>({info:{cls:'LodMesh',r:999,h:999,pz:999,scale:9,label:'Bottle'}}),
     pushUndo:()=>history.push(JSON.stringify(c.edits)),setDirty:()=>calls.push('dirty'),rebuildProxies:()=>calls.push('rebuild'),
     startPlacing:()=>calls.push('placement'),log:(...args)=>calls.push(args),confirm:()=>c.answer,
+    modelOpen:new Set(),$:()=>({value:''}),characterVisual:()=>null,
     answer:true,character:false,escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
   });
   vm.runInContext(['actorProp','putProp','meshOf','previewMesh','modelClassInfo','replacementPose','canReplaceModel','beginModelReplacement','cancelModelReplacement','modelReplaceRow','modelProps','dropActorTextures','placeModel'].map(body).join('\n'),c);

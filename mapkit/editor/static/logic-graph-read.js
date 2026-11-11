@@ -5,6 +5,7 @@ import { fill } from './logic-vocab.js';
 import { ruleBadges, logicGraph } from './logic-graph-model.js';
 import { logicProblems } from './logic-graph-problems.js';
 
+const capital = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
 // what the rule's sentence already says (logic-vocab sentence: its once, its checks, its delays)
 const SAID = new Set(['once', 'requires', 'do']);
 
@@ -12,6 +13,11 @@ const SAID = new Set(['once', 'requires', 'do']);
 function phaseTitle(ix, phase) {
   if (!phase || !phase.set) return '';
   const set = (ix.logic.phases || []).find((p) => p.id === phase.set);
+  const block = !set && ix.ctx.phaseSet ? ix.ctx.phaseSet(phase.set) : null;          // a Phases block of the map (P3)
+  if (block) {
+    const text = (id) => (block.phases.find((p) => p.id.toLowerCase() === String(id).toLowerCase()) || { text: id }).text;
+    return `While ${block.name} is ${(phase.in || []).map(text).join(' or ') || 'in no phase'}`;
+  }
   return `While ${set ? set.name || set.id : phase.set} is ${(phase.in || []).join(' or ')}`;
 }
 // one rule in words: "L3: When ...: ... (muted, cooldown 5 s); otherwise: ..." (its otherwise as the sentence says
@@ -40,7 +46,9 @@ export function readView(ix, { only = null, game = '' } = {}) {
     const title = phaseTitle(ix, r.l.phase);
     if (!sections.has(title)) sections.set(title, new Map());
     const groups = sections.get(title), c = r.causes[0];
-    if (!groups.has(c.node)) groups.set(c.node, { title: c.src ? ix.ctx.name(c.src) : 'When the map starts', node: c.node, lines: [] });
+    // (the rules waiting for a signal: under its hub, "The signal "Alarm"")
+    const head = c.src ? ix.ctx.name(c.src) : ix.hubs && [...ix.hubs.values()].includes(c.node) ? capital(ix.ctx.name(c.node)) : 'When the map starts';
+    if (!groups.has(c.node)) groups.set(c.node, { title: head, node: c.node, lines: [] });
     groups.get(c.node).lines.push(ruleLine(ix, r));
   }
   const ordered = [...sections].sort(([a], [b]) => (a === '') - (b === '') || 0);         // phases first, then always

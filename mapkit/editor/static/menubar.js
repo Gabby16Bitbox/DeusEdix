@@ -67,7 +67,9 @@ const CONTEXTS = { edit: 'In the 3D view', fly: 'Flying (right mouse held)', cut
   faces: 'Face selection' };
 // the contexts whose keys work at the same time (layersOf): one key can not do two things in them
 const SHARED = { edit: ['cut', 'faces'], cut: ['edit', 'faces'], faces: ['edit', 'cut'] };
-const keyOf = (id) => prefs.keys[id] || ACTION[id].def;
+// '' for a command with no shortcut of its own (Window > Logic: its panel key is no action); it stopped the Window
+// menu, the native menus and the palette from being drawn (found 10 Nov 2026)
+const keyOf = (id) => prefs.keys[id] || ACTION[id]?.def || '';
 // the keys as the shortcut helper and the search by key read them (shortcut-help.js)
 const KEYMAP = { keyOf, actions: ACTIONS.map((x) => ACTION[x[0]]), contexts: CONTEXTS };
 
@@ -208,6 +210,8 @@ const MENUS = [
     { label: 'Install map...', map: true, run: click('install') },
     { label: 'Export mod...', project: true, enabled: () => window.__projects?.current?.kind === 'custom',
       run: () => import('./mod-export.js').then((m) => m.openModExport()) },
+    { label: 'Main menu...', project: true, enabled: () => window.__projects?.current?.kind === 'custom',
+      run: () => import('./main-menu.js').then((m) => m.openMainMenu()) },
     { label: 'Mod packages...', project: true, run: click('bpkgs') },
     sep,
     { label: 'Exit', run: () => window.pywebview.api.exit(), visible: desktop },
@@ -342,6 +346,8 @@ const MENUS = [
     { label: 'Map links...', run: click('linksbtn') },
     { label: 'Factions...', run: click('factionsbtn') },
     { label: 'Interactions...', run: click('logicbtn') },
+    { label: 'Mission phases...', run: () => ed()?.openMissionPhases() },
+    { label: 'Classic rules', checked: () => !!ed()?.classicRules, run: () => ed()?.toggleClassicRules() },
     { label: 'Check map', run: click('checkbtn') },
   ]],
   ['Tools', [

@@ -157,7 +157,7 @@ def validate(data, complete=False):
             raise ValueError('Duplicate labels in '+str(d.get('title',d.get('id'))))
         for s in d.get('steps',[]):
             kind=s.get('type')
-            if kind not in ('line','choice','label','if','goto','flag','goal','trigger','give','do','end','credits','skillpoints','checkitem','checkvalue','random','animation','trade','note'):
+            if kind not in ('line','choice','label','if','goto','flag','goal','trigger','signal','give','do','end','credits','skillpoints','checkitem','checkvalue','random','animation','trade','note'):
                 raise ValueError('Unsupported story step: '+str(kind))
             for label in targets(s):
                 if label and str(label).casefold() not in labels and label not in d.get('originalMissingLabels',[]): raise ValueError('Unknown label '+str(label)+' in '+str(d.get('title',d.get('id'))))

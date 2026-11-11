@@ -4,7 +4,9 @@
 // them; phase B's Check map too, so that there is one list. Pure: tests/test_logic_graph_problems.mjs.
 import { verbKey } from './logic-vocab.js';
 import { conditionProblem, kindOf, CONDITION_KINDS, MAX_CONDITIONS } from './conditions.js';
-import { laterFields, present, thingId, ruleId, pieceId } from './logic-graph-model.js';
+import { negate, FLOW } from './action-list.js';
+import { usesValue } from './logic-numbers.js';
+import { laterFields, present, thingId, ruleId, pieceId, PIECE_KINDS, storyId, signalHub, isSetGroup, SET_WHENS } from './logic-graph-model.js';
 
 const own = (table, key) => (table && Object.hasOwn(table, key) ? table[key] : undefined);
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
@@ -41,6 +43,7 @@ export function logicProblems(ix, { game = '' } = {}) {
   doorProblems(ix, add);
   cycleProblems(ix, add);
   pieceProblems(ix, add);
+  signalProblems(ix, add);
   return out;
 }
 // the problems of each node and wire, for their badges
@@ -50,9 +53,27 @@ export function problemsByNode(problems) {
   return out;
 }
 
+// a named group reaches something: one of its objects is in the map (a group by tag: one with the tag, when the page
+// says; by radius with newcomers: always, they may come)
+function groupReaches(ix, g) {
+  const f = g.filter && typeof g.filter === 'object' ? g.filter : null;
+  if (f && f.area && f.area.dynamic) return true;
+  if (isSetGroup(g)) return true;                 // a kind, a faction (P9): the game finds them as it plays, newcomers too
+  const members = (own(ix.actors, pieceId('groups', g.id)) || {}).members;
+  return members === null || (members || g.members || []).some((n) => present(ix, n));
+}
 // a rule: its causes, its conditions, its actions, what today's runtime leaves out
 function ruleProblems(ix, r, add, game) {
   const at = { node: r.node, rule: r.id };
+  if (r.l.group) {                    // started by any of a named group (P3): the group must have something in the map
+    const g = own(ix.actors, pieceId('groups', r.l.group));
+    if (!g) add('error', 'no-group', 'Its group no longer exists: the rule never runs.', at);
+    else if (isSetGroup(g.item) && !r.l.src) {          // anyone of a kind or a faction (P9, UCRule Every)
+      if (!SET_WHENS.includes(r.l.when)) add('error', 'set-when', `The group "${g.label}" is a kind or a faction: a rule on it starts when one of them is killed, knocked out, hurt, sees the player, turns hostile or finds a body, not on "${ix.vocab.outputLabel(r.l.when)}".`, at);
+      else if (Array.isArray(g.members) && !g.members.some((n) => present(ix, n))) add('info', 'set-empty', `No character of the group "${g.label}" is in the map now: the rule runs for those that come later.`, at);
+    } else if (g.filter && g.filter.tag) add('error', 'group-by-tag', `The group "${g.label}" is everything tagged ${g.filter.tag}: it keeps no objects, so no rule can start on it.`, at);
+    else if (!(g.members || []).some((n) => present(ix, n))) add('error', 'group-empty', `The group "${g.label}" has nothing in the map: the rule never runs.`, at);
+  }
   for (const c of r.causes) {
     if (!c.src) continue;
     const a = own(ix.actors, c.src);
@@ -65,6 +86,7 @@ function ruleProblems(ix, r, add, game) {
     }
     if (game && !ix.vocab.worksIn('output', c.cause.when, game)) add('error', 'not-in-game', `"${ix.vocab.outputLabel(c.cause.when)}" does not work in this game.`, at);
   }
+  storyProblems(ix, r, add, at);
   if (!r.acts.length) add('warn', 'nothing-yet', 'It does nothing yet.', at);
   const reqs = list(r.l.requires);
   if (reqs.length > MAX_CONDITIONS) add('error', 'too-many-conditions', `It has ${reqs.length} conditions: the game checks ${MAX_CONDITIONS} at most.`, at);
@@ -74,8 +96,75 @@ function ruleProblems(ix, r, add, game) {
   });
   if (r.acts.length > MAX_ACTS) add('error', 'too-many-actions', `It has ${r.acts.length} actions: a rule takes ${MAX_ACTS} at most.`, at);
   for (const act of [...r.acts, ...r.otherwise]) actionProblems(ix, r, act, add, game);
+  if (r.l.while) whileProblems(ix, r, add, at);
+  valueProblems(ix, r, reqs, add, at);
+  if (r.l.phase && r.l.phase.set) phaseProblems(ix, r, add, at);
   const later = laterFields(r.l);
-  if (later.length) add('warn', 'needs-runtime', `It uses ${words(later.map((f) => f.word))}: they need Logic runtime v2, and today's build ignores them.`, at);
+  if (later.length) add('warn', 'needs-runtime', `It uses ${words(later.map((f) => f.word))}: ${later.length > 1 ? 'they need' : 'it needs'} Logic runtime v2, and today's build ignores ${later.length > 1 ? 'them' : 'it'}.`, at);
+}
+// Value (P8 slice 5b) is the number a script's output came with (OutputValue): a rule using it in a condition or an
+// action's number with no cause that comes with one reads 0 (said only when its objects' outputs are known)
+function valueProblems(ix, r, reqs, add, at) {
+  const numbers = (act) => list((own(ix.catalog.inputs, act.x.verb) || {}).args).filter((a) => a.formula).map((a) => act.x[a.id]);
+  const uses = reqs.some((c) => usesValue(c.value)) || [...r.acts, ...r.otherwise].some((act) => numbers(act).some(usesValue));
+  if (!uses) return;
+  const known = r.causes.every((c) => !c.src || Array.isArray((own(ix.actors, c.src) || {}).outputs));
+  const carries = r.causes.some((c) => c.src && String(c.key).startsWith('output:') && ((own(ix.actors, c.src) || {}).carries || []).includes(c.key));
+  if (known && !carries) add('warn', 'value-unset', 'It uses Value, the number an output of a script comes with, but nothing that starts it comes with a number: Value is 0 there.', at);
+}
+// a dialogue or an InfoLink of the map's Story (P5) that a rule waits for, starts or plays: one is chosen, and the Story
+// has it (said only when the page gave the Story: while it is read, nothing)
+const STORY_WAITS = { ended: ['dialogues', 'dialogue', 'a dialogue', 'dialogue'], heard: ['infolinks', 'infolink', 'an InfoLink', 'InfoLink'] };
+const STORY_USES = { talk: ['dialogues', 'a', 'a dialogue', 'dialogue'], infolink: ['infolinks', 'a', 'an InfoLink', 'InfoLink'] };
+function storyProblems(ix, r, add, at) {
+  const missing = (key, id) => !!ix.input.story && !own(ix.actors, storyId(key, id));
+  for (const c of r.causes) {
+    const k = own(STORY_WAITS, c.cause.when);
+    if (!k) continue;
+    const id = String(c.cause[k[1]] || '').trim();
+    if (!id) add('error', 'story-none', `It waits for ${k[2]}, but none is chosen: it never runs.`, at);
+    else if (missing(k[0], id)) add('error', 'story-missing', `The map's Story has no ${k[3]} "${id}": the rule never runs.`, at);
+  }
+  for (const act of [...r.acts, ...r.otherwise]) {
+    const u = act.x.verb === 'wait' && act.x.until, w = u && own(STORY_WAITS, u.type);
+    if (w) {                    // a "Wait until" the Story's end: none is no wait (links.py), a missing one waits for ever (or its at most)
+      const id = String(u[w[1]] || '').trim(), here = { ...at, act: act.id, wire: act.wire };
+      const then = +act.x.max > 0 ? `the rest waits ${+act.x.max} s` : 'the rest never runs';
+      if (!id) add('warn', 'story-none', `It waits until ${w[2]} ends, but none is chosen: the game does not wait there.`, here);
+      else if (missing(w[0], id)) add('warn', 'story-missing', `The map's Story has no ${w[3]} "${id}": ${then}.`, here);
+      continue;
+    }
+    const k = own(STORY_USES, act.x.verb);
+    if (!k) continue;
+    const id = String(act.x.a || '').trim(), here = { ...at, act: act.id, wire: act.wire };
+    if (!id) add('warn', 'story-none', `No ${k[3]} chosen: the game does nothing there.`, here);
+    else if (missing(k[0], id)) add('warn', 'story-missing', `The map's Story has no ${k[3]} "${id}": the game does nothing there.`, here);
+  }
+}
+// a rule kept to some phases of a Phases block (P3, links.phase_gate): the block is in the map, a phase is ticked,
+// each one is in its list
+function phaseProblems(ix, r, add, at) {
+  const ph = r.l.phase, set = ix.ctx.phaseSet ? ix.ctx.phaseSet(ph.set) : null;
+  if (!set) {
+    if (!list(own(ix.logic, 'phases')).some((p) => p.id === ph.set)) add('error', 'phase-gone', `It works only in phases of ${ix.ctx.name(ph.set)}, which is no Phases block in the map: it never runs.`, at);
+    return;
+  }
+  const chosen = Array.isArray(ph.in) ? ph.in.filter((x) => typeof x === 'string' && x) : [];      // (names: not list())
+  if (!chosen.length) { add('warn', 'phase-none', `It works only in phases of ${set.name}, but none is ticked: it never runs.`, at); return; }
+  const lost = chosen.filter((id) => !set.phases.some((p) => p.id.toLowerCase() === String(id).toLowerCase()));
+  if (lost.length) add('warn', 'phase-unknown', `${set.name} has no phase ${lost.map((x) => `"${x}"`).join(', ')}: ${lost.length === chosen.length ? 'it never runs' : 'that part never counts'}.`, at);
+}
+// a rule that holds "while" (P3, links.while_end): something must end it, and what it does must have a way back
+function whileProblems(ix, r, add, at) {
+  const l = r.l, end = ix.vocab.untilOf(l);
+  if (!end || (l.when === 'becomes' && !negate(l.watch))) {
+    add('warn', 'while-no-end', 'It holds "while", but nothing ends what sets it off: its steps are never undone.', at);
+    return;
+  }
+  const acts = (l.do || []).filter((x) => x && !FLOW.has(x.verb));
+  const stays = acts.filter((x) => (x.verb === 'flag' ? /^UCFate[0-9a-f]{6}_/i.test(String(x.a || '')) : !ix.vocab.inverse(x.verb)));
+  if (acts.length && stays.length === acts.length) add('warn', 'while-no-undo', 'It holds "while", but none of its steps can be undone.', at);
+  else if (stays.length) add('info', 'while-stays', `When it stops, ${stays.map((x) => `"${ix.vocab.verbLabel(x.verb)}"`).join(', ')} ${stays.length === 1 ? 'is' : 'are'} not undone.`, at);
 }
 // an output the rule hears on any Trigger of its object's Event
 const onTrigger = (ix, when) => (own(ix.catalog.outputs, when) || {}).hears === 'event' && !NOT_ON_TRIGGER.has(when);
@@ -96,7 +185,7 @@ function actionProblems(ix, r, act, add, game) {
   if (['wait', 'if', 'else', 'end'].includes(x.verb)) return;     // a step of a list of steps, not an action
   const verb = own(ix.catalog.inputs, x.verb);
   if (!verb) { add('error', 'unknown-verb', `"${x.verb}" is not an action the game classes know.`, at); return; }
-  if (x.target && !x.area && !x.targetTag) {
+  if (x.target && !x.area && !x.targetTag && x.target !== '@by' && x.target !== '@it') {     // (what set it off: no object)
     const a = own(ix.actors, x.target);
     if (!present(ix, x.target)) add('error', 'no-target', `${x.target} is not in the map any more.`, { ...at, fix: 'removeAction' });
     else if (ix.off.has(x.target)) add('warn', 'target-disabled', `${ix.ctx.name(x.target)} is disabled in the game: this action does nothing.`, at);
@@ -116,7 +205,14 @@ function actionProblems(ix, r, act, add, game) {
       + `${here.length ? said + here.join(', ') + '.' : ''} (An object's tag is its Scripting tag in the Inspector.)`, at);
   }
   // (logic.json inputs[verb].target: the action needs an object; without one the game does nothing: fail cannot)
-  if (verb.target && !x.target && !x.area && !x.targetTag) add('error', 'no-object', `"${ix.vocab.verbLabel(x.verb)}" has no object.`, at);
+  if (verb.target && !x.target && !x.area && !x.targetTag && !x.group) add('error', 'no-object', `"${ix.vocab.verbLabel(x.verb)}" has no object.`, at);
+  // a named group (P3, edits.logic.groups): one that is gone, or has nothing in the map, reaches nothing
+  if (x.group) {
+    const g = (Array.isArray(ix.logic && ix.logic.groups) ? ix.logic.groups : []).find((v) => v && v.id === x.group);
+    if (!g) add('error', 'no-group', 'Its group no longer exists.', at);
+    else if (!groupReaches(ix, g)) add('warn', 'group-empty', `The group "${g.name || g.id}" has nothing in the map: this action reaches nothing.`, at);
+    else if (isSetGroup(g) && ix.vocab.acts(x.verb) !== 'character') add('warn', 'set-not-character', `The group "${g.name || g.id}" holds characters only: "${ix.vocab.verbLabel(x.verb)}" reaches none of them.`, at);
+  }
   if (own(NO_NAME, x.verb) && !String(x.a || '').trim()) add('error', 'no-name', NO_NAME[x.verb], at);
   if (x.verb === 'sit') {
     const seat = own(ix.actors, x.a);
@@ -134,12 +230,18 @@ function cannotDo(ix, x, a) {
 }
 
 // a state or counter read and never set (it keeps its start value), or set and never read
+// (a start value given in the Logic window, edits.logic.start: then it stays that, said as a note)
 function stateProblems(ix, add) {
+  const given = ix.edits && ix.edits.logic && ix.edits.logic.start && typeof ix.edits.logic.start === 'object' ? ix.edits.logic.start : {};
+  const startOf = (name) => { const k = Object.keys(given).find((x) => x.toLowerCase() === name.toLowerCase()); return k === undefined ? undefined : given[k]; };
   for (const s of ix.states.values()) {
     const what = s.type === 'int' ? `the counter ${s.name}` : `the state ${s.name}`;
     const sets = s.setters.length || s.elsewhere.some((u) => u.kind === 'write');
     const reads = s.readers.length || s.elsewhere.some((u) => u.kind === 'read');
-    if (!sets) for (const u of s.readers) add('warn', 'never-set', `Nothing sets ${what}, so it stays ${s.type === 'int' ? '0' : 'No'}.`, { node: u.node, pin: u.pin, rule: u.rule, state: s.name, fix: 'set' });
+    const start = startOf(s.name);
+    if (!sets && start !== undefined) {
+      for (const u of s.readers) add('info', 'never-set', `Nothing sets ${what}: it stays ${typeof start === 'number' ? start : start ? 'Yes' : 'No'}, its start value.`, { node: u.node, pin: u.pin, rule: u.rule, state: s.name });
+    } else if (!sets) for (const u of s.readers) add('warn', 'never-set', `Nothing sets ${what}, so it stays ${s.type === 'int' ? '0' : 'No'}.`, { node: u.node, pin: u.pin, rule: u.rule, state: s.name, fix: 'set' });
     if (!reads && s.setters.some((u) => !u.auto)) {
       for (const u of s.setters.filter((v) => v.node && !v.auto)) add('info', 'never-read', `Nothing reads ${what}.`, { node: u.node, pin: u.pin, rule: u.rule, state: s.name });
     }
@@ -224,6 +326,21 @@ function components(next) {
 }
 
 // the logic's own items: a block input nothing wires to, an "All of" of one input, a phase nobody goes to
+// a signal (P3) sent with no rule waiting for it does nothing; one waited for that no rule sends never comes (a name
+// written two ways is one signal: its hub, ix.hubs)
+function signalProblems(ix, add) {
+  const sent = new Set(), heard = new Set();
+  for (const r of ix.rules) {
+    for (const c of r.causes) if (c.node.startsWith(PIECE_KINDS.signals[0])) heard.add(c.node);
+    for (const a of [...r.acts, ...r.otherwise]) if (a.x.verb === 'signal' && a.node) sent.add(a.node);
+  }
+  for (const s of list(ix.story)) for (const a of s.acts) if (a.x.verb === 'signal' && signalHub(ix, a.x.a)) sent.add(signalHub(ix, a.x.a));   // the Story's (P5)
+  for (const node of ix.hubs ? ix.hubs.values() : []) {
+    const name = node.slice(PIECE_KINDS.signals[0].length);
+    if (!heard.has(node)) add('warn', 'signal-unheard', `No rule waits for the signal "${name}": sending it does nothing.`, { node });
+    if (!sent.has(node)) add('warn', 'signal-never-sent', `Nothing sends the signal "${name}" (no rule, no dialogue or event of the Story): the rules waiting for it never run.`, { node });
+  }
+}
 function pieceProblems(ix, add) {
   const used = new Map();                                   // node -> the inputs the rules reach on it
   for (const act of ix.rules.flatMap((r) => [...r.acts, ...r.otherwise]).filter((a) => a.node)) (used.get(act.node) || used.set(act.node, new Set()).get(act.node)).add(verbKey(act.x));

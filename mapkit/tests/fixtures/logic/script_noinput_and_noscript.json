@@ -3,8 +3,8 @@
   "title": "An input the script does not handle, an input on something that is no script",
   "behaviour": "A script whose Input() does not handle the name passes it to UCScript.Input, which writes noinput (a renamed port); an input on an object that is no script fails with \"noscript\".",
   "derivedFrom": [
-    {"file": "UCScript.uc", "lines": [48, 51], "has": "function Input(string InputName, string Args, Actor Caller)"},
-    {"file": "UCLink.uc", "lines": [837, 840], "has": "else if (verb == \"input\" && UCScript(T) != None)"}
+    {"file": "UCScript.uc", "lines": [60, 63], "has": "function Input(string InputName, string Args, Actor Caller)"},
+    {"file": "UCLink.uc", "lines": [976, 979], "has": "else if (verb == \"input\" && UCScript(T) != None)"}
   ],
   "assumes": ["A9"],
   "map": "LogicFixtures",

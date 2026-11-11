@@ -14,7 +14,7 @@ import settings
 from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
-VERSION = 17               # 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
+VERSION = 20               # 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
                           # 14: timers (UCTimer) 15: effect points (UCEffectPoint)
                           # 16: a lamp's phase and corona, what a zone does to the view (the 3D view's Effects)
                           # 17: a zone's echo (the Reverb row) and Revision's OpenAL reverb
@@ -38,7 +38,8 @@ EDITOR_DEFAULTS = {'UCTriggerBox': {'bCylinder': ['False'], 'CylinderRadius': ['
                                  'RandomVolume': ['0.000000'], 'RepeatMin': ['0.000000'], 'RepeatMax': ['0.000000']},
                    # how many of its contents drop out (Containers.numThings, default 1): not in the class dump
                    'Containers': {'numThings': ['1']}}
-CHOICES = {'DamageType': ['Radiation', 'Burned', 'Shocked', 'PoisonGas', 'Poison', 'TearGas', 'HalonGas', 'Drowned']}
+CHOICES = {'DamageType': ['Radiation', 'Burned', 'Shocked', 'PoisonGas', 'Poison', 'TearGas', 'HalonGas', 'Drowned'],
+           'Mode': ['In turn', 'In order', 'At random']}       # a Switch block's (UCBSwitch.Mode)
 FIELDS = [
     ('Links', 'Actor', 'Tag', 'Tag', 'name', 'The name other objects use to find it (the door a button opens, a story action...)'),
     ('Links', 'Actor', 'Event', 'Event', 'name', 'When it is used or triggered, it triggers every object whose Tag is this'),
@@ -155,6 +156,24 @@ FIELDS = [
      '(empty: it counts unseen). When several run, the one closest to its end shows'),
     ('Timer', 'UCTimer', 'bAutoStart', 'Starts with the map', 'bool', 'Off: an interaction starts it ("Start the timer")'),
     ('Timer', 'UCTimer', 'bLoop', 'Starts again when it runs out', 'bool', 'Every time it runs out, its "runs out" rules happen again'),
+    # the logic blocks (P3, editor/LOGIC.md "Logic blocks")
+    ('All of these', 'UCBAllOf', 'Need', 'How many', 'int', 'How many different objects must tick it off, each once (0: all of those whose rules tick it off)'),
+    ('All of these', 'UCBAllOf', 'bAgain', 'Starts again when done', 'bool', 'Once all have happened it is empty again, ready for another round'),
+    ('Gate', 'UCBGate', 'bClosed', 'Starts closed', 'bool', 'Closed: what comes stops ("stops it"); a rule opens it'),
+    ('Switch', 'UCBSwitch', 'NumWays', 'Ways', 'int', 'How many ways it has (2 to 6): each "Pick the next way" picks one'),
+    ('Switch', 'UCBSwitch', 'Mode', 'Picks', 'choice', 'In turn: 1, 2... then 1 again. In order: 1 to the last once, then "has no more ways". At random: any'),
+    ('Switch', 'UCBSwitch', 'Weights', 'How likely (at random)', 'string', 'One number per way, "2,1,1": the first twice as likely as each other (empty: all alike)'),
+    ('Phases', 'UCBPhases', 'Phases', 'Phases', 'string', 'The phases in order, separated by commas: "Arrive, Alarm, Escape". Rules move it on and run when it enters or leaves one'),
+    ('Phases', 'UCBPhases', 'StateName', 'Name', 'string', 'Its states: <Name> is the number of the phase now, <Name>_<phase> is Yes for the phase now (conditions and dialogues read them)'),
+    ('At least N', 'UCBAtLeast', 'States', 'States', 'string', 'The states it looks at, separated by commas; !Name counts while that state is No'),
+    ('At least N', 'UCBAtLeast', 'Need', 'How many', 'int', 'How many of them must hold (0: all of them)'),
+    ('At least N', 'UCBAtLeast', 'StateName', 'Keeps the state', 'string', 'A state of its own, Yes while enough hold (empty: none): conditions and dialogues read it'),
+    ('Counter', 'UCBCounter', 'ReachedAt', 'Goal', 'int', 'The number it waits for: "it gets to its goal" (0: none, it only counts)'),
+    ('Counter', 'UCBCounter', 'StateName', 'Counter name', 'string', 'The counter that keeps its number (empty: named as the block): conditions and dialogues read it, and a rule that changes that counter moves the block too'),
+    ('Counter', 'UCBCounter', 'bAgain', 'Starts again at its goal', 'bool', 'Once it gets to its goal it goes back to 0, ready to count again (every 3 times...)'),
+    ('First of', 'UCBFirstOf', 'NumWays', 'Ways', 'int', 'How many things race (2 to 6): the first to come is heard, the others are not until it starts again'),
+    ('First of', 'UCBFirstOf', 'TimeLimit', 'Time limit (seconds)', 'float', 'When none has come in this time: "the time ran out first" (0: no limit)'),
+    ('First of', 'UCBFirstOf', 'bClockAtStart', 'The clock starts with the map', 'bool', 'Off: the clock starts when a rule says "Start the clock"'),
     ('Model', 'UCMeshDeco', 'Mesh', 'Model', 'mesh', 'The 3D model it shows (Models tab: any model of the game, of other mods, or imported)'),
     ('Model', 'UCMeshDeco', 'ItemName', 'Name', 'string', 'What JC sees when he looks at it (if he sees its name)'),
     ('Model', 'UCMeshDeco', 'bHighlight', 'JC sees its name', 'bool', 'Its name and a frame show when JC looks at it'),

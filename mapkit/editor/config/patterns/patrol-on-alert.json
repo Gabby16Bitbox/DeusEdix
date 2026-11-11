@@ -1,0 +1,180 @@
+{
+ "version": 1,
+ "name": "Patrol on alert",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:13:10",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{alarm}",
+     "when": "alarm",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstop",
+       "target": "{calm}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "hostile",
+       "target": "{guard}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The patrol is on alert.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{alarm}",
+     "when": "alarmoff",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstart",
+       "target": "{calm}",
+       "delay": 0,
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{calm}",
+     "when": "finished",
+     "once": false,
+     "do": [
+      {
+       "verb": "friend",
+       "target": "{guard}",
+       "delay": 0,
+       "id": "R3_a1"
+      },
+      {
+       "verb": "patrol",
+       "target": "{guard}",
+       "delay": 0,
+       "a": "{route}",
+       "id": "R3_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The patrol walks the route again.",
+       "id": "R3_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "calm",
+     "cls": "UCTimer",
+     "props": {
+      "Seconds": "10"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "alarm",
+     "words": "the alarm",
+     "family": "alarm",
+     "carried": false
+    },
+    {
+     "id": "calm",
+     "words": "the calm-down timer",
+     "family": "timer",
+     "carried": true
+    },
+    {
+     "id": "guard",
+     "words": "the guard",
+     "family": "character",
+     "carried": false
+    },
+    {
+     "id": "route",
+     "words": "the first point of the route",
+     "family": "other",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{alarm}|out:alarm",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{guard}|in:hostile",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a2"
+     ]
+    },
+    {
+     "key": "in:{alarm}|out:alarmoff",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "out:{guard}|in:friend",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "out:{guard}|in:patrol",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a2"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

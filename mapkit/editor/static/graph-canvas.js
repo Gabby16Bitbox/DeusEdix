@@ -19,24 +19,27 @@
 // set({nodes, wires, frames, notes}):
 //   node  {id, title, kind? (a word: class k-<kind>, the caller's style), sub?, icon? (a key of options.icons), thumb? (a key for options.thumb), at? [x, y] (none: placed
 //          by the layout, not saved until moved), w?, badges? [{text, title?}], live? (a live value: "2 / 3", "open"),
-//          tone? 'ok'|'warn'|'bad' (status only), dim?, bar? (a block: a bar on its left), pinned?, label? (for screen
+//          body? {text, lines, empty?} (a text block under the header, `lines` tall: a line of the Story; empty: the text
+//          is a placeholder), colour? ('#rrggbb' or 'hsl(h s% l%)': a bar on its left, who speaks),
+//          tone? 'ok'|'warn'|'bad' (status only), dim?, bar? (a block: a bar on its left), ghost? (proposed, not made
+//          yet: dashed), pinned?, label? (for screen
 //          readers), in? / out? (header pins), rows? [row], foot?}
 //   row   {id, text, title?, time? ("2 s"), head? (a section title), sep? (a line above), indent? (px), tone?, dim?, chips? [{text,
-//          title?, tone?}], in? / out? (pins)}
+//          title?, tone?}], colour? ('#rrggbb': a way of its own, as an answer: a bar on its left, its out pin and wire), in? / out? (pins)}
 //   pin   {id, type?, label?, title?, free? (goes nowhere yet)}
 //   wire  {id, from: {node, pin}, to: {node, pin}, kind? (WIRE_KINDS), label?, delay? (seconds: a chip to drag),
-//          tone?, title?, via? [[x, y]...] (reroute points)}
+//          tone?, title?, via? [[x, y]...] (reroute points), ghost? (proposed: dashed), colour? ('#rrggbb': its row's way)}
 //   frame {id, title, rect: [x, y, w, h], tone? 0-3}      note {id, text, at? [x, y], on? (a node id: shown over it)}
 // options: label (what the canvas is, for screen readers), settings {leftDrag: 'select'|'pan', wheel: 'auto'|'zoom',
 //   minimap: true}, icons {key: SVG paths on the 20 px grid of editor-icons.js}, thumb(key) -> Promise of a picture's
 //   URL (or null), layout (graph-layout.js layered's contract), canConnect(from, to) -> true or why not (asked while a
 //   wire is dragged; without it, graph-geometry.js pinsFit on the pins' types), and the callbacks: onConnect(from, to) -> true or why not, onPinDrop(from, at), onMove(moves),
-//   onDelay(wire, seconds), onReroute(wire, via), onSelect(selection), onOpen(node), onRow(node, row),
+//   onDelay(wire, seconds), onReroute(wire, via), onSelect(selection), onOpen(node, row?) (a double click: on a row, its id), onRow(node, row),
 //   onWireOpen(wire), onWireDelete(wire), onDropOnWire(node, wire, moves) -> true (it kept the moves too) or why not,
 //   onRetarget(wires, end, to) -> true or why not, onAdd(at), onDelete(selection), onContext(hit, at),
 //   onCommand(name, detail).   from / to: {node, pin}; at: {world, screen, client}; moves: {nodes, frames, notes: {id:
 //   place}}; selection: {nodes, wires, frames, notes: [ids]}.
-import { NODE, DETAIL, detailAt, toWorld, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, pinsOf, pinsFit, nodeSize, pinPoint, routeWire,
+import { NODE, DETAIL, bodyHeight, detailAt, toWorld, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, pinsOf, pinsFit, nodeSize, pinPoint, routeWire,
   bundleRoute, bundleWires, wireIndex, wiresOfNodes, insertReroute, delayFromDrag, delayText, wireAt, pinNear, boxesTouching,
   boxesInside, frameAt, boxOf, boundsOf, nearestToward } from './graph-geometry.js';
 import { keyFor, passesOn, keyNames, digitOf, typing, gestureFor, emptyDrag, wheelIntent, wheelUnit, emptySelection, isSelected,
@@ -85,6 +88,8 @@ const HIT = 6;                                     // screen px: a click this ne
 const MIN_FRAME = 80;
 const REASON_MS = 2600;
 const DEFAULTS = { leftDrag: 'select', wheel: 'auto', minimap: true };
+// a colour the caller gives (who speaks, an answer's way): '#rrggbb' or 'hsl(h s% l%)' only, as it goes into a style
+const colourOf = (c) => (/^(#[0-9a-f]{3,8}|hsl\(\d{1,3} \d{1,3}% \d{1,3}%\))$/i.test(String(c || '')) ? String(c) : '');
 let canvases = 0;                                  // canvases made: their element ids stay apart
 
 export function createGraphCanvas(host, options = {}) {
@@ -140,28 +145,36 @@ export function createGraphCanvas(host, options = {}) {
       + (n.badges || []).map((b) => `<span class="gc-b"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.text)}</span>`).join('')
       + (n.pinned ? `<i class="gc-pinned" title="Pinned: Arrange leaves it where it is">${iconHtml('pinned')}</i>` : '')
       + (n.live != null && n.live !== '' ? `<span class="gc-live">${esc(n.live)}</span>` : '') + `${pin(n.out, 'out')}</div>`;
-    const rows = (n.rows || []).map((r, i) => `<div class="gc-r${r.head ? ' head' : ''}${r.sep ? ' sep' : ''}${r.dim ? ' dim' : ''}${tone(r.tone)}"`
-      + ` data-row="${i}"${r.title ? ` title="${esc(r.title)}"` : ''}${+r.indent > 0 ? ` style="padding-left:${12 + Math.min(96, +r.indent)}px"` : ''}>${pin(r.in, 'in')}`
+    const rowStyle = (r) => [+r.indent > 0 ? `padding-left:${12 + Math.min(96, +r.indent)}px` : '', colourOf(r.colour) ? `--gc-way:${colourOf(r.colour)}` : '']
+      .filter(Boolean).join(';');
+    const rows = (n.rows || []).map((r, i) => `<div class="gc-r${r.head ? ' head' : ''}${r.sep ? ' sep' : ''}${r.dim ? ' dim' : ''}${colourOf(r.colour) ? ' way' : ''}${tone(r.tone)}"`
+      + ` data-row="${i}"${r.title ? ` title="${esc(r.title)}"` : ''}${rowStyle(r) ? ` style="${rowStyle(r)}"` : ''}>${pin(r.in, 'in')}`
       + (r.time != null && r.time !== '' ? `<span class="gc-time">${esc(r.time)}</span>` : '')
       + `<span class="gc-tx">${esc(r.text)}</span>${(r.chips || []).map(chip).join('')}${pin(r.out, 'out')}</div>`).join('');
     // zoomed out, a cover shows the title and live value only (the rows stay laid out under it: no layout to redo)
-    const cover = `<div class="gc-big" aria-hidden="true"><b>${esc(n.title)}</b>${n.live != null && n.live !== '' ? `<span>${esc(n.live)}</span>` : ''}</div>`;
-    return head + rows + (n.foot ? `<div class="gc-r gc-foot">${esc(n.foot)}</div>` : '') + cover;
+    // its text too (a line of the Story), cut to what fits: zoomed out, what is said matters more than who says it
+    const said = n.body && !n.body.empty && n.body.text ? `<i class="gc-bc">${esc(n.body.text)}</i>` : '';
+    const cover = `<div class="gc-big" aria-hidden="true"><b>${esc(n.title)}</b>${n.live != null && n.live !== '' ? `<span>${esc(n.live)}</span>` : ''}${said}</div>`;
+    const body = n.body ? `<div class="gc-body${n.body.empty ? ' empty' : ''}" style="--gc-lines:${bodyHeight(n) ? Math.round((bodyHeight(n) - NODE.body) / NODE.line) : 1}"`
+      + `${n.body.text ? ` title="${esc(n.body.text)}"` : ''}><span class="gc-bt">${esc(n.body.text || '')}</span></div>` : '';
+    return head + body + rows + (n.foot ? `<div class="gc-r gc-foot">${esc(n.foot)}</div>` : '') + cover;
   }
   function iconHtml(key) {
     const paths = (o.icons && o.icons[key]) || ICONS[key] || '';
     return `<svg class="gc-ic" viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
   }
   // what a node looks like, apart from where it is: drawn again only when this changes
-  const lookOf = (n) => JSON.stringify([n.kind, n.title, n.sub, n.icon, n.thumb, thumbs.get(n.thumb) || '', n.badges, n.live, n.tone, n.dim, n.bar,
-    n.pinned, n.label, n.w, n.in, n.out, n.rows, n.foot]);
+  const lookOf = (n) => JSON.stringify([n.kind, n.title, n.sub, n.icon, n.thumb, thumbs.get(n.thumb) || '', n.badges, n.live, n.tone, n.dim, n.bar, n.ghost,
+    n.pinned, n.label, n.w, n.in, n.out, n.rows, n.foot, n.body, n.colour]);
 
   function drawNode(e) {
     const n = e.data, el = e.el;
-    el.className = 'gc-node' + (TONES.includes(n.tone) ? ' ' + n.tone : '') + (n.dim ? ' dim' : '') + (n.bar ? ' bar' : '')
+    el.className = 'gc-node' + (TONES.includes(n.tone) ? ' ' + n.tone : '') + (n.dim ? ' dim' : '') + (n.bar ? ' bar' : '') + (n.ghost ? ' ghost' : '')
       + (/^[a-z]+$/.test(n.kind || '') ? ' k-' + n.kind : '')
       + (sel.nodes.has(n.id) ? ' sel' : '') + (cursor === n.id ? ' cur' : '') + (lit.nodes.has(n.id) ? ' hot' : '');
     el.innerHTML = nodeHtml(n);
+    if (colourOf(n.colour)) { el.classList.add('accent'); el.style.setProperty('--gc-accent', colourOf(n.colour)); }
+    else el.style.removeProperty?.('--gc-accent');
     el.setAttribute('aria-label', n.label || [n.title, n.sub, n.live].filter((t) => t != null && t !== '').join(', '));
     e.size = nodeSize(n);
     el.style.width = e.size[0] + 'px';
@@ -181,7 +194,14 @@ export function createGraphCanvas(host, options = {}) {
     Promise.resolve(o.thumb(key)).then((url) => {
       if (!url) return;
       thumbs.set(key, url);
-      for (const e of nodes.values()) if (e.data.thumb === key) { e.look = lookOf(e.data); drawNode(e); }
+      // a node being written in (a field of the caller's in it: part()) keeps its field: it is drawn again by the
+      // next set() (its look forgotten), not now. Drawn now, the field was taken away under the typing (9 Nov 2026)
+      for (const e of nodes.values()) {
+        if (e.data.thumb !== key) continue;
+        if (e.el.querySelector('.gc-field')) { e.look = ''; continue; }
+        e.look = lookOf(e.data);
+        drawNode(e);
+      }
       markLinked();
     }, () => {});
   }
@@ -226,12 +246,13 @@ export function createGraphCanvas(host, options = {}) {
     via.forEach((p, i) => { if (e.dots[i]) e.dots[i].style.transform = `translate(${p[0]}px,${p[1]}px) translate(-50%,-50%)`; });
     stats.wiresRouted++;
   }
-  const wireLook = (w) => JSON.stringify([w.kind, w.label, w.delay, w.tone, w.title, w.via, w.from, w.to]);
+  const wireLook = (w) => JSON.stringify([w.kind, w.label, w.delay, w.tone, w.title, w.via, w.from, w.to, w.ghost, w.colour]);
   function drawWire(e) {
     const w = e.data, kind = WIRE_KINDS[w.kind] || WIRE_KINDS.causes;
-    e.path.setAttribute('class', 'gc-wire' + (w.tone === 'warn' ? ' warn' : '') + (sel.wires.has(w.id) ? ' sel' : '') + (lit.wires.has(w.id) ? ' hot' : ''));
-    e.path.style.setProperty('--gc-stroke', kind.stroke);
-    if (kind.dash) e.path.setAttribute('stroke-dasharray', kind.dash); else e.path.removeAttribute('stroke-dasharray');
+    e.path.setAttribute('class', 'gc-wire' + (w.tone === 'warn' ? ' warn' : '') + (w.ghost ? ' ghost' : '') + (sel.wires.has(w.id) ? ' sel' : '') + (lit.wires.has(w.id) ? ' hot' : ''));
+    e.path.style.setProperty('--gc-stroke', colourOf(w.colour) || kind.stroke);
+    const dash = w.ghost ? '6 4' : kind.dash;
+    if (dash) e.path.setAttribute('stroke-dasharray', dash); else e.path.removeAttribute('stroke-dasharray');
     const hasChip = !!w.label || typeof w.delay === 'number';
     if (hasChip && !e.chip) { e.chip = document.createElement('div'); owner.set(e.chip, { kind: 'wire', id: w.id }); chipLayer.appendChild(e.chip); }
     if (!hasChip && e.chip) { e.chip.remove(); e.chip = null; }
@@ -929,9 +950,16 @@ export function createGraphCanvas(host, options = {}) {
     else setView(panBy(view, -ev.deltaX * unit, -ev.deltaY * unit));
   }
   function onDouble(ev) {
-    if (ev.target.closest?.('.gc-chip, .gc-field') || ev.target === zoomEl || ev.target === miniEl) return;
-    const at = atOf(ev), hit = hitOf(ev.target, at.world);
-    if (hit.on === 'node') o.onOpen?.(hit.node);
+    // the press took the pointer (setPointerCapture), so the browser gives the double click to the canvas itself: what
+    // is under the pointer is asked for (without this a node was never opened by the mouse, 9 Nov 2026)
+    const under = ev.target === root ? document.elementFromPoint?.(ev.clientX, ev.clientY) : null;
+    const target = under && root.contains(under) ? under : ev.target;
+    if (target.closest?.('.gc-chip, .gc-field') || target === zoomEl || target === miniEl) return;
+    const at = atOf(ev), hit = hitOf(target, at.world);
+    if (hit.on === 'node') {
+      const row = hit.row >= 0 ? nodes.get(hit.node).data.rows?.[hit.row] : null;
+      o.onOpen?.(hit.node, row ? row.id : undefined);
+    }
     else if (hit.on === 'frame') o.onCommand?.('rename', { frame: hit.frame });
     else if (hit.on === 'wire') {
       const w = wires.get(hit.wire).data, a = pinAt(w.from), b = pinAt(w.to);
@@ -1046,7 +1074,8 @@ export function createGraphCanvas(host, options = {}) {
     },
     selection: () => selectionLists(sel),
     view: () => ({ ...view }),
-    setView: (v) => setView({ ...v }),
+    // a view given (one kept from before): the first fit does not replace it
+    setView: (v) => { fitted = true; setView({ ...v }); },
     fit, frameSelection,
     reveal: (ids) => reveal([...ids]),
     // Arrange: the nodes given (or every node) laid out again by the layout, the pinned ones left; one onMove
@@ -1060,6 +1089,16 @@ export function createGraphCanvas(host, options = {}) {
       o.onMove?.({ nodes: Object.fromEntries(places) });
     },
     positions: () => Object.fromEntries([...nodes].map(([id, e]) => [id, [...e.at]])),
+    // the element of a node's text to write in place (the Story writes a line there): 'body', or a row's id -> its
+    // text's element, or null. The caller puts its own field in it (class gc-field: the canvas leaves its pointer and
+    // keys alone) and gives the graph back with set() when it is done; until then the node is not drawn again
+    part(id, which = 'body') {
+      const e = nodes.get(id);
+      if (!e) return null;
+      if (which === 'body') return e.el.querySelector('.gc-body');
+      const i = (e.data.rows || []).findIndex((r) => r.id === which);
+      return i < 0 ? null : e.el.querySelectorAll('.gc-r')[i]?.querySelector('.gc-tx') || null;
+    },
     // lit from outside (follow the 3D selection, a search): these stand out until light(null)
     light(ids) {
       outside = ids ? { nodes: new Set(ids.nodes || []), wires: new Set(ids.wires || []) } : null;
@@ -1076,6 +1115,16 @@ export function createGraphCanvas(host, options = {}) {
         if (!e?.path.animate) continue;
         e.pulse?.cancel();                         // again while it still runs: from the start
         e.pulse = e.path.animate([look(PULSE.run), look(0)], timing);
+      }
+    },
+    // a rule ran (Play's trails): its node's edge takes the accent for a moment, then is as it was
+    flash(ids) {
+      const ms = PULSE.ms * PULSE.times;
+      for (const id of ids) {
+        const e = nodes.get(id);
+        if (!e?.el.animate) continue;
+        e.flash?.cancel();
+        e.flash = e.el.animate([{ boxShadow: `0 0 0 2px ${PULSE.stroke}` }, { boxShadow: '0 0 0 0 transparent' }], { duration: ms, easing: 'ease-out' });
       }
     },
     settings: () => ({ ...settings }),

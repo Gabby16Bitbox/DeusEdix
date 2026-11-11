@@ -3,9 +3,9 @@
   "title": "Right and wrong code",
   "behaviour": "A keypad's wrong code is its FailEvent (UCL_<keypad>_Fail), the right one its event or a free UnTriggerEvent slot: each runs only its own rule.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [160, 163], "has": "if (When == 'code' && K != None && K.bToggleLock)"},
-    {"file": "UCLink.uc", "lines": [173, 180], "has": "if (When == 'wrongcode')"},
-    {"file": "UCLink.uc", "lines": [332, 340], "has": "function UnTrigger(Actor Other, Pawn EventInstigator)"}
+    {"file": "UCLink.uc", "lines": [170, 173], "has": "if (When == 'code' && K != None && K.bToggleLock)"},
+    {"file": "UCLink.uc", "lines": [179, 186], "has": "if (When == 'wrongcode')"},
+    {"file": "UCLink.uc", "lines": [348, 356], "has": "function UnTrigger(Actor Other, Pawn EventInstigator)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

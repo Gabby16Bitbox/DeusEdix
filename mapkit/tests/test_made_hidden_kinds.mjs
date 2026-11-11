@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { DRAW_LABELS } from '../editor/static/draw-tools.js';
 import { namedStep } from '../editor/static/history-names.js';
+import { isParticleClass } from '../editor/static/particles.js';
 import { linkFields } from '../editor/static/prefab-links.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
@@ -24,7 +25,7 @@ const keyOf = (p) => (p.userData.box ? 'b:' + p.userData.box.name : p.userData.d
 function page(extra = {}) {
   const proxies = { children: [] }, used = {};
   const proxy = (userData) => ({ userData, position: new THREE.Vector3() });
-  const c = vm.createContext({
+  const c = vm.createContext({ isParticleClass,
     THREE, YAW: 65536, proxies, structures: {}, edits: { added: [], boxes: [], drawn: [], prefabs: [], nests: [] },
     selected: null, said: [], logged: [], warned: [], mapName: 'Lab', script: 'lab', snap: false, lastBlockTex: 'Tex', hierOpen: new Set(),
     buildJob: null, waitsForRebuild: () => false,       // no Rebuild running (rebuildMap)

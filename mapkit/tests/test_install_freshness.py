@@ -12,6 +12,7 @@ import types
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[1] / 'editor' / 'dxmaps.py'
+sys.path[:0] = [str(SOURCE.parents[1]), str(SOURCE.parent)]     # load_edits imports logicruntime, missionphases
 
 class InstallFreshnessTests(unittest.TestCase):
     def setUp(self):
@@ -26,7 +27,8 @@ class InstallFreshnessTests(unittest.TestCase):
         self.source = self.mods / 'Fixture.dx'
         self.source.write_bytes(b'original editable map')
         (self.out / 'Fixture.dx').write_bytes(b'playable build A')
-        names = {'stamp', 'edits_path', 'load_edits', '_info_path', 'built_current', 'install', '_edits_fingerprint'}
+        names = {'stamp', 'edits_path', 'load_edits', '_info_path', 'built_current', 'install', '_edits_fingerprint',
+                 'has_logic'}
         tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
         self.scope = dict(hashlib=hashlib, json=json, Path=Path, shutil=shutil, time=time,
                           KIT=self.root / 'kit', OUT=self.out, MOD_MAPS=self.mods,
@@ -101,5 +103,71 @@ class InstallFreshnessTests(unittest.TestCase):
         self.assertFalse(self.scope['install']('Fixture')[0])
         self.assertTrue(self.edits.exists())
         self.assertEqual(self.source.read_bytes(), b'original editable map')
+
+    def use_edits(self, edits):
+        """Saved edits the last build was made from."""
+        self.edits.write_text(json.dumps(edits))
+        self.info['built']['edits'] = self.scope['_edits_fingerprint'](self.scope['load_edits']('Fixture'))
+        self.write_info()
+
+    def test_logic_rules_stay_editable_after_install(self):
+        # 10 Nov 2026: Install baked a map copy's rules into the map and archived its edits, so the Logic window
+        # showed none while they still ran in the game, and no rebuild reached them
+        rules = dict(self.old, links=[{'id': 'KR_Use', 'src': 'KR_Button', 'when': 'used', 'do': [{'verb': 'flag', 'a': 'KR_A', 'b': '1'}]}],
+                     logic={'watch': ['KR_A']})
+        self.use_edits(rules)
+        ok, lines = self.scope['install']('Fixture')
+        self.assertTrue(ok, lines)
+        self.assertEqual(json.loads(self.edits.read_text())['links'][0]['id'], 'KR_Use')
+        self.assertEqual(list(self.edits.parent.glob('Fixture.edits.installato_*.json')), [])
+        self.assertEqual(self.scope['_authoring_path']('Fixture').read_bytes(), b'original editable map')   # rebuilt from this
+        self.assertEqual(self.source.read_bytes(), b'playable build A')
+        info = json.loads(self.scope['_info_path']('Fixture').read_text())
+        self.assertEqual(info['built']['source']['sha1'], info['authoring']['source']['sha1'])
+
+    def test_each_kind_of_logic_keeps_the_source(self):
+        for key, value in (('logic', {'groups': [{'id': 'g1', 'name': 'Guards', 'members': ['Guard1']}]}),
+                           ('logic', {'start': {'KR_A': True}}), ('usable', {'Bomb': {'text': 'Defuse'}}),
+                           ('objectTags', {'Guard1': 'Patrol'}), ('cutscenes', {'UCCutscene0': {'keys': [{'t': 0}]}}),
+                           ('fpmoments', {'Shake': {'clips': [{'seq': 'Shoot'}]}})):
+            with self.subTest(key=key):
+                self.assertTrue(self.scope['has_logic'](dict(self.old, **{key: value})))
+
+    def test_empty_logic_still_installs_into_the_map(self):
+        self.use_edits(dict(self.old, links=[], logic={'watch': [], 'start': {}}, usable={}))
+        self.assertFalse(self.scope['has_logic'](self.scope['load_edits']('Fixture')))
+        ok, lines = self.scope['install']('Fixture')
+        self.assertTrue(ok, lines)
+        self.assertFalse(self.edits.exists())
+        self.assertEqual(len(list(self.edits.parent.glob('Fixture.edits.installato_*.json'))), 1)
+
+
+class BakedRuleActors(unittest.TestCase):
+    """A rebuild never leaves a second actor for a rule an earlier Install put into the map (under another name)."""
+    def setUp(self):
+        tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
+        scope = {}
+        exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'baked_rule_actors'],
+                                type_ignores=[]), str(SOURCE), 'exec'), scope)
+        self.baked = scope['baked_rule_actors']
+        self.blocks = [dict(cls='UCRuleAlso', name='UCRuleAlso_KR_Use_1', props={'Main': '"UCLink_KR_Use"'}),
+                       dict(cls='UCLink', name='UCLink_KR_Use', props={'Rule': '"KR_Use"'}),
+                       dict(cls='UCRule', name='UCLink_KR_Watch', props={'Rule': '"KR_Watch"'})]
+
+    def test_copies_of_the_rules_built_now_are_removed(self):
+        in_map = [dict(cls='UCLink', name='UCLink0', props={'Rule': '"KR_Use"'}),
+                  dict(cls='DXP_x.UCLink', name='UCLink1', props={'Rule': '"KR_Watch"'}),     # the runtime changed since
+                  dict(cls='UCRuleAlso', name='UCRuleAlso3', props={'Main': '"UCLink_KR_Use"'}),
+                  dict(cls='UCLink', name='UCLink_KR_Use', props={'Rule': '"KR_Use"'})]       # its own name
+        self.assertEqual(self.baked(in_map, self.blocks), ['UCLink0', 'UCLink1', 'UCRuleAlso3', 'UCLink_KR_Use'])
+
+    def test_other_actors_stay(self):
+        in_map = [dict(cls='UCLink', name='UCLink5', props={'Rule': '"Old_Rule"'}),           # not in the edits any more
+                  dict(cls='Button1', name='Button0', props={'Rule': '"KR_Use"'}),
+                  dict(cls='UCRuleAlso', name='UCRuleAlso9', props={'Main': '"UCLink_Other"'}),
+                  dict(cls='UCLogicHub', name='UCLogicHub0', props={})]
+        self.assertEqual(self.baked(in_map, self.blocks), [])
+        self.assertEqual(self.baked(in_map, []), [])
+
 
 if __name__ == '__main__': unittest.main()

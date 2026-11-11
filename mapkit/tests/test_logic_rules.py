@@ -189,6 +189,17 @@ defaultproperties
                        {'id': 'Open', 'label': 'Open it', 'args': ['Speed', 'Mode']}],
             'outputs': [{'id': 'Opened', 'label': 'it is open'}]})
 
+    def test_arguments_say_what_they_take(self):
+        """P8 slice 5: Args="Speed:number, Who:thing" (editor/static/script-ports.js writes them, the rules ask that way)"""
+        text = 'class Gen extends UCScript;\ndefaultproperties\n{\n Inputs(0)=(Id="Go",Args="Speed:number, Mode, Who:Thing, Bad:nope, Speed")\n}\n'
+        go = scripts.ports('Gen', text)['inputs'][0]
+        self.assertEqual(go['args'], ['Speed', 'Mode', 'Who', 'Bad'])
+        self.assertEqual(go['types'], {'Speed': 'number', 'Who': 'thing'})
+        import logic_catalog
+        io = logic_catalog.io_for(['Gen', 'UCScript', 'Actor'], scripts.ports('Gen', text))
+        self.assertEqual(io['argTypes'], {'Go': {'Speed': 'number', 'Who': 'thing'}})
+        self.assertNotIn('argTypes', logic_catalog.io_for(['Gen', 'UCScript', 'Actor'], {'inputs': [dict(id='Go', label='Go', args=['A'])], 'outputs': []}))
+
     def test_valid_unrealscript_that_looks_odd(self):
         text = '''class Gen extends UCScript;
 function Foo() // values in defaultproperties

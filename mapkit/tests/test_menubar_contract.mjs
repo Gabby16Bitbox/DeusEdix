@@ -344,3 +344,15 @@ test('Edit > Grow face selection: with faces selected, at any angle too, their k
   assert.equal(ctx.api.runCommand(item(ctx,'Grow face selection (any angle)').id),true);
   assert.deepEqual(grown,[false,true]);
 });
+
+test('a panel of the Window menu with no shortcut of its own (Logic) gets none, and stops no menu', () => {
+  // the real keyOf with the real actions (setup() stubs it): Window > Logic's key is no action; keyOf threw on it,
+  // and the Window menu, the native menus and the palette were not drawn (found 10 Nov 2026)
+  const ctx = vm.createContext({ prefs: { keys: {} } });
+  vm.runInContext(source.slice(source.indexOf('const ACTIONS = ['), source.indexOf('// the keys as the shortcut helper'))
+    + '\nthis.keyOf = keyOf;', ctx);
+  assert.equal(ctx.keyOf('logic'), '');
+  assert.equal(ctx.keyOf('history'), 'Ctrl+U');
+  const panels = source.slice(source.indexOf('const PANELS'), source.indexOf(']];', source.indexOf('const PANELS')) + 3);
+  for (const [, key] of panels.matchAll(/\['\w+', '[^']*', '(\w+)'\]/g)) assert.equal(typeof ctx.keyOf(key), 'string', key);
+});

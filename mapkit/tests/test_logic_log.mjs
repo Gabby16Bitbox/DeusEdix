@@ -2,7 +2,7 @@
 // what the game writes (UCLink.Report, UCScript) and what the editor writes (conditions.py encode) agree.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseLogicLine, logicSentence, decodeCondition } from '../editor/static/logic-log.js';
+import { parseLogicLine, logicSentence, decodeCondition, stateValueText } from '../editor/static/logic-log.js';
 import { conditionText, conditionProblem, newCondition, kindOf } from '../editor/static/conditions.js';
 import { conditionProblems, collectDraftStates } from '../editor/static/story-state.js';
 
@@ -15,6 +15,27 @@ test('a rule that runs: its label, who set it off, links to the rule and the obj
   const s = logicSentence(e);
   assert.equal(s.mark, '▶');
   assert.deepEqual(s.parts.filter((p) => typeof p !== 'string'), [{ rule: 'L3' }, { name: 'JCDenton0' }]);
+});
+
+test('a watched state or counter (UCLogicHub, P5): where it starts, its changes, in words', () => {
+  const first = parseLogicLine('DeusEdixLogic: state|01_Crypt|Met||false');
+  assert.deepEqual(first, { kind: 'state', map: '01_Crypt', name: 'Met', old: '', new: 'false' });
+  assert.equal(text(first), 'Met is No');
+  assert.equal(logicSentence(first).mark, '◆');
+  assert.equal(text(parseLogicLine('DeusEdixLogic: state|01_Crypt|Met|false|true')), 'Met: No → Yes');
+  assert.equal(text(parseLogicLine('DeusEdixLogic: state|01_Crypt|Keys|2|3')), 'Keys: 2 → 3');
+  assert.equal(text(parseLogicLine('DeusEdixLogic: state|01_Crypt|Keys||')), 'Keys is not set');
+  assert.equal(text(parseLogicLine('DeusEdixLogic: state|01_Crypt|Keys|3|')), 'Keys: 3 → not set');
+  assert.deepEqual(['true', 'false', '', '0', '-2'].map(stateValueText), ['Yes', 'No', 'not set', '0', '-2']);
+});
+
+test('a start value on the map\'s first visit (UCLogicHub, P5): set, or kept from before', () => {
+  const set = parseLogicLine('DeusEdixLogic: start|01_Crypt|Keys|3|set');
+  assert.deepEqual(set, { kind: 'start', map: '01_Crypt', name: 'Keys', value: '3', how: 'set' });
+  assert.equal(text(set), 'Keys starts as 3');
+  assert.equal(logicSentence(set).mark, '◆');
+  assert.equal(text(parseLogicLine('DeusEdixLogic: start|01_Crypt|Met|true|set')), 'Met starts as Yes');
+  assert.equal(text(parseLogicLine('DeusEdixLogic: start|01_Crypt|Met|false|kept')), 'Met keeps No: it was set before this map');
 });
 
 test('a label keeps its bars, a map built before rules had ids names the actor', () => {

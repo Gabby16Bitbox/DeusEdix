@@ -8,6 +8,17 @@ A condition is a dict. A state keeps the Story's own shape; the other kinds say 
     {'type': 'skill', 'skill': 'SkillLockpicking', 'level': 2}    JC's skill is at least: 1 trained ... 3 master
     {'type': 'counter', 'counter': 'Levers', 'op': '>=', 'value': 3}
     {'type': 'credits', 'op': '>=', 'value': 100}
+    {'type': 'near', 'at': [x, y, z], 'radius': 256, 'is': True}  the player is / is not within radius of a point
+    {'type': 'health', 'op': '<', 'value': 30}                    the player's health, energy, skill points to spend
+    {'type': 'energy', 'op': '<', 'value': 20}                    (P9 slice 2, as credits)
+    {'type': 'skillpoints', 'op': '>=', 'value': 2000}
+    {'type': 'aug', 'aug': 'AugSpeed', 'how': 'on', 'is': True}   an augmentation the player has ('has'), has turned on
+                                                                  ('on') or has at a level or more ('level', 'level': 1-4)
+    {'type': 'water', 'is': True}                                 the player is in water (a water zone)
+    {'type': 'zone', 'zone': 'WaterZone0', 'is': True}            the player is in a zone of the map (its name)
+    {'type': 'items', 'item': 'DeusEx.DeusExWeapon', 'op': '>=', 'value': 1}   how many things of a kind the player
+                                                                  carries: the class or any class under it, a stack
+                                                                  of pickups counting its copies
 
 check() validates a list; encode() is the string UCLink.Cond[i] holds and UCEditorStory.Holds() evaluates in the
 game; unreal() is the UnrealScript a Story event compiles it into (a state stays GetF, the others call Holds).
@@ -17,7 +28,10 @@ import math
 import re
 import unicodedata
 
-KINDS = ('flag', 'item', 'alive', 'skill', 'counter', 'credits')
+KINDS = ('flag', 'item', 'alive', 'skill', 'counter', 'credits', 'near',
+         'health', 'energy', 'skillpoints', 'aug', 'water', 'zone', 'items')
+NUMBERS = ('credits', 'health', 'energy', 'skillpoints')      # the player's numbers: {op, value}
+AUG_HOW = ('has', 'on', 'level')
 OPS = ('<', '<=', '==', '!=', '>=', '>')
 MAX_CONDITIONS = 8                    # a rule's: UCLink.Cond[8] (the Story compiles its own, without a limit)
 _NAME = re.compile(r'\w+', re.ASCII)  # the map's own names: what the game writes in a map (latin-1 text, ASCII names)
@@ -41,8 +55,31 @@ def name_of(s):
 
 
 def kind(c):
-    """flag, item, alive, skill, counter or credits; a state has no 'type' (the Story's {flag, is})."""
+    """The kind (KINDS); a state has no 'type' (the Story's {flag, is})."""
     return c.get('type') or ('flag' if 'flag' in c else None)
+
+
+def _value(v, what):
+    """A compared value: a whole number, or (Advanced, P9 slice 5) a formula of counters such as "Alarms + 1"."""
+    import formula
+    if isinstance(v, str) and formula.is_formula(v):
+        try:
+            formula.tokens(v)
+        except formula.FormulaError as exc:
+            raise ValueError('%s: %s.' % (what, exc)) from exc
+        return
+    if isinstance(v, str):
+        try:
+            v = float(v.strip().replace(',', '.'))
+        except ValueError:
+            pass
+    _int(v, what)
+
+
+def _number(v):
+    """The compared value as the game reads it (formula.game_number): '3', or '=@Alarms,1,+'."""
+    import formula
+    return formula.game_number(v)
 
 
 def _int(v, what, lo=-2 ** 31, hi=2 ** 31 - 1):
@@ -69,7 +106,8 @@ def complete(conditions):
 
 def unfinished(c):
     """A row added in the editor whose object, item or counter is not chosen yet (conditions.js conditionProblem)."""
-    key = {'item': 'item', 'alive': 'actor', 'counter': 'counter'}.get(kind(c)) if isinstance(c, dict) else None
+    key = {'item': 'item', 'alive': 'actor', 'counter': 'counter', 'items': 'item', 'zone': 'zone',
+           'aug': 'aug'}.get(kind(c)) if isinstance(c, dict) else None
     return bool(key) and not str(c.get(key) or '').strip()
 
 
@@ -98,17 +136,53 @@ def check(conditions, kinds=KINDS, limit=None):
         elif k == 'skill':
             _named(c, 'skill', 'A skill condition')
             _int(c.get('level'), 'A skill level', 1, 3)
-        elif k in ('counter', 'credits'):
+        elif k in ('counter', 'items') or k in NUMBERS:
             if k == 'counter' and (not isinstance(c.get('counter'), str) or not c['counter'].strip()):
                 raise ValueError('A counter condition needs the name of the counter.')
+            if k == 'items' and (not isinstance(c.get('item'), str) or not _CLASS.fullmatch(c['item'])):
+                raise ValueError('A "things of a kind" condition needs a class like DeusEx.DeusExWeapon.')
             if c.get('op') not in OPS:
                 raise ValueError('A comparison must be one of %s.' % ' '.join(OPS))
-            _int(c.get('value'), 'A ' + k + ' value')
+            _value(c.get('value'), 'A ' + k + ' value')
+        elif k == 'near':
+            at = c.get('at')
+            if (not isinstance(at, list) or len(at) != 3
+                    or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > 1e6 for v in at)):
+                raise ValueError('A "near a point" condition needs the point (x, y, z).')
+            r = c.get('radius', 256)
+            if isinstance(r, bool) or not isinstance(r, (int, float)) or not math.isfinite(r) or not 1 <= r <= 65536:
+                raise ValueError('A "near a point" condition needs a distance from 1 to 65536 units.')
+        elif k == 'aug':
+            _named(c, 'aug', 'An augmentation condition')
+            if c.get('how', 'has') not in AUG_HOW:
+                raise ValueError('An augmentation condition is one of: %s.' % ', '.join(AUG_HOW))
+            if c.get('how') == 'level':
+                _int(c.get('level'), 'An augmentation level', 1, 4)
+        elif k == 'zone':
+            _named(c, 'zone', 'A zone condition')
     return list(conditions)
 
 
 def _yes(c, key):
     return '1' if c.get(key, True) else '0'                  # as the Story always read it: anything true
+
+
+OPPOSITE = {'>=': '<', '<': '>=', '>': '<=', '<=': '>', '==': '!=', '!=': '=='}
+
+
+def negate(c):
+    """The condition that holds exactly when this one does not, or None when the game cannot say it (a skill);
+    static/action-list.js negate is the same."""
+    if not isinstance(c, dict):
+        return None
+    k = kind(c)
+    if k in ('flag', 'alive', 'near', 'aug', 'water', 'zone'):
+        return dict(c, **{'is': _yes(c, 'is') == '0'})
+    if k == 'item':
+        return dict(c, has=_yes(c, 'has') == '0')
+    if (k in ('counter', 'items') or k in NUMBERS) and c.get('op') in OPPOSITE:
+        return dict(c, op=OPPOSITE[c['op']])
+    return None
 
 
 def encode(c):
@@ -123,8 +197,20 @@ def encode(c):
     if k == 'skill':
         return 'skill|%s|%d' % (c['skill'], int(c['level']))
     if k == 'counter':
-        return 'count|%s|%s|%d' % (name_of(c['counter']), c['op'], int(c['value']))
-    return 'credits|%s|%d' % (c['op'], int(c['value']))
+        return 'count|%s|%s|%s' % (name_of(c['counter']), c['op'], _number(c['value']))
+    if k == 'near':                                          # whole units: the game reads them back with float()
+        x, y, z = (int(round(v)) for v in c['at'])
+        return 'near|%d|%d|%d|%d|%s' % (x, y, z, int(round(c.get('radius', 256))), _yes(c, 'is'))
+    if k == 'aug':                                           # aug|AugSpeed|on|0|1, aug|AugSpeed|level|2|1
+        how = c.get('how', 'has')
+        return 'aug|%s|%s|%d|%s' % (c['aug'], how, int(c['level']) if how == 'level' else 0, _yes(c, 'is'))
+    if k == 'water':
+        return 'water|%s' % _yes(c, 'is')
+    if k == 'zone':
+        return 'zone|%s|%s' % (c['zone'], _yes(c, 'is'))
+    if k == 'items':
+        return 'items|%s|%s|%s' % (c['item'], c['op'], _number(c['value']))
+    return '%s|%s|%s' % (k, c['op'], _number(c['value']))  # credits, health, energy, skillpoints
 
 
 def unreal(c):

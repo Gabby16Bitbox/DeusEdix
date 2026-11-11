@@ -48,7 +48,7 @@ function setup() {
     tc: { mode: 'translate', detach() {} }, status: (...args) => calls.push(args), log() {},
     namedStep, keyLabel: k => [k.slice(k.indexOf(':') + 1), ''],
     pushUndo: () => history.push(JSON.stringify(context.edits)), setDirty() {}, showChanges() {}, buildHierarchy() {}, buildStructList() {},
-    applyTextureOverrides() {}, applyLighting() {}, applyObjectVisibility() {}, disposeEffectPoint() {}, disposeViewportIcons() {}, select: p => { context.selected = p; }, selectNest() {}, selectKeys() {},
+    applyTextureOverrides() {}, applyLighting() {}, applyObjectVisibility() {}, disposeEffectPoint() {}, disposeParticleGizmo() {}, disposeViewportIcons() {}, skyTool: { syncViewport() {} }, select: p => { context.selected = p; }, selectNest() {}, selectKeys() {},
     makeBoxProxy() {}, syncStructures: () => { for (const id of context.edits.unnest) if (id.startsWith('a:')) delete context.actorStruct[id.slice(2)]; },
     beginStructMove: p => ({ st: context.structures[p.userData.name] }), followStructure: state => calls.push(['follow structure', state.st.name]),
   });

@@ -275,6 +275,25 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(second_added, first_added)
         self.assertEqual(self.exports, 0, "the page's dump of the source, kept for the next builds")
 
+    def test_the_states_watched_while_playing_go_into_the_map_logic_hub(self):
+        """P5: the states pinned in the Logic window (edits.logic.watch) are UCLogicHub0's Watch(i), deleted and made
+        again at every build; a map with nothing watched has none, and the host finding none to delete is no skip."""
+        self.page_dump(self.source, self.source_t3d, OLD_TEX)
+        cmds, added = self.build()
+        self.assertIn('UC_DEL UCLogicHub0', cmds)
+        self.assertNotIn('UCLogicHub', added)
+        self.edits.write_text(json.dumps(dict(EDITS, logic={'watch': ['Met', 'Keys']})))
+        cmds, added = self.build()
+        self.assertLess(cmds.index('UC_DEL UCLogicHub0'), cmds.index(r'MAP IMPORTADD FILE="..\T3D\added.t3d"'))
+        self.assertIn('Class=UCLogicHub Name=UCLogicHub0', added)
+        self.assertIn('Watch(0)="Met"', added)
+        self.assertIn('Watch(1)="Keys"', added)
+        self.answer = 'UCMapKit|del|missing|UCLogicHub0\n'
+        ok, lines = dxmaps.build(MAP, log=lambda *a: None)
+        self.assertTrue(ok, lines)
+        self.assertEqual([line for line in lines if 'skipped' in line], [])
+        self.assertIn('  EDIT logic hub: 2 watched while playing', lines)
+
     def test_a_source_object_the_look_lacks_is_retextured_from_its_block(self):
         """An object of the source the page's dump has no entry for (a dump made without the objects), with no mesh of
         its own: dxmaps.build passes every block of the build, the source's too, so the first build retextures it from

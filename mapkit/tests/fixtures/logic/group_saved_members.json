@@ -3,11 +3,11 @@
   "title": "Group target: only the saved members that can do it",
   "behaviour": "Without current entrants the action reaches exactly the members saved at build (deleted ones are left out by the editor), wherever they are; a member gone from the map or of another kind is skipped without a line, and an object in the radius that is not a member is not reached.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [643, 672], "has": "function DoArea(string s)"},
-    {"file": "UCLink.uc", "lines": [577, 583], "has": "function bool AreaKind(Actor A, string kind)"},
+    {"file": "UCLink.uc", "lines": [726, 755], "has": "function DoArea(string s)"},
+    {"file": "UCLink.uc", "lines": [683, 689], "has": "function bool AreaKind(Actor A, string kind)"},
     {
       "file": "links.py",
-      "lines": [75, 75],
+      "lines": [79, 79],
       "has": "members=list(dict.fromkeys(n for n in members if n not in excluded))"
     },
     {"file": "UCLinkGroup.uc", "lines": [12, 16], "has": "function name GetMember(int i)"}

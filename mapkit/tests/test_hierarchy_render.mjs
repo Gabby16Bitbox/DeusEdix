@@ -61,6 +61,7 @@ function fixture() {
     tagOf: () => '', eventOf: () => '', texturesOf: () => [], meshOf: () => '',
     hierOpen: new Set(), hierItems: [], hierTimer: 0, hierarchyDragging: false, hierRenaming: false, hierFolderOn: null, hierFlash: null,
     linkOf, prefabBrowser: { cached: () => c.library },       // linked prefabs: the library's list as last read
+    lgGroups: () => [], lgMembers: () => [], lgFilterText: () => '',          // the Logic's named groups (none here)
   });
   vm.runInContext(stateSource + '\n' + iconSource + '\n' + line('function pasteEntry(') + '\n'
     + ['objectLabel', 'hierarchyIcon', 'searchFacts', 'prefabOfCopy', 'prefabBadge', 'renderHierarchy'].map(body).join('\n'), c);
@@ -207,4 +208,20 @@ test('a copy of a prefab of the library has a badge: its version, an older one, 
   assert.match(badge(c.draw(), 'p1'), /class="prefab-badge gone" title="A copy of a prefab no longer in the library/);
   c.edits.prefabs[0].unpacked = true;
   assert.equal(badge(c.draw(), 'p1'), '', 'unpacked: no badge');
+});
+
+// the Logic's named groups (P3): a Groups folder, a row for each with its count; the search keeps those it names
+test('the named groups of the rules have a folder of their own, found by the search', () => {
+  const c = fixture();
+  c.lgGroups = () => [{ id: 'G1', name: 'Lab doors', members: ['Hale', 'Lamp1'] }, { id: 'G2', name: 'Alarm lights', members: [] }];
+  c.lgMembers = (id) => (id === 'G1' ? ['Hale', 'Lamp1'] : []);
+  const html = c.draw();
+  assert.match(html, /data-hk="lgroups"/);
+  assert.match(html, /data-lgroup="G1"[^>]*>.*Lab doors<\/span><small>2<\/small>/);
+  assert.match(html, /data-lgroup="G2"/);
+  const found = c.draw('lab');
+  assert.match(found, /data-lgroup="G1"/);
+  assert.doesNotMatch(found, /data-lgroup="G2"/);
+  c.lgGroups = () => [];
+  assert.doesNotMatch(c.draw(), /data-hk="lgroups"/, 'no groups: no folder');
 });

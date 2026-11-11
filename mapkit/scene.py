@@ -748,6 +748,15 @@ class Scene:
                 self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
             report += _links.report(edits)
             self.link_edits = edits
+        if settings.STANDALONE and isinstance(edits.get('logic'), dict) and (edits['logic'].get('watch') or edits['logic'].get('start')):
+            # the map's logic hub (editor/links.py hub): UCLogicHub0, states watched while playing, start values (P5)
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
+            import links as _links
+            hub = _links.hub(edits)
+            if hub:
+                self.actor(hub['cls'], tuple(hub['loc']), name=hub['name'], rot=(0, 0, 0), **hub['props'])
+                report.append(_links.hub_report(edits))
         if edits.get('navmesh') or edits.get('links') or (edits.get('level') or {}).get('navmesh'):
             # the walkable area in the game (editor/navbake.py): when characters are sent "on the walkable area"
             import sys as _sys
@@ -1428,6 +1437,17 @@ class Scene:
         changes = {}
         if edits and Path(edits).exists():
             changes = json.loads(Path(edits).read_text(encoding='utf-8'))
+            if (changes.get('logic') or {}).get('mission'):   # Phases blocks linked to the project's mission phases
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
+                import missionphases as _mp
+                changes = _mp.apply(changes, kit=Path(edits).resolve().parent.parent)
+            import sys as _sys                # the project's Logic runtime (editor/logicruntime.py): links.blocks
+            _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
+            import logicruntime as _lr
+            changes = _lr.apply(changes, kit=Path(edits).resolve().parent.parent)
+            import logicpatterns as _lp       # the patterns placed in the map (P8): their versions, for links.blocks
+            changes = _lp.apply(changes, kit=Path(edits).resolve().parent.parent)
             self._apply_box_edits(changes)
         activation.names(changes)
         self.activation_edits = changes

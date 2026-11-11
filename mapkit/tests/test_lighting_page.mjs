@@ -34,7 +34,7 @@ function viewPage({ effects = true } = {}) {
     viewModes: { mode: null, set(mode) { this.mode = mode; return Promise.resolve(); } },
     applyLighting() { c.lit++; }, wake() {},
     // drawEveryFrame's
-    awakeUntil: 0, cam: { look: false }, previewing: null, tc: { dragging: false }, anim: null, effectPreviewsActive: () => false,
+    awakeUntil: 0, cam: { look: false }, previewing: null, tc: { dragging: false }, anim: null, effectPreviewsActive: () => false, particlePreviewsActive: () => false, weatherPreview: { active: false }, routeTest: null, skyPreview: { animating: false },
     showPaths: false, gameView: { active: false },
   });
   vm.runInContext(['effectsShown', 'setViewMode', 'setLightMode', 'drawEveryFrame'].map(body).join('\n'), c);
@@ -74,7 +74,7 @@ test('Effects draws every frame, but not while Play runs over the 3D view', () =
   assert.equal(c.drawEveryFrame(1000), true);
   c.awakeUntil = 0; c.gameView.active = false; c.effectsOn = false;
   assert.equal(c.drawEveryFrame(1000), false);
-  assert.match(body('animate'), /if \(!drawEveryFrame\(now\) && now - lastDraw < 250\) return;/);
+  assert.match(body('animate'), /const busy = drawEveryFrame\(now\);\s*if \(!busy && now - lastDraw < 250\) return;/);
 });
 
 // ---- Lights here's lamps (and the live preview's, a lamp's corona and notes): the project made for `game`, more lamps

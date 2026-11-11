@@ -274,12 +274,19 @@ async function poll() {
       const r = await fetch('/api/console_log?offset=' + offset);
       if (r.ok) {
         const j = await r.json(), first = offset < 0;
-        if (j.offset < offset) add(['— the game started again: a new log —'], true);
+        if (j.offset < offset) {
+          add(['— the game started again: a new log —'], true);
+          window.dispatchEvent(new CustomEvent('deusedix:logic-restart'));
+        }
         // when Play started, for Time: the game's own start as the server knows it, else when this panel saw it start
         if (j.started) playStart = j.started;
         else if (j.running && !running && !first) playStart = Date.now();
         offset = j.offset;
         add(j.lines || [], false, first ? null : Date.now());
+        // the logic lines for the trails (logic-trails.js: the Logic window's graph, the 3D view's wires); read back
+        // when the panel first looked (at: null) they have no time of their own
+        const logic = (j.lines || []).filter((l) => l.startsWith(LOGIC_TAG));
+        if (logic.length) window.dispatchEvent(new CustomEvent('deusedix:logic-lines', { detail: { lines: logic, at: first ? null : Date.now(), started: playStart } }));
         if (running !== !!j.running) { running = !!j.running; showState(); }
       }
     } catch (_) { /* the editor's server is restarting: try again later */ }

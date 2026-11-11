@@ -12,10 +12,11 @@
 //   optionText(l)      the text of the computer's option a rule waits for
 //   portLabel(n, key)  a script's port ('output:<Id>', 'input:<Id>') as the script names it
 //   itemName(cls)      an item as the game names it (the conditions' "JC carries")
-import { conditionText } from './conditions.js';
+import { conditionText, comesText, AUGS } from './conditions.js';
 import { FLOW, flowText, stepsText } from './action-list.js';
 import { EFFECT_KINDS, effectOptions } from './interaction-blocks.js';
 import { parseFate, stateLabel } from './state-model.js';
+import { gameName, isFormula, valueText } from './logic-numbers.js';
 
 const own = (table, key) => (table && Object.hasOwn(table, key) ? table[key] : undefined);    // not 'constructor'...
 
@@ -25,19 +26,8 @@ export function wholeOf(v, dflt) {
   const n = Math.trunc(Number(v));
   return Number.isFinite(n) ? Math.max(-2147483648, Math.min(2147483647, n)) : dflt;
 }
-// A state's, a counter's or a goal's name as links.py writes it (_game_name, conditions.ident, which conditions.encode
-// uses too): an accent dropped (città -> citta), anything but an ASCII letter, a digit or _ made _, a leading digit
-// after the fallback and _ (X_3rd_door), 60 characters at most. A blank name stays blank: the game says noname.
-export function gameName(s, fallback = 'X') {
-  const text = String(s || '').trim();
-  if (!text) return '';
-  let name = [...text.normalize('NFKD')].filter((ch) => !combining(ch)).join('').replace(/[^A-Za-z0-9_]/gu, '_');
-  if (!name || /^[0-9]/.test(name)) name = fallback + '_' + name;
-  return name.slice(0, 60);
-}
-// a character with a combining class, which ident drops (Python's unicodedata.combining; a mark of class 0 becomes _):
-// normalising moves it past a mark of the lowest class (U+0334) or of the highest (U+0345), never one of class 0
-const combining = (ch) => (ch + '\u0334').normalize('NFD') !== ch + '\u0334' || ('\u0345' + ch).normalize('NFD') !== '\u0345' + ch;
+// A state's, a counter's or a goal's name as links.py writes it: logic-numbers.js (the formulas' names are the same)
+export { gameName };
 // the select's value of a rule's output and of an action's input: a script's ports are 'output:<Id>' / 'input:<Id>'
 export const whenKey = (l) => (l.when === 'output' ? 'output:' + (l.port || '') : l.when);
 export const verbKey = (x) => (x.verb === 'input' ? 'input:' + (x.a || '') : x.verb);
@@ -54,8 +44,9 @@ const TYPES = {
   object: { value: TEXT.value, text: (v, ctx) => ctx.name(v) },
   effect: { value: TEXT.value, text: (v) => String((EFFECT_KINDS.find((e) => e[0] === v) || [v, v])[1]).toLowerCase() },
   colour: { value: TEXT.value, text: (v) => effectOptions(v).colour },
-  whole: { value: (v, arg) => wholeOf(v, arg.default ?? 0), text: (n) => String(n) },
-  amount: { value: (v, arg) => wholeOf(v, arg.default ?? 0), text: (n) => String(Math.abs(n)) },
+  // a whole number, or (P9 slice 5) a formula of counters kept as its text ("Alarms + 1")
+  whole: { value: (v, arg) => (isFormula(v) ? valueText(v) : wholeOf(v, arg.default ?? 0)), text: (n) => String(n) },
+  amount: { value: (v, arg) => (isFormula(v) ? valueText(v) : wholeOf(v, arg.default ?? 0)), text: (n) => (typeof n === 'string' ? n : String(Math.abs(n))) },
   floor: { value: (v) => Math.max(0, wholeOf(v, 0)), text: (n) => String(n) },
   number: { value: (v, arg) => +v || (arg.default ?? 0), text: (n) => String(n) },
   seconds: { value: (v) => +v || 0, text: (n) => (n > 0 ? String(n) : '') },
@@ -73,7 +64,20 @@ const TYPES = {
   hex: { value: TEXT.value, text: (v) => colourName(v) },
   rule: { value: TEXT.value, text: (v, ctx) => (ctx.ruleLabel ? ctx.ruleLabel(v) : String(v)) },
   hurtkind: { value: TEXT.value, text: (v) => ({ fire: 'fire', poison: 'poison gas', shock: 'electricity', radiation: 'radiation' })[v] || String(v) },
+  // P3: a signal's name (any rule sends it, any rule waits for it)
+  signal: { value: TEXT.value, text: (v) => String(v) },
+  // P5: a dialogue, an InfoLink of the map's Story by its id: its title (ctx.storyTitle(key, id))
+  dialogue: { value: TEXT.value, text: (v, ctx) => `"${ctx.storyTitle ? ctx.storyTitle('dialogues', v) : v}"` },
+  infolink: { value: TEXT.value, text: (v, ctx) => `"${ctx.storyTitle ? ctx.storyTitle('infolinks', v) : v}"` },
+  // P9 slice 4: an augmentation by its class's name (its name on the augmentation screen), a faction (Player: the
+  // player), a property of the safe list (its words, vocabulary() reads them from the table), its value (yes / no)
+  aug: { value: TEXT.value, text: (v) => (AUGS.find((x) => x[0].toLowerCase() === String(v).toLowerCase()) || [v, className(v)])[1] },
+  faction: { value: TEXT.value, text: (v) => (String(v).toLowerCase() === 'player' ? 'the player' : String(v)) },
+  prop: { value: TEXT.value, text: (v) => PROP_WORDS.get(String(v).toLowerCase()) || className(String(v).replace(/^b(?=[A-Z])/, '')).toLowerCase() },
+  propvalue: { value: TEXT.value, text: (v) => ({ true: 'yes', false: 'no', 1: 'yes', 0: 'no' })[String(v).toLowerCase()] || String(v) },
 };
+// a safe property's words by its name, any case (config/logic.json safeProps, set by vocabulary())
+const PROP_WORDS = new Map();
 // "DeusEx.WeaponPistol" -> "Weapon Pistol"
 function className(v) {
   const n = String(v || '').split('.').pop();
@@ -95,7 +99,8 @@ export const ARG_TYPES = Object.keys(TYPES);
 const PORT = (ctx, name, key) => (ctx.portLabel ? ctx.portLabel(name, key) : key.split(':')[1] || '?');
 const wordOf = (ctx, name) => (ctx.word && ctx.word(name)) || '';
 const OUTPUT_WORDS = {
-  src: (l, ctx) => ctx.name(l.src),
+  // a rule started by any of a named group (P3: l.group, edits.logic.groups): the group, not its first member
+  src: (l, ctx, vocab) => (l.group ? fill(vocab.sentenceParts.anyOfGroup, { group: groupName(l.group, ctx) }) : ctx.name(l.src)),
   port: (l, ctx) => PORT(ctx, l.src, whenKey(l)),
   optionText: (l, ctx) => (ctx.optionText && ctx.optionText(l)) || '',
   usable: (l, ctx) => !!(ctx.usable && ctx.usable(l.src)),
@@ -107,9 +112,13 @@ const OUTPUT_WORDS = {
     return conditionText(w, ctx.names || {});
   },
 };
+// a named group's name as the page knows it (ctx.groupName), else its id
+const groupName = (id, ctx) => (ctx.groupName && ctx.groupName(id)) || String(id);
 const VERB_WORDS = {
   // the object it acts on; objects with a scripting tag are many (its 'many' sentence)
-  t: (x, ctx, vocab) => (x.targetTag ? fill(vocab.sentenceParts.tagged, { tag: x.targetTag }) : ctx.name(x.target)),
+  // a named group (P3: x.group) is many too
+  t: (x, ctx, vocab) => (x.group ? fill(vocab.sentenceParts.grouped, { group: groupName(x.group, ctx) })
+    : x.targetTag ? fill(vocab.sentenceParts.tagged, { tag: x.targetTag }) : ctx.name(x.target)),
   family: (x, ctx) => ctx.family(x.target),
   // its label, as the object's family words it: "play it", "sound the alarm"
   verb: (x, ctx, vocab) => vocab.verbLabel(x.verb, ctx.family(x.target), wordOf(ctx, x.target)).toLowerCase(),
@@ -177,12 +186,14 @@ function render(entry, say, item, words, ctx, vocab) {
 // the names in a condition's sentence (conditions.js): the map's objects, the states (a character's fate in words),
 // the game's items
 export function conditionNames(ctx) {
-  return { actor: (n) => ctx.name(n), state: (c) => (parseFate(c.flag) ? stateLabel(c) : conditionText(c)), item: ctx.itemName };
+  return { actor: (n) => ctx.name(n), state: (c) => (parseFate(c.flag) ? stateLabel(c) : conditionText(c)), item: ctx.itemName,
+    place: ctx.names?.place || ctx.place };
 }
 
 // The vocabulary of a logic.json v2 (the parsed file).
 export function vocabulary(data) {
   const S = data.sentence, LEVELS = data.levels || [], words = (data.movers || {}).words || [];
+  for (const props of Object.values(data.safeProps || {})) for (const [n, w] of props) PROP_WORDS.set(n.toLowerCase(), w);
   const tables = { output: data.outputs || {}, verb: data.inputs || {} };
   const mover = (id) => words.find((w) => w.id === id);
   const family = (id) => (data.families || []).find((f) => f.id === id);
@@ -213,11 +224,35 @@ export function vocabulary(data) {
     // "When the player uses Button1", "open Door3", the whole rule
     whenText(l, ctx) {
       const e = entry('output', l.when, wordOf(ctx, l.src)) || entry('output', 'any');
+      // a rule that holds "while" (P3) says the lasting state: "While the player is in Zone1"
+      if (l.while && e.while && vocab.untilOf(l)) return fill(S.while, { say: render(e, e.while, l, OUTPUT_WORDS, ctx, vocab) });
+      // a script's or a logic block's output has no lasting state: "From when Counter1 says "..." until it says "...""
+      const until = l.while && l.when === 'output' && S.whileport ? vocab.untilOf(l) : null;
+      if (until) return fill(S.whileport, { say: render(e, e.say, l, OUTPUT_WORDS, ctx, vocab), until: PORT(ctx, l.src, 'output:' + until.port) });
+      // a condition that says how it comes true: the player coming near a point (P5: "When the player comes within 256
+      // units of the point by Door2"), the player's own (P9: "When the player's energy falls below 20")
+      const comes = l.when === 'becomes' && !l.while && l.watch ? comesText(l.watch, ctx.names || {}) : null;
+      if (comes) return fill(S.when, { say: comes });
       return fill(S.when, { say: render(e, e.say, l, OUTPUT_WORDS, ctx, vocab) });
+    },
+    // What ends a "while" on a cause (links.py until_of): {when, port} of the same object, {when: 'becomes'} for a
+    // condition (its opposite: action-list.js negate), null when nothing does
+    untilOf(c) {
+      if (!c || !c.when) return null;
+      if (c.when === 'output') {
+        const port = String(c.port || '');
+        for (const [start, end] of Object.entries(data.untilPorts || {})) {
+          if (start.endsWith('*') && port.startsWith(start.slice(0, -1)) && port.length > start.length - 1) return { when: 'output', port: end.slice(0, -1) + port.slice(start.length - 1) };
+          if (port === start) return { when: 'output', port: end };
+        }
+        return null;
+      }
+      const until = (own(tables.output, c.when) || {}).until;
+      return until ? { when: until, port: c.port } : null;
     },
     actText(x, ctx) {
       // a step of a list of steps (If, Otherwise, End, Wait until): action-list.js says it
-      if (FLOW.has(x.verb)) return flowText(x, { name: (n) => ctx.name(n), cond: (c) => conditionText(c, conditionNames(ctx)) });
+      if (FLOW.has(x.verb)) return flowText(x, { name: (n) => ctx.name(n), cond: (c) => conditionText(c, conditionNames(ctx)), storyTitle: ctx.storyTitle });
       if (x.area) {
         const a = x.area;
         return fill(S.area, { verb: vocab.verbLabel(x.verb, a.kind).toLowerCase(), count: a.members.length,
@@ -225,7 +260,7 @@ export function vocabulary(data) {
       }
       const e = entry('verb', x.verb, wordOf(ctx, x.target));
       if (!e) return x.verb || '';
-      return render(e, x.targetTag && e.many ? e.many : e.say, x, VERB_WORDS, ctx, vocab);
+      return render(e, (x.targetTag || x.group) && e.many ? e.many : e.say, x, VERB_WORDS, ctx, vocab);
     },
     // a list of actions in the order the game runs them (links.blocks sorts them by delay): "after 2 s open Door3, ..."
     // ('' for none); a rule's "do", its "otherwise" (the Logic window's Read view)
@@ -234,7 +269,7 @@ export function vocabulary(data) {
     sentence(l, ctx) {
       const names = conditionNames(ctx);
       return fill(S.rule, { when: vocab.whenText(l, ctx), checks: (l.requires || []).map((c) => conditionText(c, names)).join(S.checks),
-        steps: (l.steps ? stepsText(l, (x) => vocab.actText(x, ctx), { name: (n) => ctx.name(n), cond: (c) => conditionText(c, names) })
+        steps: (l.steps ? stepsText(l, (x) => vocab.actText(x, ctx), { name: (n) => ctx.name(n), cond: (c) => conditionText(c, names), storyTitle: ctx.storyTitle })
           : vocab.steps(l.do, ctx)) || S.nothing, once: l.once ? S.once : '' });
     },
     // the verb that undoes it ('' none), what an output or a verb takes

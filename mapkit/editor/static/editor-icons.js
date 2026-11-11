@@ -14,6 +14,7 @@ const paths = {
   select: '<rect x="3" y="3" width="14" height="14" stroke-dasharray="2 2"/>',
   maximize: '<rect x="3" y="3" width="14" height="14"/><path d="M3 6h14"/>',
   restore: '<path d="M7 6V3h10v10h-3"/><rect x="3" y="7" width="10" height="10"/>',
+  pin: '<path d="M7 3h6M8.5 3v5L5 11.5h10L11.5 8V3M10 11.5V18"/>',
 };
 
 export function editorIcon(name, size = 20) {

@@ -3,7 +3,7 @@
   "title": "Stopping a timer tells its rules only when it was counting",
   "behaviour": "Stopping a timer that is not counting does nothing; stopping one that counts tells its \"stopped\" rules at once, inside the stopping action.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [1329, 1339], "has": "function TimerDo(UCTimer T, string how, float secs)"},
+    {"file": "UCLink.uc", "lines": [1648, 1658], "has": "function TimerDo(UCTimer T, string how, float secs)"},
     {"file": "UCTimer.uc", "lines": [45, 55], "has": "function StopIt()"}
   ],
   "assumes": ["A1"],

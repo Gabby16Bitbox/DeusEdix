@@ -10,6 +10,7 @@ import { fateFlag, parseFate, stateLabel } from '../editor/static/state-model.js
 import { AREA_VERBS } from '../editor/static/connect-area.js';
 import { optionsText } from '../editor/static/logic-rule-ui.js';
 import { stepsText } from '../editor/static/action-list.js';
+import { isFormula, valueText } from '../editor/static/logic-numbers.js';
 
 // the outputs, verbs and families of 27 Oct 2026
 export const OUTPUTS = ['opened', 'closed', 'destroyed', 'used', 'code', 'wrongcode', 'option', 'enter', 'leave', 'laser', 'alarm',
@@ -23,9 +24,9 @@ export const ACTOR = { other: 'Thing1', door: 'Door3', elevator: 'Lift1', keypad
   carcass: 'Body1', laser: 'Laser1', beam: 'Beam1', alarm: 'Siren1', camera: 'Cam1', turret: 'Gun1', soundfx: 'Music1', zone: 'Zone1',
   targettrigger: 'Orders1', switchtrigger: 'Burn1', moretrigger: 'More1', light: 'Lamp1', switchlight: 'Cage1', item: 'Item1',
   object: 'Button1', timer: 'Timer1', cutscene: 'Cut1', effectpoint: 'P1', script: 'Gen0' };
-// the families of 27 Oct, and those P4 added (5 Nov: crates, hackable devices), not in the 27 Oct sentences
+// the families of 27 Oct, and those P4 added (5 Nov: crates, hackable devices) and P3 (the logic blocks), not in the 27 Oct sentences
 const OCT27 = Object.keys(ACTOR);
-export const FAMILIES = [...OCT27, 'crate', 'hackable'];
+export const FAMILIES = [...OCT27, 'crate', 'hackable', 'allof', 'gate', 'switchblock', 'phases', 'atleast', 'firstof', 'counterblock', 'logicblock'];   // P3 (7 Nov): the logic blocks (the Counter: slice 6)
 // verbs whose "objects tagged X" sentence was "goe to floor", "goe and uses": not offered for tags (TAG_VERBS), worded
 // right in logic.json ('many') and checked on their own
 export const TAG_FIXED = ['floor', 'npcuse'];
@@ -179,10 +180,12 @@ export function appSentences(source) {
   if (code.some((c) => c === null)) return null;
   const context = vm.createContext({
     BLOCK_WHEN, BLOCK_VERBS, blockWhenText, blockActText, conditionText, parseFate, stateLabel,
+    isFormula, amountText: valueText,                          // P9 slice 5: a counter changed by a formula
     lkName: world.name, lkActor: (n) => (n && has(FAMILY, n) ? { name: n } : null), lkCatOf: (a) => (a ? world.family(a.name) : 'other'),
     lkPortLabel: world.portLabel, lkOptionText: world.optionText,
     // what app.js asks the catalogue for (the P4 words: lkVocabWhen, lkVocabAct) and the rule's options (P6)
     lkVocabWhen: () => '', lkVocabAct: () => '', optionsText, lkMainOf: (l) => l, stepsText,
+    lkPhaseText: () => '',                                     // P3: a rule kept to phases (none in the cases)
     edits: { usable: Object.fromEntries([...USABLE].map((n) => [n, { text: 'Use' }])) },
     propItems: Object.entries(ITEMS).map(([cls, name]) => ({ cls, name })),
   });

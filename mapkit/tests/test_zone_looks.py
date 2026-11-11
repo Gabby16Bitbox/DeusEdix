@@ -98,27 +98,6 @@ class TriangleZones(unittest.TestCase):
 
 
 class LampFields(unittest.TestCase):
-    def test_pan_speed_fields_inherit_to_water_and_sky_with_cached_defaults(self):
-        # Defaults v17 already contains the speeds (previously read for preview only).
-        own = {'TexUPanSpeed': ['1.000000'], 'TexVPanSpeed': ['1.000000']}
-        classes = {cls: {'parents': [] if cls == 'ZoneInfo' else ['ZoneInfo'], 'props': own, 'types': {}}
-                   for cls in ('ZoneInfo', 'WaterZone', 'SkyZoneInfo', 'PrecipitationZone')}
-        with mock.patch.object(props, 'defaults', return_value={'classes': classes, 'enums': {}}):
-            for cls in classes:
-                fields = props.fields_for(cls)
-                self.assertEqual([f['prop'] for f in fields], list(own))
-                self.assertTrue(all(f['group'] == 'Texture panning' and f['kind'] == 'float' for f in fields))
-                self.assertTrue(all(f['declared'] == 'ZoneInfo' for f in fields))
-        self.assertTrue(set(own) <= set(props.NAMES))
-
-    def test_zone_speed_edits_keep_zero_and_reverse_separately(self):
-        edits = {'props': {'WaterZone0': {'TexUPanSpeed': '-0.500000', 'TexVPanSpeed': '0.000000'},
-                           'SkyZone0': {'TexUPanSpeed': '2.000000'}}}
-        self.assertEqual(props.commands(edits), ['UC_PROP SkyZone0 TexUPanSpeed 2.000000',
-            'UC_PROP WaterZone0 TexUPanSpeed -0.500000', 'UC_PROP WaterZone0 TexVPanSpeed 0.000000'])
-        self.assertEqual(zones.look(edits['props']['WaterZone0'], {})['pan'], [-17.5, 0.0])
-        self.assertEqual(zones.look(edits['props']['SkyZone0'], {})['pan'], [70.0, 35.0])
-
     def test_phase_after_period_and_corona_in_a_lamps_properties(self):
         light = {'parents': ['Actor', 'Object'], 'types': {},
                  'props': {p: ['0'] for p in ('LightType', 'LightPeriod', 'LightPhase', 'bSpecialLit', 'bCorona')}}

@@ -14,7 +14,7 @@
 #logic .lw-info.warn { color:var(--warn); }
 #logic .lw-body { flex:1; min-height:0; display:flex; }
 #logic .lw-main { position:relative; flex:1; min-width:0; }
-#logic .lw-graph, #logic .lw-read, #logic .lw-try, #logic .lw-list { position:absolute; inset:0; }
+#logic .lw-graph, #logic .lw-read, #logic .lw-try, #logic .lw-list, #logic .lw-phases, #logic .lw-story { position:absolute; inset:0; }
 /* List: the rules of the object chosen, as lists of steps (app.js lkRuleHtml), in a readable column */
 #logic .lw-list { overflow:auto; padding:8px 12px 16px; }
 #logic .lw-list > * { max-width:560px; }
@@ -22,13 +22,25 @@
 #logic .lw-listhead b { font-size:13px; font-weight:600; color:var(--heading); }
 #logic .lw-listhead span { font-size:11px; color:var(--dim); }
 #logic .lk-rule.lk-flash { outline:2px solid var(--acc); outline-offset:1px; }
-#logic .lw-graph[hidden], #logic .lw-list[hidden], #logic .lw-read[hidden], #logic .lw-try[hidden], #logic .lw-side[hidden], #logic .lw-crumb[hidden] { display:none; }
+#logic .lw-graph[hidden], #logic .lw-list[hidden], #logic .lw-read[hidden], #logic .lw-phases[hidden], #logic .lw-try[hidden], #logic .lw-story[hidden], #logic .lw-side[hidden], #logic .lw-crumb[hidden] { display:none; }
 #logic .lw-graph > .gc { width:100%; height:100%; }
 
 /* where one is in the graph: one dim line over it */
 #logic .lw-crumb { position:absolute; left:8px; top:6px; z-index:2; max-width:calc(100% - 200px); height:22px; padding:0 8px; line-height:22px;
   font-size:11px; color:var(--dim); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-control);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
+/* with the blocks one is in (they go back up), what the selection can do with blocks, or a name being typed */
+#logic .lw-crumb.lw-crumbin { display:flex; align-items:center; gap:2px; padding:0 2px 0 6px; }
+#logic .lw-crumb.lw-crumbin[hidden] { display:none; }
+#logic .lw-crumb .lw-ctext { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+#logic .lw-crumb b { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--heading); font-weight:600; padding:0 4px; }
+#logic .lw-crumb .lw-csep { flex:none; color:var(--dim); padding:0 1px; }
+#logic .lw-crumb button { flex:none; pointer-events:auto; height:18px; padding:0 6px; line-height:16px; font-size:11px; }
+#logic .lw-crumb > button { background:transparent; border-color:transparent; color:var(--dim); }
+#logic .lw-crumb > button:hover { color:var(--text); background:var(--hover); }
+#logic .lw-crumb .lw-boxacts { flex:none; display:flex; gap:3px; margin-left:8px; }
+#logic .lw-crumb .lw-boxname { pointer-events:auto; flex:0 1 220px; min-width:90px; height:18px; margin-left:8px; padding:0 6px; font-size:11px;
+  color:var(--text); background:var(--hover); border:1px solid var(--accent); border-radius:3px; outline:none; }
 
 /* the index */
 #logic .lw-side { flex:none; width:188px; overflow:auto; border-right:1px solid var(--line); padding:4px 0 8px; }
@@ -44,6 +56,30 @@
 #logic .lw-side button i { flex:none; font-style:normal; font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; }
 #logic .lw-side button.warn span { color:var(--warn); }
 #logic .lw-side button.bad span { color:var(--bad); }
+/* a state's pin (P5): watched while playing; shown on hover, always when on */
+#logic .lw-side .lw-pin { flex:none; display:grid; place-items:center; width:14px; height:14px; margin-left:-12px; margin-right:-4px; border-radius:3px;
+  color:var(--dim); opacity:0; cursor:pointer; }
+#logic .lw-side button:hover .lw-pin, #logic .lw-side button:focus-visible .lw-pin { opacity:.7; }
+#logic .lw-side .lw-pin:hover { opacity:1; color:var(--heading); background:var(--hover); }
+#logic .lw-side .lw-pin.on { opacity:1; color:var(--accent); }
+/* a watched state that changed a moment ago: lit, fading (--age: how long ago, as a negative delay) */
+/* a state's start value, under the line that says what the graph shows (P5) */
+#logic .lw-startbar { position:absolute; left:8px; top:34px; z-index:2; display:flex; align-items:center; height:24px; padding:0 4px 0 8px;
+  font-size:11px; color:var(--dim); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-control); }
+#logic .lw-startbar[hidden] { display:none; }
+#logic .lw-startbar label { display:flex; align-items:center; gap:6px; }
+#logic .lw-startbar .lw-startval { height:18px; font-size:11px; color:var(--text); background:transparent; border:1px solid var(--line);
+  border-radius:3px; padding:0 4px; }
+#logic .lw-startbar input.lw-startval { width:72px; }
+#logic .lw-side .lw-watchadd { display:block; width:calc(100% - 22px); height:22px; margin:2px 8px 0 14px; padding:0 6px; font-size:11px;
+  background:transparent; border:1px solid transparent; border-radius:3px; color:var(--text); }
+#logic .lw-side .lw-watchadd::placeholder { color:var(--dim); }
+#logic .lw-side .lw-watchadd:hover { border-color:var(--line); }
+#logic .lw-side .lw-watchadd:focus { border-color:var(--accent); outline:none; background:var(--hover); }
+#logic .lw-side button.fresh { animation:lw-fresh 4s ease-out var(--age, 0s) backwards; }
+#logic .lw-side button.fresh i { animation:lw-fresh-note 4s ease-out var(--age, 0s) backwards; }
+@keyframes lw-fresh { from { background:color-mix(in srgb, var(--accent) 30%, transparent); } to { background:transparent; } }
+@keyframes lw-fresh-note { from { color:var(--accent); } to { color:var(--dim); } }
 #logic .lw-side .hint { margin:6px 8px; font-size:11px; color:var(--dim); }
 
 /* the nodes of the logic: a rule card has the accent's border colour as its bar, a Story node a dim one, a thing its
@@ -72,9 +108,53 @@
 #logic .lw-read li.dim span { color:var(--dim); }
 #logic .lw-read .hint { font-size:11px; color:var(--dim); }
 
+/* Phases (logic-phases-page.js): each Phases block as its phases from left to right, one card per phase */
+#logic .lw-phases { overflow:auto; padding:8px 12px 16px; font-size:12px; }
+#logic .lw-phases .hint { font-size:11px; color:var(--dim); }
+#logic .lp-set { margin:0 0 16px; }
+#logic .lp-head { display:flex; align-items:center; gap:8px; height:24px; margin:0 0 6px; }
+#logic .lp-head h3 { margin:0; font-size:13px; font-weight:600; color:var(--heading); }
+#logic .lp-head span { font-size:11px; color:var(--dim); }
+#logic .lp-head .lp-mission { padding:0 6px; line-height:18px; border:1px solid var(--accent-border); border-radius:var(--radius-control); color:var(--heading); }
+#logic .lp-head button { margin-left:auto; height:22px; padding:0 8px; line-height:20px; }
+#logic .lp-flow { display:flex; align-items:stretch; gap:0; overflow-x:auto; padding:0 0 6px; }
+#logic .lp-phase { flex:none; width:220px; padding:6px 8px 8px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius-control); box-shadow:inset 3px 0 0 var(--dim); }
+#logic .lp-phase.lp-first { box-shadow:inset 3px 0 0 var(--acc); }
+#logic .lp-name { display:flex; align-items:baseline; gap:6px; height:22px; }
+#logic .lp-name b { font-size:13px; font-weight:600; color:var(--heading); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#logic .lp-name span { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; }
+#logic .lp-flag, #logic .lp-start { font-size:11px; color:var(--dim); line-height:16px; }
+#logic .lp-part { margin:6px 0 0; }
+#logic .lp-part h5 { margin:0 0 2px; font-size:11px; font-weight:600; color:var(--dim); }
+#logic .lp-none { margin:0; font-size:11px; color:var(--dim); }
+#logic .lp-rule { display:block; width:100%; min-height:22px; margin:0 0 2px; padding:2px 6px; line-height:16px; text-align:left;
+  white-space:normal; font-size:12px; }
+#logic .lp-rule i, #logic .lp-rule b { font-style:normal; font-weight:400; font-size:11px; color:var(--dim); }
+#logic .lp-add, #logic .lp-go { height:22px; margin:4px 0 0; padding:0 8px; line-height:20px; font-size:11px; }
+#logic .lp-go { display:block; margin:2px 0 4px; color:var(--accent); border-color:var(--accent-border); }
+#logic .lp-only { margin:6px 0 0; }
+#logic .lp-only summary { font-size:11px; color:var(--dim); cursor:pointer; height:20px; line-height:20px; }
+#logic .lp-arrow { flex:none; width:64px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  color:var(--dim); text-align:center; }
+#logic .lp-arrow span { font-size:16px; color:var(--heading); }
+#logic .lp-arrow i { font-style:normal; font-size:10px; line-height:12px; max-height:36px; overflow:hidden; }
+#logic .lp-moves { display:flex; flex-wrap:wrap; gap:4px 16px; margin:6px 0 0; }
+#logic .lp-moves .lp-part { width:240px; margin:0; }
+#logic .lp-bad h5 { color:var(--bad); }
+
 /* Try it (logic-try.js) */
 #logic .lw-try { display:flex; flex-direction:column; font-size:12px; }
-#logic .lt-bar { display:flex; gap:4px; align-items:center; height:28px; padding:0 8px; border-bottom:1px solid var(--line); flex:none; }
+#logic .lt-bar { display:flex; flex-wrap:wrap; gap:4px; align-items:center; min-height:28px; padding:3px 8px; border-bottom:1px solid var(--line); flex:none; }
+#logic .lt-start { height:22px; max-width:220px; }
+#logic .lt-div { width:1px; height:16px; margin:0 4px; background:var(--line); }
+/* Save start…: its name, under the bar */
+#logic .lt-saveform { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:5px 8px; border-bottom:1px solid var(--line); font-size:12px; flex:none; }
+#logic .lt-saveform[hidden] { display:none; }
+#logic .lt-saveform input { width:200px; margin-left:6px; }
+#logic .lt-saveform button { height:22px; padding:0 8px; line-height:20px; }
+#logic .lt-savenote { flex-basis:100%; color:var(--warn); }
+#logic .lt-savenote:empty { display:none; }
 #logic .lt-bar button { height:22px; padding:0 8px; line-height:20px; }
 #logic .lt-clock { font-variant-numeric:tabular-nums; color:var(--playhead); margin-left:6px; }
 #logic .lt-note { margin:0 0 0 auto; font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -82,8 +162,11 @@
 #logic .lt-col { flex:1 1 0; min-width:0; overflow:auto; }
 #logic .lt-wide { flex:1.6 1 0; display:flex; flex-direction:column; }
 #logic .lt-col h4 { margin:6px 0 4px; height:22px; line-height:22px; font-size:12px; font-weight:600; color:var(--heading); }
-#logic .lt-happen button, #logic .lt-decide button { display:block; width:100%; height:22px; padding:0 8px; line-height:20px; text-align:left;
+#logic .lt-happen button, #logic .lt-decide button, #logic .lt-talk button, #logic .lt-talks button { display:block; width:100%; height:22px; padding:0 8px; line-height:20px; text-align:left;
   margin:0 0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#logic .lt-hval { display:flex; gap:4px; }
+#logic .lt-hval button { flex:1 1 auto; min-width:0; }
+#logic .lt-hnum { flex:0 0 56px; width:56px; height:22px; box-sizing:border-box; padding:0 4px; }
 #logic .lt-state > div { min-height:22px; line-height:22px; }
 #logic .lt-state button { margin-left:6px; height:20px; padding:0 6px; line-height:18px; }
 #logic .lt-log { flex:1; min-height:60px; overflow:auto; margin:0; padding:0; list-style:none; }
@@ -95,8 +178,106 @@
 #logic .lt-log .lt-act { padding-left:14px; }
 #logic .lt-log .lt-skip span { color:var(--dim); }
 #logic .lt-log .lt-fail span { color:var(--bad); }
+/* the Story's conversations in Try it (P5): the line said now; what was said, in the log */
+#logic .lt-tline { margin:0 0 6px; line-height:18px; white-space:normal; }
+#logic .lt-log .lt-say span { font-style:italic; }
 #logic .lt-why { margin:4px 0 0 18px; padding:0; }
 #logic .lt-rule { height:22px; }
 /* zoomed out (only titles): a rule card's title, a sentence, goes onto as many lines as the card has room for */
 #logic .gc-node.k-rule .gc-big b { white-space:normal; text-align:center; line-height:1.2; padding:0 6px; display:-webkit-box;
   -webkit-box-orient:vertical; -webkit-line-clamp:4; }
+/* the AI assistant's proposal (logic-window.js proposalHtml): a bar at the foot of the graph, to accept it or not */
+#logic .lw-propose { position:absolute; left:8px; right:8px; bottom:8px; z-index:3; display:flex; flex-wrap:wrap; align-items:flex-end; gap:6px 10px;
+  max-height:45%; overflow:auto; padding:8px 10px; background:var(--panel); border:1px dashed var(--acc); border-radius:var(--radius-card); font-size:12px; }
+#logic .lw-propose[hidden] { display:none; }
+/* Why didn't it run? (W): a panel over the view, at its right */
+#logic .lw-why { position:absolute; top:8px; right:8px; z-index:4; width:min(420px, calc(100% - 16px)); max-height:calc(100% - 16px); overflow:auto;
+  padding:6px 10px 8px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); font-size:12px;
+  box-shadow:0 6px 18px rgba(0,0,0,.28); }
+#logic .lw-why[hidden] { display:none; }
+#logic .lw-whyhead { display:flex; align-items:center; gap:8px; margin:0 0 4px; }
+#logic .lw-whyhead b { flex:1; color:var(--heading); font-weight:600; }
+#logic .lw-whyclose { border:0; background:none; color:var(--dim); font-size:15px; line-height:1; padding:2px 4px; cursor:pointer; }
+#logic .lw-whyclose:hover { color:var(--text); }
+#logic .lw-whynote { margin:2px 0 6px; color:var(--dim); }
+#logic .lw-why section { padding:6px 0 2px; border-top:1px solid var(--line); }
+#logic .lw-why h4 { display:flex; align-items:baseline; gap:8px; margin:0 0 2px; font-size:12px; font-weight:600; }
+#logic .lw-why h4 button { flex:1; min-width:0; text-align:left; border:0; padding:0; background:none; color:var(--heading); font:inherit; cursor:pointer; }
+#logic .lw-why h4 button:hover { color:var(--acc); }
+#logic .lw-why h4 i { font-style:normal; font-size:11px; color:var(--dim); }
+#logic .lw-why h5 { margin:4px 0 1px; font-size:11px; font-weight:600; color:var(--dim); }
+#logic .lw-why ul { margin:0 0 2px 16px; padding:0; }
+#logic .lw-why li { margin:1px 0; }
+#logic .lw-why li.bad { color:var(--bad); }
+#logic .lw-why li.warn { color:var(--warn); }
+#logic .lw-why li.dim { color:var(--dim); }
+#logic .lw-ptext { flex:1 1 240px; min-width:0; display:flex; flex-direction:column; gap:2px; }
+#logic .lw-ptext b { color:var(--heading); font-weight:600; }
+#logic .lw-ptext span { color:var(--dim); }
+#logic .lw-ptext .warn { color:var(--warn); }
+#logic .lw-pbtns { flex:1 0 auto; display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+/* Trails (P2): the timeline of the Play's session under the graph */
+#logic .lw-main { container-type:inline-size; }
+#logic .lw-trail { position:absolute; left:8px; right:8px; bottom:8px; z-index:3; display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px;
+  min-height:30px; padding:3px 8px; background:color-mix(in srgb, var(--panel) 92%, transparent); border:1px solid var(--line);
+  border-radius:var(--radius-card); font-size:11px; }
+/* the graph stops above it (its minimap too): the strip's height, set by logic-window.js */
+#logic .lw-main.with-trail .lw-graph { bottom:var(--lw-trail-h, 46px); }
+#logic .lw-trail[hidden] { display:none; }
+#logic .lw-trail button { flex:none; height:22px; padding:0 8px; line-height:20px; }
+#logic .lw-trail button.on { background:var(--accent-soft); color:var(--heading); border-color:var(--accent-border); }
+#logic .lw-trail .hint { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#logic .lw-tscrub { flex:1 1 160px; min-width:80px; }
+#logic .lw-ttime { flex:none; color:var(--dim); font-variant-numeric:tabular-nums; }
+#logic .lw-tnow { flex:1 1 120px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+#logic .lw-tspeed { min-width:36px; font-variant-numeric:tabular-nums; }
+/* a narrow window: where it is, in words, on a line of its own */
+@container (max-width: 620px) { #logic .lw-tnow { order:9; flex-basis:100%; } }
+
+/* a dialogue opened from its node (P5): its Story Graph in place of the rules' graph, a bar to go back */
+#logic .lw-story { display:flex; flex-direction:column; }
+#logic .lw-storybar { display:flex; align-items:center; gap:8px; height:30px; padding:0 8px; border-bottom:1px solid var(--line); flex:none; }
+#logic .lw-storybar button { height:22px; padding:0 8px; line-height:20px; }
+#logic .lw-storytitle { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+#logic .lw-storytitle b { font-weight:600; color:var(--heading); }
+#logic .lw-storytitle span { margin-left:6px; font-size:11px; color:var(--dim); }
+#logic .lw-storyhost { flex:1; min-height:0; position:relative; }
+#logic .lw-storyhost > .sg { height:100%; min-height:0; border:0; border-radius:0; }
+#logic .lw-storyhost > .hint { padding:12px; }
+
+/* live control while Play runs (P7, logic-live.js liveBarHtml): a bar over the foot of the graph, above the timeline */
+#logic .lw-live { position:absolute; left:8px; right:8px; bottom:8px; z-index:3; display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px;
+  min-height:30px; padding:3px 8px; background:color-mix(in srgb, var(--panel) 92%, transparent); border:1px solid var(--accent-border);
+  border-radius:var(--radius-card); font-size:11px; }
+#logic .lw-main.with-trail .lw-live { bottom:var(--lw-trail-h, 46px); }
+#logic .lw-live[hidden] { display:none; }
+#logic .lw-live button { flex:none; height:22px; padding:0 8px; line-height:20px; }
+#logic .lw-live button.on { background:var(--accent-soft); color:var(--heading); border-color:var(--accent-border); }
+#logic .lw-ldot { flex:none; display:flex; align-items:center; gap:5px; color:var(--accent); font-weight:600; cursor:help; }
+#logic .lw-ldot::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--accent); }
+#logic .lw-ltarget { flex:1 1 140px; min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; white-space:nowrap; color:var(--heading); }
+#logic .lw-ltarget b { min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:400; }
+#logic .lw-ltarget i { flex:none; font-style:normal; color:var(--dim); }
+#logic .lw-lhint { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim); }
+#logic .lw-lpaused { flex:1 1 220px; min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; white-space:nowrap; color:var(--warn); }
+#logic .lw-lpaused b { font-weight:600; overflow:hidden; text-overflow:ellipsis; }
+#logic .lw-lpaused span { color:var(--dim); }
+#logic .lw-lhappen, #logic .lw-lvalue { height:22px; font-size:11px; color:var(--text); background:transparent; border:1px solid var(--line);
+  border-radius:3px; padding:0 4px; max-width:220px; }
+#logic .lw-lstate { display:flex; align-items:center; gap:6px; color:var(--dim); }
+#logic .lw-lstate input.lw-lvalue { width:64px; }
+/* Patterns (P8 slice 3): the project's patterns, to place one; a panel over the graph, at its right like Why not? */
+#logic .lw-pats { position:absolute; top:8px; right:8px; z-index:5; width:min(400px, calc(100% - 16px)); max-height:calc(100% - 16px); overflow:auto;
+  padding:6px 10px 8px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); font-size:12px;
+  box-shadow:0 6px 18px rgba(0,0,0,.28); }
+#logic .lw-pats[hidden] { display:none; }
+#logic .lw-pat { padding:6px 0 4px; border-top:1px solid var(--line); }
+#logic .lw-pat h4 { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin:0 0 2px; font-size:12px; font-weight:600; color:var(--heading); }
+#logic .lw-pat h4 > span:first-child { flex:1 1 auto; min-width:8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#logic .lw-pat h4 > button { margin-left:auto; }      /* a narrow panel: the name keeps its line, the rest goes under */
+#logic .lw-patlab button { margin-left:4px; }
+#logic .lw-patv { color:var(--dim); font-weight:400; }
+#logic .lw-patslot { display:flex; align-items:center; gap:8px; margin:4px 0; }
+#logic .lw-patslot > span { flex:0 0 38%; color:var(--text); }
+#logic .lw-patslot select { flex:1; min-width:0; }
+#logic .lw-pat .lw-pbtns { display:flex; gap:6px; justify-content:flex-end; margin-top:6px; }

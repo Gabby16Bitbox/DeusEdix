@@ -32,6 +32,26 @@ function Ensure()
 	}
 }
 
+// A key of the map's rules ("When the player presses a key"): Play binds it to "mutate UCKey <key>" in its copy of
+// the player's settings (live._set_keys); the rules waiting for it (their Tag UCL_Key_<key>) run. Any other mutate
+// goes on down the chain.
+function Mutate(string MutateString, PlayerPawn Sender)
+{
+	local Actor A;
+	local string k;
+
+	if (Left(MutateString, 6) ~= "UCKey ")
+	{
+		k = Mid(MutateString, 6);
+		foreach AllActors(class'Actor', A)
+			if (string(A.Tag) ~= ("UCL_Key_" $ k))
+				A.Trigger(Self, Sender);
+		return;
+	}
+	if (NextMutator != None)
+		NextMutator.Mutate(MutateString, Sender);
+}
+
 event Tick(float deltaTime)
 {
 	Super.Tick(deltaTime);

@@ -1,0 +1,148 @@
+{
+  "event": {
+    "id": "e3",
+    "title": "Vault alarm",
+    "when": {
+      "type": "flag",
+      "flag": "Vault_Open",
+      "is": true
+    },
+    "once": true,
+    "requires": [
+      {
+        "type": "alive",
+        "actor": "Guard1",
+        "is": true
+      },
+      {
+        "type": "item",
+        "item": "DeusEx.Multitool",
+        "has": true
+      }
+    ],
+    "do": [
+      {
+        "type": "message",
+        "text": "The alarm!"
+      },
+      {
+        "type": "npc",
+        "actor": "Guard1",
+        "act": "attack",
+        "alone": true
+      },
+      {
+        "type": "door",
+        "actor": "Door2",
+        "act": "lock"
+      },
+      {
+        "type": "flag",
+        "flag": "Alarm",
+        "is": true
+      },
+      {
+        "type": "signal",
+        "signal": "Raid"
+      }
+    ]
+  },
+  "context": {
+    "route": "unatco",
+    "standalone": false
+  },
+  "rule": {
+    "src": "",
+    "when": "becomes",
+    "watch": {
+      "flag": "Vault_Open",
+      "is": true
+    },
+    "once": true,
+    "at": [
+      0,
+      0,
+      0
+    ],
+    "do": [
+      {
+        "delay": 0,
+        "verb": "message",
+        "a": "The alarm!"
+      },
+      {
+        "delay": 0,
+        "verb": "attack",
+        "target": "Guard1",
+        "a": "alone"
+      },
+      {
+        "delay": 0,
+        "verb": "lock",
+        "target": "Door2"
+      },
+      {
+        "delay": 0,
+        "verb": "flag",
+        "a": "Alarm",
+        "b": "1"
+      },
+      {
+        "delay": 0,
+        "verb": "signal",
+        "a": "Raid"
+      }
+    ],
+    "talkBusy": "wait",
+    "origin": {
+      "story": "e3",
+      "title": "Vault alarm"
+    },
+    "watchStart": true,
+    "requires": [
+      {
+        "flag": "Vault_Open",
+        "is": true
+      },
+      {
+        "type": "alive",
+        "actor": "Guard1",
+        "is": true
+      },
+      {
+        "type": "item",
+        "item": "DeusEx.Multitool",
+        "has": true
+      },
+      {
+        "flag": "UNATCORouteCommitted",
+        "is": true
+      }
+    ],
+    "also": [
+      {
+        "when": "becomes",
+        "watch": {
+          "type": "alive",
+          "actor": "Guard1",
+          "is": true
+        }
+      },
+      {
+        "when": "becomes",
+        "watch": {
+          "type": "item",
+          "item": "DeusEx.Multitool",
+          "has": true
+        }
+      },
+      {
+        "when": "becomes",
+        "watch": {
+          "flag": "UNATCORouteCommitted",
+          "is": true
+        }
+      }
+    ]
+  }
+}

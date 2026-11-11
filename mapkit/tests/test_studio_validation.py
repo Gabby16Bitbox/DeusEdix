@@ -86,7 +86,7 @@ class StudioValidation(unittest.TestCase):
 
     def test_invalid_pose_order_range_or_shape_preserves_existing_file(self):
         anims.studio_save(animation())
-        cases = [([], 'at least one key'), ([dict(f=0, rot={}), dict(f=0, rot={})], 'sorted, unique'),
+        cases = [([dict(f=0, rot={}), dict(f=0, rot={})], 'sorted, unique'),
                  ([dict(f=5, rot={}), dict(f=0, rot={})], 'sorted, unique'),
                  ([dict(f=12, rot={})], 'integers'), ([dict(f=-1, rot={})], 'integers'),
                  ([dict(f=True, rot={})], 'integers'), ([dict(f=1.5, rot={})], 'integers'),
@@ -213,9 +213,17 @@ class StudioValidation(unittest.TestCase):
     def test_tracks_do_not_relax_legacy_keys_validation(self):
         value = animation()
         value['tracks'] = {'head': {'keys': []}}
-        value['keys'] = []
-        self.assert_rejected_without_changes(value, 'at least one key')
+        value['keys'] = [dict(f=5, rot={}), dict(f=0, rot={})]
+        self.assert_rejected_without_changes(value, 'sorted, unique')
         self.assertFalse(self.root.exists())
+
+    def test_a_new_draft_without_pose_keys_stays_at_rest(self):
+        # anims._studio_validate allows it on purpose (studio.js legacyPoseAt gives the rest pose).
+        value = animation()
+        value['keys'] = []
+        value['tracks'] = {'head': {'keys': []}}
+        self.assertTrue(anims.studio_save(value))
+        self.assertEqual(anims.studio_get(value['name']), value)
 
     def test_failed_atomic_replace_leaves_saved_animation_and_no_temporary_file(self):
         anims.studio_save(animation())

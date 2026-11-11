@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import conditions
+import formula
 import story
 
 
@@ -124,12 +125,93 @@ def collect_edits(value, map_name):
                     index.add(condition.get('counter'), map_name, context, 'read', type='int')
                 elif conditions.kind(condition) == 'flag':
                     index.add(condition.get('flag'), map_name, context, 'read')
+                if isinstance(condition, dict):
+                    for name in _formula_counters(condition.get('value')):
+                        index.add(name, map_name, context, 'read', type='int')
             for action in _items(link.get('do')):
                 if action.get('verb') == 'flag':
                     index.add(action.get('a'), map_name, context, 'write')
                 elif action.get('verb') == 'count':
                     index.add(action.get('a'), map_name, context, 'write', type='int')
+                for key in FORMULA_ARGS.get(action.get('verb'), ()):
+                    for name in _formula_counters(action.get(key)):
+                        index.add(name, map_name, context, 'read', type='int')
+        for name, cls, props in _blocks(value):
+            context = 'Logic block: ' + name
+            if cls == 'UCBPhases':          # <StateName> the phase's number, <StateName>_<phase> Yes in that phase
+                root = block_flag_name(_text(props.get('StateName', 'Phase'))) or 'Phase'
+                index.add(root, map_name, context, 'write', label='the phase now (1 the first)', type='int')
+                for phase in _text(props.get('Phases')).split(','):
+                    if block_flag_name(phase):
+                        index.add(root + '_' + block_flag_name(phase), map_name, context, 'write',
+                                  label='in the phase "%s"' % phase.strip())
+            elif cls == 'UCBCounter':        # its counter: StateName, else the block's own name
+                index.add(counter_name(name, props), map_name, context, 'write', label='the number of the counter', type='int')
+            elif cls == 'UCBAtLeast' and block_flag_name(_text(props.get('StateName'))):
+                index.add(block_flag_name(_text(props.get('StateName'))), map_name, context, 'write',
+                          label='enough of its states hold')
     return index.result()
+
+
+# the amounts that take a formula of counters (P9 slice 5, logic.json "formula")
+FORMULA_ARGS = {'count': ('b',), 'skillpoints': ('a',), 'credits': ('a',), 'health': ('a',), 'energy': ('a',)}
+
+
+def _formula_counters(value):
+    """The counters a formula reads ("Alarms + 1": Alarms); none for a number or a bad formula."""
+    if not formula.is_formula(value):
+        return []
+    try:
+        return formula.names_in(formula.game_number(value))
+    except formula.FormulaError:
+        return []
+
+
+def block_flag_name(text):
+    """A logic block's flag name as UCBlock.FlagName makes it: anything but an ASCII letter, a digit or _ becomes
+    _, a leading digit gets X_, 60 characters at most (an accent too becomes _, unlike conditions.ident)."""
+    name = ''.join(ch if re.match(r'[A-Za-z0-9_]$', ch) and ch.isascii() else '_' for ch in str(text or '').strip())
+    if name[:1].isdigit():
+        name = 'X_' + name
+    return name[:60]
+
+
+def counter_name(name, props):
+    """the counter a Counter block (UCBCounter.Root) keeps: its StateName, else its own name"""
+    return block_flag_name(_text(props.get('StateName'))) or block_flag_name(name)
+
+
+def _text(value):
+    """a property as the edits keep it: '"Start, End"' -> Start, End"""
+    text = str(value if value is not None else '')
+    return text[1:-1] if len(text) > 1 and text[0] == text[-1] == '"' else text
+
+
+def phase_sets(value):
+    """The map's Phases blocks (P3): {name: {'root': its counter, 'phases': [each phase's flag name, in order]}}, as
+    UCBPhases makes them (a phase named twice counts once, as app.js phaseList)."""
+    out = {}
+    for name, cls, props in _blocks(value if isinstance(value, dict) else {}):
+        if cls == 'UCBPhases':
+            seen, phases = set(), []
+            for phase in _text(props.get('Phases')).split(','):
+                flag = block_flag_name(phase)
+                if flag and flag.lower() not in seen:
+                    seen.add(flag.lower())
+                    phases.append(flag)
+            out[name] = {'root': block_flag_name(_text(props.get('StateName', 'Phase'))) or 'Phase', 'phases': phases}
+    return out
+
+
+def _blocks(value):
+    """the logic blocks the edits place (P3), with their properties (the Inspector's over the placed ones)"""
+    changed = value.get('props') if isinstance(value.get('props'), dict) else {}
+    for actor in _items(value.get('added')):
+        name, cls = str(actor.get('name') or ''), str(actor.get('cls') or '')
+        if cls in ('UCBPhases', 'UCBAtLeast', 'UCBCounter'):
+            props = dict(actor.get('props') or {})
+            props.update(changed.get(name) or {} if isinstance(changed.get(name), dict) else {})
+            yield name, cls, props
 
 
 def _read(path):
@@ -186,6 +268,13 @@ def catalog(kit=None, story_dir=None):
             if re.fullmatch(r'[a-z0-9][a-z0-9-]{0,47}', path.stem) and path.stem != 'jc':
                 index.add('UCEdPlayer_' + path.stem.replace('-', '_'), '*', 'Player character', 'automatic',
                           'Player is ' + str(value.get('name') or path.stem)[:64], 'automatic')
+    import missionphases                 # the project's mission phases: read and moved in any map that links them
+    for s in missionphases.load(kit):
+        context = 'Mission phases: ' + s['name']
+        root = block_flag_name(s['name'])
+        index.add(root, '*', context, 'write', label='the mission phase now (1 the first)', type='int')
+        for phase in s['phases']:
+            index.add(root + '_' + block_flag_name(phase), '*', context, 'write', label='in the mission phase "%s"' % phase)
     maps = kit / 'maps'
     script_names = {path.stem.casefold(): _script_map(path) for path in _direct_files(maps, '*.py')}
     for path in _direct_files(maps, '*.edits.json'):

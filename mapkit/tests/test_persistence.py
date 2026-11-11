@@ -34,8 +34,22 @@ def story_functions(folder):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         namespace['atomicfile'] = module
+    if (SOURCE / 'infolink_styles.py').exists():
+        namespace['infolink_styles'] = infolink_validation()
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(SOURCE / 'story.py'), 'exec'), namespace)
     return namespace
+
+
+def infolink_validation():
+    """story.save validates InfoLink styles first: the real checks, without the module's settings import."""
+    tree = ast.parse((SOURCE / 'infolink_styles.py').read_text(encoding='utf-8'))
+    wanted = {'DEFAULT', 'FONTS', 'SIZES', 'validate', 'validate_story'}
+    selected = [node for node in tree.body
+                if (isinstance(node, ast.FunctionDef) and node.name in wanted)
+                or (isinstance(node, ast.Assign) and any(getattr(t, 'id', None) in wanted for t in node.targets))]
+    namespace = dict(re=__import__('re'))
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(SOURCE / 'infolink_styles.py'), 'exec'), namespace)
+    return SimpleNamespace(validate_story=namespace['validate_story'])
 
 
 class PersistenceTests(unittest.TestCase):

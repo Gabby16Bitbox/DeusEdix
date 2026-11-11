@@ -943,7 +943,7 @@ PARTICLE_PRESETS = [
 PARTICLE_COLOURS = {'Tear gas pool': '#e0c840'}
 
 
-ORDER = ['Most used', 'Level', 'Triggers', 'AI', 'Sounds', 'Zones', 'Effects', 'Decorations', 'Pickups', 'Weapons', 'Ammo', 'Characters', 'Bodies', 'Lights']
+ORDER = ['Most used', 'Level', 'Triggers', 'Logic', 'AI', 'Sounds', 'Zones', 'Effects', 'Decorations', 'Pickups', 'Weapons', 'Ammo', 'Characters', 'Bodies', 'Lights']
 
 
 def palette():
@@ -996,6 +996,17 @@ def palette():
                           dict(cls='UCTimer', radius=16, height=16, name='Timer (counts down, on the HUD if it has a label; when it runs out: an interaction)', sub='',
                                preset={'Seconds': '30.000000', 'HUDLabel': '"Time left"'}),
                           dict(cls='UCEffectPoint', radius=8, height=8, name='Effect point (where an effect of an interaction goes; its big arrow is the way mist, smoke, sparks or fire blow)', sub='')]
+    # the logic blocks (P3: UCBlock's, editor/LOGIC.md "Logic blocks"): small helpers the rules call and start from
+    groups['Logic'] = [dict(cls='UCBAllOf', radius=16, height=16, name='All of these (once each thing that ticks it off has: "all of them have happened")', sub=''),
+                       dict(cls='UCBGate', radius=16, height=16, name='Gate (lets through what comes only while it is open)', sub=''),
+                       dict(cls='UCBSwitch', radius=16, height=16, name='Switch (each time the next way: in turn, in order or at random)', sub=''),
+                       dict(cls='UCBSwitch', radius=16, height=16, name='Flip-flop (a switch of two ways: one, then the other, then the first again)', sub='',
+                            preset={'NumWays': '2', 'Mode': '"In turn"'}),
+                       dict(cls='UCBFirstOf', radius=16, height=16, name='First of (a race: which comes first, or the time runs out)', sub=''),
+                       dict(cls='UCBCounter', radius=16, height=16, name='Counter (a number the rules add to: it says when it gets to its goal; conditions and dialogues read it)', sub=''),
+                       dict(cls='UCBAtLeast', radius=16, height=16, name='At least N of these states (enough of them are Yes; it can keep a state of its own)', sub=''),
+                       dict(cls='UCBPhases', radius=16, height=16, name='Phases (the phases of the mission, one after the other: dialogues read them)', sub='',
+                            preset={'Phases': '"Start, Middle, End"'})]
     groups['AI'] = [dict(cls='PathNode', radius=12, height=14.5, name='Path node (where characters can walk)', sub=''),
                     dict(cls='PatrolPoint', radius=12, height=14.5, name='Patrol point (see Patrol route of a character)', sub=''),
                     dict(cls='WanderPoint', radius=12, height=14.5, name='Wander point (wandering characters stop and look here)', sub=''),

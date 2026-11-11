@@ -1,0 +1,132 @@
+{
+ "version": 1,
+ "name": "Lever bridge",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:13:12",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{lever}",
+     "when": "used",
+     "once": false,
+     "do": [
+      {
+       "verb": "open",
+       "target": "{bridge}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "timerstart",
+       "target": "{stay}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The bridge comes up.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{stay}",
+     "when": "finished",
+     "once": false,
+     "do": [
+      {
+       "verb": "close",
+       "target": "{bridge}",
+       "delay": 0,
+       "id": "R2_a1"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The bridge goes down.",
+       "id": "R2_a2"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "stay",
+     "cls": "UCTimer",
+     "props": {
+      "Seconds": "10"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "lever",
+     "words": "the lever",
+     "family": "object",
+     "carried": false
+    },
+    {
+     "id": "bridge",
+     "words": "the bridge",
+     "family": "door",
+     "carried": false
+    },
+    {
+     "id": "stay",
+     "words": "the timer of the bridge",
+     "family": "timer",
+     "carried": true
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{lever}|out:used",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{bridge}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "out:{bridge}|in:close",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

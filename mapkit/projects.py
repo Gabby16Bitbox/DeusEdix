@@ -34,16 +34,18 @@ PYTHON.add('signs.py')                   # signs drawn like the game's (the tuto
 PYTHON.update({'vec3.py', 'classtree.py'})   # the vector type (geom, blocks) and the class hierarchy (props, data)
 PYTHON.add('mover_transform.py')        # a mover moved or turned in the editor keeps its keys (scene, dxmaps)
 PYTHON.add('conditions.py')             # the rules' and the Story's conditions (links, story)
+PYTHON.add('formula.py')                # the formulas of counters (P9 slice 5: conditions, links, statecatalog)
 PYTHON.update({'build_cache.py', 'build_cached.py', 'build_cpu.py', 'preview_bundle.py', 'texture_cache.py', 'resident_build.py'})
 PYTHON.add('patrol_paths.py')          # walking support for drawn patrol routes
 PYTHON.add('infolink_styles.py')       # shared InfoLink styles in existing and new projects
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
-GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc', 'UCInfoLinkStyle.uc'}
+GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc', 'UCInfoLinkStyle.uc', 'UCMenuLook.uc'}
 DATA_DIRS = ('maps', 'maps/.authoring', 'dist', 'logs', 'tools/mapkit/maps', 'tools/mapkit/story',
              'tools/mapkit/out', 'tools/mapkit/runs', 'tools/mapkit/editor/cache', 'tools/mapkit/sounds',
              'tools/mapkit/dubs', 'tools/mapkit/models', 'tools/mapkit/textures', 'tools/mapkit/characters',
-             'tools/mapkit/prefabs', 'tools/mapkit/anims', 'tools/mapkit/catalog')
+             'tools/mapkit/prefabs', 'tools/mapkit/anims', 'tools/mapkit/catalog',
+             'tools/mapkit/logic')        # the project's mission phases (editor/missionphases.py)
 
 
 class ProjectConflictError(ValueError):
@@ -459,6 +461,11 @@ class ProjectManager:
             add(file, 'tools/mapkit/editor/' + file.name)
         for file in sorted((self.code / 'editor/config').glob('*.json')):      # the editor's settings as data
             add(file, 'tools/mapkit/editor/config/' + file.name)
+        for file in sorted((self.code / 'editor/config/patterns').glob('*.json')):   # the library of logic patterns
+            add(file, 'tools/mapkit/editor/config/patterns/' + file.name)
+        for file in sorted((self.code / 'editor/config/examples').glob('*')):       # example maps (examples.py)
+            if file.is_file() and file.suffix in ('.py', '.json'):
+                add(file, 'tools/mapkit/editor/config/examples/' + file.name)
         for folder, extensions in [('editor/static', STATIC_EXT), ('tutorial', TUTORIAL_EXT)]:
             for file in sorted((self.code / folder).rglob('*')):
                 if file.is_file() and file.suffix.lower() in extensions:

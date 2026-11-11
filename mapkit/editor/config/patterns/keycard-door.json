@@ -1,0 +1,147 @@
+{
+ "version": 1,
+ "name": "Keycard door",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:12:27",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{keycard}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "input",
+       "target": "{reminder}",
+       "delay": 0,
+       "a": "Close",
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The keycard unlocks the door.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{door}",
+     "when": "near",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{reminder}",
+       "delay": 0,
+       "a": "Pass",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "near": 200
+    },
+    {
+     "id": "R3",
+     "src": "{reminder}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Locked. It needs a keycard.",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "reminder",
+     "cls": "UCBGate",
+     "props": {},
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "keycard",
+     "words": "the keycard",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    },
+    {
+     "id": "reminder",
+     "words": "the reminder gate",
+     "family": "gate",
+     "carried": true
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{keycard}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "in:{door}|out:near",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

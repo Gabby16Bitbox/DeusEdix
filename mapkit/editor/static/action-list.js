@@ -50,8 +50,9 @@ export function negate(c) {
   switch (kind) {
     case 'flag': return { ...c, is: !yes(c, 'is') };
     case 'item': return { ...c, has: !yes(c, 'has') };
-    case 'alive': return { ...c, is: !yes(c, 'is') };
-    case 'counter': case 'credits': return INVERSE[c.op] ? { ...c, op: INVERSE[c.op] } : null;
+    case 'alive': case 'near': case 'aug': case 'water': case 'zone': return { ...c, is: !yes(c, 'is') };
+    case 'counter': case 'credits': case 'health': case 'energy': case 'skillpoints': case 'items':
+      return INVERSE[c.op] ? { ...c, op: INVERSE[c.op] } : null;
     default: return null;
   }
 }
@@ -60,7 +61,7 @@ export const canOtherwise = (rule) => (rule.requires || []).length === 1 && !!ne
 // the rule of a rule's "If not" steps
 export const otherwiseOf = (rule, links) => (links || []).find((l) => l && l.otherwiseOf === rule.id) || null;
 // what sets a rule off, which its "If not" rule shares
-export const CAUSE_FIELDS = ['src', 'when', 'option', 'port', 'near', 'key', 'also', 'at'];
+export const CAUSE_FIELDS = ['src', 'when', 'option', 'port', 'near', 'key', 'also', 'at', 'phase'];
 // The "If not" rule made to follow its rule: the same cause and Only once, the opposite condition
 export function syncOtherwise(main, other) {
   for (const f of CAUSE_FIELDS) {
@@ -82,10 +83,11 @@ export function newOtherwise(main, id) {
 // The actions with no object, in groups as a menu shows them (verbs not listed go under "More")
 export const STEP_GROUPS = [
   ['Messages and goals', ['message', 'goal', 'note']],
+  ['The Story', ['talk', 'infolink']],
   ['States and counters', ['flag', 'count']],
   ['Sound and effects', ['sound', 'effect', 'explode', 'shake', 'fade', 'flash', 'music']],
-  ['The player', ['skillpoints', 'credits', 'health', 'giveitem', 'takeitem', 'moveplayer', 'fpmoment', 'travel']],
-  ['The world', ['spawn', 'hurtzone', 'autosave', 'endgame', 'cancel']],
+  ['The player', ['skillpoints', 'credits', 'health', 'energy', 'aug', 'giveitem', 'takeitem', 'moveplayer', 'fpmoment', 'travel']],
+  ['The world', ['spawn', 'allies', 'hurtzone', 'autosave', 'endgame', 'cancel']],
 ];
 export function groupSteps(free) {
   const left = new Set(free), out = [];
@@ -175,9 +177,10 @@ export function moveStep(rule, j, dir) {
   return true;
 }
 // a step of a list in words: "if A is Yes:", "otherwise:", "wait until Guard2 arrives (at most 20 s)", "wait 2 s";
-// words: {name(n), cond(c)}
+// words: {name(n), cond(c), storyTitle(key, id)}
 export function flowText(x, words = {}) {
   const name = words.name || ((n) => n), cond = words.cond || ((c) => JSON.stringify(c));
+  const title = (key, id) => (id ? `"${words.storyTitle ? words.storyTitle(key, id) : id}"` : '?');
   const most = +x.max > 0 ? ` (at most ${+x.max} s)` : '';
   switch (x.verb) {
     case 'if': return `if ${(x.requires || []).map(cond).join(x.match === 'any' ? ' or ' : ' and ') || '…'}:`;
@@ -186,6 +189,9 @@ export function flowText(x, words = {}) {
     case 'wait':
       if (!x.until) return `wait ${round(timeOf(x))} s`;
       if (x.until.type === 'arrived') return `wait until ${x.until.actor ? name(x.until.actor) : '?'} arrives${most}`;
+      // P5: the Story's (links.STORY_UNTIL)
+      if (x.until.type === 'ended') return `wait until the dialogue ${title('dialogues', x.until.dialogue)} has ended${most}`;
+      if (x.until.type === 'heard') return `wait until the InfoLink ${title('infolinks', x.until.infolink)} has been heard${most}`;
       return `wait until ${cond(x.until)}${most}`;
     default: return x.verb || '';
   }

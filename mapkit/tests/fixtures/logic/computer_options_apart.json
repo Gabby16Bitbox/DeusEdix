@@ -3,8 +3,8 @@
   "title": "A computer's options and its use are told apart",
   "behaviour": "Each special option has its own Tag (UCL_<computer>_Opt<n>) and its use another: choosing option 3 runs only the rule on option 3.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [182, 189], "has": "else if (When == 'option')"},
-    {"file": "links.py", "lines": [104, 109], "has": "def option_of(link):"}
+    {"file": "UCLink.uc", "lines": [188, 195], "has": "else if (When == 'option')"},
+    {"file": "links.py", "lines": [105, 110], "has": "def option_of(link):"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

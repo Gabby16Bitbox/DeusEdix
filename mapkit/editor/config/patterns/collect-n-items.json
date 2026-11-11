@@ -1,0 +1,216 @@
+{
+ "version": 1,
+ "name": "Collect N items",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:13:00",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{item1}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{collected}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{item2}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{collected}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{item3}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{collected}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{collected}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "One more.",
+       "id": "R4_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Changed"
+    },
+    {
+     "id": "R5",
+     "src": "{collected}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R5_a1"
+      },
+      {
+       "verb": "open",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R5_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "All of them: the vault opens.",
+       "id": "R5_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Reached"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "collected",
+     "cls": "UCBCounter",
+     "props": {
+      "ReachedAt": "3"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "item1",
+     "words": "the first item",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "collected",
+     "words": "the counter of items",
+     "family": "counterblock",
+     "carried": true
+    },
+    {
+     "id": "item2",
+     "words": "the second item",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "item3",
+     "words": "the third item",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{item1}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "in:{item2}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "in:{item3}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R3|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R5|act:R5/R5_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R5|act:R5/R5_a2"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

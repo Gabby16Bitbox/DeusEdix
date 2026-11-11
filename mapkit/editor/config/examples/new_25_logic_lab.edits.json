@@ -1,0 +1,2501 @@
+{
+ "moved": {},
+ "deleted": {},
+ "added": [
+  {
+   "name": "Keycard",
+   "cls": "NanoKey",
+   "loc": [
+    -4308.0,
+    -520,
+    8
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "KeyID": "LabKeycard",
+    "Description": "\"Lab keycard\""
+   }
+  },
+  {
+   "name": "KeycardReminder",
+   "cls": "UCBGate",
+   "loc": [
+    -4808.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "HackKeypad",
+   "cls": "Keypad1",
+   "loc": [
+    -3728.0,
+    -8,
+    64
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "validCode": "\"0451\""
+   }
+  },
+  {
+   "name": "NetCamera",
+   "cls": "SecurityCamera",
+   "loc": [
+    -2300.0,
+    -24,
+    300
+   ],
+   "rot": [
+    -3072,
+    49152,
+    0
+   ],
+   "props": {
+    "bSwing": "False"
+   }
+  },
+  {
+   "name": "NetAlarm",
+   "cls": "AlarmUnit",
+   "loc": [
+    -2760.0,
+    -8,
+    72
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Tag": "NetAlarm"
+   }
+  },
+  {
+   "name": "CameraNetwork",
+   "cls": "UCBGate",
+   "loc": [
+    -2560.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "LiftButton",
+   "cls": "Button1",
+   "loc": [
+    -1336.0,
+    -8,
+    64
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "LiftWay",
+   "cls": "UCBSwitch",
+   "loc": [
+    -1536.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "NumWays": "2"
+   }
+  },
+  {
+   "name": "WaveZone",
+   "cls": "UCTriggerBox",
+   "loc": [
+    -512.0,
+    -420,
+    64
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "BoxX": "128.000000",
+    "BoxY": "128.000000",
+    "BoxZ": "64.000000"
+   }
+  },
+  {
+   "name": "Trooper1",
+   "cls": "MJ12Troop",
+   "loc": [
+    -632.0,
+    320,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Orders": "Standing"
+   }
+  },
+  {
+   "name": "Trooper2",
+   "cls": "MJ12Troop",
+   "loc": [
+    -392.0,
+    320,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Orders": "Standing"
+   }
+  },
+  {
+   "name": "WaveCount",
+   "cls": "UCBCounter",
+   "loc": [
+    -512.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "ReachedAt": "2"
+   }
+  },
+  {
+   "name": "BombZone",
+   "cls": "UCTriggerBox",
+   "loc": [
+    512.0,
+    -560,
+    64
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "BoxX": "128.000000",
+    "BoxY": "128.000000",
+    "BoxZ": "64.000000"
+   }
+  },
+  {
+   "name": "BombPanel",
+   "cls": "Keypad1",
+   "loc": [
+    672.0,
+    -8,
+    64
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "validCode": "\"1111\""
+   }
+  },
+  {
+   "name": "Bomb",
+   "cls": "CrateExplosiveSmall",
+   "loc": [
+    512.0,
+    320,
+    16
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "BombTimer",
+   "cls": "UCTimer",
+   "loc": [
+    512.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Seconds": "10"
+   }
+  },
+  {
+   "name": "Cell1",
+   "cls": "BioelectricCell",
+   "loc": [
+    1276.0,
+    -520,
+    8
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "Cell2",
+   "cls": "BioelectricCell",
+   "loc": [
+    1536.0,
+    -640,
+    8
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "Cell3",
+   "cls": "BioelectricCell",
+   "loc": [
+    1796.0,
+    -520,
+    8
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "Collected",
+   "cls": "UCBCounter",
+   "loc": [
+    1536.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "ReachedAt": "3"
+   }
+  },
+  {
+   "name": "Generator",
+   "cls": "Switch1",
+   "loc": [
+    2360.0,
+    -8,
+    64
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "PowerLamp1",
+   "cls": "Light",
+   "loc": [
+    2400.0,
+    -360,
+    360
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "LightBrightness": "200",
+    "LightRadius": "14",
+    "bStatic": "False"
+   }
+  },
+  {
+   "name": "PowerLamp2",
+   "cls": "Light",
+   "loc": [
+    2720.0,
+    -360,
+    360
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "LightBrightness": "200",
+    "LightRadius": "14",
+    "bStatic": "False"
+   }
+  },
+  {
+   "name": "PowerCamera",
+   "cls": "SecurityCamera",
+   "loc": [
+    2820.0,
+    -24,
+    300
+   ],
+   "rot": [
+    -3072,
+    49152,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "PowerWay",
+   "cls": "UCBSwitch",
+   "loc": [
+    2560.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "NumWays": "2"
+   }
+  },
+  {
+   "name": "Patroller",
+   "cls": "UNATCOTroop",
+   "loc": [
+    3284.0,
+    -300,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Orders": "Patrolling",
+    "OrderTag": "Route1"
+   }
+  },
+  {
+   "name": "Route1",
+   "cls": "PatrolPoint",
+   "loc": [
+    3284.0,
+    -300,
+    48
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "Tag": "Route1",
+    "Nextpatrol": "Route2"
+   }
+  },
+  {
+   "name": "Route2",
+   "cls": "PatrolPoint",
+   "loc": [
+    3884.0,
+    -300,
+    48
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "props": {
+    "Tag": "Route2",
+    "Nextpatrol": "Route1"
+   }
+  },
+  {
+   "name": "PatrolAlarm",
+   "cls": "AlarmUnit",
+   "loc": [
+    3584.0,
+    -8,
+    72
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Tag": "PatrolAlarm"
+   }
+  },
+  {
+   "name": "CalmDown",
+   "cls": "UCTimer",
+   "loc": [
+    3584.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Seconds": "10"
+   }
+  },
+  {
+   "name": "LabAlarmOn",
+   "cls": "Button1",
+   "loc": [
+    3464.0,
+    -760,
+    64
+   ],
+   "rot": [
+    0,
+    16384,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "LabAlarmOff",
+   "cls": "Button1",
+   "loc": [
+    3704.0,
+    -760,
+    64
+   ],
+   "rot": [
+    0,
+    16384,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "BridgeLever",
+   "cls": "Switch1",
+   "loc": [
+    4408.0,
+    -8,
+    64
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {}
+  },
+  {
+   "name": "BridgeTimer",
+   "cls": "UCTimer",
+   "loc": [
+    4608.0,
+    -96,
+    48
+   ],
+   "rot": [
+    0,
+    49152,
+    0
+   ],
+   "props": {
+    "Seconds": "10"
+   }
+  }
+ ],
+ "links": [
+  {
+   "id": "LAB_1",
+   "src": "LabAlarmOn",
+   "when": "used",
+   "once": false,
+   "do": [
+    {
+     "verb": "on",
+     "target": "PatrolAlarm",
+     "delay": 0,
+     "id": "LAB_1_a1"
+    }
+   ],
+   "at": [
+    0,
+    0,
+    64
+   ]
+  },
+  {
+   "id": "LAB_2",
+   "src": "LabAlarmOff",
+   "when": "used",
+   "once": false,
+   "do": [
+    {
+     "verb": "off",
+     "target": "PatrolAlarm",
+     "delay": 0,
+     "id": "LAB_2_a1"
+    }
+   ],
+   "at": [
+    0,
+    0,
+    64
+   ]
+  }
+ ],
+ "logic": {
+  "instances": [
+   {
+    "id": "P1",
+    "pattern": "keycard-door",
+    "v": 1,
+    "name": "Keycard door",
+    "slots": {
+     "keycard": "Keycard",
+     "door": "KeycardDoor",
+     "reminder": "KeycardReminder"
+    }
+   },
+   {
+    "id": "P2",
+    "pattern": "hack-to-open",
+    "v": 1,
+    "name": "Hack to open",
+    "slots": {
+     "keypad": "HackKeypad",
+     "door": "HackDoor"
+    }
+   },
+   {
+    "id": "P3",
+    "pattern": "alarm-network",
+    "v": 1,
+    "name": "Alarm network",
+    "slots": {
+     "camera": "NetCamera",
+     "network": "CameraNetwork",
+     "alarm": "NetAlarm",
+     "door": "SealDoor"
+    }
+   },
+   {
+    "id": "P4",
+    "pattern": "two-floor-elevator",
+    "v": 1,
+    "name": "Two-floor elevator",
+    "slots": {
+     "button": "LiftButton",
+     "way": "LiftWay",
+     "elevator": "Lift"
+    }
+   },
+   {
+    "id": "P5",
+    "pattern": "reinforcement-wave",
+    "v": 1,
+    "name": "Reinforcement wave",
+    "slots": {
+     "zone": "WaveZone",
+     "door": "WaveDoor",
+     "trooper": "Trooper1",
+     "trooper2": "Trooper2",
+     "down": "WaveCount"
+    }
+   },
+   {
+    "id": "P6",
+    "pattern": "countdown-bomb",
+    "v": 1,
+    "name": "Countdown bomb",
+    "slots": {
+     "zone": "BombZone",
+     "countdown": "BombTimer",
+     "panel": "BombPanel",
+     "bomb": "Bomb"
+    }
+   },
+   {
+    "id": "P7",
+    "pattern": "collect-n-items",
+    "v": 1,
+    "name": "Collect N items",
+    "slots": {
+     "item1": "Cell1",
+     "collected": "Collected",
+     "item2": "Cell2",
+     "item3": "Cell3",
+     "door": "VaultDoor"
+    }
+   },
+   {
+    "id": "P8",
+    "pattern": "generator-blackout",
+    "v": 1,
+    "name": "Generator blackout",
+    "slots": {
+     "generator": "Generator",
+     "power": "PowerWay",
+     "light1": "PowerLamp1",
+     "light2": "PowerLamp2",
+     "camera": "PowerCamera"
+    }
+   },
+   {
+    "id": "P9",
+    "pattern": "patrol-on-alert",
+    "v": 1,
+    "name": "Patrol on alert",
+    "slots": {
+     "alarm": "PatrolAlarm",
+     "calm": "CalmDown",
+     "guard": "Patroller",
+     "route": "Route1"
+    }
+   },
+   {
+    "id": "P10",
+    "pattern": "lever-bridge",
+    "v": 1,
+    "name": "Lever bridge",
+    "slots": {
+     "lever": "BridgeLever",
+     "bridge": "Bridge",
+     "stay": "BridgeTimer"
+    }
+   }
+  ],
+  "watch": [
+   "WaveCount",
+   "Collected"
+  ]
+ },
+ "logicPatterns": {
+  "keycard-door@1": {
+   "v": 1,
+   "made": "2026-11-10T16:12:27",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{keycard}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "input",
+       "target": "{reminder}",
+       "delay": 0,
+       "a": "Close",
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The keycard unlocks the door.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{door}",
+     "when": "near",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{reminder}",
+       "delay": 0,
+       "a": "Pass",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "near": 200
+    },
+    {
+     "id": "R3",
+     "src": "{reminder}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Locked. It needs a keycard.",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "reminder",
+     "cls": "UCBGate",
+     "props": {},
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "keycard",
+     "words": "the keycard",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    },
+    {
+     "id": "reminder",
+     "words": "the reminder gate",
+     "family": "gate",
+     "carried": true
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{keycard}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "in:{door}|out:near",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Keycard door"
+  },
+  "hack-to-open@1": {
+   "v": 1,
+   "made": "2026-11-10T16:12:43",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{keypad}",
+     "when": "code",
+     "once": false,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "open",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Access granted.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{keypad}",
+     "when": "wrongcode",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Wrong code.",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [],
+   "slots": [
+    {
+     "id": "keypad",
+     "words": "the keypad",
+     "family": "keypad",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{keypad}|out:code",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a2"
+     ]
+    },
+    {
+     "key": "in:{keypad}|out:wrongcode",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Hack to open"
+  },
+  "alarm-network@1": {
+   "v": 1,
+   "made": "2026-11-10T16:12:52",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{camera}",
+     "when": "spotted",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{network}",
+       "delay": 0,
+       "a": "Pass",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{network}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "on",
+       "target": "{alarm}",
+       "delay": 0,
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out"
+    },
+    {
+     "id": "R3",
+     "src": "{alarm}",
+     "when": "alarm",
+     "once": false,
+     "do": [
+      {
+       "verb": "close",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R3_a1"
+      },
+      {
+       "verb": "lock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R3_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Alarm: the door is sealed.",
+       "id": "R3_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{alarm}",
+     "when": "hacked",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{network}",
+       "delay": 0,
+       "a": "Close",
+       "id": "R4_a1"
+      },
+      {
+       "verb": "off",
+       "target": "{alarm}",
+       "delay": 0,
+       "id": "R4_a2"
+      },
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R4_a3"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The alarm panel is hacked: the cameras no longer call it.",
+       "id": "R4_a4"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "network",
+     "cls": "UCBGate",
+     "props": {},
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "camera",
+     "words": "the camera",
+     "family": "camera",
+     "carried": false
+    },
+    {
+     "id": "network",
+     "words": "the network gate",
+     "family": "gate",
+     "carried": true
+    },
+    {
+     "id": "alarm",
+     "words": "the alarm",
+     "family": "alarm",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{camera}|out:spotted",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{alarm}|in:on",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1"
+     ]
+    },
+    {
+     "key": "in:{alarm}|out:alarm",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R3|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:close",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:lock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a2"
+     ]
+    },
+    {
+     "key": "in:{alarm}|out:hacked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R4|cause:0"
+     ]
+    },
+    {
+     "key": "out:{alarm}|in:off",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R4|act:R4/R4_a2"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R4|act:R4/R4_a3"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Alarm network"
+  },
+  "two-floor-elevator@1": {
+   "v": 1,
+   "made": "2026-11-10T16:12:54",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{button}",
+     "when": "used",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{way}",
+       "delay": 0,
+       "a": "Next",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{way}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "floor",
+       "target": "{elevator}",
+       "delay": 0,
+       "a": "1",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out1"
+    },
+    {
+     "id": "R3",
+     "src": "{way}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "floor",
+       "target": "{elevator}",
+       "delay": 0,
+       "a": "0",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out2"
+    },
+    {
+     "id": "R4",
+     "src": "{elevator}",
+     "when": "atfloor",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The lift is up.",
+       "id": "R4_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "floor": 1
+    },
+    {
+     "id": "R5",
+     "src": "{elevator}",
+     "when": "atfloor",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The lift is down.",
+       "id": "R5_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "floor": 0
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "way",
+     "cls": "UCBSwitch",
+     "props": {
+      "NumWays": "2"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "button",
+     "words": "the button",
+     "family": "object",
+     "carried": false
+    },
+    {
+     "id": "way",
+     "words": "the up-or-down switch",
+     "family": "switchblock",
+     "carried": true
+    },
+    {
+     "id": "elevator",
+     "words": "the elevator",
+     "family": "elevator",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{button}|out:used",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{elevator}|in:floor",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1",
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "in:{elevator}|out:atfloor",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R4|cause:0",
+      "rule:R5|cause:0"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Two-floor elevator"
+  },
+  "reinforcement-wave@1": {
+   "v": 1,
+   "made": "2026-11-10T16:12:56",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{zone}",
+     "when": "enter",
+     "once": true,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "open",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "attack",
+       "target": "{trooper}",
+       "delay": 0,
+       "id": "R1_a3"
+      },
+      {
+       "verb": "attack",
+       "target": "{trooper2}",
+       "delay": 0,
+       "id": "R1_a4"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Reinforcements!",
+       "id": "R1_a5"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{trooper}",
+     "when": "dies",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{down}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{trooper2}",
+     "when": "dies",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{down}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{down}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The wave is beaten.",
+       "id": "R4_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Reached"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "down",
+     "cls": "UCBCounter",
+     "props": {
+      "ReachedAt": "2"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "zone",
+     "words": "the zone",
+     "family": "zone",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    },
+    {
+     "id": "trooper",
+     "words": "the first trooper",
+     "family": "character",
+     "carried": false
+    },
+    {
+     "id": "trooper2",
+     "words": "the second trooper",
+     "family": "character",
+     "carried": false
+    },
+    {
+     "id": "down",
+     "words": "the counter of troopers down",
+     "family": "counterblock",
+     "carried": true
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{zone}|out:enter",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a2"
+     ]
+    },
+    {
+     "key": "out:{trooper}|in:attack",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a3"
+     ]
+    },
+    {
+     "key": "out:{trooper2}|in:attack",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a4"
+     ]
+    },
+    {
+     "key": "in:{trooper}|out:dies",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "in:{trooper2}|out:dies",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R3|cause:0"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Reinforcement wave"
+  },
+  "countdown-bomb@1": {
+   "v": 1,
+   "made": "2026-11-10T16:12:58",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{zone}",
+     "when": "enter",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstart",
+       "target": "{countdown}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "A bomb! Ten seconds to stop it.",
+       "id": "R1_a2"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{panel}",
+     "when": "code",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstop",
+       "target": "{countdown}",
+       "delay": 0,
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{countdown}",
+     "when": "stopped",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The bomb is defused.",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{countdown}",
+     "when": "finished",
+     "once": false,
+     "do": [
+      {
+       "verb": "explode",
+       "target": "{bomb}",
+       "delay": 0,
+       "a": "50",
+       "b": "256",
+       "id": "R4_a1"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Too late.",
+       "id": "R4_a2"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "countdown",
+     "cls": "UCTimer",
+     "props": {
+      "Seconds": "10"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "zone",
+     "words": "the zone",
+     "family": "zone",
+     "carried": false
+    },
+    {
+     "id": "countdown",
+     "words": "the countdown",
+     "family": "timer",
+     "carried": true
+    },
+    {
+     "id": "panel",
+     "words": "the panel",
+     "family": "keypad",
+     "carried": false
+    },
+    {
+     "id": "bomb",
+     "words": "the bomb",
+     "family": "crate",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{zone}|out:enter",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "in:{panel}|out:code",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "out:{bomb}|in:explode",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R4|act:R4/R4_a1"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Countdown bomb"
+  },
+  "collect-n-items@1": {
+   "v": 1,
+   "made": "2026-11-10T16:13:00",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{item1}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{collected}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{item2}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{collected}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{item3}",
+     "when": "picked",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{collected}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{collected}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "One more.",
+       "id": "R4_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Changed"
+    },
+    {
+     "id": "R5",
+     "src": "{collected}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R5_a1"
+      },
+      {
+       "verb": "open",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R5_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "All of them: the vault opens.",
+       "id": "R5_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Reached"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "collected",
+     "cls": "UCBCounter",
+     "props": {
+      "ReachedAt": "3"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "item1",
+     "words": "the first item",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "collected",
+     "words": "the counter of items",
+     "family": "counterblock",
+     "carried": true
+    },
+    {
+     "id": "item2",
+     "words": "the second item",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "item3",
+     "words": "the third item",
+     "family": "item",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{item1}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "in:{item2}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "in:{item3}|out:picked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R3|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R5|act:R5/R5_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R5|act:R5/R5_a2"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Collect N items"
+  },
+  "generator-blackout@1": {
+   "v": 1,
+   "made": "2026-11-10T16:13:01",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{generator}",
+     "when": "used",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{power}",
+       "delay": 0,
+       "a": "Next",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{power}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "lightoff",
+       "target": "{light1}",
+       "delay": 0,
+       "id": "R2_a1"
+      },
+      {
+       "verb": "lightoff",
+       "target": "{light2}",
+       "delay": 0,
+       "id": "R2_a2"
+      },
+      {
+       "verb": "off",
+       "target": "{camera}",
+       "delay": 0,
+       "id": "R2_a3"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The power is cut.",
+       "id": "R2_a4"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out1"
+    },
+    {
+     "id": "R3",
+     "src": "{power}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "lighton",
+       "target": "{light1}",
+       "delay": 0,
+       "id": "R3_a1"
+      },
+      {
+       "verb": "lighton",
+       "target": "{light2}",
+       "delay": 0,
+       "id": "R3_a2"
+      },
+      {
+       "verb": "on",
+       "target": "{camera}",
+       "delay": 0,
+       "id": "R3_a3"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The power is back.",
+       "id": "R3_a4"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out2"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "power",
+     "cls": "UCBSwitch",
+     "props": {
+      "NumWays": "2"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "generator",
+     "words": "the generator switch",
+     "family": "object",
+     "carried": false
+    },
+    {
+     "id": "power",
+     "words": "the on-or-off switch",
+     "family": "switchblock",
+     "carried": true
+    },
+    {
+     "id": "light1",
+     "words": "the first light",
+     "family": "light",
+     "carried": false
+    },
+    {
+     "id": "light2",
+     "words": "the second light",
+     "family": "light",
+     "carried": false
+    },
+    {
+     "id": "camera",
+     "words": "the camera",
+     "family": "camera",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{generator}|out:used",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{light1}|in:lightoff",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1"
+     ]
+    },
+    {
+     "key": "out:{light2}|in:lightoff",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a2"
+     ]
+    },
+    {
+     "key": "out:{camera}|in:off",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a3"
+     ]
+    },
+    {
+     "key": "out:{light1}|in:lighton",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "out:{light2}|in:lighton",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a2"
+     ]
+    },
+    {
+     "key": "out:{camera}|in:on",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a3"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Generator blackout"
+  },
+  "patrol-on-alert@1": {
+   "v": 1,
+   "made": "2026-11-10T16:13:10",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{alarm}",
+     "when": "alarm",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstop",
+       "target": "{calm}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "hostile",
+       "target": "{guard}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The patrol is on alert.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{alarm}",
+     "when": "alarmoff",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstart",
+       "target": "{calm}",
+       "delay": 0,
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{calm}",
+     "when": "finished",
+     "once": false,
+     "do": [
+      {
+       "verb": "friend",
+       "target": "{guard}",
+       "delay": 0,
+       "id": "R3_a1"
+      },
+      {
+       "verb": "patrol",
+       "target": "{guard}",
+       "delay": 0,
+       "a": "{route}",
+       "id": "R3_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The patrol walks the route again.",
+       "id": "R3_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "calm",
+     "cls": "UCTimer",
+     "props": {
+      "Seconds": "10"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "alarm",
+     "words": "the alarm",
+     "family": "alarm",
+     "carried": false
+    },
+    {
+     "id": "calm",
+     "words": "the calm-down timer",
+     "family": "timer",
+     "carried": true
+    },
+    {
+     "id": "guard",
+     "words": "the guard",
+     "family": "character",
+     "carried": false
+    },
+    {
+     "id": "route",
+     "words": "the first point of the route",
+     "family": "other",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{alarm}|out:alarm",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{guard}|in:hostile",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a2"
+     ]
+    },
+    {
+     "key": "in:{alarm}|out:alarmoff",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "out:{guard}|in:friend",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "out:{guard}|in:patrol",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a2"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Patrol on alert"
+  },
+  "lever-bridge@1": {
+   "v": 1,
+   "made": "2026-11-10T16:13:12",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{lever}",
+     "when": "used",
+     "once": false,
+     "do": [
+      {
+       "verb": "open",
+       "target": "{bridge}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "timerstart",
+       "target": "{stay}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The bridge comes up.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{stay}",
+     "when": "finished",
+     "once": false,
+     "do": [
+      {
+       "verb": "close",
+       "target": "{bridge}",
+       "delay": 0,
+       "id": "R2_a1"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The bridge goes down.",
+       "id": "R2_a2"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "stay",
+     "cls": "UCTimer",
+     "props": {
+      "Seconds": "10"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "lever",
+     "words": "the lever",
+     "family": "object",
+     "carried": false
+    },
+    {
+     "id": "bridge",
+     "words": "the bridge",
+     "family": "door",
+     "carried": false
+    },
+    {
+     "id": "stay",
+     "words": "the timer of the bridge",
+     "family": "timer",
+     "carried": true
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{lever}|out:used",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{bridge}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "out:{bridge}|in:close",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1"
+     ]
+    }
+   ],
+   "states": [],
+   "name": "Lever bridge"
+  }
+ }
+}

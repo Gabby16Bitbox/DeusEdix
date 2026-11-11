@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "checks": [
+    "left Play dropdown",
+    "external Play",
+    "Play settings",
+    "Full rebuild",
+    "Play to Stop",
+    "body-only embed bounds",
+    "worker/game tokens",
+    "Shift+F1",
+    "native hidden for menus/Settings",
+    "menus survive status polling",
+    "resize",
+    "attachment error external fallback without relaunch",
+    "cancel during preparation",
+    "reload restores embedded Stop without map",
+    "native release/detach failure still permits backend Stop",
+    "prepared preview recovery uses exact token",
+    "external browser recovery"
+  ],
+  "errors": []
+}

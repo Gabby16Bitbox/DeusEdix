@@ -63,8 +63,12 @@ class Outputs(unittest.TestCase):
     def test_a_tag_filled_in_is_the_one_its_rule_waits_on(self):
         """The simulator fills in the pattern ({src}, {option}, {key}) to tell the rules: it must be links.tag_of's Tag."""
         for when, entry in logic_compile.outputs().items():
-            link = message('L1', src='Thing1', when=when, option=2, port='Ready', key='F')
+            link = message('L1', src='Thing1', when=when, option=2, port='Ready', key='F', signal='Alarm 2', dialogue='d 1', infolink='i1')
             want = entry['tag'].replace('{src}', 'Thing1').replace('{option}', '2').replace('{key}', 'F') if entry['tag'] else 'UCLW_L1'
+            if when == 'signal':           # a signal's rules wait on its name (UCLink.DoMore "signal" triggers UCS_<name>)
+                want = 'UCS_Alarm_2'
+            if when in ('ended', 'heard'):  # the Story's (P5): what its story class / InfoLink triggers (story.end_tag, heard_tag)
+                want = 'UCD_d_1' if when == 'ended' else 'UCI_i1'
             self.assertEqual(links.tag_of(link), want, when)
 
 

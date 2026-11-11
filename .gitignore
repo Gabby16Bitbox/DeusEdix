@@ -34,6 +34,7 @@ mapkit/experimental_bsp/runs/
 mapkit/packages.json
 mapkit/refs_export.log
 deusedix.json
+devmode.json
 deusedix-project.json
 .deusedix-*.json
 

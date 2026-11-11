@@ -18,7 +18,10 @@
   padding:0 8px; font-size:12px; line-height:18px;
 }
 #scripts .sc-new button { display:flex; align-items:center; justify-content:center; }
-#scripts .sc-main { grid-area:main; display:grid; grid-template-rows:28px minmax(0,1fr) 120px; min-width:0; min-height:0; }
+#scripts .sc-main { grid-area:main; display:flex; flex-direction:column; min-width:0; min-height:0; }
+#scripts .sc-main > .sc-bar { flex:0 0 28px; }
+#scripts .sc-main > .sc-code { flex:1 1 auto; }
+#scripts .sc-main > .sc-out { flex:0 0 120px; box-sizing:border-box; }
 #scripts .sc-bar { display:flex; align-items:center; gap:4px; padding:0 8px; background:var(--panel); border-bottom:1px solid var(--line); }
 #scripts .sc-bar button { height:22px; padding:0 10px; }
 #scripts .sc-title { font:12px Consolas, monospace; color:var(--heading); }
@@ -50,3 +53,23 @@
 #scripts .sc-prob.sc-warning { color:var(--warn); }
 #scripts .sc-help-text { line-height:1.5; color:var(--text); }
 #scripts code { font:11px Consolas, monospace; color:var(--heading); }
+/* the Ports table (P8 slice 5, script-ports.js): the open script's inputs and outputs, over its code */
+#scripts .sc-portsbtn.on { background:var(--accent-soft); color:var(--heading); }
+#scripts .sc-ports { flex:0 1 auto; max-height:45%; overflow:auto; padding:6px 10px 8px; background:var(--panel); border-bottom:1px solid var(--line); font-size:12px; }
+#scripts .sc-ports[hidden] { display:none; }
+#scripts .sc-psec + .sc-psec { margin-top:8px; }
+#scripts .sc-ph { display:flex; align-items:baseline; gap:8px; margin-bottom:4px; }
+#scripts .sc-ph b { color:var(--heading); font-weight:600; }
+#scripts .sc-prow { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin:3px 0; }
+#scripts .sc-prow input, #scripts .sc-prow select, #scripts .sc-prow button, #scripts .sc-padd { height:22px; min-height:22px; box-sizing:border-box; font-size:12px; padding:0 6px; }
+#scripts .sc-pid { width:120px; font-family:Consolas, "Cascadia Mono", monospace; }
+#scripts .sc-plabel { flex:1 1 160px; min-width:120px; }
+#scripts .sc-pargs { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+#scripts .sc-parg { display:inline-flex; align-items:center; gap:2px; padding:1px 2px; border:1px solid var(--line); border-radius:4px; }
+#scripts .sc-paname { width:84px; font-family:Consolas, "Cascadia Mono", monospace; }
+#scripts .sc-parm, #scripts .sc-prm { border:0; background:none; color:var(--dim); cursor:pointer; padding:0 4px; }
+#scripts .sc-parm:hover, #scripts .sc-prm:hover { color:var(--text); }
+#scripts .sc-pnone { margin:2px 0 4px; }
+#scripts .sc-pcarry { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--dim); white-space:nowrap; }
+#scripts .sc-prow .sc-pcarry input { height:auto; min-height:0; padding:0; margin:0; }
+#scripts .sc-follow { margin-left:6px; height:22px; padding:0 8px; }

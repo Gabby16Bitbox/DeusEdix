@@ -3,8 +3,8 @@
   "title": "Condition: a character is alive or not",
   "behaviour": "Alive means in the map and with health: a character killed or knocked out (his body replaces him) is not alive, and neither is a name that is not in the map. His death is also an output of his own.",
   "derivedFrom": [
-    {"file": "UCEditorStory.uc", "lines": [868, 869], "has": "if (kind == \"alive\")"},
-    {"file": "UCEditorStory.uc", "lines": [973, 979], "has": "function bool Dead(name n)"}
+    {"file": "UCEditorStory.uc", "lines": [1000, 1001], "has": "if (kind == \"alive\")"},
+    {"file": "UCEditorStory.uc", "lines": [1183, 1189], "has": "function bool Dead(name n)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

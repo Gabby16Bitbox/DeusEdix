@@ -42,8 +42,12 @@ export function propertyName(key) {
 // page: what the page keeps of those edits beside them (none: null), last, so a caller that gives a cap as before is
 // read as before. The steps Redo had go (they followed another past); past the cap the oldest goes. Both are kept aside
 // until the next step, or a step back or forward
-export function recordStep(h, state, label, limit = HISTORY_LIMIT, page = null) {
+// story: the map's Story as the change found it (its JSON, story.js), for a change of the Story; state null with it:
+// a change of the Story only, which a step back or forward leaves the edits alone for (P5: the Story in the same
+// history; a change of both, state and story, is one step)
+export function recordStep(h, state, label, limit = HISTORY_LIMIT, page = null, story = undefined) {
   const step = { state, label: stepName(label), page };
+  if (story !== undefined) step.story = story;
   h.undo.push(step);
   const oldest = h.undo.length > limit ? h.undo.splice(0, h.undo.length - limit) : [];
   h.kept = { step, redo: h.redo.splice(0), oldest, trimmed: h.trimmed };
@@ -61,14 +65,18 @@ export function dropStep(h) {
 // the last step named again (an Alt copy that the drag went on to move is one step: "Duplicate and move")
 export function renameStep(h, label) { const s = h.undo.at(-1); if (s) s.label = stepName(label); }
 // One step back (way 'undo') or forward ('redo'). now: the edits now (JSON), the way back to them; page: what the page
-// keeps of them (as recordStep's), which that way back keeps. Returns the step taken ({ state: the edits to put in
-// place, label, page: what the page kept of them }), or null when there is none that way
-export function travelStep(h, way, now, page = null) {
+// keeps of them (as recordStep's), which that way back keeps; storyNow() -> the Story now (its JSON), the way back to
+// it for a step that has one. Returns the step taken ({ state: the edits to put in place, or null: leave them, label,
+// page: what the page kept of them, story: the Story to put in place, for a step of the Story }), or null when there
+// is none that way
+export function travelStep(h, way, now, page = null, storyNow = () => null) {
   h.kept = null;                           // past the last step recorded: nothing to give back any more
   const [from, to] = way === 'undo' ? [h.undo, h.redo] : [h.redo, h.undo];
   const s = from.pop();
   if (!s) return null;
-  to.push({ state: now, label: s.label, page });
+  const back = s.state === null ? { state: null, label: s.label, page: null } : { state: now, label: s.label, page };
+  if (s.story !== undefined) back.story = storyNow();
+  to.push(back);
   return s;
 }
 

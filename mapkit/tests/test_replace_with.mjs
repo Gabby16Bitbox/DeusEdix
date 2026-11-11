@@ -9,6 +9,7 @@ import * as replace from '../editor/static/replace-class.js';
 import { baseOf } from '../editor/static/prop-sets.js';
 import { unquote } from '../editor/static/prop-kinds.js';
 import { namedStep } from '../editor/static/history-names.js';
+import { isParticleClass } from '../editor/static/particles.js';
 
 const source = fs.readFileSync(new URL('../editor/static/app.js', import.meta.url), 'utf8');
 const section = source.slice(source.indexOf('// ---------------------------------------------------------------- Replace with...'),
@@ -30,7 +31,7 @@ function fixture() {
   const proxies = { children: [], remove(p) { this.children = this.children.filter((x) => x !== p); } };
   const proxy = (actor, source, kind, at) => { const p = { userData: { actor, source, kind }, scale: { x: 1 }, position: at, rot: actor.rot, parent: proxies }; proxies.children.push(p); return p; };
   const calls = [], history = [];
-  const c = vm.createContext({
+  const c = vm.createContext({ isParticleClass,
     edits: { added: [copy(crate)], deleted: {}, moved: { Troop1: { cls: 'MJ12Troop', loc: [100, 200, 48], rot: [0, 16384, 0], orig: [90, 200, 48] } },
       props: { Troop1: { Health: '80', bFoo: 'True' } }, rawprops: { Troop1: { RaiseAlarm: 'RA_Never', Weird: '1' } },
       retexture: [{ kind: 'actor', name: 'Troop1', slot: 0, tex: 'Old' }, { kind: 'actor', name: 'Other', slot: 0, tex: 'Keep' }],

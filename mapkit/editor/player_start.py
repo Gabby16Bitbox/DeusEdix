@@ -5,7 +5,8 @@ def usable(actors, edits, chains=None):
     def enabled(value):
         if isinstance(value, list):value = value[0] if value else True
         return str(value).lower() not in ('false', '0')
-    all_ = {a['name']:a for a in [*actors, *(edits.get('added') or [])]}
+    # one per object: Unreal names ignore letter case (an added "PS1" may be built as "ps1"), the edit's own entry wins
+    all_ = {a['name'].lower():a for a in [*actors, *(edits.get('added') or [])]}
     out=[]
     for a in all_.values():
         cls=a.get('cls','').split('.')[-1]

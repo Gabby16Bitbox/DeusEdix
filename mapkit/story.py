@@ -28,7 +28,7 @@ story = {
               | {"type": "hostile", "faction": "RedArrow"},          # a faction turns hostile to JC
       "requires": [...], "once": true,
       "do": [{"type": "flag", ...}, {"type": "goal", ...}, {"type": "note", "text": "..."},
-             {"type": "message", "text": "..."}, {"type": "talk", "dialogue": "d1"}, {"type": "trigger", "tag": "T"},
+             {"type": "message", "text": "..."}, {"type": "talk", "dialogue": "d1"}, {"type": "trigger", "tag": "T"}, {"type": "signal", "signal": "Alarm"},
              {"type": "npc", "actor": "<name>", "act": "goto" | "run" | "stop" | "wander" | "follow" | "attack"
                      | "hostile" | "neutral" | "friend" | "hide" | "show", "at": [x, y, z], "alone": false},
              {"type": "door", "actor": "<mover name>", "act": "open" | "close" | "lock" | "unlock" | "blow"},
@@ -146,6 +146,12 @@ def code(map_name):
 ident = conditions.ident          # a valid UnrealScript name (the rules' conditions name states the same way)
 
 
+def signal_tag(name):
+    """The Tag of a signal (P5): the one the map's rules "When the signal ... is sent" wait on (links.tag_of:
+    UCS_ + the name as the game writes it); '' for none."""
+    return 'UCS_' + ident(name) if str(name or '').strip() else ''
+
+
 def lit(s):
     """A string literal (Latin-1, quotes escaped)."""
     s = str(s or '').replace('\\', '\\\\').replace('"', '\\"').replace('\r', '').replace('\n', ' ')
@@ -181,6 +187,17 @@ INFOS = {}       # the InfoLinks of the story being generated (for the actions t
 
 def heard_flag(map_name, il):
     return 'UCEd%s_%s_Heard' % (code(map_name), ident(il['id']))
+
+
+def end_tag(dialogue_id):
+    """The Tag of the rules "When the dialogue ... has ended" (P5; links.tag_of writes the same): UCEditorStory.EndWatch
+    triggers it."""
+    return 'UCD_' + ident(dialogue_id)
+
+
+def heard_tag(infolink_id):
+    """The Tag of the rules "When the InfoLink ... has been heard" (P5): UCEdInfoLink.Heard triggers it at its end."""
+    return 'UCI_' + ident(infolink_id)
 
 
 def info_function(il):
@@ -310,6 +327,9 @@ def dialogue_code(map_name, d, binds):
                                                     str(bool(st.get('done'))),str(bool(st.get('secondary')))))
         elif t == 'trigger':
             L.append("\t\tc.Trigger('%s');" % ident(st.get('tag')))
+        elif t == 'signal':                     # the map's rules waiting for it run (the game's trigger event)
+            if signal_tag(st.get('signal')):
+                L.append("\t\tc.Trigger('%s');" % signal_tag(st.get('signal')))
         elif t == 'end':
             L.append('\t\tc.EndHere();')
         elif t == 'do':
@@ -326,8 +346,35 @@ def dialogue_code(map_name, d, binds):
     return L
 
 
-def action_code(map_name, a, dialogues, indent, infolinks=None):
+# The verbs of the rules a Story action may not use (P5, {type: 'act'}): what needs the rule itself (its own orders kept
+# at the map's start, a rule's place in a list of steps)
+STORY_NO_VERBS = frozenset({'ownorders', 'if', 'else', 'end', 'wait', 'until', 'jump', 'check'})
+
+
+def act_text(act):
+    """A Logic action of the Story ({type: 'act', act: {verb, target, a, b, c, at, nav...}}, the rules' own fields) as a
+    rule's Act text (editor/links.py act_string), done at once: its delay is 0. ValueError when it cannot be one."""
+    editor = str(KIT / 'editor')
+    if editor not in sys.path:
+        sys.path.insert(0, editor)
+    import links
+    x = dict(act or {})
+    verb = str(x.get('verb') or '')
+    if not re.fullmatch(r'[a-z]+', verb) or verb in STORY_NO_VERBS:
+        raise ValueError('a Logic action in the Story with no action that it can do (%r)' % verb)
+    for k in ('area', 'targetTag', 'group', '_group', '_groupName', 'requires', 'match', 'until'):
+        x.pop(k, None)               # one object, or none: what the Story's rows give
+    x['delay'] = 0
+    return links.act_string(x)
+
+
+def action_code(map_name, a, dialogues, indent, infolinks=None, who='story'):
     t = a.get('type')
+    if t == 'act':                   # a Logic action (P5): done as a rule does it (UCEditorStory.RunAct, UCLink.DoAct)
+        if not settings.STANDALONE:
+            raise ValueError('Logic actions in the Story work in DeusEdix projects (the mod\'s own classes do not have'
+                             ' them yet): ' + str((a.get('act') or {}).get('verb') or '?'))
+        return ['%sRunAct(%s, %s);' % (indent, lit(act_text(a.get('act'))), lit(who))]
     if t == 'flag':
         return ["%sSetF('%s', %s);" % (indent, ident(a.get('flag')), 'True' if a.get('is', True) else 'False')]
     if t == 'goal':
@@ -339,6 +386,8 @@ def action_code(map_name, a, dialogues, indent, infolinks=None):
         return ['%sMessage(%s);' % (indent, lit(p)) for p in pieces(a.get('text'))]
     if t == 'trigger':
         return ["%sTriggerTag('%s');" % (indent, ident(a.get('tag')))]
+    if t == 'signal' and signal_tag(a.get('signal')):
+        return ["%sTriggerTag('%s');" % (indent, signal_tag(a.get('signal')))]
     if t == 'talk':
         d = dialogues.get(a.get('dialogue'))
         if d:
@@ -426,10 +475,10 @@ def generate(map_name, story):
     INFOS.update(infos)
     for il in infos.values():
         L += ['// InfoLink: %s' % re.sub(r'[\r\n]', ' ', il.get('title') or il['id'])[:100],
-              'function %s()' % info_function(il), '{', '\tlocal UCEdInfoLink s;', '',
+              'function bool %s()' % info_function(il), '{', '\tlocal UCEdInfoLink s;', '',
               "\ts = InfoLink('%s', %s, %s, %s);" % (heard_flag(map_name, il), 'True' if il.get('once', True) else 'False',
                                                      lit(ident(il.get('caller') or 'Unknown')), lit(il.get('name') or '')),
-              '\tif (s == None)', '\t\treturn;']
+              '\tif (s == None)', '\t\treturn False;', "\ts.EndTag = '%s';" % heard_tag(il['id'])]
         L += infolink_styles.override_code(il.get('style'))
         if il.get('hush') is False:      # "No talking while it plays" off (UCEdInfoLink hushes by default)
             L.append('\ts.bHushTalks = False;')
@@ -440,8 +489,10 @@ def generate(map_name, story):
         if acts:
             L.append('\t// at the start: an interrupted InfoLink counts as heard')
         for a in acts:
-            L += action_code(map_name, a, dialogues, '\t', INFOS)
-        L += ['}', '']
+            L += action_code(map_name, a, dialogues, '\t', INFOS, 'story:' + il['id'])
+        L += ['\treturn True;', '}', '']
+    L += run_story_action(map_name, dialogues, infos)
+    L += tick_ends(map_name, dialogues)
     starts = [e for e in story.get('events') or [] if (e.get('when') or {}).get('type') == 'start']
     others = [e for e in story.get('events') or [] if (e.get('when') or {}).get('type') != 'start']
     L += ['// events at the start of the map', 'function StartStory()', '{']
@@ -461,13 +512,49 @@ def generate(map_name, story):
                 L += ['\t// %s: actions at the end of the dialogue' % re.sub(r'[\r\n]', ' ', d.get('title') or d['id'])[:80],
                       "\tif (GetF('%s'))" % f, '\t{', "\t\tSetF('%s', False);" % f]
                 for a in st.get('do') or []:
-                    L += action_code(map_name, a, dialogues, '\t\t', INFOS)
+                    L += action_code(map_name, a, dialogues, '\t\t', INFOS, 'story:' + d['id'])
                 L.append('\t}')
     for e in others:
         L += event_code(map_name, e, dialogues)
     L += ['}', '', 'defaultproperties', '{', '     bRouteOnly=%s' % ('True' if story.get('route', 'unatco') == 'unatco' and not settings.STANDALONE
                                                                        else 'False'), '}', '']
     return '\n'.join(L)
+
+
+def run_story_action(map_name, dialogues, infos):
+    """What the map's rules ask its Story (P5: UCLink "talk" and "infolink", UCEditorStory.RunStoryAction): the
+    dialogue id started, the InfoLink id played. "" done, else why not ("missing": no such one in this Story)."""
+    talk = [d for d in dialogues.values() if not d.get('disabled')]
+    L = ['// a rule of the map starts a dialogue or plays an InfoLink (UCLink "talk", "infolink")',
+         'function string RunStoryAction(string verb, string id)', '{',
+         "\tif (bRouteOnly && !GetF('UNATCORouteCommitted'))", '\t\treturn "off";']   # (a Story that does not run yet)
+    if talk:
+        L += ['\tif (verb == "talk")', '\t{']
+        for d in talk:
+            L += ['\t\tif (id ~= %s)' % lit(d['id']),
+                  "\t\t\treturn TalkNow('%s', '%s');" % (ident(d.get('owner')), con_name(map_name, d))]
+        L += ['\t\treturn "missing";', '\t}']
+    if infos:
+        L += ['\tif (verb == "infolink")', '\t{']
+        for il in infos.values():
+            L += ['\t\tif (id ~= %s)' % lit(il['id']), '\t\t{',
+                  '\t\t\tif (!%s())' % info_function(il), '\t\t\t\treturn "heard";', '\t\t\treturn "";', '\t\t}']
+        L += ['\t\treturn "missing";', '\t}']
+    L += ['\treturn "missing";', '}', '']
+    return L
+
+
+def tick_ends(map_name, dialogues):
+    """The dialogues whose end the rules hear (P5, "When the dialogue ... has ended"): each in its slot of
+    UCEditorStory.EndWatch (64 at most), its end triggering end_tag."""
+    talk = [d for d in dialogues.values() if not d.get('disabled')][:64]
+    if not talk:
+        return []
+    L = ['// the dialogues whose end the rules of the map hear (UCLink "When the dialogue ... has ended")',
+         'function TickEnds()', '{']
+    for i, d in enumerate(talk):
+        L.append("\tEndWatch(%d, '%s', '%s', '%s');" % (i, ident(d.get('owner')), con_name(map_name, d), end_tag(d['id'])))
+    return L + ['}', '']
 
 
 def event_code(map_name, e, dialogues):
@@ -491,7 +578,7 @@ def event_code(map_name, e, dialogues):
     if e.get('once', True):
         L.append("\t\tSetF('%s', True);" % done_flag(map_name, e))
     for a in e.get('do') or []:
-        L += action_code(map_name, a, dialogues, '\t\t', INFOS)
+        L += action_code(map_name, a, dialogues, '\t\t', INFOS, 'story:' + str(e.get('id') or 'event'))
     L.append('\t}')
     return L
 

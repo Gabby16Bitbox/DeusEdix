@@ -384,8 +384,7 @@ test('a row as surfaces.py checks it: one refused fails every Save of the map (a
   const ok = [
     { op: 'pan', args: [16, -8], targets: at }, { op: 'pan', args: [32767, -32767], targets: at }, { op: 'pan', args: [2.0, 0], targets: at },
     { op: 'scale', args: [0.001, 1000], targets: at }, { op: 'rotate', args: [], targets: at }, { op: 'rotate', targets: at },
-    { op: 'shadows', args: ['high'], targets: at }, { op: 'shadows', args: ['ultra-low'], targets: all },
-    { op: 'flags', args: [0x8000000 | 0x4, 0x400000], targets: at },
+    { op: 'shadows', args: ['high'], targets: at }, { op: 'flags', args: [0x8000000 | 0x4, 0x400000], targets: at },
     { op: 'flags', args: [0, 0x1 | 0x2 | 0x40 | 0x80 | 0x100 | 0x800 | 0x100000], targets: at },
     { op: 'texture', args: ['Pkg.Group.Name'], targets: at }, { op: 'texture', args: ['MyTex'], targets: at },
     { op: 'cylinder', args: [], targets: all }, { op: 'tile', args: [], targets: [{ brush: 'B_1', poly: 65535 }, ...all] },

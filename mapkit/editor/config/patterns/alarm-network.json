@@ -1,0 +1,229 @@
+{
+ "version": 1,
+ "name": "Alarm network",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:12:52",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{camera}",
+     "when": "spotted",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{network}",
+       "delay": 0,
+       "a": "Pass",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{network}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "on",
+       "target": "{alarm}",
+       "delay": 0,
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out"
+    },
+    {
+     "id": "R3",
+     "src": "{alarm}",
+     "when": "alarm",
+     "once": false,
+     "do": [
+      {
+       "verb": "close",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R3_a1"
+      },
+      {
+       "verb": "lock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R3_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Alarm: the door is sealed.",
+       "id": "R3_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{alarm}",
+     "when": "hacked",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{network}",
+       "delay": 0,
+       "a": "Close",
+       "id": "R4_a1"
+      },
+      {
+       "verb": "off",
+       "target": "{alarm}",
+       "delay": 0,
+       "id": "R4_a2"
+      },
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R4_a3"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The alarm panel is hacked: the cameras no longer call it.",
+       "id": "R4_a4"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "network",
+     "cls": "UCBGate",
+     "props": {},
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "camera",
+     "words": "the camera",
+     "family": "camera",
+     "carried": false
+    },
+    {
+     "id": "network",
+     "words": "the network gate",
+     "family": "gate",
+     "carried": true
+    },
+    {
+     "id": "alarm",
+     "words": "the alarm",
+     "family": "alarm",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{camera}|out:spotted",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{alarm}|in:on",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1"
+     ]
+    },
+    {
+     "key": "in:{alarm}|out:alarm",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R3|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:close",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:lock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a2"
+     ]
+    },
+    {
+     "key": "in:{alarm}|out:hacked",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R4|cause:0"
+     ]
+    },
+    {
+     "key": "out:{alarm}|in:off",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R4|act:R4/R4_a2"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R4|act:R4/R4_a3"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

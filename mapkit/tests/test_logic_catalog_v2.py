@@ -145,6 +145,13 @@ class Checked(unittest.TestCase):
         self.refused(lambda d: d['pairs']['any']['character'].append({'when': 'used', 'do': ['goto']}))
         self.refused(lambda d: d['pairs'].update(spaceship={'door': [{'when': 'used', 'do': ['open']}]}))
 
+    def test_mover_phases_are_two_different_ones(self):
+        self.assertEqual([w.get('phases') for w in logic_catalog.mover_words()][:2], [['Closed', 'Open'], ['Raised', 'Lowered']])
+        self.refused(lambda d: d['movers']['words'][1].update(phases=['Raised']))
+        self.refused(lambda d: d['movers']['words'][1].update(phases=['Up', 'up']))
+        self.refused(lambda d: d['movers']['words'][1].update(phases=['Up', ' ']))
+        self.refused(lambda d: d['movers']['words'][1].update(phases='Up, Down'))
+
 
 if __name__ == '__main__':
     unittest.main()

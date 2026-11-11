@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  NODE, ZOOM, LANE, DELAY, toWorld, toScreen, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, detailAt, pinsOf, nodeSize,
+  NODE, ZOOM, LANE, DELAY, bodyHeight, toWorld, toScreen, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, detailAt, pinsOf, nodeSize,
   pinPoint, pinsFit, routeWire, bundleWires, wireIndex, wiresOfNodes, insertReroute, delayFromDrag, delayText, wireAt, pinNear, boxesTouching,
   boxesInside, frameAt, boxOf, boundsOf, nearestToward, segmentDistance,
 } from '../editor/static/graph-geometry.js';
@@ -65,6 +65,18 @@ test('a node is a 28 px header and 22 px rows; its pins sit on its edges, level 
   assert.deepEqual(pinPoint(n, at, header), [100, 40 + 14]);
   assert.deepEqual(pinPoint(n, at, a1), [100 + NODE.w, 40 + 28 + 22 + 11]);
   assert.deepEqual(pinPoint(n, at, go), [100, 40 + 28 + 44 + 11]);
+});
+
+test('a text block (a line of the Story) is its lines tall under the header; the rows and their pins go under it', () => {
+  const n = { id: 'n1', in: { id: 'in' }, body: { text: 'Hello there.', lines: 3 }, rows: [{ id: 'way:0', text: 'Yes', out: { id: '0' } }] };
+  assert.equal(bodyHeight(n), 3 * NODE.line + NODE.body);
+  assert.equal(bodyHeight({ body: { text: '' } }), NODE.line + NODE.body);       // one line at least, whatever its text
+  assert.equal(bodyHeight({ body: { lines: 40 } }), 8 * NODE.line + NODE.body);  // and eight at most
+  assert.equal(bodyHeight({}), 0);
+  assert.deepEqual(nodeSize(n), [NODE.w, 28 + bodyHeight(n) + 22]);
+  const [inPin, yes] = pinsOf(n);
+  assert.deepEqual(pinPoint(n, [0, 0], inPin), [0, 14]);                         // the header's pin stays on the header
+  assert.deepEqual(pinPoint(n, [0, 0], yes), [NODE.w, 28 + bodyHeight(n) + 11]);
 });
 
 test('without a rule from the caller, typed pins fit their own type; a pin with no type fits any', () => {

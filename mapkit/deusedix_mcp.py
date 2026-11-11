@@ -129,6 +129,67 @@ TOOLS = {
                    'said, the choices met and how it ends.',
                    schema({'dialogue': {'type': 'string'}, 'state': OBJ,
                            'choices': {'type': 'array', 'items': {'type': 'integer'}}}, ['dialogue'])),
+    'logic_read': ('logic_read', 30, 'The level logic of the open map: its rules (id, object, the sentence the editor shows, and '
+                   'the rule\'s data with format "both"), the named groups, the Phases blocks, the signals and the problems. '
+                   'object: only the rules on it or acting on it.',
+                   schema({'object': {'type': 'string'}, 'format': {'type': 'string', 'enum': ['sentences', 'both']}})),
+    'logic_offer': ('logic_offer', 30, 'What an object can set a rule off with (outputs: the "when" of a rule) and what a rule can '
+                    'make it do (inputs: a step\'s "verb"), with the values each takes. With no object: the map\'s own causes '
+                    '(when it starts, a key...), the steps with no object (a message, a state...) and the logic blocks.',
+                    schema({'object': {'type': 'string'}})),
+    'logic_check': ('logic_check', 30, 'The problems of the open map\'s rules (as the Logic window\'s To check) and whether the '
+                    'build takes them.', schema()),
+    'logic_try': ('logic_try', 60, 'Play the open map\'s rules in the editor\'s simulator (as Logic > Try it, no game): fire is '
+                  'what happens, in order ({thing, output (a "when" of logic_offer), port, option}); then seconds pass. '
+                  "from: the name of a start to begin from (the project's Play scenarios: their states, the player's "
+                  'items, credits and skills); start: states on top of it ({flags: {Name: true}, counters, items, credits, jc: '
+                  '[x, y, z] where the player stands, for the condition "near a point"}). '
+                  'A dialogue of the Story that starts plays through, each choice taking the first answer offered. '
+                  'Returns what happened in sentences (the dialogues\' lines too) and the states.',
+                  schema({'fire': {'type': 'array', 'items': OBJ}, 'seconds': {'type': 'number'}, 'start': OBJ,
+                          'from': {'type': 'string'}})),
+    'logic_propose': ('logic_propose', 90, 'Propose a change to the open map\'s rules. Nothing changes: the user sees it in the '
+                      'Logic window (dashed) and accepts or rejects it there; logic_proposal tells which. ops, in order: '
+                      '{op: "add_rule", rule: {src, when, port?, do: [{verb, target, a?, b?, delay?}], once?}, ref?}, '
+                      '{op: "update_rule", id, set: {...}}, {op: "delete_rule", id}, '
+                      '{op: "connect", from, output, to, input, a?, delay?} (one rule), '
+                      '{op: "add_block", cls (logic_offer gives the blocks), at: [x, y, z], props?, ref?}, '
+                      '{op: "make_group", name, members?, filter?, ref?} (filter {kind: "MJ12Troop"} or {faction: "MJ12"}: every '
+                      'character of that class or faction, newcomers too; a rule on it: {src: "", group: "$<ref>", when: '
+                      'killed|knockedout|dies|hurt|sees|turnshostile|findsbody}), {op: "set_phase", id, set (a Phases block), in: [phases]}, '
+                      '{op: "place_pattern", pattern (logic_patterns gives them), slots: {place: object}, ref?} (its newest '
+                      'version; the logic blocks it brings come with it), '
+                      '{op: "make_box", rules: [ids], blocks?: [logic blocks], name?, ref?} (one node in the Graph; the game '
+                      'runs them as before). '
+                      'A rule of the map itself has src "" and one of logic_offer\'s causes (with no object), among them '
+                      'the world\'s: loaded, back, goaldone, noise, appears (rules of their own). A step "setprop" takes one '
+                      'of the object\'s safeProps (logic_offer with the object). A number marked formula, and the value a '
+                      'condition compares with, may be a formula of counters ("Alarms + 1"). '
+                      'A later op names what an earlier one made as "$<ref>". summary: what it does, in a few words '
+                      '(the user reads it). It is checked as the build checks rules (errors: nothing proposed), and tried in '
+                      'the simulator with fire (default: what sets off its first rule). Returns the sentences, the problems '
+                      'it brings and the run.',
+                      schema({'ops': {'type': 'array', 'items': OBJ, 'minItems': 1, 'maxItems': 60}, 'summary': {'type': 'string'},
+                              'fire': {'type': 'array', 'items': OBJ}, 'seconds': {'type': 'number'}}, ['ops', 'summary'])),
+    'logic_patterns': ('logic_patterns', 60, 'The project\'s patterns of rules (blocks of rules saved to use again, in any '
+                       'map): action "list" gives each one (pattern: its id, name, version, places: what it needs to be '
+                       'given, each an object of the map, brings: the logic blocks it adds) and those placed in the open '
+                       'map. action "place" puts one in the open map now (pattern, slots: {place: object name}; a place '
+                       'left empty waits), one step the user can undo. To have the user decide first, use logic_propose '
+                       'with place_pattern instead.',
+                       schema({'action': {'type': 'string', 'enum': ['list', 'place']}, 'pattern': {'type': 'string'},
+                               'slots': OBJ})),
+    'logic_proposal': ('logic_proposal', 20, 'What became of the last proposal (logic_propose): waiting, accepted (and what it '
+                       'made), rejected, replaced by a newer one, or gone (another map was opened).', schema()),
+    'logic_why': ('logic_why', 60, 'Why did a rule of the open map not run (or run, or fail)? For a rule (its id) or an '
+                  'object (each rule it sets off, then each that acts on it): what the game\'s log of the last Play says, '
+                  'what Logic > Try it says when something was tried there, and the problems the checks find. notes say '
+                  'what that Play was (none yet, another map, still running, the map changed since).',
+                  schema({'rule': {'type': 'string'}, 'object': {'type': 'string'}})),
+    'logic_log': ('logic_log', 60, 'The open map\'s logic log from the last Play (what its rules and blocks did in the game), '
+                  'in sentences, oldest first: the last lines (last, default 200), or one rule\'s. raw adds the line as the '
+                  'game wrote it.',
+                  schema({'rule': {'type': 'string'}, 'last': {'type': 'integer'}, 'raw': {'type': 'boolean'}})),
     'run_js': ('run_js', 60, 'Advanced (only when the user allows advanced tools): run JavaScript in the editor\'s page '
                '(an async function body; `return` a JSON value). window.__editor is the editor, window.__story the Story. '
                'For what no other tool does. Bake animations with window.__studio.kit.bakeOn(rig, model, animation), '
@@ -146,7 +207,11 @@ TOOL_KINDS = dict(editor_state='read', list_maps='read', open_map='destroy', fin
                   select_objects='edit', place_object='edit', move_object='edit', set_properties='edit',
                   delete_objects='destroy', undo='edit', redo='edit', save='destroy', rebuild='destroy', view='read',
                   story_list='read', story_get='read', story_write='destroy', story_play='read', run_js='destroy',
-                  project_api='destroy', find_classes='read', find_textures='read', draw='edit', batch='destroy', place_picture='edit')
+                  project_api='destroy', find_classes='read', find_textures='read', draw='edit', batch='destroy', place_picture='edit',
+                  logic_read='read', logic_offer='read', logic_check='read', logic_try='read', logic_proposal='read',
+                  logic_why='read', logic_log='read',
+                  logic_patterns='edit',     # list only reads; place changes the map like place_object (undoable)
+                  logic_propose='edit')      # a proposal changes nothing until the user accepts it in the editor
 
 
 class EditorUnavailable(RuntimeError):

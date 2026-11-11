@@ -63,7 +63,7 @@ test('Y starts it at the pointer, not with Ctrl, Alt or while typing; the shortc
 test('a change, Undo or Redo, Save, a map opened or closed: a Texture Slip ends first', async () => {
   const ended = [], textureSlip = { cancel: () => ended.push('slip ends') };
   // a change (pushUndo): before its step is kept
-  const steps = vm.createContext({ textureSlip, buildJob: null, edits: {}, recordStep: () => ended.push('step'), undoHistory: {}, historyChanged() {} });
+  const steps = vm.createContext({ textureSlip, logicSwapped: false, buildJob: null, edits: {}, recordStep: () => ended.push('step'), undoHistory: {}, historyChanged() {} });
   vm.runInContext(body('pushUndo'), steps);
   steps.pushUndo('Move');
   assert.deepEqual(ended, ['slip ends', 'step']);
@@ -327,11 +327,11 @@ test('Undo, Redo and a History panel jump give the Texture Slip what the slips k
   const said = [];
   let held = null;
   const textureSlip = { cancel() {}, get held() { return held; }, hold: (x) => { held = x; said.push(x?.at ?? 'none'); } };
-  const c = vm.createContext({ undoHistory: createHistory(), recordStep, dropStep, travelStep, stepsTo, currentName, textureSlip, buildJob: null,
+  const c = vm.createContext({ undoHistory: createHistory(), recordStep, dropStep, travelStep, stepsTo, currentName, textureSlip, logicSwapped: false, buildJob: null,
     edits: { at: 0 }, status() {}, waitsForRebuild: () => false, rebuildProxies() {}, setDirty() {}, showDetails() {}, logicBox: { style: {} },
     renderLogic() {}, historyPanel: null, script: 'fixture', gameView: null, tc: { dragging: false }, inspectorDrag: null, propertySlider: null,
     mapPose: { active: false } });
-  vm.runInContext([body('pushUndo'), body('dropUndo'), oneLine('function afterHistory()'), body('travel'), body('historyStep'), body('jumpHistory'),
+  vm.runInContext([body('pushUndo'), body('dropUndo'), body('afterHistory'), body('travel'), body('historyStep'), body('jumpHistory'),
     oneLine('function historyChanged()')].join('\n'), c);
   c.pushUndo('Slip the texture'); c.edits = { at: 1 }; held = { at: 'A' };
   c.pushUndo('Pan the texture'); c.edits = { at: 2 };
@@ -367,12 +367,12 @@ test('Revert all changes: what the Texture Slip\'s slips know goes with the edit
   const built = { surfaces: [{ op: 'pan', args: [2, 0], targets: [{ brush: 'Brush2', poly: 3 }] }] };
   let held = known;
   const textureSlip = { cancel() {}, get held() { return held; }, hold: (x) => { held = x ?? null; } };
-  const c = vm.createContext({ textureSlip, buildJob: { edits: JSON.stringify(built), map: 'Lab' }, edits: JSON.parse(JSON.stringify(built)),
+  const c = vm.createContext({ textureSlip, logicSwapped: false, buildJob: { edits: JSON.stringify(built), map: 'Lab' }, edits: JSON.parse(JSON.stringify(built)),
     undoHistory: createHistory(), recordStep, travelStep, historyChanged() {}, rebuildProxies() {}, showDetails() {}, log() {}, waitsForRebuild: () => false,
     forgetGoneDefault() {}, EMPTY: () => ({ surfaces: [] }), withPublishedLayout: (e) => e, publishedLayout: null, confirm: () => true, editRevision: 0,
     dirty: false, showChanges() {}, buildStructList() {}, buildHierarchy() {}, logicChanged() {}, status() {}, mapName: 'Lab', logicBox: { style: {} },
     renderLogic() {} });
-  vm.runInContext([body('pushUndo'), body('keepBuiltEdits'), oneLine('function setDirty()'), oneLine('function afterHistory()'), body('travel'),
+  vm.runInContext([body('pushUndo'), body('keepBuiltEdits'), oneLine('function setDirty()'), body('afterHistory'), body('travel'),
     body('historyStep'), `const r = {};\n${between('if (r) r.onclick = ', '\n')}\nthis.revert = r.onclick;`].join('\n'), c);
   c.revert();
   assert.deepEqual([JSON.parse(JSON.stringify(c.edits)), c.undoHistory.undo.length], [built, 0], 'while a Rebuild runs');
@@ -402,6 +402,9 @@ const WHOLESALE = [
   { in: 'travel', code: 'edits = JSON.parse(step.state); textureSlip?.hold?.(step.page);', slip: 'hold: those the step held' },
   { in: 'showChanges', code: 'edits = Object.assign(EMPTY(), withPublishedLayout({}, publishedLayout)); if (!buildJob) textureSlip?.hold?.(null);',
     slip: 'Revert all changes: none, not while a Rebuild runs (setDirty puts the edits back: keepBuiltEdits)' },
+  { in: 'logicWithEdits', code: 'edits = e; logicSwapped = true;',
+    slip: 'nothing: the AI assistant\'s proposal is read with its own edits for a moment, in which no change is made (pushUndo refuses one)' },
+  { in: 'logicWithEdits', code: 'finally { edits = real; logicSwapped = false; }', slip: 'nothing: the edits as they were, the same object, put back' },
   { in: 'keepBuiltEdits', code: 'edits = JSON.parse(buildJob.edits);',
     slip: 'nothing: a change made while a Rebuild runs made no step (pushUndo) and no slip starts then (slipWaits), so the edits it puts back go with what the slips know as it is' },
 ];

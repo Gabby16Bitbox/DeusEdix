@@ -197,7 +197,10 @@ class ProjectsTests(unittest.TestCase):
 
     def test_incomplete_local_application_cannot_be_opened(self):
         meta=self.manager.create('Incomplete');root=Path(meta['path'])
-        (root/'tools/mapkit/editor/static/app.js').write_text('// user code')
+        rel='tools/mapkit/editor/static/app.js'
+        (root/rel).write_text('// user code')
+        # A local edit alone is merged now; the conflict needs the update to change the same lines.
+        self.write(rel,'// canonical update')
         (root/'tools/mapkit/editor/server.py').unlink()
         with self.assertRaises(projects.ProjectConflictError):
             self.manager.provision(meta['id'],preserve_local=True)

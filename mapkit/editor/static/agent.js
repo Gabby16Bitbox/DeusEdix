@@ -9,6 +9,8 @@ import { DRAW_DEFAULTS } from './draw-tools.js';
 import { createPlay } from './story-sim.js';
 
 const E = () => window.__editor, K = () => window.__editor?.agentKit;
+// the map's level logic (app.js logicKit: the rules, what objects can do, Try it, the proposals)
+function L() { need(); return E().logicKit; }
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -368,6 +370,21 @@ const OPS = {
     }
     return { said, end: 'Stopped after 500 steps', state: now() };
   },
+  // the level logic: read (with the ids), what an object offers, the problems, a run in the simulator, a proposal the
+  // user accepts or not in the Logic window (it changes nothing itself), and what became of it
+  async logic_read({ object = '', format = 'both' }) { return L().read({ object, format }); },
+  async logic_offer({ object = '' }) { return L().offer({ object }); },
+  async logic_check() { return L().check(); },
+  async logic_try({ fire = [], seconds = 5, start = {}, from = '' }) { return L().tryRun({ fire, seconds, start, from }); },
+  async logic_propose({ ops, summary = '', fire, seconds = 5 }) { needEditable(); return L().propose({ ops, summary, fire, seconds }); },
+  logic_proposal() { return L().status(); },
+  async logic_why({ rule = '', object = '' }) { return L().why({ rule, object }); },
+  async logic_log({ rule = '', last = 200, raw = false }) { return L().log({ rule, last, raw }); },
+  // the project's patterns of rules (P8): listed, or one placed in the open map now (one undoable step)
+  async logic_patterns({ action = 'list', pattern = '', slots = {} }) {
+    if (action === 'place') needEditable();
+    return L().patterns({ action, pattern, slots });
+  },
   async run_js({ code }) { return await new AsyncFunction(code)(); },
 };
 
@@ -430,15 +447,20 @@ function working(op) {
   else badgeTimer = setTimeout(() => { badge.hidden = true; }, 1500);
 }
 
+// this load of the page: the server hands calls only to the newest load that still asks, never to the long poll a
+// reloaded page left behind (agent_bridge.Calls)
+const PAGE = (crypto.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`).replace(/[^\w-]/g, '');
+
 async function loop() {
   for (;;) {
     let job;
     try {
-      const r = await fetch('/api/agent/next');
+      const r = await fetch(`/api/agent/next?page=${PAGE}`);
       if (r.status === 409) return;             // not a project's page, or its project was closed
       job = r.ok ? await r.json() : null;
     } catch (_) { job = null; }
     if (!job || job.off) { await sleep(job?.off ? 4000 : 10000); continue; }
+    if (job.superseded) { await sleep(3000); continue; }    // a newer load of this page (another tab) takes the calls
     if (!job.id) continue;
     const answer = await run(job);
     let body;

@@ -386,7 +386,11 @@ test('Duplicate keeps a copy beside its original in its folder, not in the folde
 test('unsupported members cannot silently turn a mixed Duplicate into only a light',()=>{
  const {c,piece,history,logs}=setup(),st=piece('story');st.copyable=false;
  const light=c.makeProxy({name:'Light28',cls:'Light',kind:'light',loc:[0,0,0],rot:[0,0,0]},'map');c.selection=[st.obj,light];c.selected=c.groupPivot;
- assert.equal(c.duplicateSelected(),false);assert.equal(history.length,0);assert.equal(c.edits.added.length,0);assert.match(logs[0][0],/Nothing duplicated/);
+ // Such a piece is copied by the map's own copy (duplicateNativePieces, tests/test_native_piece_duplicate.mjs), handed the
+ // whole selection: the light is not duplicated alone meanwhile.
+ const handed=[];c.duplicateNativePieces=(list)=>{handed.push(...list);return false;};
+ assert.equal(c.duplicateSelected(),false);assert.equal(history.length,0);assert.equal(c.edits.added.length,0);
+ assert.deepEqual(handed,[st.obj,light]);
 });
 
 test('marquee includes independent pieces as well as actors',()=>{

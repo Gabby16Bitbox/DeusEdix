@@ -1,0 +1,115 @@
+{
+ "version": 1,
+ "name": "Hack to open",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:12:43",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{keypad}",
+     "when": "code",
+     "once": false,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "open",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Access granted.",
+       "id": "R1_a3"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{keypad}",
+     "when": "wrongcode",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Wrong code.",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [],
+   "slots": [
+    {
+     "id": "keypad",
+     "words": "the keypad",
+     "family": "keypad",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{keypad}|out:code",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a2"
+     ]
+    },
+    {
+     "key": "in:{keypad}|out:wrongcode",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

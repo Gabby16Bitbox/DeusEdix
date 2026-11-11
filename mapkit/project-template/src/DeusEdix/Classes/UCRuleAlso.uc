@@ -13,7 +13,11 @@ function RunRule(optional Actor By)
 
 	R = UCRule(ActorCalled(Main));
 	if (R != None)
+	{
+		R.HeardValue = HeardValue;       // an output that came with a number: Value
+		HeardValue = 0;
 		R.Start(By, Source, When);
+	}
 	else
 		Report("hook", Main $ "|missing");
 }

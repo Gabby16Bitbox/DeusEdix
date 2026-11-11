@@ -3,9 +3,9 @@
   "title": "At most 8 outputs wait; the same output again finds its rule running",
   "behaviour": "A ninth output said while the map loads is lost (\"full\"). When the eight waiting ones go, the first runs the rule and the next seven find it still running: it has not had its tick yet.",
   "derivedFrom": [
-    {"file": "UCScript.uc", "lines": [55, 78], "has": "final function Output(string OutputName)"},
-    {"file": "UCScript.uc", "lines": [221, 232], "has": "final function StartScript()"},
-    {"file": "UCLink.uc", "lines": [356, 359], "has": "if (IsInState('Running'))"}
+    {"file": "UCScript.uc", "lines": [62, 85], "has": "final function Output(string OutputName)"},
+    {"file": "UCScript.uc", "lines": [323, 334], "has": "final function StartScript()"},
+    {"file": "UCLink.uc", "lines": [381, 384], "has": "if (IsInState('Running'))"}
   ],
   "assumes": ["A1", "A6", "A9"],
   "map": "LogicFixtures",

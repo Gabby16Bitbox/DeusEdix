@@ -3,8 +3,8 @@
   "title": "Condition: a state is Yes or No",
   "behaviour": "A state (flag) that was never set reads No.",
   "derivedFrom": [
-    {"file": "UCEditorStory.uc", "lines": [864, 865], "has": "if (kind == \"flag\")"},
-    {"file": "UCEditorStory.uc", "lines": [36, 42], "has": "function bool GetF(name f)"}
+    {"file": "UCEditorStory.uc", "lines": [996, 997], "has": "if (kind == \"flag\")"},
+    {"file": "UCEditorStory.uc", "lines": [38, 44], "has": "function bool GetF(name f)"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

@@ -70,7 +70,7 @@ function handlePage() {
   const T = (a) => new THREE.Vector3(a[0], a[2], a[1]);
   const lamp = { name: 'Light1', cls: 'Light', props: { LightRadius: '8' } }, calls = [];
   const box = { name: 'UCEditBox0', lo: [0, 0, 0], hi: [128, 128, 128] };
-  const c = vm.createContext({ THREE, T, edits: { props: { Light1: { Tag: 'Lamp' } }, boxes: [box] }, buildJob: null, textureSlip: null,
+  const c = vm.createContext({ THREE, T, edits: { props: { Light1: { Tag: 'Lamp' } }, boxes: [box] }, buildJob: null, logicSwapped: false, textureSlip: null,
     undoHistory: { undo: [{ state: 'earlier', label: 'Earlier' }], redo: [{ state: 'undone', label: 'Undone' }], trimmed: false },
     recordStep, namedStep, historyChanged() {}, objectLabel: (p) => [p.userData.actor?.name ?? p.userData.box.name, ''],
     requireUnlocked: () => true, putProp: (a, k, text) => { (c.edits.props[a.name] ||= {})[k] = text; }, refreshLight() {}, showSoundRange() {}, wake() {},

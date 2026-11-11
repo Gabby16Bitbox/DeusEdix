@@ -5,7 +5,8 @@ import vm from 'node:vm';
 
 const queueSource = await readFile(new URL('../editor/static/save-state.js', import.meta.url), 'utf8');
 const {createSaveQueue} = await import('data:text/javascript;base64,' + Buffer.from(queueSource).toString('base64'));
-const storySource = (await readFile(new URL('../editor/static/story.js', import.meta.url), 'utf8')).replace(/^import .*;\r?\n/gm, '');
+const storySource = (await readFile(new URL('../editor/static/story.js', import.meta.url), 'utf8')).replace(/^import .*;\r?\n/gm, '')
+  .replaceAll('import.meta.url', "'http://editor.test/static/story.js'");   // a classic script cannot read import.meta
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -64,7 +65,9 @@ function storyHarness() {
   const document = {createElement: element, querySelector: getElement, querySelectorAll: () => [],
     getElementById: id => getElement('#' + id), head: element(), body: element()};
   const context = vm.createContext({window, document, createSaveQueue,
-    configureStateEditor() {}, conditionProblems: () => [],
+    URL, configureStateEditor() {}, conditionProblems: () => [],
+    DEFAULT_STYLE: Object.freeze({enabled: false, font: 'terminal', size: 'normal', background: null, text: null}),
+    mountInfoLinkStyle: () => ({set() {}, value: () => null}),
     fetch(url, options) {
       const gate = deferred();
       requests.push({url, body: JSON.parse(options.body), gate});

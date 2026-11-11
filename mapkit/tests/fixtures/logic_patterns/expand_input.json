@@ -1,0 +1,32 @@
+{
+ "about": "Two placed patterns (P8 slice 3): P1 of 'gate-network' v2 with all its slots filled, P3 of the same version with one slot empty, P2 of a version the project no longer has, and a broken instance. tests/test_logicpatterns.py (editor/logicpatterns.py expand) and tests/test_logic_patterns.mjs (editor/static/logic-patterns.js expandInstances) both write it out as expand_expected.json says.",
+ "edits": {
+  "links": [{"id": "L1", "src": "Btn09", "when": "used", "do": [{"verb": "message", "a": "own rule"}]}],
+  "logic": {
+   "groups": [{"id": "G1", "name": "Map's own", "members": ["Lamp1"]}],
+   "instances": [
+    {"id": "P1", "pattern": "gate-network", "v": 2, "name": "North gates", "slots": {"button": "Btn01", "door": "Gate1", "door2": "Gate2", "all_of_these_block": "UCEdit40"}},
+    {"id": "P2", "pattern": "gone", "v": 1, "slots": {}},
+    {"id": "P3", "pattern": "gate-network", "v": 2, "slots": {"button": "Btn05", "all_of_these_block": "UCEdit41"}},
+    {"id": "bad", "pattern": "gate-network", "v": 2},
+    {"id": "P4", "pattern": "../x", "v": 1}
+   ]
+  },
+  "logicPatterns": {
+   "gate-network@2": {
+    "v": 2, "name": "Gate network",
+    "rules": [
+     {"id": "R1", "src": "{button}", "when": "used", "do": [{"id": "R1_a1", "verb": "input", "target": "{all_of_these_block}", "a": "Add"}]},
+     {"id": "R2", "src": "{all_of_these_block}", "when": "output", "port": "Done", "do": [{"id": "R2_a1", "verb": "unlock", "target": "", "group": "B1"}, {"id": "a2", "verb": "message", "a": "{not_a_slot}"}]},
+     {"id": "R3", "otherwiseOf": "R2", "src": "{all_of_these_block}", "when": "output", "port": "Done", "do": [{"verb": "message", "a": "no"}]}
+    ],
+    "pieces": [{"kind": "groups", "item": {"id": "B1", "name": "Gates", "members": ["{door}", "{door2}"]}}, {"kind": "nonsense", "item": {"id": "B2"}}],
+    "objects": [{"slot": "all_of_these_block", "cls": "UCBAllOf", "props": {}, "at": [0, 0, 0]}],
+    "slots": [{"id": "button", "words": "the button", "family": "object", "carried": false},
+     {"id": "all_of_these_block", "words": "the All of these block", "family": "allof", "carried": true},
+     {"id": "door", "words": "the door", "family": "door", "carried": false}, {"id": "door2", "words": "the door", "family": "door", "carried": false}],
+    "ports": [], "states": []
+   }
+  }
+ }
+}

@@ -300,7 +300,10 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   selection (see *Properties and connections*).
 - **History** (a tab next to the Inspector; **Window > History** or `Ctrl+U`), as Unity's Undo History: every
   change of this map by its name (*Move 3 objects*, *Light brightness of Light4*, *Apply texture Wall_A*, *Fill
-  AI paths*), the newest at the top and **Map opened** at the bottom. The step the map is at is marked, the steps
+  AI paths*), the newest at the top and **Map opened** at the bottom. The changes of the map's **Story** are steps
+  of the same list, in the order you made them (*Add the dialogue "Gate talk"*, *Change the InfoLink "Call"*,
+  *Arrange the graph of "Gate talk"*): `Ctrl+Z` takes back the last change, of the map or of the Story, and each
+  step puts back only what it changed. Writing in one field of the Story is one step until you leave the field. The step the map is at is marked, the steps
   Redo would bring back are dimmed. Click a step to go back (or forward) to it: the map is drawn once, however
   many steps that takes, and the status bar says how many; `Up` / `Down` move in the list, `Enter` goes (the
   focus stays on the step gone to). **Edit > Undo** and **Redo** say the step they take (*Undo Move 3 objects*),
@@ -535,7 +538,7 @@ Click an object to select it. Then:
 | `Ctrl`+wheel over the Browser's tiles (or the texture picker's) | the size of the tiles: a list, small, medium or large, as the slider at the top right of each; the tile under the pointer stays under it (see *The screen*) |
 | `Delete` (or the bin icon) | delete |
 | `Ctrl+Z` / `Ctrl+Y` | undo / redo (also `Ctrl+Shift+Z`): a texture applied from the Texture Editor is one step, Ctrl+Z takes it away and Ctrl+Y puts it back; the status bar says what was undone, Edit > Undo / Redo the step they take (*Undo Move 3 objects*) |
-| `Ctrl+U` (Window > History) | the History panel: every change of this map by name, newest first; a click goes back (or forward) to that step (see *The screen*) |
+| `Ctrl+U` (Window > History) | the History panel: every change of this map and of its Story by name, newest first; a click goes back (or forward) to that step (see *The screen*) |
 | `Shift+Space` (Window > Maximize panel) | the docked panel under the pointer, or the 3D view, fills the editor; again, or `Esc`, the layout is back (see *The screen*) |
 | right click > **Properties…** | a floating Inspector of that object, beside the panel, that stays on it whatever you select; up to 3 (see *Properties and connections*) |
 | `G` | grid snap on/off; its steps are in the 3D view's toolbar |
@@ -1556,7 +1559,7 @@ No Tag or Event to write: an object's rules say in plain words what happens when
   it*). **+ When it...** adds a rule on something that can happen to it; **Edit logic…** and **Graph** open the
   **Logic window** on it. Click a line to open that rule.
 - **The Logic window** (Window > Logic, a tab at the bottom): **List** edits the rules, **Graph** shows them as a
-  graph, **Read** as sentences, **Try it** plays them without the game. The index at its side lists the objects
+  graph, **Read** as sentences, **Phases** shows the phases, **Try it** plays them without the game. The index at its side lists the objects
   with rules (click one to see or edit its rules: it is selected in the map too), the **states and counters** (click
   one: the rules that set it and read it), and what **To check**.
 
@@ -1574,27 +1577,71 @@ A rule reads top to bottom, numbered like a recipe:
   first time.
 - **The map**'s own rules (the top of the Logic window's list): *when the map starts*, *when the player presses a
   key*, and with **+ When...** what happens in the world: *a condition becomes true*, *a state or a counter
-  changes*, *the player's health falls low*, *an event of the game happens* (its Tag).
+  changes*, *the player's health falls low*, *an event of the game happens* (its Tag). Its **The player** part makes
+  a rule on the player's own: *the player's energy falls below…*, *the player's credits / skill points reach…*, *the
+  player gets / turns on / turns off an augmentation…*, *an augmentation reaches a level…*, *the player gets
+  something of a kind…* (any weapon, med kits...), *the player enters water*, *the player enters a zone…* (a pool of
+  the map is one). Each is *a condition becomes true* with that condition ready: change it in the rule (*The player
+  is not in* a zone: when he leaves it). What already holds when the map starts does not set it off.
+  Its **The world** part: *a saved game is loaded*, *the player comes back to the map* (from another map: *the map
+  starts* is only the first visit), *a goal is completed* (one by its name, or any), *a noise near the player* (a
+  gunshot, a loud noise: a shot, an explosion, something breaking; an alarm; a cry for help; within so many units of
+  the player, or wherever the player hears it), *a character or a body appears* (one sent in, or the body of one
+  killed or knocked out). Its steps can act on *whoever set it off*: who made the noise, who appeared. These are
+  rules of their own, never an **Or when...**.
 - **Check**: conditions, all of which must hold when it happens, or it does nothing that time (it is not used up,
   even with *once*): a state (a flag) is yes or no, the player carries an item, a character is alive, the player's
-  skill or credits, a counter compared with a number. They are checked the moment it happens, before any rule acts.
-  With two or more you can choose *go on if any of these holds*.
+  skill or credits, a counter compared with a number (or another counter, or a formula), the player is (or is not) within a distance of a point, the
+  player's health, energy or skill points to spend, an augmentation (has it, has it turned on, has it at a level or
+  more), the player is in water or in a zone, the player carries so many things of a kind (a kind counts every
+  class under it: *any weapon*; a stack of med kits counts its copies). They
+  are checked the moment it happens, before any rule acts. With two or more you can choose *go on if any of these
+  holds*.
+- **The player is near a point**: X, Y, Z and the distance in units (256 is about four steps). **Selected object**
+  puts the point where the selected object is, **In front of the camera** in front of the view; a new one starts in
+  front of the camera. As *a condition becomes true* (the map's **+ When...**) it starts a rule when the player comes
+  there (*When the player comes within 256 units of the point by Door2*), or when he goes further away with *The
+  player is not*. The point is said by the object nearest to it, when there is one.
 - **The steps**, in the order they run. **+ Add a step** offers them by kind:
   - **An object**: click it in the 3D view or the Hierarchy and choose what it does (open a door, a character
     walks somewhere, sits on a chair or attacks the player, a light turns off...); or objects within a radius, or
     objects with a scripting tag;
-  - **Messages and goals**, **States and counters**, **Sound and effects** (shake, fade, a flash, music), **The
-    player** (skill points, credits, health, give or take an item, move them, take them to another map, their
-    weapon plays a first-person moment), **The world** (send reinforcements where the player does not see them, a
-    hurting zone, autosave, end the game, stop another rule);
-  - **Flow**: **Wait** (seconds), **Wait until** (a character has arrived, or a condition holds, at most so many
-    seconds), **If…** and **If… otherwise…**.
+  - **Messages and goals**, **The Story** (start one of the map's dialogues, play one of its InfoLinks), **States
+    and counters**, **Sound and effects** (shake, fade, a flash, music), **The player** (skill points, credits, health, energy, an augmentation: give it, raise it one level, set its level, turn it on or off; give or take an item, move them, take them to another map, their
+    weapon plays a first-person moment), **The world** (send reinforcements where the player does not see them, two
+    factions turn hostile, neutral or friendly to each other, one way or both, a hurting zone, autosave, end the game,
+    stop another rule);
+  - **Flow**: **Wait** (seconds), **Wait until** (a character has arrived, a dialogue has ended, an InfoLink has
+    been heard, or a condition holds, at most so many seconds), **If…** and **If… otherwise…**.
 - **If** has its own conditions (all of them or any of them); the steps under it run only when they hold, the ones
   under **Otherwise** when they do not. **+ Add a step here** at the end of each part adds inside it; **↑ ↓** move a
   step (past an If or an Otherwise: into or out of it), **✕** removes it (removing an If keeps the steps inside it).
 - **if…** on a step: that step only when its own conditions hold (checked just before it); the others go on.
 - An action on a character or an object can act on **whoever set it off** or **the object it happened to** instead
   of one you click: one rule for several buttons, each one hiding itself.
+- **Set a property** (Advanced level only) changes one of a few safe properties of the object: a character's health,
+  running speed, aim, reaction time or invincible; a door's lock and door strength, pickable, breakable, usable; an
+  object's or a crate's hit points, invincible, pushable; a light's radius; anything's size and glow. The value is a
+  number, or yes / no. An invincible character keeps its full health. The logic log says what the game took.
+- **Formulas**: a counter's change, the skill points, credits, health and energy given or taken, and the number a
+  Check compares with can be worked out from counters. **ƒx** next to the number turns it into a formula: *Alarms + 1*,
+  *Guards * 2 - Dead*, *(Coins + 5) / 2*, or just another counter's name (*the counter Alarms is at least Guards*).
+  Whole numbers only: + - * / % (what is left over) and brackets; a division by 0 gives 0, a counter never set is 0.
+  The game works it out when the step runs or the condition is checked, and so does **Try it**; what is wrong with a
+  formula is said under its condition and in **Check map**. *Value* in a formula is the number the script's output
+  that started the rule came with (*Coins + Value*: see Scripts); with any other cause it is 0.
+- **Start a dialogue** and **Play an InfoLink** choose one of the map's Story by its title (write it in **Story**
+  first). The dialogue keeps its own rules: what it requires must hold, one that plays *once* does not start a
+  second time, and none starts while the player is already talking. An InfoLink that plays once is not played again
+  once heard. When one does not happen, the Console and **Why not?** say why. In the **Graph** the wire goes into
+  the dialogue's or the InfoLink's own node.
+- The other way round, **+ When...** › *a dialogue has ended* or *an InfoLink has been heard* starts a rule when the
+  Story gets there: when the dialogue is over (each time it plays, whoever started it: a rule, the player talking to
+  the character, coming near; not one cut short), when the InfoLink's last line is over. In the **Graph** the wire
+  comes out of the dialogue's **Ended** or the InfoLink's **Heard**. In **Try it** the dialogue plays: see below.
+- Inside a rule, **Wait until** › *a dialogue has ended* or *an InfoLink has been heard* holds the next steps until
+  then: *Start the dialogue "Gate talk"*, *Wait until the dialogue "Gate talk" has ended*, *open the gate*. Only an
+  end after the wait began counts; with **at most** the rule goes on anyway when the time is up.
 - **If not** (under a rule with conditions): *do other steps* gives the steps for when the Check fails.
 - **More options**:
   - **Or when...**: other things that start the same rule (another object's event, or one of the world's);
@@ -1609,6 +1656,105 @@ A rule reads top to bottom, numbered like a recipe:
 A rule that only waits between its steps runs in every version of the game classes; one with **If**, **Wait
 until** or **More options** needs this version's (Rebuild and install as usual: projects get them by themselves).
 
+**Map > Classic rules** builds every rule of the project the way it was built before **If not** and **More
+options** came, as a way back for one release if a map behaves differently. While it is on, a rule that uses an
+**If not** or **More options** stops the Rebuild and says which rule and what to take away. The maps take it at
+their next Rebuild.
+
+### Logic blocks and signals
+
+Some things need a rule to remember: *when all three levers are down*, *only while the power is on*, *the first time
+this, the second time that*. **Objects > Logic** has small blocks for them. Place one anywhere (the player never sees
+it), then call it from a rule's steps (*tick it off*, *go through it*, *pick the next way*) and give it rules of its
+own on what it says (*all of them have happened*, *lets it through*, *picks way 2*).
+
+- **All of these**: each object that ticks it off counts once; when they all have, it says *all of them have
+  happened*. A lever's *turned off* rule can *take the tick back* (it then says *one is taken back*), and *start it
+  again* empties it. **How many**: how many must tick it off (0: all of those whose rules do). **Starts again when
+  done**: ready for another round at once.
+- **Gate**: what goes through it goes on (*lets it through*) only while it is open; closed, it *stops it*. Rules
+  open it, close it or turn it round. **Starts closed** in the Inspector.
+- **Switch**: each *pick the next way* picks one of its ways (2 to 6, **Ways**). **Picks**: *In turn* (1, 2, 3, then
+  1 again), *In order* (1 to the last once, then *has no more ways*), *At random* (**How likely**: one number per
+  way, "2,1,1"). **Flip-flop** is a switch of two ways, one then the other.
+- **Phases**: the phases of a mission, one after the other (**Phases**: "Arrive, Alarm, Escape"). Rules move it on
+  (*go to the next phase*, *go to the phase 'Escape'*, *go back a phase*) and run when it does (*it enters the phase
+  'Alarm'*, *it leaves the phase 'Alarm'*, *the phase changes*). The phase is kept as states the conditions and the
+  dialogues read: with **Name** *Phase*, *Phase_Alarm* is Yes during Alarm, and the counter *Phase* is its number. It
+  goes on in the next map and after a load. A space or an accent in a phase becomes _ in those names.
+  A rule can work **only in some phases**: in its **Check**, choose *only in phases of …* and tick them (*Alarm*,
+  *Escape*). In the other phases it does nothing, not even its Otherwise; before the Phases object has started, its
+  first phase counts. The Read view lists the rules under their phases (*While Raid is Alarm*). A rule that holds
+  **while** and is kept to a phase is still undone in any phase.
+  **Mission phases** are phases shared by several maps of the project. Declare them once in **Map > Mission
+  phases...** (a name, *Raid*, and its phases, *Calm, Alarm, Escape*), then in each map choose them in the Phases
+  object's **Mission phases** (its first setting). Its **Phases** and **Name** become the set's and are read only
+  there. Every map then reads and moves the same phase, so a map the player reaches during the Alarm starts in Alarm.
+  When a set changes, the maps that use it take the change at their next Rebuild. *(this map only)* unlinks the
+  object, which keeps the phases it has.
+  A door, a bridge, a lift or a platform can get phases of its own: right click it > **Give it phases…**. A Phases
+  object appears next to it with two phases (a door: *Closed*, *Open*; a bridge: *Raised*, *Lowered*), and two rules
+  of the door move it: *it has opened* goes to the second, *it starts closing* to the first. Conditions and dialogues
+  can then ask *Gate1_Open* (or *Gate1 is Open* in a rule's Check). If it has them already, the menu says
+  **Its phases…** and shows them.
+- **At least N of these states**: it watches some states (**States**: "Valve1, Valve2, !Broken": *!Broken* counts
+  while Broken is No) and says *enough of them hold* when **How many** of them do (0: all), *no longer enough hold*
+  when they stop. **Keeps the state**: the name of a state it keeps Yes while enough hold, for conditions and
+  dialogues.
+- **First of**: a race. Whichever of its 2 to 6 ways comes first (*1 comes*, *2 comes*) says *1 came first*; the
+  others are not heard until *start the race again*. With **Time limit**, the clock starts at *start the clock* (or
+  with the map: **The clock starts with the map**) and, if it runs out first, says *the time ran out first*.
+- **Counter**: a number the rules change (*add one*, *take one away*, *set it back to 0*). It says *the number
+  changes* every time, *it gets to its goal* when it reaches **Goal** (3; 0: it only counts) and *it goes back under
+  its goal* when it drops below it again. The rules that run then already see the new number. **Counter name** is the
+  counter that keeps the number (empty: the object's name): conditions and dialogues read it, it goes on in the next
+  map, and a step *Change a counter* on that counter moves the Counter object too. **Starts again at its goal** sets
+  it back to 0 each time it gets there (*every 3 guards down…*). A rule on *it gets to its goal* can hold **while**:
+  it is undone when the number goes back under the goal.
+- **Several objects at once**: select them, right-click, and choose *When all of these…*, *When any of these…* or
+  *When at least N of these…*: the rules are made for you (an All of these block in the middle of them for *all* and
+  *at least N*) and the Logic window opens on the one to fill in.
+- **Groups**: select some objects, right-click, **Make a group…** and give it a name (*Lab doors*). Groups are listed
+  in the Hierarchy under **Groups**: a click selects their objects; the right click adds the selection, takes it out,
+  renames or deletes the group, or makes a rule *When any of them…* / *When all of them…*. In a rule, **+ Add a
+  step** > *A group…* makes all of them do something at once: each one that can does it (*Turn off* reaches only
+  the lights of the group, *Open* only its doors), and the step shows how many can. Change the group later and every
+  rule that uses it follows.
+  A step on *Objects with a tag…* or *Objects within a radius…* can become a group too: press **Name this group…**
+  under it and give it a name.
+  - A group by tag is everything with that tag when the step runs. Every step of the map on the same tag uses the
+    group, and no rule can start on it.
+  - A group by radius keeps the objects it found, plus the newcomers if *Include newcomers* was ticked. Its right
+    click offers **Keep the objects inside the radius now**.
+  - Point at a group in the Hierarchy and its objects stand out in the 3D view.
+  - A group of a kind or of a faction: right-click a character, **Make a group of every UNATCO Trooper…** or **Make a
+    group of the faction UNATCO…**. It is every character of that kind (or faction) the game finds while it plays,
+    those that come later too. Its right click > *When any of them…* makes a rule that starts when one of them is
+    killed, knocked out, hurt (or falls below a share of their health), sees the player, turns hostile to the player,
+    or finds a body; in its steps, *the object it happened to* is that character. A step on such a group reaches each
+    one still standing. *Sees the player*, *turns hostile* and *finds a body* also work on a single character.
+- **While**: tick **while** next to *once* and the rule holds only while what set it off lasts: *While the player is
+  in Zone1*, *While the door is open*, *While Power is Yes*, *While the phases are in Alarm*. When it stops (the
+  player walks out, the door starts closing, the condition no longer holds, the phase is left) its steps are undone
+  in the opposite order: opened doors close, lights go back, locks go back, a state goes back to No, and steps still
+  waiting are called off. A message or a sound stays said; "To check" names the steps that cannot be undone. A
+  *while* on a condition is right from the start: if Power is already Yes when the map starts, the doors are open.
+  The box shows only when something can end what sets the rule off (not on *the player uses it*).
+- **A state that holds while a condition does**: on the map's own rules, **+ When...** > *a state that is Yes while
+  a condition holds…*, give it a name (*Ready*) and choose the condition in the rule (*the counter Hits is at least
+  2*). The state is Yes while the condition holds and No otherwise, and conditions and dialogues read it like any
+  other.
+- **Signals**: a step *Send a signal* (give it a name, such as *Alarm*) sets off every rule that waits for it: on the
+  map's own rules, **+ When...** > *a signal is sent*. Rules far apart talk without a wire, and several can wait for
+  the same signal. The names already used are offered as you type. In the Logic window's **Graph** each signal is a
+  small node of its own, with dashed wires from the rules that send it and to the rules that wait for it; the list at
+  the side has a **Signals** part (*Alarm 1 → 2*: sent by one rule, waited for by two), and a signal nobody sends, or
+  nobody waits for, is in **To check**. The **Story** sends signals too: a dialogue's step *Send a signal* (at that
+  point of the conversation), and the same action in an event, at a dialogue's end or when an InfoLink plays.
+
+What a block holds shows in the Console while Play runs (*All1: 2 of 3 done*, *Switch1: picked way 2*, *Race1: the clock runs: 10 s*), and in
+**Try it**, which plays the blocks as the game does.
+
 ### Seeing it and trying it
 
 - **In the 3D view**: **View > Logic wires** draws the rules as arcs between the objects, flowing from what starts a
@@ -1617,12 +1763,127 @@ until** or **More options** needs this version's (Rebuild and install as usual: 
   reads it. Click a wire's label to open its rule.
 - **Graph**: each object with only what it uses, each rule a card titled by what starts it, its conditions, its
   steps (If and Otherwise as heads, the steps inside indented), a simple rule as a labelled wire, and a dotted wire
-  from the rule that sets a state to the rule that reads it. Double-click a card or an object to select it.
+  from the rule that sets a state to the rule that reads it. Double-click a card or an object (or press **Enter**
+  on it) to select it. Double-click a dialogue to open its Story Graph right there, in place of the rules: write
+  its lines, add steps and answers as in the Story panel (**Ctrl+Z** steps back), then **← Logic graph** goes back.
+  **Open in the Story panel** shows it there, with its other pages. An InfoLink or a Story event opens the Story
+  panel on it.
 - **Read**: the map's rules as sentences, object by object, and what to check.
+- **Phases**: each Phases object of the map as its phases from left to right, the first marked. Each phase shows
+  its state (*Raid_Alarm*), what brings the mission there (*Gate1 has opened*), what happens **When it starts** and
+  **When it ends**, and how many rules work only in it. The arrows between the phases and the list under them say
+  what moves the mission on (**Next phase**, **Back a phase**, **Back to the first phase**), and in which phases.
+  Click a rule to open it in the List; **+ When it starts…** adds a rule on that phase; **Its rules** selects the
+  Phases object.
 - **Try it**: the buttons on the left make things happen (the player uses the button, a wrong code is typed...);
   the clock goes on (+0.5 s, +5 s, Next); what only the game decides (a character arriving) is offered as a button
   after it can happen. **What happened** is the game's own log in words; **Why not?** says why a rule did not run.
   Try it runs the rules exactly as the game does, so what works there works in Play.
+  Under **State**, each of the player's own conditions the rules ask about (energy, an augmentation, in water...)
+  says whether it holds, with **Make it so** / **Make it not so** (the player starts as in a new game: full health
+  and energy, 5000 skill points, no augmentation). The world's own happenings the rules wait for (a saved game
+  loaded, a goal completed, a gunshot...) are buttons too.
+- **Dialogues in Try it**: a dialogue started by a rule, by the Story, or by the player plays inside Try it.
+  * **The player talks** lists the Story's dialogues: *Talks to Guard: "Gate talk"*. A grey one says why it
+    cannot start now: a conversation is playing, its conditions do not hold, it plays once and was played.
+  * **Conversation** shows the line being said, with **Next line**, or the player's answers. An answer whose
+    conditions do not hold is grey.
+  * The lines and answers go into **What happened**, with what the steps do (*Sets Gate_open to Yes*, *Sends the
+    signal Alarm*). The rules waiting for a signal run at that line. The rules waiting for the dialogue's end run
+    only when it ends, followed by its actions for the end.
+  * An InfoLink says its lines and is heard at once.
+  * Going back with the clock replays the conversation as it was.
+- **Places**: for each point the rules ask about, the State says whether the player is there, with **Go there** and
+  **Walk away**; the rules notice at their next look (**Next**).
+- **Starts**: Try it can begin from a start with a name, chosen in the **Start** list of its bar: its states, and what
+  the player carries, his credits and skills. **Save start…** keeps the moment you are at as a start (for example
+  after pulling the lever, "Power on"); **Play with this start** plays the map in the game starting the same way. A
+  start is a **Play scenario**, so it is also in the list next to **Play** and in the Play window. Counters, phases and
+  who is dead cannot be kept yet: saving says which.
+- **Why not?** (or **W** on a rule or an object in the Graph): why a rule did not run, in a few sentences, from what
+  the game wrote in the last **Play** of the map, from **Try it** when you tried it there, and from **To check**. It
+  says, for example, that the button was never used, that a condition did not hold and which rule (or which phase)
+  sets it, that the rule runs only once and had run, or that its door was not in the map. A note says which Play it
+  read: none yet, another map, the game still running, or the map changed since (then Play it again). Click a rule's
+  sentence to open it in the List.
+- **Trails**: while you **Play**, the Graph shows what the rules do. A rule lights up each time it runs, and its card
+  counts the runs ("ran 3× · 12.4 s"). A condition that did not hold says "no", a step says how many times it was done
+  or that it failed, and a block shows what it holds. The wires in the 3D view light up too. The trails stay after
+  Play. The bar under the graph replays the session (faster with 4× or 16×), goes a line back or on, and shows each
+  line in words; **Live** follows the game again, **Clear trails** starts afresh. Opened after Play, **Show the last
+  Play** reads it from the game's log. Live lines come about half a second late, and the game pauses while the editor
+  has the focus: to watch, keep the game in front and the editor beside it.
+- **Control the rules while you Play**: while the game runs, a **Live** bar sits at the foot of the Graph.
+  * Select a rule (its card, or its wire) and:
+    * **Set it off now** runs it as if what sets it off had just happened. Its phase, **Once** and its conditions
+      still count.
+    * **Mute** (or **M**) makes it do nothing until you press it again.
+    * **Trace** makes the Console and the trails say, each time it hears what sets it off, which of its conditions
+      hold (✓ / ✗).
+    * **Pause here** (or **F9**) pauses the game each time the rule runs. The bar then says where the game stopped:
+      **Step** lets the rule do its next step and pauses again, **Continue** lets the game go on. The Graph shows the
+      rule it stopped at. Steps with no wait between them are done together.
+  * Select an object instead, and the bar lists what its rules wait for (*used*, *opened*...): **Make it happen**
+    sets off every rule waiting for it.
+  * Click a state or counter in the list on the left: **now** and **Set** change it in the game at once (its start
+    value stays as it is).
+  * On the **Phases** page, **Go here now** under a phase moves the mission to it in the game, as a rule's *Go to
+    phase* would: the rules of its start run.
+  * **Clear all** turns every Mute, Trace and Pause here off.
+  * They last for this Play on this map: loading a saved game or going to another map forgets them. The buttons
+    follow the game at once; what the rules then do shows in the trails as the game writes it. The game's own
+    **Pause** key also lets it go on.
+- **Put rules in a block of your own**: in the Graph, select some rules (their cards or wires) and logic blocks
+  (Shift+click), then press **Ctrl+G** (or **Make a block** over the graph).
+  * They become one node. The wires that go in and out of it become its inputs and outputs: what sets its rules
+    off, and what they do to the rest of the map.
+  * **Double-click** it (or **Enter**) to go inside: its rules, with its inputs on the left and its outputs on the
+    right. The names over the graph take you back up, and so does **Esc**.
+  * **F2** names the block, or one of its inputs or outputs.
+  * **Unpack** takes the block away. Blocks can go inside other blocks.
+  * A block only changes how the Graph looks: the game runs the rules exactly as before.
+  * **Save as pattern…** keeps a chosen block in the project, to use it again. The objects its rules name become
+    places to fill, and the logic blocks inside it come along. Saving again under the same name makes a new
+    version.
+- **Place a pattern**: in the Graph, press **Patterns**, then **Place…** next to one.
+  * For each place, choose an object of this map (or select it, then press **Use selected**). Objects of the right
+    kind are listed first. A place can stay empty: its rules wait until you choose one.
+  * **Place** adds its rules, and the logic blocks it brings appear next to the first object you chose. **Ctrl+Z**
+    takes it all back.
+  * It shows as a block. Select it to **Open** it, **Update** it when the pattern has a newer version (it first says
+    what changes), **Unpack** it
+    (its rules become this map's own, so you can change them), or **Remove** it.
+  * Ten patterns come with DeusEdix: Keycard door, Hack to open, Alarm network, Two-floor elevator, Reinforcement
+    wave, Countdown bomb, Collect N items, Generator blackout, Patrol on alert and Lever bridge.
+  * **Open the Logic Lab** (in **Patterns**) adds the Logic Lab map to the project and opens it. Each of its rooms
+    shows one of these patterns at work. Play it, then **Unpack** one to see or change its rules.
+  * Alarms in the game sound together when they share a Tag. Give each alarm its own Tag to keep them apart.
+- **Turn rules into a script**: in the Graph, select some rules (or a block), then press **Turn into script…** over
+  the graph and give the script a name.
+  * It becomes a script of **Tools > Scripts** that does what the rules did, to go on in code. What set each rule off
+    stays a rule, which now calls the script. The script appears in the map next to the first rule's object.
+  * From then on the Logic window shows the script, not what it does inside.
+  * Some rules cannot become a script yet (one with an "Or when...", an "If not", a list of steps with If or Wait
+    until...). They stay rules, and the message over the graph says why.
+  * Select the script in the Graph (or in the 3D view: its Inspector) and press **Back to rules** to put the rules back
+    as they were. The script stays in Tools > Scripts. **Ctrl+Z** undoes either one.
+- **Watch a state while playing**: in the list on the left, click the pin next to a state or counter (it lights up).
+  Under the list, type the name of one that no rule of the map uses (one of the map's own scripts', another
+  map's) and press **Enter**. Then **Rebuild** and **Play**.
+  * The watched ones come first in the list. During Play, each one shows what it holds in the game: *Yes*, *No*,
+    a number, or *not set*.
+  * When one changes, its row lights up for a moment, whatever changed it: a rule, the Story, the map's own
+    scripts. The Console says it too (*Door_open: No → Yes*).
+  * After Play, **Show the last Play** fills the values in. Moving the trails' bar shows what each one held at that
+    moment, and **Replay** lights each change as it goes by.
+  * Click the pin again to stop watching it. A map can watch up to 32 at once; **Ctrl+Z** undoes a pin.
+- **Give a state a start value**: click the state in the list on the left. Over its graph, **Starts as** sets it
+  to *Yes* or *No* (a counter: **Starts at** and a number). Then **Rebuild**.
+  * It is set the first time the player comes into the map, before the rules look, so a rule on *the map starts*
+    sees it.
+  * If an earlier map has set it already, it keeps that value. The Console says which. A Play scenario's states
+    win over it too.
+  * **Try it** starts from it too. **Ctrl+Z** undoes it; *not set* takes it away.
 - **To check** warns about what would not work: an object that is gone, a condition nothing sets, a scripting tag
   that no object has (it names the tags of that kind the map has: the template lights' tag is *white*, not *Light*).
 
@@ -1999,7 +2260,7 @@ are what a rule can make it do, its **outputs** what it tells the rules. They ar
 of the script, in its `defaultproperties`:
 
 ```unrealscript
-Inputs(0)=(Id="Start",Label="Start it",Args="Seconds")
+Inputs(0)=(Id="Start",Label="Start it",Args="Seconds:seconds")
 Outputs(0)=(Id="Done",Label="it is done")
 ```
 
@@ -2008,6 +2269,20 @@ and written in `Input(InputName, Args, Caller)` (a `switch` on the input's name;
 something to do to the script (with a field for each argument), and *it says "it is done"* as something
 that can happen to it. The template **A block** of **+ New** has both. A `var()` of the script is set
 per object in the Inspector.
+
+**Inputs and outputs** over the code shows them as a table, so you do not have to write those lines:
+- **+ Input** and **+ Output** add one; **×** takes it away (the code that uses it stays).
+- Each input can take values from the rule (**+ value**). Choose what each one is: *a number*, *seconds*,
+  *yes or no*, *text* or *an object of the map*. The rule then asks for it that way: a number field, a Yes/No
+  choice, or a list of the map's objects. In the code it is written after a colon: `Args="Seconds:seconds,Who:thing"`.
+- Renaming an input or an output offers to change the rules of the open map that use it, in one step that
+  Ctrl+Z takes back. Change the code too (`case "Start":`, `Output("Done")`): the table says where.
+- The table writes the lines in the code, so **Ctrl+Z** in the code takes a change back. Typed in the code
+  instead, the table follows.
+- **with a number** on an output: the script tells it with a number, `OutputValue("Found", 3)` (or
+  `OutputValue("Found", 3, Other)` to say who did it). The rules it starts use that number as *Value* in their
+  formulas and checks: *add Value to the counter Coins*, *Coins is less than Value*. In **Try it** the output's
+  button has a box for the number. In the code it is `Args="Value"` on the output.
 
 The **Console** (a tab next to the Browser, or **Window > Console**) shows the game's log while the
 game runs, as it is written: **Logic** shows what the rules and the scripts do, in words (*▶ L3 When
@@ -2043,6 +2318,31 @@ In the **Projects** window, **Mods** lists the mods installed in both games:
 - **Play** starts the game on the mod's first map, **Starts on** chooses another, **Remove** takes it
   away. A mod lives in its own folder (`DeusEdixMods`): the game's settings and other mods are not
   changed.
+
+### Your own main menu
+
+**File > Main menu...** gives your campaign a title screen of its own, the way big mods have one: when the game
+is started as your mod (an exported mod's **Play**, or **Play the menu** here), your menu takes the place of the
+game's title screen and of its menu on **Esc**. The game started on its own, and the editor's other Play buttons,
+are not changed.
+
+- **The map behind the menu**: one of your installed maps, seen from its Player Start; nobody moves there. **The
+  view** can stay still or move slowly. A small map made only for this (a room, a rooftop at night) works best.
+- **New game**: the map it starts on, and whether the game's difficulty and character screens come first. It
+  never plays the game's own intro.
+- **Title**: a picture (a PNG with a see-through background looks best, up to 512 pixels across in the game)
+  and/or a line of text, its size, font and colour.
+- **Layout**: left, centre or right, how far from the side and the top, and a dark band behind the buttons.
+- **Buttons**: the game's own look or text only (with its colours), up to 12, in your order. Each one does one
+  thing (New game, Load, Save, Settings, Back to the game, Go to the main menu, Exit, or start one of your maps)
+  and shows **always**, **on the title screen only** or **during the game only**. Save and Back are greyed on
+  the title screen; leaving a game in progress asks first.
+- **Corner text**: a version or your name, bottom right.
+
+The preview on the right shows both places (the title screen and Esc during the game); it is close to the game,
+not the same (the game's own fonts and screen size): **Play the menu** builds the project and starts the game
+on it. An exported mod carries the menu with it. In Revision the difficulty is the game's own simple screen, not
+Revision's game modes and challenges, which belong to its campaign.
 
 ## Map settings
 
@@ -2629,28 +2929,40 @@ It has three lists: dialogues, InfoLinks and events. **Save** keeps your work; *
 turns it into UnrealScript, compiles it into DeusEdix's package and installs it (the game must be
 closed; it takes a few seconds).
 
+Every change of the Story can be undone with `Ctrl+Z` (and redone with `Ctrl+Y`), and is listed by its name in
+the **History** panel, with the map's changes: the editor has one history for both. Inside a text field, `Ctrl+Z`
+is the field's own; outside it, it is the editor's.
+
 Everything is checked before it is applied: an empty line, an answer that leads nowhere or a
 missing character are listed under the panel.
 
 ### Dialogues as a graph, and Play-test
 
-A dialogue opens as a **Graph** (the **List** button shows the same steps in order). Each step is a
-node: a line in the colour of who speaks (JC blue, the character violet), JC's answers with an arrow
-from each one, conditions with *Yes* and *No*; the arrows show where the dialogue goes on.
+A dialogue opens as a **Graph** (the **List** button shows the same steps in order). It is drawn on the same
+canvas as the Logic window's graph, from left to right: each step is a node, a line in the colour of who speaks
+(JC blue, the character violet) with their face and the line itself, JC's answers as rows with an arrow (and a
+colour) each, conditions with a *Yes* and a *No* row; the arrows show where the dialogue goes on. Zoomed out, a
+line still shows what is said.
 
-- **Drag the dot** under a step onto another step to connect them, or onto empty space to add the next
-  step there (a menu offers every kind). **Double-click** empty space for a step on its own.
-- **Double-click a line** to write it in the node itself: **Enter** goes on to the next line, said by the
-  other speaker; **Shift+Enter** starts a new row of text; **Tab** gives the line to another speaker; **Esc** is
-  done. Double-click one of JC's answers to write it there too: Enter goes to the next answer (from the last one,
-  a new answer). A click on the name in a line chooses who says it.
+- **Drag the dot** on the right of a step onto another step to connect them, or onto empty space to add the next
+  step there (a menu offers every kind); a click on the dot offers the same menu and puts the new step beside. **Double-click** empty space
+  (or **Tab**) for a step on its own. **Right-click** a step: write it, who says it, a line after it, delete it.
+- **Double-click a line** (or select it and press **F2**) to write it in the node itself: **Enter** goes on to the
+  next line, said by the other speaker; **Shift+Enter** starts a new row of text; **Tab** gives the line to another
+  speaker; **Esc** is done. Zoomed out, the graph comes to 100% on the line first. Double-click one of JC's answers
+  to write it there too: Enter goes to the next answer (from the last one, a new answer).
 - Every line shows the face of who says it: the game's own InfoLink portrait when the character has one
   (Alex Jacobson, Paul...), else a picture of the head of their model in the map, made by the editor.
-- **Enter** on a selected step adds the next line, said by the other speaker, ready to write. **Delete** removes a step:
-  what led to it goes on to where it went. **Ctrl+Z** undoes. **Fit** shows the whole dialogue,
+- **Enter** on a selected step adds the next line, said by the other speaker, ready to write. **Delete** removes the
+  selected steps: what led to each goes on to where it went. **Ctrl+Z** undoes and **Ctrl+Y** redoes, as everywhere
+  in the editor (the **Undo** button too). **Fit** (or **Home**) shows the whole dialogue, **F** the selection,
   **Tidy** lays it out again.
+- Moving around is the Logic graph's: drag the empty space to select several steps, drag with the **middle
+  button** (or hold **Space**, or **Alt**) to move the view, the wheel zooms.
 - The selected step is edited at the side, with the same fields as in the List. Steps nothing reaches
-  are faded; a step with a problem (an empty line, an answer that goes nowhere) is marked.
+  are faded and say *not reached*; a step with a problem (an empty line, an answer that goes nowhere) is marked.
+- Dialogues laid out by hand before November 2026 are laid out again once, from left to right: move the steps
+  where you want them, the places are kept.
 
 **Play-test** plays the dialogue in the editor as the game will: choose JC's answers, and the step it
 is at lights up. At the side, the state it reads (flags, credits, health, skill points, what JC
@@ -2671,6 +2983,7 @@ time, and only if the flags under *Only if* have the given values. Steps play in
 | Go to a label | jumps |
 | Set a flag, Goal | changes the story's memory, adds or completes a goal |
 | Trigger an event | triggers the objects with that Tag (a door, an alarm, a light) |
+| Send a signal | the map's rules waiting for that signal run (Logic: **+ When...** > *a signal is sent*) |
 | Give JC an item | a weapon, ammo or an item; the game shows "Received" in the conversation |
 | Actions | things that happen as soon as the dialogue ends (see Actions) |
 | End of dialogue | closes the dialogue; put one at the end of every branch |
@@ -2767,7 +3080,7 @@ Icarus) or *someone else* with any name. Each line gets its own screen, timed li
 
 An InfoLink never starts over a conversation or another InfoLink: it waits. As in Deus Ex, its
 text goes to the history and its actions happen at the start, so an InfoLink cut short counts as
-heard. Events and dialogues play it (action *Play an InfoLink*); **+ Event that plays it**
+heard. Events, dialogues and the map's Logic play it (action *Play an InfoLink*); **+ Event that plays it**
 creates the event for you, and *Plays when* lists what plays it.
 
 **No talking while it plays** (on unless you turn it off): while the call is on screen, clicking
@@ -2783,6 +3096,30 @@ an item**, once or every time, and
 only if its conditions are met. For the point, select an object in the scene and press *Use the
 selected object*, or look at the spot and press *Use the point in front of the camera*.
 
+**Move to Logic...** (under an event's actions) makes the event a rule of the map, in the Logic window, doing
+the same in the game: you can then wire it, give it phases and follow it in Play's log like any other rule. A
+preview first says the rule in words and what is not quite the same: the rule waits for a conversation to end
+before its actions (the Story does not look during one), an event that happens every time does its actions each
+time its condition becomes true (the Story every half second while it holds), and in a game saved before the move
+an event that already happened can happen once more. Its conditions are kept: the rule runs as soon as all of them
+hold, in whatever order they come true. **Move** takes the event out of the list: it waits under
+**Moved to Logic**, with **Open** (the rule in the Logic window) and **Put back** (the event comes back where it
+was and the rule goes; if the rule was changed in Logic meanwhile, you are asked first). **Ctrl+Z** undoes a move
+or a Put back in one step, the rule and the Story together.
+
+An event that starts when JC gets close to a point becomes a rule on *the player comes within ... of the point*.
+Some events cannot move yet, and the preview says why: one that starts when a faction turns hostile; one whose
+actions trigger an event (Tag; make it a signal), change a whole faction or have a character join one; one with more
+than 8 conditions, or with something not filled in. An event's *Only if* can also ask whether the player is near a
+point, as a rule's can.
+
+**The same actions as Logic.** The *+ action...* list of an event, of a dialogue's *Do* step or of an InfoLink
+offers everything a rule of the Logic window can do, in the same groups and words: play a sound, add to a counter,
+give or take an item, give credits, make an object do something (pick it, then click it in the scene: a door opens,
+a crate explodes, a light goes off, a character goes somewhere)... Each one is edited with the same rows as in
+Logic, and Try it and the Play log say it the same way ("The Story: ..."). What only the Story does (trigger an event,
+change a faction) is under *Only in the Story*. These actions work in DeusEdix projects.
+
 ### Actions
 
 Events, dialogues (step *Actions*) and InfoLinks can do:
@@ -2792,6 +3129,7 @@ Events, dialogues (step *Actions*) and InfoLinks can do:
 | Set a flag, Goal, Datavault note, On-screen message | the story's memory and what the player reads |
 | Start a dialogue, Play an InfoLink, Play a cutscene | |
 | Trigger an event (Tag) | doors, alarms, lights of the map |
+| Send a signal | the map's rules waiting for that signal run |
 | A character... | walks or runs to a point, sits on a chosen chair, gets up, stops, wanders around, follows JC, becomes hostile to JC (attacks when he sees him), attacks JC right now, becomes neutral or friendly, vanishes, reappears, joins a faction |
 | A faction... | becomes hostile, neutral or friendly towards JC or another faction (fixed or not) |
 | A door... | opens, closes, locks, unlocks, blows up |
@@ -3132,7 +3470,20 @@ ask again saying yes. Its tools:
 | `undo`, `redo`, `save`, `rebuild` | as **Ctrl+Z**, **Ctrl+Y**, **Save** and **Rebuild** |
 | `view` | a picture of the 3D view, from where the camera is, from a point towards another, or framing an object; without the gizmo and icons, Lit, Unlit or Shaded |
 | `story_list`, `story_get`, `story_write`, `story_play` | the map's dialogues, one with its graph, change one or make a new one, **Play-test** it with flags and answers |
+| `logic_read`, `logic_offer`, `logic_check`, `logic_try` | the map's rules in sentences, what an object can do, what to check, a run of the rules as **Logic > Try it** (from a start by its name, too) |
+| `logic_propose`, `logic_proposal` | a change to the rules that you accept or reject in the **Logic** window, and what became of it |
+| `logic_why`, `logic_log` | why a rule did not run (the last **Play**, **Try it** and the checks), and what the rules did in the last Play, in sentences |
+| `logic_patterns` | the project's patterns (what each needs to be given, what it brings), and one placed in the map now, as **Patterns** does |
 | `run_js`, `project_api` | advanced: the editor's page and the project's server, for what the other tools do not do |
+
+**Rules the assistant proposes.** The assistant never changes the map's rules by itself: `logic_propose` shows its
+change in **Window > Logic**, drawn dashed, with a bar that says what it does (new rules, rules changed or removed,
+what to check after it). It has been checked as Rebuild checks rules and tried as **Try it** would. **Accept** makes
+it, as one step that **Ctrl+Z** takes back; **Accept and edit** also opens its first rule in the List; **Reject**
+leaves the rules as they are. A rule it made carries a small *assistant* mark until you change it. A proposal can
+also place one of the project's patterns, or put rules in a block of their own: they show dashed in the Graph too.
+It can use the game rules as well: anyone of a kind or a faction, the player's own conditions, what happens in the
+world, the changes (energy, augmentations, factions, the properties the editor lets a rule set) and formulas of counters.
 
 **Advanced tools.** `run_js` (JavaScript in the editor's page) and `project_api` sending changes to the project's
 server can do whatever the editor can. They work only while **Also allow advanced tools** is ticked in the same

@@ -3,8 +3,8 @@
   "title": "Scripting-tag target: what has the tag and can do the verb, never the source",
   "behaviour": "A tag action reaches every object whose scripting tag is the wanted one (case does not matter) and whose kind fits the verb (lights for light verbs, any object for hide), except the rule's own object. Their order is the map's.",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [621, 629], "has": "function bool TagKind(Actor A, string verb)"},
-    {"file": "UCLink.uc", "lines": [632, 640], "has": "function DoTag(string s)"},
+    {"file": "UCLink.uc", "lines": [725, 733], "has": "function bool TagKind(Actor A, string verb)"},
+    {"file": "UCLink.uc", "lines": [736, 744], "has": "function DoTag(string s)"},
     {"file": "UCObjectTag.uc", "lines": [95, 98], "has": "static function bool Matches(Actor A, string wanted)"}
   ],
   "assumes": ["A2"],

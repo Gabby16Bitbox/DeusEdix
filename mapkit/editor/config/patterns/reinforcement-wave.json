@@ -1,0 +1,223 @@
+{
+ "version": 1,
+ "name": "Reinforcement wave",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:12:56",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{zone}",
+     "when": "enter",
+     "once": true,
+     "do": [
+      {
+       "verb": "unlock",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "open",
+       "target": "{door}",
+       "delay": 0,
+       "id": "R1_a2"
+      },
+      {
+       "verb": "attack",
+       "target": "{trooper}",
+       "delay": 0,
+       "id": "R1_a3"
+      },
+      {
+       "verb": "attack",
+       "target": "{trooper2}",
+       "delay": 0,
+       "id": "R1_a4"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Reinforcements!",
+       "id": "R1_a5"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{trooper}",
+     "when": "dies",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{down}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{trooper2}",
+     "when": "dies",
+     "once": true,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{down}",
+       "delay": 0,
+       "a": "Add",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{down}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The wave is beaten.",
+       "id": "R4_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Reached"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "down",
+     "cls": "UCBCounter",
+     "props": {
+      "ReachedAt": "2"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "zone",
+     "words": "the zone",
+     "family": "zone",
+     "carried": false
+    },
+    {
+     "id": "door",
+     "words": "the door",
+     "family": "door",
+     "carried": false
+    },
+    {
+     "id": "trooper",
+     "words": "the first trooper",
+     "family": "character",
+     "carried": false
+    },
+    {
+     "id": "trooper2",
+     "words": "the second trooper",
+     "family": "character",
+     "carried": false
+    },
+    {
+     "id": "down",
+     "words": "the counter of troopers down",
+     "family": "counterblock",
+     "carried": true
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{zone}|out:enter",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{door}|in:unlock",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a1"
+     ]
+    },
+    {
+     "key": "out:{door}|in:open",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a2"
+     ]
+    },
+    {
+     "key": "out:{trooper}|in:attack",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a3"
+     ]
+    },
+    {
+     "key": "out:{trooper2}|in:attack",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R1|act:R1/R1_a4"
+     ]
+    },
+    {
+     "key": "in:{trooper}|out:dies",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "in:{trooper2}|out:dies",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R3|cause:0"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

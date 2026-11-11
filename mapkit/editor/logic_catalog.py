@@ -27,7 +27,10 @@ HEARS_KINDS = {'event', 'fail', 'keypad', 'option', 'motion', 'watch', 'start', 
                # P4 (5 Nov 2026): prop: properties watched by their tests ('test', 'testNone'; 'of': 'player' when the
                # player's own: no object); untrigger: a slot of a hackable device's UnTriggerEvent; becomes / changes: a
                # condition, a state or a counter (no object); gametag: the game's own Tag (no object)
-               'prop', 'untrigger', 'becomes', 'changes', 'gametag'}
+               'prop', 'untrigger', 'becomes', 'changes', 'gametag',
+               # P9: every: looked at on each character of a set (UCRule.Every; one character is a set of one);
+               # world: what happens in the world with no object (UCRule: a load, coming back, a goal, a noise, a spawn)
+               'every', 'world'}
 
 
 def _load(path=CONFIG):
@@ -65,6 +68,12 @@ def _check_vocabulary(data):
             untyped = [a.get('id') for a in entry.get('args', []) if a.get('type') not in types]
             if untyped:
                 raise ValueError('logic.json: %s %s has arguments of no known type: %s' % (kind, key, untyped))
+    for when, entry in data['outputs'].items():
+        if entry.get('until') and entry['until'] not in data['outputs']:
+            raise ValueError('logic.json: output %s ends with %s, which is no output' % (when, entry['until']))
+    for fam, props in data.get('safeProps', {}).items():      # P9 slice 4: what "Set a property" may set
+        if (fam != 'any' and fam not in families) or any(len(p) != 3 or p[2] not in ('whole', 'number', 'bool') for p in props):
+            raise ValueError('logic.json: safeProps %s: an unknown family, or a property not [name, words, whole|number|bool]' % fam)
     for verb, entry in data['inputs'].items():
         if entry.get('inverse') and data['inputs'].get(entry['inverse'], {}).get('inverse') != verb:
             raise ValueError('logic.json: %s and its inverse %s do not undo each other' % (verb, entry['inverse']))
@@ -74,6 +83,10 @@ def _check_vocabulary(data):
                   [v for v in word.get('verbs', {}) if not any(v in f['inputs'] for f in movers)]
         if unknown:
             raise ValueError('logic.json: the mover word %s names what no mover has: %s' % (word['id'], unknown))
+        phases = word.get('phases')
+        if phases is not None and (not isinstance(phases, list) or len(phases) != 2 or not all(
+                isinstance(p, str) and p.strip() for p in phases) or phases[0].strip().lower() == phases[1].strip().lower()):
+            raise ValueError('logic.json: the mover word %s needs two different phases (closed, open)' % word['id'])
     for src, targets in data['pairs'].items():
         for dst, pairs in targets.items():
             if (src != 'any' and src not in families) or dst not in families:
@@ -91,6 +104,18 @@ OUTPUTS = TABLE['outputs']                       # when -> {'hears', 'tag'}
 INPUTS = TABLE['inputs']                         # verb -> {'target'}
 FREE = tuple(TABLE['free'])                      # actions with no object (a message, a state...)
 FAMILIES = {f['id']: f for f in TABLE['families']}
+SAFE_PROPS = TABLE.get('safeProps', {})           # P9 slice 4: family -> [[name, words, kind]] ('any': every object)
+
+
+def safe_prop(name, family=None):
+    """A property "Set a property" may set: (its name as the table writes it, its kind), or None. With a family, only
+    one of that family's or of every object's."""
+    fams = [family, 'any'] if family else list(SAFE_PROPS)
+    for fam in fams:
+        for p in SAFE_PROPS.get(fam, []):
+            if p[0].lower() == str(name or '').strip().lower():
+                return p[0], p[2]
+    return None
 _FAMILY_OF_CLASS = {cls: f['id'] for f in TABLE['families'] for cls in f['classes']}
 
 
@@ -105,8 +130,9 @@ def family_of(chain):
 def io_for(chain, ports=None):
     """What an object of this class chain offers: {family, outputs, inputs, default}, plus for a script its declared
     ports ({'inputs': [{'id', 'label', 'args'}], 'outputs': [{'id', 'label'}]}, scripts.ports) as 'output:<Id>' /
-    'input:<Id>' in front, with their labels and arguments."""
+    'input:<Id>' in front, with their labels and arguments. A logic block's ports are its family's ('ports')."""
     family = family_of(chain)
+    ports = ports or family.get('ports')          # a logic block's (UCBlock): its family declares them (P3)
     out = dict(family=family['id'], outputs=list(family['outputs']), inputs=list(family['inputs']),
                default=family.get('default') or (family['inputs'][0] if family['inputs'] else ''),     # Connect's first verb
                free=list(FREE))     # a family's own default (a character walks, never attacks), else its first input
@@ -116,6 +142,12 @@ def io_for(chain, ports=None):
         out['labels'] = {**{'output:' + p['id']: p['label'] for p in ports.get('outputs', [])},
                          **{'input:' + p['id']: p['label'] for p in ports.get('inputs', [])}}
         out['args'] = {p['id']: p['args'] for p in ports.get('inputs', [])}
+        carries = ['output:' + p['id'] for p in ports.get('outputs', []) if p.get('carries')]
+        if carries:                                  # the outputs that come with a number: Value (P8 slice 5b)
+            out['carries'] = carries
+        typed = {p['id']: p['types'] for p in ports.get('inputs', []) if p.get('types')}
+        if typed:                                    # what kind of value each argument takes (scripts.ARG_TYPES)
+            out['argTypes'] = typed
         if ports.get('inputs'):
             out['default'] = 'input:' + ports['inputs'][0]['id']
     return out
@@ -176,6 +208,21 @@ def works_in(kind, key, game):
 def inverse_of(verb):
     """The verb that undoes it ('' none): the way back of a rule that holds 'while'."""
     return entry('verb', verb).get('inverse', '')
+
+
+UNTIL_PORTS = dict(TABLE.get('untilPorts') or {})
+
+
+def until_port(port):
+    """The script port that ends a 'while' on this one ('' none): untilPorts, a trailing * keeping the rest of the
+    name (Enter_Alarm -> Leave_Alarm)."""
+    port = str(port or '')
+    for start, end in UNTIL_PORTS.items():
+        if start.endswith('*') and port.startswith(start[:-1]) and len(port) > len(start) - 1:
+            return end[:-1] + port[len(start) - 1:]
+        if port == start:
+            return end
+    return ''
 
 
 def args_of(kind, key):

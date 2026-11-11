@@ -30,6 +30,8 @@
 //  Shots[13]=label;waitflag;FlagName;seconds                waits for the flag to be true (at most that many seconds)
 //  Shots[14]=label;near;NameOrTag;distance                  JC in front of the character, wherever it is (photo)
 //  Shots[15]=label;choose;N                                 picks answer N (1 = the first) of the conversation
+//  Shots[..]=label;menu;N                                   presses button N of the menu on top (menu;START: an action of
+//                                                           a screen, menu;esc: Esc, menu;?: only asks which is on top)
 //  Shots[16]=label;play;x;y;z;yaw;pitch                     JC there, then the player takes over and the runner stops
 //                                                           (the editor's "Play from here" button)
 //  Shots[17]=label;fly;x;y;z;lookX;lookY;lookZ;seconds[;1]  the free camera glides there (for
@@ -41,6 +43,11 @@
 //  Shots[21]=label;login;NameOrTag;N                        on a computer already in use (frob), logs in with account N
 //                                                           (0 = logs out and closes the screen)
 //  Shots[22]=label;screen;NameOrTag;EMAIL                   a button of the computer's screen (EMAIL, SPECIAL...)
+//  Shots[..]=label;frobs;NameOrTag;s[;NameOrTag;s...]       each object used as frob does, s seconds of game time from
+//                                                           now (up to 5: tests whose timing is finer than a step's)
+//  Shots[..]=label;save;slot;description                    the game saved in that numbered slot (100 or more: never a
+//                                                           quick save's), in the session's own save folder; load it
+//                                                           again with the console's LoadGame <slot> (tests of a reload)
 // If the map changes halfway through the list (a jump, an exit) it goes on from the step it
 // had got to (flag UC_ShotIndex): for trying sequences across several maps.
 // At the end the game closes by itself (exit).
@@ -82,6 +89,9 @@ var bool bFlying;
 var Actor readTarget;    // "read": the object JC keeps looking at (its text window stays open)
 var float flyT, flyTime;
 var vector flyFrom, flyFromLook, flyTo, flyToLook;
+// "frobs": the objects still to be used, and when (Level.TimeSeconds), done in Tick
+var string frobName[8];
+var float frobAt[8];
 
 function DeusExPlayer Plr()
 {
@@ -262,6 +272,11 @@ function float Prepare(int k)
 			// uses an object (name or Tag) as JC would: buttons, doors
 			FrobThing(P, fields[2]);
 			return 0.5;
+		case "frobs":
+			// frobs;NameOrTag;s[;NameOrTag;s...]: the same, each s seconds of game time from now, done in Tick (the
+			// times between them as exact as a frame, not a live step's round trip)
+			QueueFrobs();
+			return 0.05;
 		case "pickup":
 			// pickup;NameOrTag: JC picks up an item lying anywhere, as with a click (a test of a rule "when JC picks it
 			// up", a key or a weapon in the inventory before a test)
@@ -348,6 +363,12 @@ function float Prepare(int k)
 			// look;NameOrTag: the look of an actor in the log (mesh, skins); look;corpses: of every dead body
 			LookAt(fields[2]);
 			return 0.05;
+		case "menu":
+			// menu;N: what a click on button N (1 = the first shown) of the menu on top does (a main menu: the game's
+			// or the project's own); menu;ACTION on a screen (START, BACK...: its ProcessAction); menu;esc the Esc
+			// key on it; menu;? only asks. The window on top afterwards is the answer, at the end of LiveResult
+			Probe = MenuPress(fields[2]);
+			return 0.05;
 		case "prop":
 			// prop;NameOrTag|player;Property[;Property...]: their values at the end of LiveResult, "inv" the player's
 			// inventory (to check what a rule changed without photos)
@@ -360,6 +381,27 @@ function float Prepare(int k)
 				HackableDevices(A).HackAction(P, True);
 			Log("UCShot hack" @ A);
 			return 0.5;
+		case "save":
+			// save;slot;description: the game saved in that slot, once no conversation is up (10 s at most: a game
+			// saved in a cinematic one has no level). Only slots of 100 or more: a quick save's (0 and below) and the
+			// player's first ones are never touched (a live session saves in DeusEdix's own folder anyway)
+			if (int(fields[2]) < 100)
+			{
+				Log("UCShot save refused: slot" @ fields[2] @ "(100 or more)");
+				Probe = "save refused";
+				return 0.05;
+			}
+			if ((P.IsInState('Conversation') || (P.conPlay != None && P.conPlay.con != None && !P.conPlay.con.bFirstPerson))
+				&& waitT < 10)
+			{
+				bAgain = True;
+				return Waiting(k);
+			}
+			Waiting(k);
+			Log("UCShot save" @ fields[2] @ fields[3] @ "at" @ Level.TimeSeconds);
+			P.SaveGame(int(fields[2]), fields[3]);
+			Probe = "saved " $ fields[2];
+			return 1.0;
 		case "kill":
 			// kill;NameOrTag: a character dies as if JC shot them (to check its corpse)
 			KillThing(P, fields[2]);
@@ -714,6 +756,35 @@ function PickupThing(DeusExPlayer P, string what)
 	Log("UCShot pickup: nothing called" @ what);
 }
 
+function QueueFrobs()
+{
+	local int k, j;
+
+	for (k = 2; k + 1 < numFields; k += 2)
+		for (j = 0; j < ArrayCount(frobName); j++)
+			if (frobName[j] == "")
+			{
+				frobName[j] = fields[k];
+				frobAt[j] = Level.TimeSeconds + float(fields[k + 1]);
+				break;
+			}
+}
+
+// the queued frobs whose time has come, in the order they were asked
+function DueFrobs()
+{
+	local int j;
+	local string what;
+
+	for (j = 0; j < ArrayCount(frobName); j++)
+		if (frobName[j] != "" && Level.TimeSeconds >= frobAt[j] && Plr() != None)
+		{
+			what = frobName[j];
+			frobName[j] = "";
+			FrobThing(Plr(), what);
+		}
+}
+
 function FrobThing(DeusExPlayer P, string what)
 {
 	local Actor A;
@@ -767,6 +838,56 @@ function ComputerScreen(string what, string action)
 			return;
 		}
 	Log("UCShot screen: no computer in use called" @ what);
+}
+
+// The "menu" step: a button of the menu on top pressed as a click would (a button that cannot be clicked now is not).
+function string MenuPress(string what)
+{
+	local DeusExRootWindow root;
+	local DeusExBaseWindow w;
+	local Window b;
+	local int n;
+
+	root = DeusExRootWindow(Plr().rootWindow);
+	if (root == None)
+		return "no root window";
+	w = root.GetTopWindow();
+	if (w != None && what != "?")
+	{
+		n = int(what) - 1;
+		if (what ~= "esc")
+			w.VirtualKeyPressed(IK_Escape, False);
+		else if (n < 0)
+		{
+			if (MenuUIWindow(w) != None)
+				MenuUIWindow(w).ProcessAction(Caps(what));
+		}
+		else if (n < 12)
+		{
+			if (UCMainMenu(w) != None)
+				b = UCMainMenu(w).btns[n];
+			else if (MenuUIMessageBoxWindow(w) != None)     // a question: 1 = Yes (or OK), 2 = No
+			{
+				if (n == 0 && MenuUIMessageBoxWindow(w).btnYes != None)
+					b = MenuUIMessageBoxWindow(w).btnYes;
+				else if (n == 0)
+					b = MenuUIMessageBoxWindow(w).btnOK;
+				else if (n == 1)
+					b = MenuUIMessageBoxWindow(w).btnNo;
+			}
+			else if (MenuUIMenuWindow(w) != None)
+				b = MenuUIMenuWindow(w).winButtons[n];
+			if (b == None || !b.IsSensitive())
+				Log("UCShot menu: no button" @ what @ "to press on" @ w);
+			else
+				w.ButtonActivated(b);
+		}
+		w = root.GetTopWindow();
+	}
+	Log("UCShot menu" @ what @ "-> on top" @ w @ "of" @ root.winCount);
+	if (w == None)
+		return "none";
+	return string(w.Class.Name) $ ":" $ root.winCount;
 }
 
 function SetDeviceText(string what, string text)
@@ -1014,8 +1135,9 @@ event Tick(float deltaTime)
 
 	if (bPlaying)
 		return;
-	if (Level.Pauser != "")
-		Level.Pauser = "";
+	if (Level.Pauser != "" && Level.Pauser != "DeusEdix")    // (a rule's break, P7 live control: kept, the Console's
+		Level.Pauser = "";                                // Continue or Step lifts it)
+	DueFrobs();
 	if (bFlying && cam != None)
 	{
 		flyT += deltaTime;

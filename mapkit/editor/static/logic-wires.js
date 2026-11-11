@@ -16,6 +16,7 @@ import { WIRE_COLORS, arcOf, labelsOf, roomFor } from './logic-wires-model.js';
 export { WIRE_MODES, WIRE_COLORS, wiresOf } from './logic-wires-model.js';
 
 // ---------------------------------------------------------------- drawing
+const GLOW = 0xe4ffe9, GLOW_MS = 1500;               // a wire a run went along (pulse): this bright for this long
 // positionOf(name): a THREE.Vector3 (the object's place) or null; onOpen(rule id): the rule opened in the Logic window
 export function createLogicWires({ THREE, scene, camera, canvas, positionOf, onOpen = () => {} }) {
   const group = new THREE.Group();
@@ -96,7 +97,7 @@ export function createLogicWires({ THREE, scene, camera, canvas, positionOf, onO
         label.onclick = () => onOpen(w.rule);
         box.appendChild(label);
       }
-      items.push({ wire: w, objects, label, top: curve.getPoint(0.5), a: a.clone(), b: b.clone() });
+      items.push({ wire: w, objects, label, top: curve.getPoint(0.5), a: a.clone(), b: b.clone(), color, width, glow: 0 });
     }
     frame(clock, true);
   }
@@ -117,7 +118,15 @@ export function createLogicWires({ THREE, scene, camera, canvas, positionOf, onO
     }
     const r = canvas.getBoundingClientRect(), fw = new THREE.Vector3(), placed = [];
     camera.getWorldDirection(fw);
+    const ms = performance.now();
     for (const it of items) {
+      if (it.glow) {                                 // a run went along it in the game (Play's trails): bright, then as it was
+        const on = it.glow > ms, front = it.objects[1], cone = it.objects[3];
+        front.material.color.setHex(on ? GLOW : it.color);
+        front.material.linewidth = on ? it.width + 2.5 : it.width;
+        cone?.material.color.setHex(on ? GLOW : it.color);
+        if (!on) it.glow = 0;
+      }
       for (const o of it.objects) {
         if (o.material && o.material.isLineMaterial) {
           o.material.dashOffset = -t * (it.wire.kind === 'state' ? 12 : 40);
@@ -133,5 +142,10 @@ export function createLogicWires({ THREE, scene, camera, canvas, positionOf, onO
       if (y !== null) Object.assign(it.label.style, { left: `${x}px`, top: `${y}px` });
     }
   }
-  return { set, frame, clear, get count() { return items.length; } };
+  // the rules that ran in the game just now (Play's trails, logic-trails.js): their wires light for a moment
+  function pulse(rules) {
+    const ids = new Set(rules), until = performance.now() + GLOW_MS;
+    for (const it of items) if (it.wire.kind !== 'state' && ids.has(it.wire.rule)) it.glow = until;
+  }
+  return { set, frame, clear, pulse, get count() { return items.length; } };
 }

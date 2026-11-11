@@ -119,10 +119,21 @@ test('a state or counter read and never set stays No or 0; one set elsewhere is 
   assert.deepEqual(setBy({ external: [{ flag: 'VAULT_POWER', uses: [{ map: '02_Roof', context: 'Dialogue: Jock', kind: 'write' }] }] }), []);   // flags ignore case
   assert.deepEqual(setBy({ story: { infolinks: [{ id: 'i1', do: [{ type: 'flag', flag: 'Vault_Power', is: true }] }] } }), []);
   assert.deepEqual(read('UCFate1a2b3c_Guard1_Dead'), []);
+  // a start value given (P5): it stays that, said as a note, no fix to offer
+  const started = problems(world([rule({ requires: [{ flag: 'Vault_Power', is: true }] })], { edits: { logic: { start: { vault_power: true } } } }))
+    .filter((p) => p.code === 'never-set');
+  assert.deepEqual(brief(started), ['info never-set rule:L1 if:0: Nothing sets the state Vault_Power: it stays Yes, its start value.']);
+  assert.equal(started[0].fix, undefined);
   const counter = problems(world([rule({ requires: [{ type: 'counter', counter: 'Levers', op: '>=', value: 3 }] }), rule({ id: 'L2' }, [{ verb: 'count', a: 'levers', b: '1' }])]));
   assert.deepEqual(brief(counter), []);
   assert.deepEqual(brief(problems(world([rule({ requires: [{ type: 'counter', counter: 'Levers', op: '>=', value: 3 }] })]))),
     ['warn never-set rule:L1 if:0: Nothing sets the counter Levers, so it stays 0.']);
+  // a logic block keeps it (P3: a Counter's number, a Phases block's states): set as the map runs, never "never read"
+  const kept = { keeps: [{ block: 'Kills', name: 'levers', type: 'int', text: 'Counter' }] };
+  assert.deepEqual(brief(problems(world([rule({ requires: [{ type: 'counter', counter: 'Levers', op: '>=', value: 3 }] })], kept))), []);
+  assert.deepEqual(brief(problems(world([], kept))), []);
+  assert.deepEqual(brief(problems(world([rule({ requires: [{ type: 'counter', counter: 'Levers', op: '>=', value: 3 }] })],
+    { ...kept, edits: { deleted: { Kills: true } } }))), ['warn never-set rule:L1 if:0: Nothing sets the counter Levers, so it stays 0.']);
   // set and never read: said, quietly; a dialogue's automatic Played is not
   assert.deepEqual(brief(problems(world([rule({}, [{ verb: 'flag', a: 'Done', b: '1' }])]))), ['info never-read rule:L1 act:L1/a1: Nothing reads the state Done.']);
   const played = { playedFlag: (d) => `UCEd_${d.id}_Played`, heardFlag: () => '' };
@@ -205,11 +216,22 @@ test('the rule options (P6): at most N or a cooldown end a loop; a rule that sta
 });
 
 test('what needs Logic runtime v2, what the project\'s game cannot run', () => {
-  const v2 = problems(world([rule({ else: [{ verb: 'message', a: 'No' }], cooldown: 5, phase: { set: 'Base', in: ['Alarm'] } },
-    [{ verb: 'open', target: 'Door3', requires: [{ flag: 'X' }] }, { verb: 'wait', until: { type: 'arrived', actor: 'Guard1' } }])]))
-    .filter((p) => p.code === 'needs-runtime');
-  assert.deepEqual(brief(v2), ['warn needs-runtime rule:L1: It uses a phase, a cooldown, "otherwise", a check before a step and "wait until": they need Logic runtime v2, and today\'s build ignores them.']);
+  const later = (l, acts) => problems(world([rule(l, acts)])).filter((p) => p.code === 'needs-runtime');
+  // a Wait among a rule's actions (not a list of steps: links.py drops it) is not built yet; "while" and a phase are
+  // (links.expand_while, links.phase_gate: P3)
+  const v2 = later({ else: [{ verb: 'message', a: 'No' }], cooldown: 5, phase: { set: 'Base', in: ['Alarm'] }, while: true },
+    [{ verb: 'open', target: 'Door3', requires: [{ flag: 'X' }] }, { verb: 'wait', until: { type: 'arrived', actor: 'Guard1' } }]);
+  assert.deepEqual(brief(v2), ['warn needs-runtime rule:L1: It uses "wait until": it needs Logic runtime v2, and today\'s build ignores it.']);
+  assert.deepEqual(later({ while: true }), []);
   assert.deepEqual(problems(world([rule({ once: true, mute: true })])).filter((p) => p.code === 'needs-runtime'), []);
+  // what links.blocks builds as a UCRule / bSteps and ran in both games (backup/20261105_logic_b make_m4_p4.py,
+  // 20261106_chain, 20261107_logic_p3b): no warning
+  const built = later({ requires: [{ flag: 'A' }, { flag: 'B' }], match: 'any', also: [{ src: 'Button2', when: 'used' }],
+    else: [{ verb: 'message', a: 'No' }, { verb: 'wait', until: { type: 'arrived', actor: 'Guard1' } }],
+    max: 3, cooldown: 2.5, again: 'each', talkBusy: 'giveup' }, [{ verb: 'open', target: 'Door3', requires: [{ flag: 'X' }] }]);
+  assert.deepEqual(built, []);
+  assert.deepEqual(later({ steps: true }, [{ verb: 'if', requires: [{ flag: 'X' }] }, { verb: 'open', target: 'Door3' }, { verb: 'end' },
+    { verb: 'wait', until: { type: 'arrived', actor: 'Guard1' }, max: 20 }, { verb: 'open', target: 'Door3', requires: [{ flag: 'Y' }] }]), []);
   // a vocabulary where Open works only in Revision: the original game cannot run it
   const narrowed = JSON.parse(JSON.stringify(catalog));
   narrowed.inputs.open.games = ['revision'];

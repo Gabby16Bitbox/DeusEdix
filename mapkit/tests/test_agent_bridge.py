@@ -123,6 +123,117 @@ class HeldCalls(unittest.TestCase):
         self.assertFalse(calls.page_open())
 
 
+def asking(calls, n):
+    """Wait until n pages are waiting in calls.next()."""
+    end = time.monotonic() + 5
+    while calls._asking < n and time.monotonic() < end:
+        time.sleep(0.005)
+    return calls._asking >= n
+
+
+class ReloadedPage(unittest.TestCase):
+    """A reload leaves the old page's long poll waiting on the server (its socket is gone, nobody reads it): the next
+    call must go to the new page at once, not to that poll (8 Nov: open_map waited 300 s)."""
+
+    def test_two_pages_ask_and_the_older_one_is_gone(self):
+        calls, old = agent_bridge.Calls(), []
+        dead = threading.Thread(target=lambda: old.append(calls.next(wait=10, page='old')))
+        dead.start()
+        self.assertTrue(asking(calls, 1))
+
+        def new_page():                          # the reloaded page: asks again after each answer, like agent.js
+            for _ in range(2):
+                job = calls.next(wait=5, page='new')
+                if job and job.get('id'):
+                    calls.result(job['id'], True, job['op'])
+        live = threading.Thread(target=new_page)
+        live.start()
+        dead.join(2)
+        self.assertFalse(dead.is_alive())        # the old poll left at once...
+        self.assertEqual(old, [dict(superseded=True)])    # ...without a call
+        start = time.monotonic()
+        self.assertEqual(calls.call('state', {}, 5), dict(ok=True, value='state'))
+        self.assertLess(time.monotonic() - start, 1)
+        self.assertEqual(calls.call('maps', {}, 5), dict(ok=True, value='maps'))
+        live.join(5)
+
+    def test_a_poll_whose_connection_closed_never_takes_a_call(self):
+        calls, got = agent_bridge.Calls(), []
+        dead = threading.Thread(target=lambda: got.append(calls.next(wait=10, gone=lambda: True)))
+        dead.start()
+        self.assertTrue(asking(calls, 1))
+        answer = []
+        caller = threading.Thread(target=lambda: answer.append(calls.call('state', {}, 5)))
+        caller.start()
+        dead.join(2)
+        self.assertEqual(got, [None])
+        job = calls.next(wait=2, gone=lambda: False)          # a live page still finds it waiting
+        self.assertEqual(job['op'], 'state')
+        calls.result(job['id'], True, 1)
+        caller.join(5)
+        self.assertEqual(answer, [dict(ok=True, value=1)])
+
+    def test_a_closed_newest_tab_leaves_the_calls_to_the_older_one_at_once(self):
+        calls, got = agent_bridge.Calls(), []
+        self.assertIsNone(calls.next(wait=0, page='older'))
+        closed = threading.Thread(target=lambda: got.append(calls.next(wait=10, page='newer', gone=lambda: True)))
+        closed.start()
+        self.assertTrue(asking(calls, 1))
+        self.assertEqual(calls.next(wait=0, page='older'), dict(superseded=True))    # newer still looks open
+        answer = []
+        caller = threading.Thread(target=lambda: answer.append(calls.call('state', {}, 5)))
+        caller.start()
+        closed.join(2)
+        self.assertEqual(got, [None])                          # its connection is closed: no call for it
+        job = calls.next(wait=2, page='older', gone=lambda: False)
+        self.assertEqual(job['op'], 'state')                   # not set aside for PAGE_GONE seconds
+        calls.result(job['id'], True, 2)
+        caller.join(5)
+        self.assertEqual(answer, [dict(ok=True, value=2)])
+
+    def test_an_older_tab_takes_over_when_the_newer_one_is_gone(self):
+        clock = Clock()
+        calls = agent_bridge.Calls(clock)
+        self.assertIsNone(calls.next(wait=0, page='a'))
+        self.assertIsNone(calls.next(wait=0, page='b'))
+        self.assertEqual(calls.next(wait=0, page='a'), dict(superseded=True))
+        self.assertIsNone(calls.next(wait=0))                 # a page that gives no id is never set aside
+        clock.now += agent_bridge.PAGE_GONE + 1                # tab b was closed
+        self.assertIsNone(calls.next(wait=0, page='a'))
+        self.assertTrue(calls.page_open())
+        clock.now += agent_bridge.PAGE_GONE + 1                # a went quiet too (a background tab slowed down)
+        self.assertIsNone(calls.next(wait=0, page='b'))
+        self.assertEqual(calls.next(wait=0, page='a'), dict(superseded=True))   # back, a is still the older load
+        for n in range(agent_bridge.MAX_PAGES + 4):             # many reloads: only the latest loads are remembered
+            calls.next(wait=0, page='r%d' % n)
+        self.assertLessEqual(len(calls._pages), agent_bridge.MAX_PAGES)
+
+    def test_a_page_running_a_long_call_keeps_the_calls(self):
+        clock = Clock()
+        calls = agent_bridge.Calls(clock)
+        calls.next(wait=0, page='a')
+        calls.next(wait=0, page='b')
+        calls._waiting.append(dict(id='j', op='rebuild', args={}, done=threading.Event(), result=None, page=None))
+        self.assertEqual(calls.next(wait=0, page='b')['id'], 'j')
+        clock.now += 120                                        # a rebuild of two minutes; tab a asks meanwhile
+        self.assertEqual(calls.next(wait=0, page='a'), dict(superseded=True))
+        self.assertTrue(calls.result('j', True))
+
+    def test_a_call_that_could_not_be_sent_is_given_back(self):
+        calls, answer = agent_bridge.Calls(), []
+        calls._asked = time.monotonic()
+        caller = threading.Thread(target=lambda: answer.append(calls.call('find', {}, 5)))
+        caller.start()
+        first = calls.next(wait=2, page='p')
+        self.assertTrue(calls.give_back(first['id']))         # the response write failed
+        again = calls.next(wait=2, page='p')
+        self.assertEqual(again['id'], first['id'])
+        self.assertTrue(calls.result(again['id'], True, 'found'))
+        self.assertFalse(calls.give_back(again['id']))        # answered: nothing to give back
+        caller.join(5)
+        self.assertEqual(answer, [dict(ok=True, value='found')])
+
+
 class FakeEditor:
     def __init__(self, answer):
         self.answer, self.calls = answer, []
@@ -186,6 +297,26 @@ class McpServer(unittest.TestCase):
         self.assertEqual(editor.calls, [('picture', args, deusedix_mcp.TOOLS['place_picture'][1])])
         self.assertIn('picture', agent_bridge.OPS)
         self.assertEqual(deusedix_mcp.TOOL_KINDS['place_picture'], 'edit')
+
+    def test_the_logic_tools(self):
+        # P3 logic_propose: read, offer, check, try and the proposal's outcome only read; a proposal changes nothing
+        # until the user accepts it in the editor (an edit, never destructive)
+        # (P2 Why didn't it run?: logic_why and logic_log only read too)
+        for name in ('logic_read', 'logic_offer', 'logic_check', 'logic_try', 'logic_proposal', 'logic_why', 'logic_log'):
+            self.assertEqual(deusedix_mcp.TOOL_KINDS[name], 'read', name)
+            self.assertIn(deusedix_mcp.TOOLS[name][0], agent_bridge.OPS)
+        self.assertEqual(deusedix_mcp.TOOL_KINDS['logic_propose'], 'edit')
+        # P8 slice 7: the patterns listed, or one placed now (an undoable edit, like place_object)
+        self.assertEqual(deusedix_mcp.TOOL_KINDS['logic_patterns'], 'edit')
+        self.assertIn('logic_patterns', agent_bridge.OPS)
+        self.assertIn('place_pattern', deusedix_mcp.TOOLS['logic_propose'][2])
+        self.assertIn('make_box', deusedix_mcp.TOOLS['logic_propose'][2])
+        self.assertEqual(deusedix_mcp.TOOLS['logic_propose'][3]['required'], ['ops', 'summary'])
+        args = dict(ops=[dict(op='connect', **{'from': 'Button1'}, output='used', to='Door1', input='open')], summary='Open it')
+        editor = FakeEditor(dict(ok=True, value=dict(proposed=True, proposal=1)))
+        content, error = deusedix_mcp.call_tool(editor, 'logic_propose', args)
+        self.assertFalse(error)
+        self.assertEqual(editor.calls, [('logic_propose', args, deusedix_mcp.TOOLS['logic_propose'][1])])
 
     def test_errors_are_tool_errors(self):
         content, error = deusedix_mcp.call_tool(FakeEditor(dict(ok=False, error='No map is open')), 'save', {})

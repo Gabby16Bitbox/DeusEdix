@@ -16,6 +16,8 @@
 // Output("Sabotaged") then starts the rules on it. Helpers: Player(), Say("..."), Arg(Args, "Seconds"),
 // ArgFloat / ArgInt / ArgBool, Find('Tag'), FindNamed("Name"), TriggerTag('Tag'), GetFlag('Name'),
 // SetFlag('Name', True), Give(class'Medkit'). log("...") writes a line to the editor's Console.
+// The rules' own actions: Act("open", "Door3"), Holds("flag|Alarm|1"), After(2.0, 'Later') then Step(Label) (what
+// Logic > Turn into script writes).
 // Everything else of UnrealScript works as in any Deus Ex actor; a Tick of yours should call Super.Tick(DeltaTime)
 // (the script starts there, and also at its first output, input, switch or repeat). tools\mapkit\editor\LOGIC.md: the whole.
 //=============================================================================
@@ -35,7 +37,17 @@ var bool bScriptStarted;
 var UCPort Inputs[8];           // what the rules can make it do
 var UCPort Outputs[8];          // what it tells the rules (Output)
 var string WaitingOutputs[8];   // outputs said while the map was loading: their rules run when it has started
+var int WaitingValues[8];       // with the number each came with (OutputValue), who did it, and whether it had one
+var Actor WaitingWho[8];
+var byte WaitingHas[8];
+var int SaidValue;              // while an output is told: its number and who did it (UCLink.Trigger, UCLink.Who)
+var Actor SaidWho;
 var int Waiting;
+// what the rules' own actions need (Act, ActEncoded, Holds: a script made by Turn into script, P8): a link of no object
+// that runs them as a rule would, its log lines named after the script; and the steps waiting for their time (After)
+var UCLink Runner;
+var float AfterAt[16];
+var name AfterLabel[16];
 
 // ---------------------------------------------------------------- the events to write
 function Started();
@@ -54,8 +66,23 @@ function Input(string InputName, string Args, Actor Caller)
 // The rules waiting for this output (UCLink: When=output, Source=this script, Port=OutputName) run.
 final function Output(string OutputName)
 {
+	Tell(OutputName, 0, None, False);
+}
+
+// An output that comes with a number, and who did it when it is given: the rules it sets off read the number as Value
+// in their numbers and conditions ("Coins + Value"), and who did it is the one who set them off (P8 slice 5b).
+// OutputValue("Found", 3) or OutputValue("Found", 3, SomeActor).
+final function OutputValue(string OutputName, int Number, optional Actor By)
+{
+	Tell(OutputName, Number, By, True);
+}
+
+final function Tell(string OutputName, int Number, Actor By, bool bNumber)
+{
 	local UCLink L;
-	local int n;
+	local int n, oldValue;
+	local Actor oldWho;
+	local string said;
 
 	StartScript();
 	if (!bScriptStarted)          // the map is still loading (PostBeginPlay...): a rule could not run its actions yet
@@ -63,19 +90,31 @@ final function Output(string OutputName)
 		if (Waiting < ArrayCount(WaitingOutputs))
 		{
 			WaitingOutputs[Waiting] = OutputName;
+			WaitingValues[Waiting] = Number;
+			WaitingWho[Waiting] = By;
+			WaitingHas[Waiting] = byte(bNumber);
 			Waiting++;
 		}
 		else
 			class'UCEditorStory'.static.LogicLine("fail|" $ MapTitle() $ "||output|" $ Name $ "|full");
 		return;
 	}
+	oldValue = SaidValue;             // (a rule it sets off may make a script tell another one)
+	oldWho = SaidWho;
+	SaidValue = Number;
+	SaidWho = By;
 	foreach AllActors(class'UCLink', L)
 		if (L.When == 'output' && L.Source ~= string(Name) && L.Port ~= OutputName)
 		{
 			L.Trigger(Self, None);        // no instigator: the logic log says the script set it off
 			n++;
 		}
-	class'UCEditorStory'.static.LogicLine("output|" $ MapTitle() $ "|" $ Name $ "|" $ OutputName $ "|" $ n);
+	SaidValue = oldValue;
+	SaidWho = oldWho;
+	said = "output|" $ MapTitle() $ "|" $ Name $ "|" $ OutputName $ "|" $ n;
+	if (bNumber)
+		said = said $ "|" $ Number;
+	class'UCEditorStory'.static.LogicLine(said);
 }
 
 // An argument of an input: Arg("Seconds=10;Mode=red", "Mode") is "red" ("" when it is not there).
@@ -208,6 +247,69 @@ final function Inventory Give(class<Inventory> ItemClass)
 	return item;
 }
 
+// ---------------------------------------------------------------- the rules' own actions (Turn into script, P8)
+// Act("open", "Door3"), Act("message", "", "Hello"): one action of the rules, as a rule's step does it (verb, its
+// object, then its values a, b, c as the editor writes them; editor/LOGIC.md "Turn into script").
+final function Act(string Verb, optional string Target, optional string A, optional string B, optional string C)
+{
+	ActEncoded("0|" $ Verb $ "|" $ Target $ "|" $ A $ "|" $ B $ "|" $ C);
+}
+
+// an action as the editor writes it for a rule ("0|goto|Rossi|120.0|40.0|0.0": UCLink.Act)
+final function ActEncoded(string Encoded)
+{
+	StartScript();
+	Rules().DoAct(Encoded);
+}
+
+// a condition of the rules ("flag|Alarm|1": UCEditorStory.Holds) holds now
+final function bool Holds(string Condition)
+{
+	return Rules().Holds(Condition);
+}
+
+// Step(Label) is called in Seconds (no latent code: the script goes on at once). At most 16 wait at a time.
+final function After(float Seconds, name Label)
+{
+	local int i;
+
+	for (i = 0; i < ArrayCount(AfterLabel); i++)
+		if (AfterLabel[i] == '')
+		{
+			AfterLabel[i] = Label;
+			AfterAt[i] = Level.TimeSeconds + FMax(0, Seconds);
+			return;
+		}
+	class'UCEditorStory'.static.LogicLine("fail|" $ MapTitle() $ "|" $ Name $ "|after|" $ Label $ "|full");
+}
+
+// the steps of After: a script overrides it with a switch on Label
+function Step(name Label);
+
+final function UCLink Rules()
+{
+	if (Runner == None || Runner.bDeleteMe)
+	{
+		Runner = Spawn(class'UCLink', Self);      // no Source: it hooks itself to nothing
+		Runner.Rule = string(Name);
+	}
+	return Runner;
+}
+
+final function AfterTick()
+{
+	local int i;
+	local name Label;
+
+	for (i = 0; i < ArrayCount(AfterLabel); i++)
+		if (AfterLabel[i] != '' && Level.TimeSeconds >= AfterAt[i])
+		{
+			Label = AfterLabel[i];
+			AfterLabel[i] = '';
+			Step(Label);
+		}
+}
+
 // ---------------------------------------------------------------- what calls the events
 function PostBeginPlay()
 {
@@ -227,7 +329,7 @@ final function StartScript()
 	bScriptStarted = True;
 	Started();
 	for (i = 0; i < Waiting; i++)
-		Output(WaitingOutputs[i]);
+		Tell(WaitingOutputs[i], WaitingValues[i], WaitingWho[i], WaitingHas[i] != 0);
 	Waiting = 0;
 }
 
@@ -235,6 +337,7 @@ event Tick(float DeltaTime)
 {
 	if (!bScriptStarted)
 		StartScript();
+	AfterTick();
 }
 
 function Trigger(Actor Other, Pawn EventInstigator)

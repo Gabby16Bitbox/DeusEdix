@@ -173,6 +173,26 @@ def activate_text(text, paths, saved, save_path=None, actors=None):
     return '\r\n'.join(out) + '\r\n'
 
 
+def menu_ini(text, root_class, menu_map):
+    """`text` (a launch's copy of the game's ini) with a project's own main menu (editor/main_menu.py): the root
+    window that opens it ([Engine.Engine] Root=, `root_class`), and the map behind it as the game's own start map
+    ([URL] LocalMap=: where the game goes when it has no map to open). Line ends kept; never the player's own ini."""
+    def put(text, name, key, value):
+        pattern = re.compile(r'(?ims)^(\[%s\][^\r\n]*\r?\n)(.*?)(?=^\[|\Z)' % re.escape(name))
+        m = pattern.search(text)
+        if not m:
+            return text.rstrip('\r\n') + '\r\n[%s]\r\n%s=%s\r\n' % (name, key, value)
+        body = m.group(2)
+        line = re.compile(r'(?im)^%s\s*=[^\r\n]*' % re.escape(key))
+        body = (line.sub(lambda _: '%s=%s' % (key, value), body, count=1) if line.search(body)
+                else '%s=%s\r\n' % (key, value) + body)
+        return text[:m.start(2)] + body + text[m.end(2):]
+    text = put(text, 'Engine.Engine', 'Root', root_class)
+    if menu_map:
+        text = put(text, 'URL', 'LocalMap', menu_map + '.dx')
+    return text
+
+
 def play_save_path():
     """The SavePath of a Play (settings.SAVE_DIR) as the game's ini names it: from the game's System folder."""
     return '..\\' + settings.SAVE_DIR_NAME.replace('/', '\\')

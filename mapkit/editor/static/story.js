@@ -5,6 +5,9 @@ import {collectDraftStates, conditionProblems, conditionRows, removeCondition} f
 import {createSaveQueue} from './save-state.js';
 import {createGraphView} from './story-graph-view.js';
 import {mountConditions} from './conditions.js';
+import {signalsOf} from './logic-rule-ui.js';
+import {storyStepName} from './story-history.js';
+import {moveEvent, putBackLoss} from './story-move.js';
 // "Story" panel of the map editor: dialogues attached to the characters and objects of the map, InfoLinks
 // (one-way radio calls) and the events of the mission. Saved in tools/mapkit/story/<map>.json; "Apply in game" turns them into
 // UnrealScript (tools/mapkit/story.py), compiles the editor's package and installs it.
@@ -25,7 +28,7 @@ infoStyleCSS.href=new URL('./infolink-style.css',import.meta.url).href;document.
 
 const STEP_TYPES = {
   line: 'Line', choice: 'JC\'s answers (choice)', label: 'Label (jump target)', if: 'Check a condition',
-  goto: 'Go to a label', flag: 'Change state', goal: 'Goal', trigger: 'Trigger an event (Tag)',
+  goto: 'Go to a label', flag: 'Change state', goal: 'Goal', trigger: 'Trigger an event (Tag)', signal: 'Send a signal',
   give: 'Give JC an item', do: 'Actions (when the dialogue ends)', end: 'End of dialogue',
   credits: 'Give or take credits', skillpoints: 'Award skill points', checkitem: 'Check inventory',
   checkvalue: 'Check credits, health or skill points', random: 'Branch selection',
@@ -33,7 +36,7 @@ const STEP_TYPES = {
 };
 const ACTION_TYPES = {
   flag: 'Change state', goal: 'Goal', note: 'Datavault note', message: 'On-screen message',
-  talk: 'Start a dialogue', trigger: 'Trigger an event (Tag)',
+  talk: 'Start a dialogue', trigger: 'Trigger an event (Tag)', signal: 'Send a signal',
   npc: 'A character...', faction: 'A faction...', door: 'A door...', travel: 'Take JC to another map', infolink: 'Play an InfoLink',
   cutscene: 'Play a cutscene',
 };
@@ -88,6 +91,11 @@ const css = `
 #story .card.info { border-left:3px solid #f5d76e; }
 #story .card.label { border-left:3px solid #6bd68a; } #story .card.if, #story .card.goto { border-left:3px solid #c08aff; }
 #story .st-log { max-height:110px; overflow:auto; padding:6px 12px; border-top:1px solid #2c313b; font:12px/1.35 Consolas, monospace; color:#8b93a3; white-space:pre-wrap; }
+/* Move to Logic (P5): the preview of the rule an event becomes */
+#story .st-move { border:1px solid #3a4250; border-left:3px solid #4fd1c5; border-radius:6px; margin:8px 0; padding:8px 10px; background:#1f232b; }
+#story .st-move .rule { color:#d9dde5; margin:6px 0; }
+#story .st-move ul { margin:4px 0 6px 18px; padding:0; color:#8b93a3; }
+#story .st-move .no { color:#ffb347; margin:6px 0; }
 #story .loc { display:inline-flex; align-items:center; padding:4px 6px; flex:none; }
 #story .loc svg { width:15px; height:15px; }
 #story .loc:disabled { opacity:.35; }
@@ -96,6 +104,7 @@ const css = `
 #story.peek { inset:auto calc(var(--rw, 280px) + 10px) calc(var(--bh, 230px) + 10px) calc(var(--lw, 250px) + 10px); box-shadow:0 6px 24px #000a; }
 #story.peek .st-head, #story.peek .st-body, #story.peek .st-log { display:none; }
 #story.peek .st-peek { display:flex; }
+#story.picking .st-peek .tip { display:none; }
 #story .tip { color:#8b93a3; margin:4px 0 8px; }
 #story .st-condition-list { flex:1; min-width:180px; }
 #story .st-condition-row { display:flex; align-items:flex-start; gap:6px; margin:5px 0; }
@@ -134,6 +143,7 @@ root.innerHTML = `
       <h4>Original conversations</h4><div id="st-originals"></div>
       <h4>InfoLinks</h4><div id="st-ilist"></div><button class="it" id="st-newi">+ New InfoLink</button><button class="it" id="st-istyle" title="Default appearance for all InfoLinks created in this project">InfoLink style…</button>
       <h4>Events</h4><div id="st-elist"></div><button class="it" id="st-newe">+ New event</button>
+      <div id="st-moved"></div>
       <h4>Story state</h4><button class="it" id="st-state">Flags &amp; conditions</button>
       <div class="tip" style="margin-top:12px">A <b>dialogue</b> belongs to a character or an object: it starts when JC talks to it or gets close.<br>
       An <b>InfoLink</b> is a radio call: only the caller speaks, JC never answers. An event or a dialogue plays it.<br>
@@ -147,6 +157,9 @@ root.innerHTML = `
     <span class="tip" style="margin:0">selected in the 3D view, its properties on the right</span>
     <span style="flex:1"></span><button id="st-back" class="primary">Back to the story</button></div>`;
 document.body.appendChild(root);
+// the editor's history: what the page set by itself is the "before" of the next change; a field left ends its typing
+for (const type of ['pointerdown', 'keydown']) root.addEventListener(type, () => rebase(), true);
+root.addEventListener('focusout', (e) => { if (typing?.el === e.target) typing = null; });
 const LOC_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg>';
 const locButton = (attr, title = 'Show who this is in the 3D view') => `<button class="loc" ${attr} title="${title}">${LOC_ICON}</button>`;
 const flagList = document.createElement('datalist');
@@ -154,6 +167,8 @@ flagList.id = 'st-flags';
 document.body.appendChild(flagList);
 const goalList = document.createElement('datalist');
 goalList.id = 'st-goals'; document.body.appendChild(goalList);
+const signalList = document.createElement('datalist');          // the signals the map's rules send or wait for
+signalList.id = 'st-signals'; document.body.appendChild(signalList);
 const noteList = document.createElement('datalist');
 noteList.id = 'st-notes'; document.body.appendChild(noteList);
 const mapList = document.createElement('datalist');
@@ -170,7 +185,59 @@ function log(lines, cls) {
   el.innerHTML += (Array.isArray(lines) ? lines : [lines]).map((l) => `<div class="${cls || ''}">${esc(l)}</div>`).join('');
   el.scrollTop = el.scrollHeight;
 }
-function changed() { revision++; dirty = true; $('#st-save').textContent = 'Save *'; renderLists(); }
+function changed() { revision++; dirty = true; $('#st-save').textContent = 'Save *'; record(); renderLists(); }
+
+// ---------------------------------------------------------------- the editor's history (P5)
+// Every change of the Story is a step of the editor's own history (Ctrl+Z, Ctrl+Y, the History panel: app.js
+// storyStep), named by what it changed (story-history.js). baseline: the Story as the last change left it (its JSON),
+// the step's "before"; it is taken again when the panel is touched (rebase), so what the page sets by itself (a
+// dialogue's ids, its empty graph layout) is kept by a step back. Typing in one field is one step until the field is
+// left (typing). A step back or forward puts a whole Story in place (restore).
+let baseline = null, typing = null;           // typing: {el, step} the field written in and its step
+const deletedVoices = new Set();              // voices removed this session (their file is gone): never given back
+function rebase() { if (story) baseline = JSON.stringify(story); }
+function record() {
+  if (!story || baseline === null) return;
+  const now = JSON.stringify(story);
+  if (now === baseline) return;
+  const el = document.activeElement;
+  const field = el && inStory(el) && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'file'].includes(el.type))) ? el : null;
+  if (!(field && typing?.el === field && E()?.storyStepOnTop?.(typing.step))) {
+    const step = E()?.storyStep?.(storyStepName(JSON.parse(baseline), story), baseline) || null;
+    typing = field && step ? { el: field, step } : null;
+  }
+  baseline = now;
+}
+// the Story of a step back or forward (its JSON) in place of this one: the same object (a save under way keeps it),
+// what is shown found again by its id, drawn once after the steps
+let redrawQueued = false;
+function restore(json) {
+  if (!story || typeof json !== 'string') return;
+  const was = current && ['d', 'i', 'e'].includes(current.kind) ? { kind: current.kind, id: listOf(current.kind)[current.i]?.id } : null;
+  const next = JSON.parse(json);
+  next.dialogues ||= []; next.events ||= []; next.infolinks ||= [];
+  for (const d of next.dialogues) for (const st of d.steps || []) for (const l of [st, ...(st.options || [])]) dropDeleted(l);
+  for (const il of next.infolinks) for (const l of il.lines || []) dropDeleted(l);
+  for (const k of Object.keys(story)) delete story[k];
+  Object.assign(story, next);
+  baseline = JSON.stringify(story); typing = null;
+  if (was) { const i = listOf(was.kind).findIndex((x) => x.id === was.id); current = i >= 0 ? { kind: was.kind, i } : null; }
+  revision++; dirty = true; $('#st-save').textContent = 'Save *';
+  if (story.route && !E()?.standalone) $('#st-route').value = story.route;
+  if (!redrawQueued) {
+    redrawQueued = true;
+    queueMicrotask(() => {
+      redrawQueued = false;
+      if (!story) return;
+      if (root.classList.contains('open')) render(); else renderLists();
+      for (const m of mounts) { m.kept = m.view ? m.view.getView() : null; mountView(m); }
+    });
+  }
+}
+// a change made with the map's rules in one step (app.js storyRulesStep: Move to Logic, Put back): no step of its own
+function changedWithRules() { revision++; dirty = true; $('#st-save').textContent = 'Save *'; rebase(); typing = null; renderLists(); }
+function listOf(kind) { return kind === 'd' ? story.dialogues : kind === 'i' ? story.infolinks : story.events; }
+function dropDeleted(line) { if (typeof line?.voice === 'string' && deletedVoices.has(line.voice)) delete line.voice; }
 
 // ---------------------------------------------------------------- data
 async function ensure() {
@@ -194,7 +261,7 @@ async function ensure() {
     catalogFlags=catalogResult.status==='fulfilled' ? catalogResult.value : [];
     const v=voiceResult.status==='fulfilled' ? voiceResult.value : {};
     voices=v.voices || {}; soundsPkg=v.package || soundsPkg;
-    mapLoaded=script; current=null; dirty=false;
+    mapLoaded=script; current=null; dirty=false; baseline=JSON.stringify(story); typing=null;
     revision++; $('#st-save').textContent='Save';
     $('#st-map').textContent=' · '+r.map;
     $('#st-route').value=story.route || 'unatco';
@@ -217,6 +284,7 @@ function refreshFlags() {
   const originals = window.__gamecons?.data;
   flagList.innerHTML = [...all].sort().map((f) => `<option value="${esc(f)}" label="${esc([missionFlags[f]?.map(r=>`${r.cls} · ${r.function}:${r.line} (${r.operation})`).slice(0,2).join('; '), originals?.flags[f]?.slice(0,3).join(', ')].filter(Boolean).join(' | ') || 'Your story')}">`).join('');
   goalList.innerHTML = Object.entries(originals?.goals || {}).map(([name, uses]) => `<option value="${esc(name)}" label="${esc(uses.map(u=>u.conversation).slice(0,3).join(', '))}">`).join('');
+  signalList.innerHTML = signalsOf(E()?.edits?.links || [], story).map((s) => `<option value="${esc(s)}">`).join('');
   noteList.innerHTML = Object.entries(originals?.notes || {}).map(([text, uses]) => `<option value="${esc(text)}" label="${esc(uses.slice(0,3).join(', '))}">`).join('');
 }
 // what an object added in the editor is called in the lists: a character's own name, else its class in words
@@ -269,8 +337,17 @@ function locate(name) {
 let cancelSeatPick = null;
 function unpeek() {
   cancelSeatPick?.(); cancelSeatPick = null;
-  root.classList.remove('peek');
+  root.classList.remove('peek', 'picking');
 }
+// a Logic action's object or place clicked in the scene (app.js lkStartPick): the panel steps aside meanwhile
+// (Back to the story cancels it: cancel)
+const pickHook = { owns: (el) => root.contains(el),
+  start: (hint, cancel) => {
+    cancelSeatPick = cancel || null;
+    $('#st-peekname').textContent = 'the scene — ' + String(hint || '').replace(/^Click /, 'click ').replace(/\.$/, '');
+    root.classList.add('peek', 'picking');
+  },
+  end: () => { cancelSeatPick = null; root.classList.remove('peek', 'picking'); } };
 function playedFlag(d) { return d.replaces ? `${d.replaces}_Played` : `UCEd${mapCode}_${ident(d.id)}_Played`; }
 function heardFlag(il) { return `UCEd${mapCode}_${ident(il.id)}_Heard`; }
 function blankDialogue(actorName) {
@@ -292,6 +369,7 @@ function renderLists() {
   for (const b of root.querySelectorAll('[data-d]')) b.onclick = () => { current = { kind: 'd', i: +b.dataset.d }; render(); };
   for (const b of root.querySelectorAll('[data-e]')) b.onclick = () => { current = { kind: 'e', i: +b.dataset.e }; render(); };
   for (const b of root.querySelectorAll('[data-i]')) b.onclick = () => { current = { kind: 'i', i: +b.dataset.i }; render(); };
+  renderMoved();
 }
 function whenText(w) {
   w = w || {};
@@ -393,6 +471,11 @@ function wirePoint(el, obj, redraw) {
   box.querySelector('[data-pcam]').onclick = () => { obj.at = E().cameraPoint(160); changed(); redraw(); };
 }
 
+// a signal (P5): its name, from those of the map's rules; the rules "When the signal ... is sent" run
+function signalHtml(o) {
+  return `<div class="f">signal <input type="text" data-k="signal" list="st-signals" value="${esc(o.signal)}" placeholder="Alarm" style="max-width:200px"></div>
+    <div class="tip" style="margin:2px 0">The map's rules that wait for it (Logic: When... › a signal is sent) run.</div>`;
+}
 // ---------------------------------------------------------------- actions (events, and dialogues when they end)
 function actionBody(a) {
   if (a.type === 'flag') return '<div class="st-state-field"></div>';
@@ -400,6 +483,7 @@ function actionBody(a) {
   if (a.type === 'note' || a.type === 'message') return `<div class="f"><input type="text" data-k="text" ${a.type === 'note' ? 'list="st-notes"' : ''} value="${esc(a.text)}" placeholder="the text"></div>`;
   if (a.type === 'talk') return `<div class="f"><select data-k="dialogue"><option value="">(choose)</option>${story.dialogues.map((d) => `<option value="${esc(d.id)}" ${d.id === a.dialogue ? 'selected' : ''}>${esc(d.title || d.id)}</option>`).join('')}</select></div>`;
   if (a.type === 'trigger') return `<div class="f">Tag <input type="text" data-k="tag" value="${esc(a.tag)}"></div>`;
+  if (a.type === 'signal') return signalHtml(a);
   if (a.type === 'cutscene') return `<div class="f"><select data-k="cutscene"><option value="">(choose)</option>${cutscenes().map(([n, t]) => `<option value="${esc(n)}" ${n === a.cutscene ? 'selected' : ''}>${esc(t)} (${esc(n)})</option>`).join('')}</select></div>`
     + (cutscenes().length ? '' : '<div class="tip" style="margin:2px 0">No cutscene in this map yet: + Cutscene in the bottom bar.</div>');
   if (a.type === 'infolink') return `<div class="f"><select data-k="infolink"><option value="">(choose)</option>${story.infolinks.map((il) => `<option value="${esc(il.id)}" ${il.id === a.infolink ? 'selected' : ''}>${esc(il.title || il.id)}</option>`).join('')}</select></div>`;
@@ -418,21 +502,46 @@ function actionBody(a) {
       arrival (Tag) <input type="text" data-k="tag" value="${esc(a.tag)}" placeholder="(map start)" style="max-width:200px"></div>`;
   return '';
 }
+// A Logic action of the Story (P5, {type: 'act', act}): the rules' verbs, drawn and edited by the rules' own rows
+// (app.js lkStoryActs: one carrier per card), done in the game as a rule does them (story.py RunAct). Its title: the
+// sentence of the Logic window ("play the sound Alarm1").
+const acts = () => E() && E().storyActs;
+function actTitle(a) {
+  if (a.type !== 'act') return ACTION_TYPES[a.type] || a.type;
+  const up = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
+  try { return up(acts() ? acts().text(a.act || {}) : (a.act && a.act.verb) || 'An action'); } catch { return up((a.act && a.act.verb) || 'An action'); }
+}
+let actsAsked = false;
+function addActionOptions(redraw) {
+  const k = acts();
+  if (!k) return `${Object.entries(ACTION_TYPES).map(([v, t]) => `<option value="type:${v}">${t}</option>`).join('')}`;
+  const shared = k.addOptions();
+  if (!/verb:|type:/.test(shared) && !actsAsked) { actsAsked = true; k.ready().then(() => redraw()); }      // the words, once
+  return shared + `<optgroup label="Only in the Story"><option value="type:trigger">${ACTION_TYPES.trigger}</option>`
+    + `<option value="type:faction">${ACTION_TYPES.faction}</option><option value="join">A character joins a faction</option></optgroup>`;
+}
 function newAction(type) {
   if (type === 'flag') return { type, flag: '', is: true };
   if (type === 'npc') return { type, actor: '', act: 'goto', at: [0, 0, 0], nav: true };
   if (type === 'door') return { type, actor: '', act: 'open' };
   if (type === 'travel') return { type, map: '', tag: '' };
   if (type === 'faction') return { type, faction: '', act: 'hostile', toward: 'Player', fixed: false };
+  if (type === 'signal') return { type, signal: '' };
   return { type };
 }
 function renderActions(box, list) {
   const redraw = () => renderActions(box, list);
-  box.innerHTML = (list.map((a, i) => `<div class="card act" data-a="${i}"><div class="ch"><b>${ACTION_TYPES[a.type] || a.type}</b><button data-ax="${i}" title="remove">✕</button></div>${actionBody(a)}</div>`).join('')
+  acts()?.hook(pickHook);
+  box.innerHTML = (list.map((a, i) => `<div class="card act" data-a="${i}"><div class="ch"><b>${esc(actTitle(a))}</b><button data-ax="${i}" title="remove">✕</button></div>${a.type === 'act' ? '<div class="st-actrows"></div>' : actionBody(a)}</div>`).join('')
     || '<div class="tip">No actions: add one below.</div>')
-    + `<div class="f"><select data-addact="1"><option value="">+ action...</option>${Object.entries(ACTION_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>`;
+    + `<div class="f"><select data-addact="1"><option value="">+ action...</option>${addActionOptions(redraw)}</select></div>`;
   list.forEach((a, i) => {
     const card = box.querySelector(`[data-a="${i}"]`);
+    if (a.type === 'act') {                      // the rules' rows (app.js), its changes kept by the Story
+      a.act = a.act || { verb: '', target: '', delay: 0 };
+      if (acts()) acts().mount(card.querySelector('.st-actrows'), a.act, { changed: () => { changed(); redraw(); } });
+      return;
+    }
     bindFields(card, a);
     if (a.type === 'flag') stateField(card.querySelector('.st-state-field'), a, 'set');
     const act = card.querySelector('select[data-k="act"]');
@@ -443,7 +552,7 @@ function renderActions(box, list) {
     if (seatPick) seatPick.onclick = () => {
       unpeek();
       $('#st-peekname').textContent = 'the scene — click a chair';
-      root.classList.add('peek');
+      root.classList.add('peek', 'picking');
       cancelSeatPick = E().cutKit.lkStartPick({ hint: 'Click a chair, bench or sofa from Objects',
         accept: (o, chain) => chain.includes('Seat') || 'Choose a game seat from Objects; a Piece or Prefab alone has no seat points.',
         done: o => { a.seat = o.name; changed(); unpeek(); redraw(); } });
@@ -452,7 +561,18 @@ function renderActions(box, list) {
   });
   for (const b of box.querySelectorAll('[data-ax]')) b.onclick = () => { list.splice(+b.dataset.ax, 1); changed(); redraw(); };
   const add = box.querySelector('[data-addact]');
-  add.onchange = () => { if (!add.value) return; list.push(newAction(add.value)); changed(); redraw(); };
+  add.onchange = () => {
+    const v = add.value;
+    add.value = '';
+    if (!v) return;
+    const put = (a) => { list.push(a); changed(); redraw(); };
+    if (v === '@pick') { acts().pick((act) => put({ type: 'act', act })); return; }      // the panel steps aside (hook)
+    if (v === 'join') { put({ type: 'npc', actor: '', act: 'join', faction: '' }); return; }
+    if (v.startsWith('type:')) { put(newAction(v.slice(5))); return; }
+    const act = acts().newAct(v.slice(5));
+    put({ type: 'act', act });
+    if (act.verb === 'sound') acts().pickSound('', (name) => { if (name) { act.a = name; changed(); redraw(); } });
+  };
 }
 function actionProblems(list, where, out) {
   for (const a of list || []) {
@@ -466,6 +586,8 @@ function actionProblems(list, where, out) {
     if (a.type === 'infolink' && !story.infolinks.some((il) => il.id === a.infolink)) out.push(`${where}: missing the InfoLink to play`);
     if (a.type === 'cutscene' && !cutscenes().some(([n]) => n === a.cutscene)) out.push(`${where}: missing the cutscene to play`);
     if ((a.type === 'flag') && !a.flag) out.push(`${where}: a flag with no name`);
+    if (a.type === 'signal' && !String(a.signal || '').trim()) out.push(`${where}: a signal with no name`);
+    if (a.type === 'act') { const why = acts() ? acts().problem(a.act || {}) : ''; if (why) out.push(`${where}: ${why}`); }
   }
 }
 function addBranch(d) {                            // label + a line + end at the bottom: where an answer goes
@@ -520,15 +642,20 @@ function eventConditions(el, e) {
     mountState: (host, value, onChange) => mountStateField(host, value, { onChange }),
     items, characters: pawns().map((a) => ({ name: a.name, label: actorLabel(a) })),
     counters: stateCatalog().filter((f) => f.type === 'int').map((f) => f.flag),
+    zones: E().mapZones || [],
     empty: 'No conditions: it happens as soon as its "when" does.',
     max: Infinity,                        // the Story compiles any number (conditions.unreal); a rule takes 8
+    point: (how) => { const p = how === 'selected' ? E().selectedLoc() : E().cameraPoint(160); return p ? p.map((v) => Math.round(v)) : null; },
+    warn: (t) => log(t, 'warn'),
   });
 }
 
 // ---------------------------------------------------------------- dialogue editor
 function render() {
+  // the graph of the dialogue shown keeps its zoom and selection when it is drawn again (a step back or forward)
+  graphKept = graphView && graphOf ? { id: graphOf, ...graphView.getView() } : null;
   graphView?.destroy();
-  graphView = null;
+  graphView = null; graphOf = null;
   renderLists();
   const el = $('#st-edit');
   if (!current) { el.innerHTML = '<div class="tip">Pick a dialogue, an InfoLink or an event on the left, or create a new one. For a character\'s dialogues you can also select them in the scene and press "Dialogues" in the right panel.</div>'; return; }
@@ -734,6 +861,7 @@ function wireVoices(el, ctx, redraw) {
         const response=await fetch('/api/dub_delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: x.line.voice }) });
         const result=await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || (result.lines || []).join('\n') || 'Could not remove the voice.');
       } catch(e) { log(e.message,'bad'); return; }
+      deletedVoices.add(x.line.voice);
       delete voices[x.line.voice];
       delete x.line.voice;
       changed();
@@ -794,6 +922,8 @@ function renderSteps(el, d, only) {
         <div class="f"><label style="width:auto"><input type="checkbox" data-k="done" ${s.done ? 'checked' : ''}> already completed (ticks off a goal given earlier)</label></div>`;
     } else if (s.type === 'trigger') {
       body = `<div class="f">Tag <input type="text" data-k="tag" value="${esc(s.tag)}" placeholder="the Tag of doors, lights, alarms...">`;
+    } else if (s.type === 'signal') {
+      body = signalHtml(s);
     } else if (s.type === 'do') {
       body = `<div class="tip" style="margin:2px 0">They happen as soon as the dialogue ends (e.g. the character walks away, a door opens).</div><div class="st-doacts"></div>`;
     } else if (s.type === 'give') {
@@ -866,7 +996,7 @@ function renderSteps(el, d, only) {
 }
 
 // ---------------------------------------------------------------- the Graph view (story-graph-view.js)
-let graphView = null, settingsOpen = false;
+let graphView = null, settingsOpen = false, graphOf = null, graphKept = null;   // graphOf: the id of its dialogue
 const VIEW_KEY = 'deusedix.storyView';
 function graphMode() { try { return localStorage.getItem(VIEW_KEY) !== 'list'; } catch (_) { return true; } }
 function setGraphMode(on) { try { localStorage.setItem(VIEW_KEY, on ? 'graph' : 'list'); } catch (_) { /* no storage: this session only */ } }
@@ -904,8 +1034,9 @@ function stepSummary(s) {
     case 'checkvalue': return `${{ EP_Credits: 'Credits', EP_Health: 'Health', EP_SkillPoints: 'Skill points' }[s.valueType || 'EP_Credits']} ${{ EC_Less: '<', EC_LessEqual: '≤', EC_Equal: '=', EC_GreaterEqual: '≥', EC_Greater: '>' }[s.condition || 'EC_GreaterEqual']} ${+s.amount || 0}`;
     case 'random': return `${(s.labels || []).length} ways, one at random`;
     case 'trigger': return `Tag ${s.tag || '?'}`;
+    case 'signal': return `Signal ${s.signal || '?'}`;
     case 'note': return s.text || '';
-    case 'do': return (s.do || []).map((a) => ACTION_TYPES[a.type] || a.type).join(', ') || 'Nothing yet';
+    case 'do': return (s.do || []).map(actTitle).join(', ') || 'Nothing yet';
     case 'animation': return s.sequence || '';
     case 'trade': return s.actor || '';
     default: return '';
@@ -926,15 +1057,26 @@ function newStep(type, who = 'npc') {
   if (type === 'random') s.labels = ['', ''];
   if (type === 'note') s.text = '';
   if (type === 'trigger') s.tag = '';
+  if (type === 'signal') s.signal = '';
   if (type === 'do') s.do = [];
   return s;
 }
 function showGraph(host, d) {
-  story.layout = story.layout || {};
-  const layout = story.layout[d.id] = story.layout[d.id] || {};
+  const start = graphKept?.id === d.id ? graphKept : null;
+  graphKept = null;
+  graphOf = d.id;
+  graphView = createGraphView(graphOptions(host, d, start));
+}
+// the Graph view's options for dialogue d in host (the Story panel's, or a mount elsewhere: mountGraph)
+function graphOptions(host, d, start) {
+  // the places of its nodes moved by hand, on the node canvas (left to right). story.layout keeps the places the
+  // older, top-down Graph had (before 9 Nov 2026): not read any more, not thrown away
+  story.places = story.places || {};
+  const layout = story.places[d.id] = story.places[d.id] || {};
   const owner = speakerOf(d, { who: 'npc' }).name;
-  graphView = createGraphView({
-    host, dialogue: d, layout, changed,
+  return {
+    host, dialogue: d, layout, changed, start,
+    undo: () => E()?.undoStep?.(), redo: () => E()?.redoStep?.(),
     speaker: (s) => speakerOf(d, s),
     speakers: () => [{ who: 'npc', name: speakerOf(d, { who: 'npc' }).name }, { who: 'jc', name: 'JC Denton' },
       ...talkers().filter((a) => a.kind === 'pawn' && a.name !== d.owner).map((a) => ({ who: 'actor:' + a.name, name: actorLabel(a) }))],
@@ -945,8 +1087,24 @@ function showGraph(host, d) {
     menu: [['line', 'Line: ' + owner], ['line', 'Line: JC', 'jc'], ['choice', "JC's answers"], '-',
       ['if', 'Condition (flags)'], ['checkitem', 'Check inventory'], ['checkvalue', 'Check credits, health or skill points'], ['random', 'Random branch'], '-',
       ['flag', 'Change state'], ['goal', 'Goal'], ['give', 'Give JC an item'], ['credits', 'Give or take credits'], ['skillpoints', 'Award skill points'],
-      ['note', 'Datavault note'], ['trigger', 'Trigger an event (Tag)'], ['do', 'Actions when it ends'], '-', ['end', 'End of dialogue']],
-  });
+      ['note', 'Datavault note'], ['trigger', 'Trigger an event (Tag)'], ['signal', 'Send a signal'], ['do', 'Actions when it ends'], '-', ['end', 'End of dialogue']],
+  };
+}
+
+// ---------------------------------------------------------------- a dialogue's Graph elsewhere (P5: the Logic window)
+// The Graph of one dialogue mounted outside the Story panel (the Logic window opens it from a dialogue's node): the
+// same view and fields, its changes the Story's (changed: Save, the editor's history). A step back or forward puts a
+// new Story in place (restore): each mount is drawn again from it, keeping its zoom and selection.
+const mounts = new Set();                     // {host, id, view, kept}
+const inStory = (el) => !!el && (root.contains(el) || [...mounts].some((m) => m.host.contains(el)));
+function mountView(m) {
+  const d = story?.dialogues.find((x) => x.id === m.id);
+  m.view?.destroy();
+  m.view = null;
+  if (!d) { m.host.innerHTML = '<p class="tip">This dialogue is no longer in the Story (a step back took it away).</p>'; return null; }
+  m.view = createGraphView(graphOptions(m.host, d, m.kept));
+  m.kept = null;
+  return d;
 }
 
 // ---------------------------------------------------------------- InfoLink editor
@@ -1050,7 +1208,9 @@ function renderEvent(el, e) {
     <div id="st-wf"></div>
     <div class="f" style="align-items:flex-start"><label>Only if</label><div id="st-req" style="flex:1"></div></div>
     <div class="tip">What happens:</div><div id="st-acts"></div>
-    <div class="f"><span style="flex:1"></span><button id="st-dele" class="bad">Delete event</button></div>`;
+    <div id="st-movebox"></div>
+    <div class="f"><button id="st-move" title="Make this event a rule of the Logic window, doing the same in the game (a preview first)">Move to Logic…</button>
+      <span style="flex:1"></span><button id="st-dele" class="bad">Delete event</button></div>`;
   bindFields(el.querySelector('.f'), e);
   bindFields(el.querySelectorAll('.f')[1], e);
   const wf = () => {
@@ -1084,6 +1244,72 @@ function renderEvent(el, e) {
   eventConditions($('#st-req'), e);
   renderActions($('#st-acts'), e.do);
   $('#st-dele').onclick = () => { if (!confirm(`Delete the event "${e.title || e.id}"?`)) return; story.events.splice(current.i, 1); current = null; changed(); render(); };
+  $('#st-move').onclick = () => showMove(e);
+}
+
+// ---------------------------------------------------------------- Move to Logic (P5, story-move.js)
+// An event made a rule of the map: a preview says the rule, what is not quite the same and why it cannot move; Move
+// takes it out of the events into story.moved (not built: Put back brings it back) and adds the rule, in one step of
+// the editor's history. Nothing moves by itself.
+const moveContext = () => ({ route: story.route || $('#st-route').value, standalone: !!E()?.standalone });
+function showMove(e) {
+  const box = $('#st-movebox');
+  const m = moveEvent(e, moveContext());
+  let said = '';
+  try { said = E()?.ruleSentence?.(m.rule) || ''; } catch (_) { said = ''; }
+  const title = e.title || e.id;
+  box.innerHTML = `<div class="st-move"><b>Move "${esc(title)}" to Logic</b>
+    ${m.refused.length ? `<div class="no">It stays in the Story: ${esc(m.refused.join('; '))}.</div>`
+      : `<div class="tip" style="margin:4px 0 0">It becomes this rule of the map:</div><div class="rule">${esc(said || 'a rule of the map')}</div>
+    ${m.notes.length ? `<ul>${m.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
+    <div class="tip">It leaves the Story's events and waits under "Moved to Logic", where Put back brings it back. Ctrl+Z undoes the move.</div>`}
+    <div class="f"><button id="st-move-go" class="primary" ${m.refused.length ? 'disabled' : ''}>Move</button><button id="st-move-no">Cancel</button></div></div>`;
+  $('#st-move-no').onclick = () => { box.innerHTML = ''; };
+  $('#st-move-go').onclick = () => moveToLogic(e);
+}
+function moveToLogic(e) {
+  const i = story.events.indexOf(e);
+  if (i < 0) return;
+  const m = moveEvent(e, moveContext());
+  if (m.refused.length) return;
+  const title = e.title || e.id;
+  const id = E()?.storyRulesStep?.(`Move the Story event "${title}" to Logic`, JSON.stringify(story), (rules) => rules.add(m.rule));
+  if (!id) { log("Not now: wait for the Rebuild (or the assistant's proposal) to finish.", 'warn'); return; }
+  story.events.splice(i, 1);
+  (story.moved ||= []).push({ event: e, rule: id, at: i, as: m.rule });
+  current = null;
+  changedWithRules(); render();
+  log(`"${title}" is now the rule ${id} of the map, in the Logic window. Save, then Rebuild for the game.`, 'ok');
+}
+function putBack(k) {
+  const m = (story.moved || [])[k];
+  if (!m) return;
+  const title = m.event?.title || m.event?.id || 'event';
+  const loss = putBackLoss(E()?.ruleCopy?.(m.rule) ?? null, m.as);
+  if (loss && !confirm(`Put "${title}" back in the Story?
+
+${loss}`)) return;
+  const done = E()?.storyRulesStep?.(`Put back the Story event "${title}"`, JSON.stringify(story), (rules) => { rules.remove(m.rule); return true; });
+  if (!done) { log("Not now: wait for the Rebuild (or the assistant's proposal) to finish.", 'warn'); return; }
+  story.moved.splice(k, 1);
+  if (!story.moved.length) delete story.moved;
+  const at = Math.min(Math.max(0, +m.at || 0), story.events.length);
+  story.events.splice(at, 0, m.event);
+  current = { kind: 'e', i: at };
+  changedWithRules(); render();
+  log(`"${title}" is an event of the Story again; the rule ${m.rule} is gone.`, 'ok');
+}
+function renderMoved() {
+  const box = $('#st-moved'), list = story?.moved || [];
+  if (!box) return;
+  box.innerHTML = list.length ? `<h4>Moved to Logic</h4>` + list.map((m, k) => `<div class="it" style="display:flex;gap:4px;align-items:center">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis" title="Now the rule ${esc(m.rule)} of the map">${esc(m.event?.title || m.event?.id || '?')}<small> · rule ${esc(m.rule)}</small></span>
+      <button data-mopen="${k}" title="Show the rule in the Logic window">Open</button><button data-mback="${k}" title="Make it an event of the Story again, and take the rule away">Put back</button></div>`).join('') : '';
+  for (const b of box.querySelectorAll('[data-mopen]')) b.onclick = () => {
+    const m = list[+b.dataset.mopen];
+    if (!E()?.openRule?.(m.rule)) log(`The rule ${m.rule} is no longer in the map.`, 'warn');
+  };
+  for (const b of box.querySelectorAll('[data-mback]')) b.onclick = () => putBack(+b.dataset.mback);
 }
 
 // ---------------------------------------------------------------- checks, save, apply
@@ -1234,7 +1460,7 @@ $('#st-back').onclick = unpeek;
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && root.classList.contains('peek')) { e.stopImmediatePropagation(); e.preventDefault(); unpeek(); }
 }, true);
-$('#st-route').onchange = changed;
+$('#st-route').onchange = () => { if (story) story.route = $('#st-route').value; changed(); };
 $('#st-newd').onclick = () => {
   const s = E().selected, a = s && s.userData && s.userData.actor;
   const owner = a && a.talker !== false ? a.name : (talkers()[0] || {}).name;
@@ -1301,12 +1527,18 @@ window.__story = {
   originalControls,
   save,
   data: () => story,
+  // the editor's history (app.js travel): the Story now as a step keeps it, and a step's Story put in place
+  snapshot: () => (story ? JSON.stringify(story) : null),
+  restore,
+  // the flags the game sets for a dialogue played, an InfoLink heard (the Logic window's Story nodes, P5)
+  storyFlags: () => ({ playedFlag, heardFlag }),
   async open() { if (!(await ensure())) return; unpeek(); root.classList.add('open'); render(); await window.__gamecons?.load(); render(); },
   async showOriginal(path) { if (!(await ensure())) return; await window.__gamecons?.load(); current={kind:'o',path}; unpeek(); root.classList.add('open'); render(); },
   ensure,
   // an AI assistant's change of the story (agent.js): change(story) edits it, as the panel's fields do
   async edit(change) {
     if (!(await ensure())) throw Error('Open a map first.');
+    rebase();
     const value = change(story);
     changed();
     if (root.classList.contains('open')) render();
@@ -1315,6 +1547,7 @@ window.__story = {
   // a new dialogue for a character of the map (unsaved), as Story... on a character makes one
   async newDialogue(actorName) {
     if (!(await ensure())) throw Error('Open a map first.');
+    rebase();
     const d = blankDialogue(actorName);
     story.dialogues.push(d);
     changed();
@@ -1329,6 +1562,7 @@ window.__story = {
     root.classList.add('open');
     const i = story.dialogues.findIndex((d) => d.owner === actorName);
     const originals = window.__gamecons?.actorConversations(actorName) || [];
+    rebase();
     if (i >= 0) current = { kind: 'd', i };
     else if (originals.length) current = { kind: 'o', path: originals.find(c=>c.properties.bnoninteractive !== 'True' && c.group !== 'AIBarks')?.path || originals[0].path };
     else {
@@ -1339,9 +1573,45 @@ window.__story = {
     render();
   },
   async count(actorName) { if (!(await ensure())) return 0; return story.dialogues.filter((d) => d.owner === actorName).length; },
+  // the Graph of dialogue `id` in host, outside the panel (the Logic window): {title, speaker, destroy()} or null (no
+  // map, no such dialogue). Its changes are the Story's, as the panel's
+  async mountGraph(host, id) {
+    if (!(await ensure())) return null;
+    const d = story.dialogues.find((x) => x.id === id);
+    if (!d) return null;
+    const m = { host, id, view: null, kept: null };
+    const touched = () => rebase(), left = (e) => { if (typing?.el === e.target) typing = null; };
+    host.addEventListener('pointerdown', touched, true);
+    host.addEventListener('keydown', touched, true);
+    host.addEventListener('focusout', left);
+    mounts.add(m);
+    rebase();
+    mountView(m);
+    return { title: d.title || d.id, speaker: ownerName(d),
+      destroy() {
+        m.view?.destroy(); m.view = null; mounts.delete(m);
+        host.removeEventListener('pointerdown', touched, true); host.removeEventListener('keydown', touched, true);
+        host.removeEventListener('focusout', left);
+        host.innerHTML = '';
+      } };
+  },
+  // the Story panel opened on a dialogue, an InfoLink or an event ('dialogues' | 'infolinks' | 'events', its id)
+  async openItem(key, id) {
+    if (!(await ensure())) return false;
+    const kind = { dialogues: 'd', infolinks: 'i', events: 'e' }[key];
+    const i = kind ? listOf(kind).findIndex((x) => x.id === id) : -1;
+    if (i < 0) return false;
+    await window.__gamecons?.load();
+    unpeek();
+    root.classList.add('open');
+    rebase();
+    current = { kind, i };
+    render();
+    return true;
+  },
   get dirty() { return dirty; },
   get saving() { return saveQueue.pending; },
-  reset() { loadEpoch++; revision++; storyLoad=null; catalogFlags=[]; allMaps=null; for(const key of Object.keys(peopleCache))delete peopleCache[key]; story = null; mapLoaded = null; current = null; dirty = false; $('#st-save').textContent='Save'; root.classList.remove('open'); },
+  reset() { loadEpoch++; revision++; storyLoad=null; catalogFlags=[]; allMaps=null; for(const key of Object.keys(peopleCache))delete peopleCache[key]; story = null; mapLoaded = null; current = null; dirty = false; baseline = null; typing = null; $('#st-save').textContent='Save'; root.classList.remove('open'); },
 };
 
 for(const event of ['deusedix:mission-flags','deusedix:original-conversations']) window.addEventListener(event,()=>{if(story){refreshFlags();$('#st-edit').refreshStateCatalog?.();}});

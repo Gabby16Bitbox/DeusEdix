@@ -109,6 +109,10 @@ def check_manifest(m):
     out['start'] = str(m.get('start', ''))
     if out['start'] not in maps:
         raise ValueError('The mod\'s start map is not one of its maps.')
+    # its own main menu (editor/main_menu.py): the map behind it, where the mod starts; its classes are in its package
+    out['menu'] = str(m.get('menu') or '')
+    if out['menu'] and (out['kind'] != 'deusedix' or out['menu'] not in maps):
+        raise ValueError('The mod\'s main menu map is not one of its maps.')
     requires = m.get('requires') or []
     if not isinstance(requires, list) or not all(isinstance(x, str) and _NAME.match(x) for x in requires):
         raise ValueError('The mod has an invalid list of required packages.')
@@ -178,6 +182,16 @@ def export(details, cover=None, log=None):
     if not maps:
         raise ValueError('The project has no maps yet.')
     lines = list(story.write_all() or [])
+    # the project's own main menu, when it is on and ready (main_menu.problems): the mod starts on it
+    import main_menu
+    menu = main_menu.snapshot()
+    menu_map = ''
+    if menu['menu']['enabled']:
+        main_menu.write_runtime()
+        if menu['problems']:
+            raise ValueError('The main menu is not ready: %s Fix it in File > Main menu... or switch it off there.'
+                             % ' '.join(menu['problems']))
+        menu_map = menu['menu']['menuMap']
     if workspace.needs_build():
         say('Building the project\'s packages...')
         ok, built = workspace.build(say)
@@ -191,7 +205,7 @@ def export(details, cover=None, log=None):
         format=FORMAT, id=settings.PROJECT_ID.lower().replace('_', '-'), name=details.get('name'),
         author=details.get('author'), version=details.get('version'), description=details.get('description'),
         game=settings.TARGET, package=settings.PACKAGE, maps=[m.stem for m in maps], packages=packages,
-        start=details.get('start'), requires=[], cover='cover.png' if cover else None,
+        start=details.get('start'), menu=menu_map, requires=[], cover='cover.png' if cover else None,
         created=time.strftime('%Y-%m-%d %H:%M'), editor='DeusEdix'))
     # every map loads with the game and the mod's own packages only (nothing of the game is carried)
     import kit
@@ -553,6 +567,10 @@ def launch_ini(target, mod_id):
     (folder / 'Save').mkdir(exist_ok=True)
     text = project_game.activate_text(text, paths, project_game.original_save_paths(text), rel + '\\Save',
                                       project_game.original_actors(text))
+    m = check_manifest(json.loads((folder / 'mod.json').read_text(encoding='utf-8')))
+    if m['menu']:
+        # the mod's own main menu: the game opens it at its start and for Esc (its package's UCMenuRoot)
+        text = project_game.menu_ini(text, m['package'] + '.UCMenuRoot', m['menu'])
     inis = project_game.write_launch_inis(settings.launch_inis(settings.LAUNCH_MOD, folder, target), text,
                                           system / profile['user_ini'], target)
     return project_game.launch_args(inis, system)
@@ -568,9 +586,10 @@ def play(target, mod_id):
         raise ValueError('This mod needs packages of other mods that are not installed: %s.' % ', '.join(missing))
     if _running(target):
         raise ValueError('%s is already running: close it first.' % settings.TARGETS[target]['short'])
-    argv, cwd = settings.game_command([m['start']] + launch_ini(target, mod_id), target=target)
+    start = m['menu'] or m['start']          # a mod with its own main menu starts on it, as the game on its own
+    argv, cwd = settings.game_command([start] + launch_ini(target, mod_id), target=target)
     subprocess.Popen(argv, cwd=cwd)
-    return dict(ok=True, name=m['name'], start=m['start'])
+    return dict(ok=True, name=m['name'], start=start)
 
 
 def launch_copies(target):

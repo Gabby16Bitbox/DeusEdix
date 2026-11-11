@@ -81,13 +81,14 @@ state Counting
 {
 Begin:
 	Sleep(Wait);
-	Output("Done");         // the rules on "it says Done" run
+	Output("Done");         // the rules on "it says Done" run (an output declared with Args="Value" can say
+	                        // OutputValue("Done", 3): the rules use the 3 as Value)
 	GotoState('');
 }
 
 defaultproperties
 {
-	Inputs(0)=(Id="Start",Label="Start it",Args="Seconds")
+	Inputs(0)=(Id="Start",Label="Start it",Args="Seconds:seconds")
 	Outputs(0)=(Id="Done",Label="it is done")
 	Seconds=10.0
 }
@@ -205,6 +206,7 @@ def delete(name):
 # A script's ports, declared in its defaultproperties (the place UnrealScript keeps a class's data):
 #   Inputs(0)=(Id="Sabotage",Label="Sabotage it",Args="Seconds,Mode")
 #   Outputs(0)=(Id="Sabotaged",Label="it is sabotaged")
+#   Outputs(1)=(Id="Found",Label="it finds coins",Args="Value")    comes with a number: OutputValue("Found", 3)
 _TOKENS = re.compile(r'"(?:[^"\\\n]|\\.)*"|//[^\n]*|/\*.*?\*/|[^"/]+|/', re.S)
 _PORT = re.compile(r'(?i)^\s*(Inputs|Outputs)\s*\(\s*(\d+)\s*\)\s*=\s*\((.*)\)\s*$')
 _PORT_FIELD = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|([^,)]*))')
@@ -233,9 +235,15 @@ def _defaults_block(code):
     return code[m.end():]
 
 
+ARG_TYPES = ('number', 'seconds', 'yesno', 'text', 'thing')     # what an input's argument can take (Args="Seconds:seconds")
+
+
 def ports(name, text=None):
-    """{'inputs': [{'id', 'label', 'args': [names]}], 'outputs': [{'id', 'label'}]}: what the script itself declares,
-    in the order of their indexes. A port without a valid Id is left out; its label is its Id when it has none."""
+    """{'inputs': [{'id', 'label', 'args': [names], 'types': {name: kind}}], 'outputs': [{'id', 'label', 'carries'}]}:
+    what the script itself declares, in the order of their indexes. A port without a valid Id is left out; its label is
+    its Id when it has none. 'types' only when an argument says its kind (ARG_TYPES): the rules then ask for it that way.
+    'carries' (True) only on an output declared with Args="Value": it comes with a number (UCScript.OutputValue), which
+    the rules it starts read as Value (P8 slice 5b)."""
     text = read(name) if text is None else text
     found = {'inputs': {}, 'outputs': {}}
     for line in _defaults_block(_code(text)).splitlines():
@@ -250,7 +258,20 @@ def ports(name, text=None):
             continue
         entry = dict(id=port_id, label=fields.get('label') or port_id)
         if m.group(1).lower() == 'inputs':
-            entry['args'] = [a.strip() for a in fields.get('args', '').split(',') if re.fullmatch(r'\w+', a.strip(), re.ASCII)]
+            # "Seconds:seconds, Who:thing, Mode": an argument's name and, after ':', what kind of value it takes
+            args, types = [], {}
+            for a in fields.get('args', '').split(','):
+                name, _, kind = a.strip().partition(':')
+                name, kind = name.strip(), kind.strip().lower()
+                if re.fullmatch(r'\w+', name, re.ASCII) and name not in args:
+                    args.append(name)
+                    if kind in ARG_TYPES:
+                        types[name] = kind
+            entry['args'] = args
+            if types:
+                entry['types'] = types
+        elif 'value' in [a.strip().partition(':')[0].strip().lower() for a in fields.get('args', '').split(',')]:
+            entry['carries'] = True
         found[m.group(1).lower()][int(m.group(2))] = entry
     return {kind: [found[kind][i] for i in sorted(found[kind])] for kind in found}
 

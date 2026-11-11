@@ -10,7 +10,9 @@ with their times. They are the ground truth for three runners:
   `compiled`, and its expected lines agree with those actors; `tests/test_logic_fixtures.mjs`: every expected line
   is one `static/logic-log.js` reads;
 * the in-game golden-log run (Feature Test, both games) before the runtime changes (P6): the same scenario played in
-  the game must write the same lines.
+  the game must write the same lines. Done on 10 Nov 2026 for the 13 fixtures whose inputs are uses of objects,
+  with `UCLink`s and with `UCRule`s, both games: all agree (`editor/LOGIC.md`, "Golden-log parity";
+  `backup/20261110_golden`).
 
 Today's runtime is `UCLink` (`project-template/src/DeusEdix/Classes/UCLink.uc`, with `UCEditorStory.uc`,
 `UCScript.uc`, `UCTimer.uc`, `UCLinkGroup.uc`, `UCObjectTag.uc`); `editor/LOGIC.md` explains the whole. Each
@@ -139,42 +141,42 @@ Always: the names (A4) and the place of inputs (A7). The others where a fixture 
 | Fixture | What it shows | Derived from |
 |---|---|---|
 | `once_used_only_when_passing` | Only once is used up only when the rule passes | `UCLink.uc:347-369`, `UCLink.uc:40` |
-| `once_checked_before_running` | Only once is checked before running | `UCLink.uc:351-354`, `UCLink.uc:356-359` |
-| `running_ignores_refire` | A running rule ignores a re-fire | `UCLink.uc:356-359`, `UCLink.uc:1587-1606` |
-| `running_before_conditions_no_recheck` | Running is checked before the conditions, which are not checked again | `UCLink.uc:356-359`, `UCLink.uc:361-365`, `UCLink.uc:1587-1606` |
-| `conditions_before_actions` | All the rules on one output check their conditions before any action runs | `UCLink.uc:249-272`, `UCLink.uc:347-369`, `UCLink.uc:1587-1606` |
-| `first_failing_condition_named` | All conditions must hold; the skip names the first that does not | `UCLink.uc:361-365` |
-| `actions_in_delay_order` | Actions run in delay order, delays counted from the start | `links.py:628`, `UCLink.uc:1600-1604` |
-| `condition_flag` | Condition: a state is Yes or No | `UCEditorStory.uc:864-865`, `UCEditorStory.uc:36-42` |
-| `condition_item` | Condition: JC carries or does not carry an item | `UCEditorStory.uc:866-867`, `UCEditorStory.uc:981-989` |
-| `condition_alive` | Condition: a character is alive or not | `UCEditorStory.uc:868-869`, `UCEditorStory.uc:973-979` |
-| `condition_skill` | Condition: JC's skill is at least a level | `UCEditorStory.uc:870-871`, `UCEditorStory.uc:902-912` |
-| `condition_counter` | Condition: a counter compared with a number | `UCEditorStory.uc:872-873`, `UCEditorStory.uc:866-883` |
-| `condition_credits` | Condition: JC's credits compared with a number | `UCEditorStory.uc:874-875`, `UCEditorStory.uc:866-883` |
-| `counter_actions` | Counters: set and add, read by another rule | `UCLink.uc:1268-1278`, `UCLink.uc:825-826` |
-| `action_without_name` | A counter, a state or a goal with no name fails, the next actions still run | `UCLink.uc:815-826`, `UCLink.uc:1270-1273` |
-| `area_dynamic` | Area target with current entrants: saved members, then what is in the radius now | `UCLink.uc:643-672`, `UCLink.uc:577-583`, `UCLink.uc:589-603`, `UCLink.uc:686` |
-| `group_saved_members` | Group target: only the saved members that can do it | `UCLink.uc:643-672`, `UCLink.uc:577-583`, `links.py:75`, `UCLinkGroup.uc:12-16` |
-| `tag_targets` | Scripting-tag target: what has the tag and can do the verb, never the source | `UCLink.uc:621-629`, `UCLink.uc:632-640`, `UCObjectTag.uc:95-98` |
-| `target_missing` | A target that is gone fails, the next actions still run | `UCLink.uc:703`, `UCLink.uc:704-707` |
-| `script_input_output` | A script's input and output | `UCLink.uc:1281-1286`, `UCScript.uc:55-78`, `UCLink.uc:288-299` |
-| `script_outputs_wait_for_start` | Outputs said while the map loads wait for Started() | `UCScript.uc:55-78`, `UCScript.uc:221-232` |
-| `script_queue_full` | At most 8 outputs wait; the same output again finds its rule running | `UCScript.uc:55-78`, `UCScript.uc:221-232`, `UCLink.uc:356-359` |
-| `script_noinput_and_noscript` | An input the script does not handle, an input on something that is no script | `UCScript.uc:48-51`, `UCLink.uc:837-840` |
-| `deleted_and_disabled` | Deleted and disabled objects take their rules and actions with them | `links.py:594`, `links.py:536-541` |
-| `missing_source_hook` | A rule that cannot hook itself says so, when and how depends on its output | `UCLink.uc:148-156`, `UCLink.uc:202-211`, `UCLink.uc:412-418` |
-| `used_and_any_one_event` | Outputs heard on the same event run together | `UCLink.uc:249-272`, `UCLink.uc:191-194` |
-| `enter_leave_share_a_tag` | Walking in and out of one zone | `UCLink.uc:249-272`, `UCLink.uc:332-340` |
-| `start_rule` | The map starts: at the first half-second look, once | `UCEditorStory.uc:28`, `UCEditorStory.uc:1029-1032`, `UCLink.uc:382-386` |
-| `near_watch_edge` | Near is watched every half second and happens when it becomes true | `UCLink.uc:389-416` |
-| `picked_watch` | Picked up is watched every half second | `UCLink.uc:389-416` |
-| `timer_finished` | A timer runs out | `UCLink.uc:1329-1339`, `UCTimer.uc:76-87`, `UCTimer.uc:101-105` |
-| `timer_stopped_only_when_running` | Stopping a timer tells its rules only when it was counting | `UCLink.uc:1329-1339`, `UCTimer.uc:45-55` |
-| `timer_pause_resume` | A paused timer keeps what it had left | `UCLink.uc:1329-1339`, `UCTimer.uc:57-63`, `UCTimer.uc:66-72` |
-| `zero_delay_loop` | A loop with no delay goes round once per tick and never stops | `UCLink.uc:1329-1339`, `UCTimer.uc:45-55`, `UCLink.uc:1587-1606`, `UCLink.uc:356-359` |
-| `self_retrigger_skips_running` | A rule that sets off its own output finds itself running | `UCLink.uc:356-359`, `UCLink.uc:1587-1606`, `UCTimer.uc:45-55` |
-| `computer_options_apart` | A computer's options and its use are told apart | `UCLink.uc:182-189`, `links.py:104-109` |
-| `keypad_codes` | Right and wrong code | `UCLink.uc:160-163`, `UCLink.uc:173-180`, `UCLink.uc:332-340` |
+| `once_checked_before_running` | Only once is checked before running | `UCLink.uc:376-379`, `UCLink.uc:381-384` |
+| `running_ignores_refire` | A running rule ignores a re-fire | `UCLink.uc:381-384`, `UCLink.uc:1913-1932` |
+| `running_before_conditions_no_recheck` | Running is checked before the conditions, which are not checked again | `UCLink.uc:381-384`, `UCLink.uc:387-391`, `UCLink.uc:1913-1932` |
+| `conditions_before_actions` | All the rules on one output check their conditions before any action runs | `UCLink.uc:249-272`, `UCLink.uc:347-369`, `UCLink.uc:1913-1932` |
+| `first_failing_condition_named` | All conditions must hold; the skip names the first that does not | `UCLink.uc:387-391` |
+| `actions_in_delay_order` | Actions run in delay order, delays counted from the start | `links.py:1017`, `UCLink.uc:1937-1941` |
+| `condition_flag` | Condition: a state is Yes or No | `UCEditorStory.uc:996-997`, `UCEditorStory.uc:38-44` |
+| `condition_item` | Condition: JC carries or does not carry an item | `UCEditorStory.uc:998-999`, `UCEditorStory.uc:1240-1248` |
+| `condition_alive` | Condition: a character is alive or not | `UCEditorStory.uc:1000-1001`, `UCEditorStory.uc:1183-1189` |
+| `condition_skill` | Condition: JC's skill is at least a level | `UCEditorStory.uc:1002-1003`, `UCEditorStory.uc:1053-1063` |
+| `condition_counter` | Condition: a counter compared with a number | `UCEditorStory.uc:1004-1005`, `UCEditorStory.uc:1032-1049` |
+| `condition_credits` | Condition: JC's credits compared with a number | `UCEditorStory.uc:1006-1007`, `UCEditorStory.uc:1032-1049` |
+| `counter_actions` | Counters: set and add, read by another rule | `UCLink.uc:1587-1597`, `UCLink.uc:966-967` |
+| `action_without_name` | A counter, a state or a goal with no name fails, the next actions still run | `UCLink.uc:948-959`, `UCLink.uc:1589-1592` |
+| `area_dynamic` | Area target with current entrants: saved members, then what is in the radius now | `UCLink.uc:726-755`, `UCLink.uc:683-689`, `UCLink.uc:689-703`, `UCLink.uc:821` |
+| `group_saved_members` | Group target: only the saved members that can do it | `UCLink.uc:726-755`, `UCLink.uc:683-689`, `links.py:79`, `UCLinkGroup.uc:12-16` |
+| `tag_targets` | Scripting-tag target: what has the tag and can do the verb, never the source | `UCLink.uc:725-733`, `UCLink.uc:736-744`, `UCObjectTag.uc:95-98` |
+| `target_missing` | A target that is gone fails, the next actions still run | `UCLink.uc:844`, `UCLink.uc:843-846` |
+| `script_input_output` | A script's input and output | `UCLink.uc:1600-1605`, `UCScript.uc:62-85`, `UCLink.uc:296-307` |
+| `script_outputs_wait_for_start` | Outputs said while the map loads wait for Started() | `UCScript.uc:62-85`, `UCScript.uc:323-334` |
+| `script_queue_full` | At most 8 outputs wait; the same output again finds its rule running | `UCScript.uc:62-85`, `UCScript.uc:323-334`, `UCLink.uc:381-384` |
+| `script_noinput_and_noscript` | An input the script does not handle, an input on something that is no script | `UCScript.uc:60-63`, `UCLink.uc:976-979` |
+| `deleted_and_disabled` | Deleted and disabled objects take their rules and actions with them | `links.py:980`, `links.py:719-724` |
+| `missing_source_hook` | A rule that cannot hook itself says so, when and how depends on its output | `UCLink.uc:154-162`, `UCLink.uc:208-217`, `UCLink.uc:516-522` |
+| `used_and_any_one_event` | Outputs heard on the same event run together | `UCLink.uc:249-272`, `UCLink.uc:201-204` |
+| `enter_leave_share_a_tag` | Walking in and out of one zone | `UCLink.uc:249-272`, `UCLink.uc:348-356` |
+| `start_rule` | The map starts: at the first half-second look, once | `UCEditorStory.uc:35`, `UCEditorStory.uc:1293-1296`, `UCLink.uc:486-490` |
+| `near_watch_edge` | Near is watched every half second and happens when it becomes true | `UCLink.uc:472-499` |
+| `picked_watch` | Picked up is watched every half second | `UCLink.uc:472-499` |
+| `timer_finished` | A timer runs out | `UCLink.uc:1648-1658`, `UCTimer.uc:76-87`, `UCTimer.uc:112-116` |
+| `timer_stopped_only_when_running` | Stopping a timer tells its rules only when it was counting | `UCLink.uc:1648-1658`, `UCTimer.uc:45-55` |
+| `timer_pause_resume` | A paused timer keeps what it had left | `UCLink.uc:1648-1658`, `UCTimer.uc:57-63`, `UCTimer.uc:66-72` |
+| `zero_delay_loop` | A loop with no delay goes round once per tick and never stops | `UCLink.uc:1648-1658`, `UCTimer.uc:45-55`, `UCLink.uc:1913-1932`, `UCLink.uc:381-384` |
+| `self_retrigger_skips_running` | A rule that sets off its own output finds itself running | `UCLink.uc:381-384`, `UCLink.uc:1913-1932`, `UCTimer.uc:45-55` |
+| `computer_options_apart` | A computer's options and its use are told apart | `UCLink.uc:188-195`, `links.py:105-110` |
+| `keypad_codes` | Right and wrong code | `UCLink.uc:170-173`, `UCLink.uc:179-186`, `UCLink.uc:348-356` |
 
 ## Running them
 

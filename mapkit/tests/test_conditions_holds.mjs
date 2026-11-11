@@ -9,9 +9,12 @@ import { decodeCondition } from '../editor/static/logic-log.js';
 import { holds as storyHolds } from '../editor/static/story-sim.js';
 
 // the game as Holds reads it: states, counters, the player's items, credits and skills, who is alive
-const game = ({ flags = {}, counters = {}, items = [], alive = [], skills = {}, credits = 0 } = {}) => ({
+// and the player's own (P9 slice 2): health, energy, skill points, augmentations, in water, the zone, things of a kind
+const game = ({ flags = {}, counters = {}, items = [], alive = [], skills = {}, credits = 0, player = null, health, energy,
+  skillPoints, augs = {}, water = false, zone = '' } = {}) => ({
   flag: (n) => !!flags[n], counter: (n) => counters[n] || 0, carries: (cls) => items.includes(cls), alive: (n) => alive.includes(n),
-  skill: (n) => skills[n] ?? 0, credits });
+  skill: (n) => skills[n] ?? 0, credits, player, health, energy, skillPoints, aug: (n) => augs[n] || null, water, zone,
+  countOf: (cls) => items.filter((i) => i === cls).length });
 // [the page's value of a Yes or No, the digit conditions.py _yes writes for it (test_logic_compile.py checks it),
 // which Holds reads]: 0, null, '', an empty list or object are No, as Python takes them
 const WRITTEN = [[true, '1'], [false, '0'], [1, '1'], [0, '0'], [null, '0'], ['', '0'], ['no', '1'], [[], '0'], [{}, '0'],
@@ -19,7 +22,11 @@ const WRITTEN = [[true, '1'], [false, '0'], [1, '1'], [0, '0'], [null, '0'], [''
 // each kind with a Yes or No, holding `value`: [the page's condition, its key, the string the game gets]
 const yesNoKinds = (value, digit) => [[{ flag: 'Alarm', is: value }, 'is', `flag|Alarm|${digit}`],
   [{ type: 'item', item: 'DeusEx.Lockpick', has: value }, 'has', `item|DeusEx.Lockpick|${digit}`],
-  [{ type: 'alive', actor: 'Guard2', is: value }, 'is', `alive|Guard2|${digit}`]];
+  [{ type: 'alive', actor: 'Guard2', is: value }, 'is', `alive|Guard2|${digit}`],
+  [{ type: 'near', at: [0, 0, 0], radius: 64, is: value }, 'is', `near|0|0|0|64|${digit}`],
+  [{ type: 'aug', aug: 'AugSpeed', how: 'on', is: value }, 'is', `aug|AugSpeed|on|0|${digit}`],
+  [{ type: 'water', is: value }, 'is', `water|${digit}`],
+  [{ type: 'zone', zone: 'Pool', is: value }, 'is', `zone|Pool|${digit}`]];
 
 test('a state: Yes or No as asked, and a state never set is No', () => {
   const g = game({ flags: { Power: true, Alarm: false } });
@@ -83,13 +90,18 @@ test('what the game cannot read is nothing set; a kind it does not know never ho
 });
 
 test('every kind the editor offers has its twin, in the page\'s form and in the game\'s string alike', () => {
-  const g = game({ flags: { F: true }, items: ['DeusEx.Multitool'], alive: ['Guard1'], skills: { SkillLockpicking: 1 }, counters: { C: 1 },
-    credits: 100 });
+  const g = game({ flags: { F: true }, items: ['DeusEx.Multitool', 'DeusEx.DeusExWeapon'], alive: ['Guard1'], skills: { SkillLockpicking: 1 },
+    counters: { C: 1 }, credits: 100, player: [10, 20, 30], health: 80, energy: 60, skillPoints: 2000,
+    augs: { AugSpeed: { has: true, on: true, level: 2 } }, water: true, zone: 'Pool' });
   const filled = { flag: { flag: 'F', is: true }, item: { type: 'item', item: 'DeusEx.Multitool', has: true },
     alive: { type: 'alive', actor: 'Guard1', is: true }, skill: newCondition('skill'), counter: { ...newCondition('counter'), counter: 'C' },
-    credits: newCondition('credits') };
+    credits: newCondition('credits'), near: { ...newCondition('near'), at: [0, 20, 30] },
+    health: { type: 'health', op: '>=', value: 50 }, energy: { type: 'energy', op: '>', value: 50 }, skillpoints: newCondition('skillpoints'),
+    aug: newCondition('aug'), water: newCondition('water'), zone: { ...newCondition('zone'), zone: 'Pool' }, items: newCondition('items') };
   const encoded = { flag: 'flag|F|1', item: 'item|DeusEx.Multitool|1', alive: 'alive|Guard1|1', skill: 'skill|SkillLockpicking|1',
-    counter: 'count|C|>=|1', credits: 'credits|>=|100' };
+    counter: 'count|C|>=|1', credits: 'credits|>=|100', near: 'near|0|20|30|256|1', health: 'health|>=|50', energy: 'energy|>|50',
+    skillpoints: 'skillpoints|>=|1000', aug: 'aug|AugSpeed|on|0|1', water: 'water|1', zone: 'zone|Pool|1',
+    items: 'items|DeusEx.DeusExWeapon|>=|1' };
   for (const [kind] of CONDITION_KINDS) {
     assert.equal(conditionHolds(filled[kind], g), true, kind);
     assert.equal(conditionHolds(decodeCondition(encoded[kind]), g), true, `${kind}, as UCLink.Cond holds it`);

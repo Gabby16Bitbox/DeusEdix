@@ -16,6 +16,7 @@ var int n;
 var float d;
 var bool bPlaying;
 var bool bQuickStart;   // Tutorial room guidance: the latest room replaces the previous one.
+var name EndTag;         // the rules "When the InfoLink ... has been heard" (UCI_<id>, P5): triggered at its end
 
 
 // Defaults belong to this project; overrides belong only to this call.
@@ -93,6 +94,21 @@ function float InfoLine(int i)
 	return -1;
 }
 
+// heard to its end (one cut short by a level change or replaced by newer guidance is not): the rules waiting for it
+// run. (Not "Heard": that function would give the game's name heard, the rules' When, that spelling in the log.)
+function TellHeard()
+{
+	local Actor A;
+	local UCEditorStory S;
+
+	if (EndTag == '')
+		return;
+	foreach AllActors(class'UCEditorStory', S)       // for the rules waiting for it (UCLink "Wait until")
+		S.Seen(EndTag, Level.TimeSeconds);
+	foreach AllActors(class'Actor', A, EndTag)
+		A.Trigger(Self, Plr());
+}
+
 function bool OtherPlaying()
 {
 	local UCEdInfoLink other;
@@ -131,6 +147,7 @@ Next:
 	}
 	HideInfo();
 	bPlaying = False;
+	TellHeard();
 	Destroy();
 }
 

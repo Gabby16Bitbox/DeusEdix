@@ -21,6 +21,13 @@ var name goWho[32];         // characters sent somewhere (NpcGo, NpcWalk): saved
 var vector goSpot[32];
 var byte goRun[32];
 var string mapTitle;        // the map's name, for the logic log (MapName)
+var Actor endWho[64];       // the dialogues whose end the rules hear (EndWatch): who has each one,
+var Conversation endCon[64];    // the conversation seen last (attached again after a load: a new one)
+var float endSeen[64];      // and its lastPlayedTime then
+var int CameWith;           // Value in the numbers (NumberOf $): what the script's output that set the rule off came
+                            // with (UCScript.OutputValue, P8 slice 5b); a rule's runs each keep theirs (UCRule.RCame)
+var name seenTag[64];       // the ends seen (a dialogue's UCD_<id>, an InfoLink's UCI_<id>) and when: the rules'
+var float seenTime[64];       // "Wait until" steps ask (SeenAt)
 
 function PostBeginPlay()
 {
@@ -300,6 +307,128 @@ function Talk(name actorName, name conName)
 	c = FindCon(A, conName);
 	if (P != None && c != None && !Talking())
 		P.StartConversation(A, IM_Other, c, False, False);
+}
+
+// Talk, for a rule of the map (P5, UCLink "talk"): "" when the dialogue started, else why not: "busy" (the player
+// is talking), "missing" (no such character or dialogue here), "unmet" (its own conditions do not hold), "played"
+// (it plays once and has played: the game checks that only when it picks the dialogue itself), "refused" (the game
+// would not start it). A dialogue not attached yet (a rule as the map starts, before the first Timer) is attached
+// first.
+function string TalkNow(name actorName, name conName)
+{
+	local Actor A;
+	local DeusExPlayer P;
+	local Conversation c;
+
+	P = Plr();
+	if (P == None)
+		return "missing";
+	if (Talking())
+		return "busy";
+	A = ActorNamed(actorName);
+	if (A == None)
+		return "missing";
+	c = FindCon(A, conName);
+	if (c == None)
+	{
+		SetupStory();
+		c = FindCon(A, conName);
+	}
+	if (c == None)
+		return "missing";
+	if (!P.CheckFlagRefs(c.flagRefList))
+		return "unmet";
+	if (c.bDisplayOnce && GetF(StringToName(string(conName) $ "_Played")))
+		return "played";
+	if (!P.StartConversation(A, IM_Other, c, False, False))
+		return "refused";
+	return "";
+}
+
+// What a rule of the map asks the Story (P5, UCLink "talk" and "infolink"): to start the dialogue id, to play the
+// InfoLink id. The map's own story (UCEd_<map>, story.py) answers: "" done, or why not ("busy", "missing", "heard":
+// an InfoLink heard once already). Any other: "nostory", it is not the one.
+function string RunStoryAction(string verb, string id)
+{
+	return "nostory";
+}
+
+// The rules "When the dialogue ... has ended" (P5): the map's own story (TickEnds, story.py) watches each of its
+// dialogues here, slot i. The game notes when a conversation ends in its lastPlayedTime (ConPlayBase.SetPlayedFlag,
+// not for one cut short), so a dialogue that plays again ends again. Its end triggers the Tag of those rules
+// (UCD_<id>). A conversation attached again (after a load) is a new one: taken as it is, not as an end.
+function TickEnds();
+
+function EndWatch(int i, name actorName, name conName, name endTag)
+{
+	local Conversation c;
+	local Actor A;
+
+	if (i < 0 || i >= ArrayCount(endWho))
+		return;
+	if (endWho[i] == None || endWho[i].bDeleteMe)
+	{
+		endWho[i] = ActorNamed(actorName);
+		if (endWho[i] == None)
+			return;
+	}
+	c = FindCon(endWho[i], conName);
+	if (c == None)
+		return;
+	if (c != endCon[i])
+	{
+		endCon[i] = c;
+		endSeen[i] = c.lastPlayedTime;
+		return;
+	}
+	if (c.lastPlayedTime > endSeen[i])
+	{
+		endSeen[i] = c.lastPlayedTime;
+		Seen(endTag, c.lastPlayedTime);
+		foreach AllActors(class'Actor', A, endTag)      // the player ended it: set off by him (UCLink.Who)
+			A.Trigger(Plr(), Plr());
+	}
+}
+
+// An end of the Story (a dialogue's, an InfoLink heard: its Tag) at game time t, for the rules' "Wait until" steps
+// (UCLink.StorySeen). Its slot, else a free one, else the oldest.
+function Seen(name tag, float t)
+{
+	local int i, k;
+
+	if (tag == '')
+		return;
+	k = -1;
+	for (i = 0; i < ArrayCount(seenTag); i++)
+	{
+		if (seenTag[i] == tag)
+		{
+			k = i;
+			break;
+		}
+		if (k < 0 && seenTag[i] == '')
+			k = i;
+	}
+	if (k < 0)
+	{
+		k = 0;
+		for (i = 1; i < ArrayCount(seenTag); i++)
+			if (seenTime[i] < seenTime[k])
+				k = i;
+	}
+	seenTag[k] = tag;
+	seenTime[k] = t;
+}
+
+// when the end named by tag ("UCD_d1", "UCI_i1") was last seen; -1: not yet
+function float SeenAt(string tag)
+{
+	local int i;
+
+	for (i = 0; i < ArrayCount(seenTag); i++)
+		if (seenTag[i] != '' && string(seenTag[i]) ~= tag)
+			return seenTime[i];
+	return -1;
 }
 
 // ---------------------------------------------------------------- actions on characters
@@ -853,11 +982,14 @@ function UCEdInfoLink InfoLink(name heardFlag, bool bOnce, string caller, string
 
 // ---------------------------------------------------------------- the conditions of the rules and the Story
 // One condition as the editor writes it (conditions.py): "flag|Name|1", "item|DeusEx.Multitool|1", "alive|Guard1|1",
-// "skill|SkillLockpicking|2", "count|Name|>=|3", "credits|>=|100". Does it hold now?
+// "skill|SkillLockpicking|2", "count|Name|>=|3", "credits|>=|100", and the player's own (P9 slice 2): "health|<|30",
+// "energy|<|20", "skillpoints|>=|2000", "aug|AugSpeed|on|0|1" (has / on / level N or more), "water|1", "zone|Pool|1",
+// "items|DeusEx.DeusExWeapon|>=|1" (things of a kind). Does it hold now?
 function bool Holds(string c)
 {
 	local string kind;
 	local DeusExPlayer P;
+	local vector spot;
 
 	kind = Field(c, 0);
 	P = Plr();
@@ -870,9 +1002,30 @@ function bool Holds(string c)
 	if (kind == "skill")
 		return SkillLevel(Field(c, 1)) >= int(Field(c, 2));
 	if (kind == "count")
-		return Compare(GetI(StringToName(Field(c, 1))), Field(c, 2), int(Field(c, 3)));
+		return Compare(GetI(StringToName(Field(c, 1))), Field(c, 2), NumberOf(Field(c, 3)));
 	if (kind == "credits")
-		return P != None && Compare(P.Credits, Field(c, 1), int(Field(c, 2)));
+		return P != None && Compare(P.Credits, Field(c, 1), NumberOf(Field(c, 2)));
+	if (kind == "near")                                     // the player within Field 4 units of the point x|y|z
+	{
+		spot.X = float(Field(c, 1));
+		spot.Y = float(Field(c, 2));
+		spot.Z = float(Field(c, 3));
+		return Near(spot, float(Field(c, 4))) == (Field(c, 5) != "0");
+	}
+	if (kind == "health")
+		return P != None && Compare(P.Health, Field(c, 1), NumberOf(Field(c, 2)));
+	if (kind == "energy")                                   // a float in the game: its whole part, as the HUD shows it
+		return P != None && Compare(int(P.Energy), Field(c, 1), NumberOf(Field(c, 2)));
+	if (kind == "skillpoints")
+		return P != None && Compare(P.SkillPointsAvail, Field(c, 1), NumberOf(Field(c, 2)));
+	if (kind == "aug")
+		return P != None && AugHolds(P, Field(c, 1), Field(c, 2), int(Field(c, 3))) == (Field(c, 4) != "0");
+	if (kind == "water")                                    // where the player is: a water zone (a pool, the sea)
+		return P != None && (P.Region.Zone != None && P.Region.Zone.bWaterZone) == (Field(c, 1) != "0");
+	if (kind == "zone")                                     // the zone's name, any case (the build may lower it)
+		return P != None && (P.Region.Zone != None && string(P.Region.Zone.Name) ~= Field(c, 1)) == (Field(c, 2) != "0");
+	if (kind == "items")
+		return P != None && Compare(ItemsOf(P, Field(c, 1)), Field(c, 2), NumberOf(Field(c, 3)));
 	LogicLine("bad|" $ MapName() $ "||" $ c);               // a condition this version of the classes does not know
 	return False;
 }
@@ -909,6 +1062,68 @@ function int SkillLevel(string skillName)
 	if (P == None || P.SkillSystem == None || cls == None)
 		return -1;
 	return P.SkillSystem.GetSkillLevel(cls);
+}
+
+// A number of the rules (P9 slice 5): "3", or "=" and a formula's tokens in reverse Polish as formula.py writes them
+// ("=@Alarms,1,+"): whole numbers, counters (@Name), + - * / %, ~ a minus in front. Worked out on a stack of its own,
+// never run as code; a division by 0 gives 0, as the editor's Try it. $ is Value: the number the output that set the
+// rule off came with (CameWith, P8 slice 5b).
+function int NumberOf(string s)
+{
+	local int st[8];
+	local int n, i, a, b;
+	local string t;
+
+	if (Left(s, 1) != "=")
+		return int(s);
+	s = Mid(s, 1) $ ",";
+	while (s != "")
+	{
+		i = InStr(s, ",");
+		t = Left(s, i);
+		s = Mid(s, i + 1);
+		if (t == "~")
+		{
+			if (n > 0)
+				st[n - 1] = -st[n - 1];
+		}
+		else if (t == "+" || t == "-" || t == "*" || t == "/" || t == "%")
+		{
+			if (n < 2)
+				return 0;
+			a = st[n - 2];
+			b = st[n - 1];
+			n--;
+			if (t == "+")
+				a = a + b;
+			else if (t == "-")
+				a = a - b;
+			else if (t == "*")
+				a = a * b;
+			else if (b == 0)
+				a = 0;
+			else if (t == "/")
+				a = a / b;
+			else
+				a = a - (a / b) * b;
+			st[n - 1] = a;
+		}
+		else if (t != "" && n < ArrayCount(st))
+		{
+			if (Left(t, 1) == "@")
+				st[n] = GetI(StringToName(Mid(t, 1)));
+			else if (t == "$")
+				st[n] = CameWith;
+			else
+				st[n] = int(t);
+			n++;
+		}
+		else if (t != "")
+			return 0;
+	}
+	if (n == 0)
+		return 0;
+	return st[n - 1];
 }
 
 // a counter: the game's integer flags (the rules' action "count")
@@ -978,6 +1193,55 @@ function bool Dead(name n)
 	return A == None || (Pawn(A) != None && Pawn(A).Health <= 0);
 }
 
+// an augmentation of the player, by its class (or one under it: a mod's own AugSpeed): has it ("has"), has it turned on
+// ("on"), has it at a level or more ("level", 1 to 4 as the augmentation screen counts)
+function bool AugHolds(DeusExPlayer P, string augName, string how, int level)
+{
+	local Augmentation a;
+	local name n;
+	local int guard;
+
+	if (P.AugmentationSystem == None)
+		return False;
+	n = StringToName(augName);
+	for (a = P.AugmentationSystem.FirstAug; a != None && guard < 100; a = a.next)
+	{
+		guard++;
+		if (!a.IsA(n) || !a.bHasIt)
+			continue;
+		if (how == "on")
+			return a.bIsActive;
+		if (how == "level")
+			return a.CurrentLevel + 1 >= level;
+		return True;
+	}
+	return False;
+}
+
+// how many things of a class (or under it: DeusEx.DeusExWeapon, every weapon) the player carries: a stack of pickups
+// its copies (three med kits), any other thing one
+function int ItemsOf(DeusExPlayer P, string className)
+{
+	local class<Inventory> cls;
+	local Inventory inv;
+	local int n, guard;
+
+	cls = class<Inventory>(DynamicLoadObject(className, class'Class', True));
+	if (cls == None)
+		return 0;
+	for (inv = P.Inventory; inv != None && guard < 500; inv = inv.Inventory)
+	{
+		guard++;
+		if (!ClassIsChildOf(inv.Class, cls))
+			continue;
+		if (DeusExPickup(inv) != None)
+			n += Max(1, DeusExPickup(inv).NumCopies);
+		else
+			n++;
+	}
+	return n;
+}
+
 function bool HasItem(string className)
 {
 	local DeusExPlayer P;
@@ -1033,7 +1297,30 @@ function Timer()
 	}
 	TickHideShow();
 	TickGoes();
+	TickEnds();
 	TickStory();
+}
+
+// A Logic action in the Story (P5: an event's, a dialogue's or an InfoLink's actions use the rules' verbs): its text as
+// a rule's Act ("delay|verb|target|a|b|c...", editor/links.py act_string), done now as a rule does it (UCLink.DoAct).
+// One rule with no cause of its own (Tag UCStoryDoer, made when first needed) does them all; the logic log names
+// `who` (story:<event, dialogue or InfoLink id>).
+function RunAct(string s, string who)
+{
+	local UCLink doer;
+
+	foreach AllActors(class'UCLink', doer, 'UCStoryDoer')
+		if (!doer.bDeleteMe)
+			break;
+	if (doer == None || doer.bDeleteMe)
+		doer = Spawn(class'UCLink',, 'UCStoryDoer');
+	if (doer == None)
+	{
+		LogicLine("fail|" $ MapName() $ "|" $ who $ "|story|" $ s $ "|nodoer");
+		return;
+	}
+	doer.Rule = who;
+	doer.DoAct(s);
 }
 
 defaultproperties

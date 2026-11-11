@@ -1,0 +1,180 @@
+{
+ "version": 1,
+ "name": "Two-floor elevator",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:12:54",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{button}",
+     "when": "used",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{way}",
+       "delay": 0,
+       "a": "Next",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{way}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "floor",
+       "target": "{elevator}",
+       "delay": 0,
+       "a": "1",
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out1"
+    },
+    {
+     "id": "R3",
+     "src": "{way}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "floor",
+       "target": "{elevator}",
+       "delay": 0,
+       "a": "0",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out2"
+    },
+    {
+     "id": "R4",
+     "src": "{elevator}",
+     "when": "atfloor",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The lift is up.",
+       "id": "R4_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "floor": 1
+    },
+    {
+     "id": "R5",
+     "src": "{elevator}",
+     "when": "atfloor",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The lift is down.",
+       "id": "R5_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "floor": 0
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "way",
+     "cls": "UCBSwitch",
+     "props": {
+      "NumWays": "2"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "button",
+     "words": "the button",
+     "family": "object",
+     "carried": false
+    },
+    {
+     "id": "way",
+     "words": "the up-or-down switch",
+     "family": "switchblock",
+     "carried": true
+    },
+    {
+     "id": "elevator",
+     "words": "the elevator",
+     "family": "elevator",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{button}|out:used",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{elevator}|in:floor",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1",
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "in:{elevator}|out:atfloor",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R4|cause:0",
+      "rule:R5|cause:0"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

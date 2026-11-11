@@ -227,6 +227,43 @@ class LaunchCopiesTests(Game):
         self.assertIn(b'F24=Jump\n', user.read_bytes())
         self.assert_players_untouched()
 
+    def test_play_the_menu_names_the_projects_menu_only_in_its_copy(self):
+        """File > Main menu > Play the menu: the launch's copy names the project's root window (UCMenuRoot of its
+        package) and the map behind the menu as the game's own start map; a Play after it does not."""
+        self.live.play_menu('00_Title')
+        ini = self.copies()[0].read_bytes()
+        self.assertIn(b'\r\nRoot=%s.UCMenuRoot\r\n' % self.s.PACKAGE.encode(), ini)
+        self.assertIn(b'\r\nLocalMap=00_Title.dx\r\n', ini)
+        self.assertNotIn(b'\r\r', ini)
+        self.assert_players_untouched()
+        self.cleanup()
+        self.live.play('10_Map')
+        self.assertNotIn(b'UCMenuRoot', self.copies()[0].read_bytes())
+        self.assert_players_untouched()
+
+    def test_a_live_session_of_the_original_game_takes_real_photos(self):
+        """The original game's Direct3D 7 renderer reads no picture back (every runner photo was magenta, 640x480, until
+        6 Nov 2026): a live session's copy uses the installed Direct3D 9 one and a window of at least 1280 x 720. A Play
+        keeps the player's renderer and window; nothing changes without D3D9Drv.dll; the player's files never."""
+        old = VANILLA_INI.replace(b'D3D9Drv.D3D9RenderDevice', b'D3DDrv.D3DRenderDevice').replace(
+            b'WindowedViewportX=1600\r\n', b'WindowedViewportX=640\r\nWindowedViewportY=480\r\n')
+        self.use('vanilla')
+        self.s.GAME_INI.write_bytes(old)
+        self.before[self.s.GAME_INI] = old
+        self.live.play('10_Map')
+        self.assertIn(b'GameRenderDevice=D3DDrv.D3DRenderDevice\r\n', self.copies()[0].read_bytes())
+        self.cleanup()
+        self.live_session(self.live)                                     # no D3D9Drv.dll: as it was
+        self.assertIn(b'GameRenderDevice=D3DDrv.D3DRenderDevice\r\n', self.copies()[0].read_bytes())
+        self.cleanup()
+        (self.live.SYS / 'D3D9Drv.dll').write_bytes(b'dll')
+        self.live_session(self.live)
+        ini = self.copies()[0].read_bytes()
+        self.assertIn(b'GameRenderDevice=D3D9Drv.D3D9RenderDevice\r\n', ini)
+        self.assertIn(b'WindowedViewportX=1280\r\nWindowedViewportY=720\r\n', ini)
+        self.assertNotIn(b'\r\r', ini)
+        self.assert_players_untouched()
+
     def live_session(self, live):
         """live.start, as View in game and the mapkit MCP's live_start open the game (its first answer not waited for)."""
         with patch.object(live, '_wait_done', return_value={}):
@@ -972,13 +1009,13 @@ class ModPlayTests(Game):
     MANIFEST = dict(format=1, id='my-mod', name='My Mod', version='1', package='DXP_my_mod', packages=['DXP_my_mod'],
                     maps=['01_ModMap'], start='01_ModMap', requires=[])
 
-    def play(self, target, editor=None):
+    def play(self, target, editor=None, **manifest):
         """The Mods panel's Play of a mod of `target` (the hub's game: `editor`, the mod's by default)."""
         self.use(editor or target)
         mods = module('mods', self.s)
         folder = mods.mods_root(target) / 'my-mod'
         folder.mkdir(parents=True)
-        (folder / 'mod.json').write_text(json.dumps(dict(self.MANIFEST, game=target)), encoding='utf-8')
+        (folder / 'mod.json').write_text(json.dumps(dict(self.MANIFEST, game=target, **manifest)), encoding='utf-8')
         with patch.object(mods.subprocess, 'run', return_value=types.SimpleNamespace(stdout='')), \
                 patch.object(mods.subprocess, 'Popen') as popen:
             mods.play(target, 'my-mod')
@@ -991,6 +1028,25 @@ class ModPlayTests(Game):
         self.assertIn(b'Paths=..\\DeusEdixMods\\my-mod\\*.dx', (self.system() / 'DeusEdixMod.ini').read_bytes())
         self.assertIn(b'StartupFullscreen=True', (self.system() / 'DeusEdixMod.ini').read_bytes())   # the player's mode
         self.assert_players_untouched()
+
+    def test_a_mod_with_its_own_main_menu_starts_on_it(self):
+        """File > Main menu... in an exported mod: the game starts on the map behind the menu, its copy of the ini
+        names the mod's root window (UCMenuRoot of its package) and that map as the game's own; the player's own ini
+        files are never written."""
+        for target in ('revision', 'vanilla'):
+            with self.subTest(target=target):
+                self.setUp()
+                try:
+                    argv, folder = self.play(target, maps=['00_Title', '01_ModMap'], menu='00_Title')
+                    self.assertEqual(argv[0], '00_Title')
+                    ini = ((self.system() / 'DeusEdixMod.ini') if target == 'revision'
+                           else folder / 'Play' / 'DeusEx.ini').read_bytes()
+                    self.assertIn(b'\r\nRoot=DXP_my_mod.UCMenuRoot\r\n', ini)
+                    self.assertIn(b'\r\nLocalMap=00_Title.dx\r\n', ini)
+                    self.assertNotIn(b'\r\r', ini)
+                    self.assert_players_untouched()
+                finally:
+                    self.tearDown()
 
     def test_an_original_game_mod_too(self):
         """A mod's game is a player's game: the player's own mode (full screen here), no switch for a window, unlike

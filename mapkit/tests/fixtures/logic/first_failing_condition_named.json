@@ -2,7 +2,7 @@
   "id": "first_failing_condition_named",
   "title": "All conditions must hold; the skip names the first that does not",
   "behaviour": "Conditions are checked in their order and the first one that does not hold stops the rule and is the one the log names.",
-  "derivedFrom": [{"file": "UCLink.uc", "lines": [361, 365], "has": "for (i = 0; i < ArrayCount(Cond); i++)"}],
+  "derivedFrom": [{"file": "UCLink.uc", "lines": [387, 391], "has": "for (i = 0; i < ArrayCount(Cond); i++)"}],
   "assumes": [],
   "map": "LogicFixtures",
   "frame": 0.1,

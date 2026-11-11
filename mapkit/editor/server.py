@@ -11,7 +11,9 @@ import mimetypes
 import os
 import re
 import secrets
+import select
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -49,6 +51,7 @@ import gamelib  # noqa: E402
 import pieces_library  # noqa: E402
 import maplinks  # noqa: E402
 import newmap  # noqa: E402
+import examples  # noqa: E402
 import maptemplates  # noqa: E402
 import settings  # noqa: E402
 import surfaces  # noqa: E402
@@ -140,9 +143,14 @@ def edits_path(script):
 
 
 def load_edits(script):
+    """The map's edits, its Phases blocks linked to the project's mission phases set as they say (missionphases.py):
+    as the page shows them and the builds read them"""
     p = edits_path(script)
     if p.exists():
-        return json.loads(p.read_text(encoding='utf-8'))
+        import logicpatterns         # and the versions of the patterns placed in it (P8)
+        import logicruntime          # and the project's Logic runtime (Map > Classic rules)
+        import missionphases
+        return logicpatterns.apply(logicruntime.apply(missionphases.apply(json.loads(p.read_text(encoding='utf-8')))))
     return dict(moved={}, deleted={}, added=[], boxes=[], groups={}, copies=[])
 
 
@@ -156,7 +164,7 @@ def people_of(map_name):
         acts = []
     for a in acts:
         if a.get('kind') == 'pawn' and a['cls'] != 'PlayerStart' and 'Helicopter' not in a['cls']:
-            seen.add(a['name'])
+            seen.add(a['name'].lower())         # Unreal names ignore letter case: an added "C2" may be built as "c2"
             out.append(dict(name=a['name'], label=a.get('label') or a['cls'], bind=a.get('bind') or ''))
     script = next((s['script'] for s in scripts() if s['map'] == map_name), dxmaps.PREFIX + map_name)
     try:
@@ -164,7 +172,7 @@ def people_of(map_name):
     except Exception:
         added = []
     for a in added:
-        if a.get('kind') == 'pawn' and a.get('name') not in seen:
+        if a.get('kind') == 'pawn' and str(a.get('name')).lower() not in seen:
             name = str((a.get('props') or {}).get('FamiliarName') or '').strip('"')
             out.append(dict(name=a['name'], label=name or a.get('cls', ''), bind=a.get('bind') or ''))
     return sorted(out, key=lambda x: x['name'].lower())
@@ -529,6 +537,40 @@ def install_map(script):
     return r.returncode == 0, pre + [l for l in (r.stdout or '').splitlines() if l.strip()]
 
 
+def play_main_menu(display_mode='external'):
+    """File > Main menu > Play: the game as the project's own, from its main menu (main_menu.py, live.play_menu): the
+    menu's class written, the Story compiled and the packages built as an Install does, the project installed. (ok, lines)"""
+    import live
+    import main_menu
+    import workspace
+    if display_mode not in ('embedded', 'external'):
+        raise ValueError('Unknown Play display mode.')
+    snap = main_menu.snapshot()
+    if not snap['available'] or not settings.STANDALONE:
+        return False, ['Only your own campaign projects have a main menu of their own.']
+    if not snap['menu']['enabled']:
+        return False, ['Switch the main menu on first.']
+    if snap['problems']:
+        return False, snap['problems']
+    if game_running() or live.session_status().get('launching'):
+        return False, ['The game is already open: close it first (or press "Close game").']
+    main_menu.write_runtime()
+    lines = list(story.write_all() or [])
+    if workspace.needs_build():
+        ok, output = run_ps('build.ps1', '-Isolated')
+        lines += output
+        if not ok:
+            return False, lines
+    ok, output = workspace.install()
+    lines += output
+    if not ok:
+        return False, lines
+    with LOCK:
+        answer = live.play_menu(snap['menu']['menuMap'], display_mode)
+        PLAY.update(active=True, seen=False, t=time.time())
+    return True, lines + [answer]
+
+
 PLAY = {'active': False}      # a game opened with "Play from here" (the watcher tidies up when it closes)
 PREVIEW = {'token': None, 'script': None}
 
@@ -716,7 +758,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/assistant/target' and not project_server.WORKER:     # deusedix_mcp.py: the open project
                 return self._send(*project_server.assistant_target())
             if path in ('/api/agent/next', '/api/agent/status') and project_server.WORKER:
-                return self._send(200, self._agent_GET(path))
+                answer = self._agent_GET(path)
+                try:
+                    return self._send(200, answer)
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    if answer.get('id'):            # the page left while the call was on its way: another one runs it
+                        agent_bridge.CALLS.give_back(answer['id'])
+                    return None
             if not project_server.WORKER and path.startswith('/api/'):
                 if path == '/api/map_browser':
                     return self._send(200, dict(maps=[], missions=newmap.MISSIONS, standalone=settings.STANDALONE, project=None))
@@ -724,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, [])
                 return self._send(409, dict(error='Choose a project first.'))
             with project_server.operation():
-                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/logic_vocab', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/prefab_usage', '/api/pieces', '/api/build_status'):
+                if path.startswith('/api/') and path not in ('/api/maps', '/api/map_browser', '/api/newmap_info', '/api/map_templates', '/api/project_sources', '/api/thumbs', '/api/missiongraph', '/api/state_catalog', '/api/mission_phases', '/api/logic_runtime', '/api/logic_patterns', '/api/logic_pattern', '/api/logic_vocab', '/api/scene', '/api/play_session', '/api/prefab_library', '/api/prefab_usage', '/api/pieces', '/api/build_status'):
                     project_server.ensure_runtime()
                 return self._project_GET()
         except (ValueError, RuntimeError, OSError) as exc:
@@ -746,6 +794,19 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/api/state_catalog':
                 import statecatalog
                 return self._send(200, statecatalog.catalog())
+            if u.path == '/api/mission_phases':       # the project's mission phase sets (missionphases.py)
+                import missionphases
+                return self._send(200, dict(sets=missionphases.load()))
+            if u.path == '/api/logic_runtime':        # the project's Logic runtime: v2, or classic (logicruntime.py)
+                import logicruntime
+                return self._send(200, dict(runtime=logicruntime.load()))
+            if u.path == '/api/logic_patterns':       # the project's logic patterns (logicpatterns.py, P8)
+                import logicpatterns
+                return self._send(200, dict(patterns=logicpatterns.listed()))
+            if u.path == '/api/logic_pattern':        # one of them, all its versions
+                import logicpatterns
+                found = logicpatterns.load(q.get('slug', ''))
+                return self._send(200, dict(pattern=found)) if found else self._send(404, dict(error='There is no such pattern.'))
             if u.path in ('/', '/index.html'):
                 return self._send(200, project_server.page((STATIC / 'index.html').read_text(encoding='utf-8')), 'text/html; charset=utf-8')
             if u.path.startswith('/static/'):
@@ -812,6 +873,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, build_job.status())
             if u.path == '/api/mod_export':            # File > Export mod...: the project's maps and details
                 return self._send(200, mods.export_info())
+            if u.path == '/api/main_menu':             # File > Main menu...: the project's own main menu
+                import main_menu
+                return self._send(200, main_menu.snapshot())
+            if u.path == '/api/main_menu_logo':        # its picture, as the page shows it
+                import main_menu
+                png = main_menu.logo_png()
+                if png is None:
+                    return self._send(404, {'error': 'no picture'})
+                return self._send(200, png, 'image/png')
             if u.path == '/api/scripts':
                 # Tools > Scripts: the scripts there are, their package, the templates of a new one
                 import scripts as user_scripts
@@ -841,6 +911,25 @@ class Handler(BaseHTTPRequestHandler):
                 # started: when that game started (ms since 1970), for the Console's Time
                 return self._send(200, dict(offset=offset, lines=lines, running=bool(session.get('running') and session.get('owned')),
                                             started=live.started_ms(session)))
+            if u.path == '/api/logic_log':
+                # Why didn't it run? (logic-sim.js whyFromLog): what a map's rules wrote in the game that ran last
+                # (live.logic_lines), whether that game runs, and when the map was last built and its edits saved, to
+                # tell a Play of rules changed since
+                import live
+                script = q.get('script', '')
+                map_name = map_of(script)
+                found = live.logic_lines(map_name) or dict(lines=[], loads=0, maps=[], written=None)
+                session = live.session_status()
+
+                def stamp(p):
+                    try:
+                        return p.stat().st_mtime_ns // 1000000
+                    except OSError:
+                        return None
+                built = dxmaps.shown(map_name) if is_dx(script) else data.OUT / (map_name + '.dx')
+                return self._send(200, dict(found, map=map_name,
+                                            running=bool(session.get('running') and session.get('owned')),
+                                            started=live.started_ms(session), built=stamp(built), saved=stamp(edits_path(script))))
             if u.path == '/api/people':
                 # the characters of a map, for the Story's "is he dead?" asked in another map
                 return self._send(200, dict(people=people_of(q['map'])))
@@ -1247,7 +1336,17 @@ class Handler(BaseHTTPRequestHandler):
                         command=command, shown=agent_bridge.shown(command))
         if not agent_bridge.allowed():
             return dict(off=True)
-        return agent_bridge.CALLS.next() or {}
+        page = parse_qs(urlparse(self.path).query).get('page', [''])[0]
+        page = page if re.fullmatch(r'[A-Za-z0-9_-]{1,64}', page) else None
+        return agent_bridge.CALLS.next(page=page, gone=self._peer_gone) or {}
+
+    def _peer_gone(self):
+        """The page that asked closed its connection (reloaded or closed): nothing sent to it would arrive."""
+        try:
+            readable, _, _ = select.select([self.connection], [], [], 0)
+            return bool(readable) and self.connection.recv(1, socket.MSG_PEEK) == b''
+        except (OSError, ValueError):
+            return True
 
     def _agent_POST(self, path):
         """An assistant's call (deusedix_mcp.py), waiting for the page to run it; or the page's answer to one."""
@@ -1348,6 +1447,41 @@ class Handler(BaseHTTPRequestHandler):
                 import base64 as b64                  # (this function imports base64 itself further down)
                 cover = b64.b64decode(picture.split(',', 1)[1]) if picture.startswith('data:image/png;base64,') else None
                 return self._send(200, mods.export(body, cover))
+            if u.path == '/api/mission_phases':       # Logic > Mission phases...: keep the project's sets
+                if n <= 0 or n > 256 * 1024:
+                    return self._send(400, dict(error='Invalid mission phases request.'))
+                import missionphases
+                try:
+                    return self._send(200, dict(sets=missionphases.save(json.loads(self.rfile.read(n)).get('sets'))))
+                except ValueError as exc:
+                    return self._send(400, dict(error=str(exc)))
+            if u.path == '/api/logic_patterns':       # Save as pattern... (the Logic window, P8): a new version
+                if n <= 0 or n > 3 * 1024 * 1024:
+                    return self._send(400, dict(error='Invalid pattern.'))
+                import logicpatterns
+                body = json.loads(self.rfile.read(n))
+                try:
+                    return self._send(200, dict(pattern=logicpatterns.save(body.get('name'), body.get('version'))))
+                except ValueError as exc:
+                    return self._send(400, dict(error=str(exc)))
+            if u.path == '/api/logic_runtime':        # Map > Classic rules: keep the project's Logic runtime
+                if n <= 0 or n > 4096:
+                    return self._send(400, dict(error='Invalid Logic runtime request.'))
+                import logicruntime
+                try:
+                    return self._send(200, dict(runtime=logicruntime.save(json.loads(self.rfile.read(n)).get('runtime'))))
+                except ValueError as exc:
+                    return self._send(400, dict(error=str(exc)))
+            if u.path in ('/api/main_menu', '/api/main_menu_play'):
+                # File > Main menu...: keep it (its picture as a data: URL, '' to remove it), or play the game on it
+                if n <= 0 or n > 12 * 1024 * 1024:
+                    return self._send(400, dict(error='Invalid main menu request.'))
+                body = json.loads(self.rfile.read(n))
+                import main_menu
+                if u.path == '/api/main_menu':
+                    return self._send(200, main_menu.save(body.get('menu'), body.get('revision'), body.get('logo')))
+                ok, lines = play_main_menu(body.get('displayMode', 'external'))
+                return self._send(200, dict(ok=ok, lines=lines))
             if u.path == '/api/mod_file':
                 # Import a mod: one of its files (or its .zip) into the staging folder (editor/modimport.py)
                 import modimport
@@ -1395,6 +1529,14 @@ class Handler(BaseHTTPRequestHandler):
                 name = re.sub(r'[^\w-]', '_', q.get('name', 'sheet'))
                 (d / (name + '.png')).write_bytes(base64.b64decode(body['png'].split(',', 1)[1]))
                 return self._send(200, {'ok': True, 'path': str(d / (name + '.png'))})
+            if u.path == '/api/example_map':
+                # an example map that comes with the editor (examples.py), copied into the project's maps the first time
+                try:
+                    with LOCK:
+                        made = examples.open_example(str(body.get('name') or ''))
+                except ValueError as e:
+                    return self._send(400, dict(error=str(e)))
+                return self._send(200, made)
             if u.path == '/api/newmap':
                 # "New map": an empty room (a map script, built now) or a copy of a map (newmap.py)
                 if body.get('from') == 'copy':
@@ -1726,6 +1868,12 @@ class Handler(BaseHTTPRequestHandler):
                     if u.path == '/api/weapon_save':
                         return self._send(200, weapons.save(body))
                     return self._send(200, weapons.delete(str(body.get('name', ''))))
+            if u.path == '/api/logic/to_script':      # Window > Logic > Turn into script (P8 slice 6, rulescript.py)
+                import rulescript
+                with LOCK:
+                    return self._send(200, rulescript.write(body.get('edits') or {}, body.get('rules') or [],
+                                                            body.get('name'), str(body.get('map') or ''),
+                                                            preview=bool(body.get('preview'))))
             if u.path == '/api/logic/compile':        # Window > Logic > Try it: the edits as the game gets them
                 import logic_compile
                 return self._send(200, logic_compile.compiled(body.get('edits') or {}))

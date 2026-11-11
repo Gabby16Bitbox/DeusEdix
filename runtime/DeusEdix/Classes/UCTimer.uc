@@ -7,6 +7,9 @@
 // (UCTimerWindow): when several run, the one closest to its end shows, red under 10 seconds. A timer
 // with no label counts unseen.
 // Everything lives in the actor (saved with the game); the HUD window is made again after a load.
+// It counts the level's time (Level.TimeSeconds), not a frame's deltaTime: the original game at a high frame rate
+// gives each frame about a fifth more time than passes (measured 10 Nov 2026 at 260 fps: 3 s ran out in 2.5), while
+// the level's time keeps to the clock, as the rules' delays do (UCRule).
 //=============================================================================
 class UCTimer extends UCEditorStory;
 
@@ -21,6 +24,7 @@ var bool  bBegun;           // the start of the map was seen (bAutoStart)
 var float TimeLeft;             // seconds left
 var float Total;            // the length of this run
 var float hudT;             // seconds since the HUD was last updated
+var float lastT;            // the level's time at the last Tick
 
 function PostBeginPlay()
 {
@@ -89,18 +93,27 @@ function Finish()
 
 function Tick(float deltaTime)
 {
+	local float step;
+
 	Super.Tick(deltaTime);
 	if (!bBegun)
 	{
 		if (Plr() == None || Plr().rootWindow == None)
 			return;
 		bBegun = True;
+		lastT = Level.TimeSeconds;
 		if (bAutoStart)
 			StartIt();
 	}
+	step = Level.TimeSeconds - lastT;
+	lastT = Level.TimeSeconds;
+	// the first Tick, or the game was paused (the level's time goes on through a pause, with no Tick here: P7): the
+	// frame's own time, so a pause stops the timer
+	if (step < 0 || step > deltaTime + 0.1)
+		step = deltaTime;
 	if (bRunning && !bPaused)
 	{
-		TimeLeft -= deltaTime;
+		TimeLeft -= step;
 		if (TimeLeft <= 0)
 			Finish();
 	}

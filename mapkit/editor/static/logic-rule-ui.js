@@ -8,6 +8,9 @@
 // text, a place as [x, y, z] in 'at', a bool as true/false, a yes/no as '1'/'0', a crate's items as
 // "Package.Class:weight;...".
 
+import { AUGS, FORMULA_TITLE } from './conditions.js';
+import { isFormula } from './logic-numbers.js';
+
 // the action rows app.js draws itself (the verbs before P4, and interaction-blocks.js's)
 export const HAND_ROWS = new Set(['key', 'attack', 'hostile', 'goto', 'run', 'explode', 'sound', 'message', 'note', 'goal', 'flag',
   'input', 'floor', 'count', 'fpmoment', 'travel', 'body', 'sit', 'timerstart', 'npcuse', 'effect']);
@@ -15,7 +18,39 @@ export const HAND_ROWS = new Set(['key', 'attack', 'hostile', 'goto', 'run', 'ex
 // script's port)
 export const HAND_CAUSES = new Set(['near', 'keypress', 'option', 'output']);
 // the causes with no object: what happens in the world (the Logic window's "The map" list, "Or when...")
-export const WORLD_CAUSES = ['start', 'keypress', 'becomes', 'changes', 'jchealth', 'gametag'];
+export const WORLD_CAUSES = ['start', 'keypress', 'signal', 'ended', 'heard', 'becomes', 'changes', 'jchealth', 'gametag',
+  'loaded', 'back', 'goaldone', 'noise', 'appears'];
+// the world's own happenings (P9 slice 3: config/logic.json hears 'world'): a rule of its own only, never an "Or
+// when..." (links.py: a UCRuleAlso hears none of them)
+export const GAME_WORLD = ['loaded', 'back', 'goaldone', 'noise', 'appears'];
+// the player's happenings (P9 slice 2): a rule "when a condition becomes true" with that condition ready to fill in
+// (conditions.js comesText says it: "When the player's energy falls below 20"), [id, the menu's words, the condition]
+export const PLAYER_CAUSES = [
+  ['energy', "the player's energy falls below…", { type: 'energy', op: '<', value: 20 }],
+  ['credits', "the player's credits reach…", { type: 'credits', op: '>=', value: 100 }],
+  ['skillpoints', "the player's skill points reach…", { type: 'skillpoints', op: '>=', value: 1000 }],
+  ['augget', 'the player gets an augmentation…', { type: 'aug', aug: 'AugSpeed', how: 'has', is: true }],
+  ['augon', 'the player turns on an augmentation…', { type: 'aug', aug: 'AugSpeed', how: 'on', is: true }],
+  ['augoff', 'the player turns off an augmentation…', { type: 'aug', aug: 'AugSpeed', how: 'on', is: false }],
+  ['auglevel', 'an augmentation of the player reaches a level…', { type: 'aug', aug: 'AugSpeed', how: 'level', level: 2, is: true }],
+  ['items', 'the player gets something of a kind…', { type: 'items', item: 'DeusEx.DeusExWeapon', op: '>=', value: 1 }],
+  ['water', 'the player enters water', { type: 'water', is: true }],
+  ['zone', 'the player enters a zone…', { type: 'zone', zone: '', is: true }],
+];
+// the signals a map's rules send or wait for (P3), for the lists of the signal fields
+export function signalsOf(links, story) {
+  const out = new Map();
+  const add = (n) => { const s = String(n || '').trim(); if (s && !out.has(s.toLowerCase())) out.set(s.toLowerCase(), s); };
+  for (const l of links || []) {
+    for (const c of [l, ...(l.also || [])]) if (c && c.when === 'signal') add(c.signal);
+    for (const a of [...(l.do || []), ...(l.else || [])]) if (a && a.verb === 'signal') add(a.a);
+  }
+  // the Story's (P5): a dialogue's step, an action of an event, of a dialogue's or an InfoLink's end
+  const walk = (o) => { if (Array.isArray(o)) o.forEach(walk); else if (o && typeof o === 'object') { if (o.type === 'signal') add(o.signal); Object.values(o).forEach(walk); } };
+  if (story) walk([story.dialogues, story.events, story.infolinks]);
+  return [...out.values()].sort((a, b) => a.localeCompare(b));
+}
+const signalList = (id, h, esc) => `<datalist id="${id}">${(h.signals || []).map((s) => `<option value="${esc(s)}">`).join('')}</datalist>`;
 export const AGAIN = [['', 'while running: let it finish'], ['restart', 'while running: start again'], ['each', 'run it again alongside (8 at most)']];
 export const TALK_BUSY = [['', 'go on'], ['wait', 'wait until the talk is over'], ['giveup', 'give up that run']];
 // a few of the game's characters for "Send reinforcements" (any Package.Class can be typed)
@@ -54,7 +89,8 @@ export function argDefaults(x, args, here) {
   return x;
 }
 
-// The rows of an action's arguments (step j). h: {esc, name(n), items [{cls, name}], rules [{id, label}], songs []}
+// The rows of an action's arguments (step j). h: {esc, name(n), items [{cls, name}], rules [{id, label}], songs [],
+// dialogues, infolinks [{id, label}] (P5: the map's Story; null while it is read)}
 export function argRowsHtml(args, x, j, h) {
   const { esc } = h;
   const row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
@@ -64,7 +100,11 @@ export function argRowsHtml(args, x, j, h) {
     const v = argValue(x, a), k = esc(a.id), at = `data-lkarg="${j}" data-k="${k}"`;
     if (NUMERIC.has(a.type)) {
       const min = a.type === 'whole' ? '' : ' min="0"', max = a.type === 'percent' ? ' max="100"' : '';
-      out += row(`${label(a)}<input type="number" ${at} value="${esc(String(v))}"${min}${max} step="${STEP[a.type] || 1}" style="width:72px">`);
+      // an amount that takes a formula of counters (P9 slice 5, logic.json "formula"): a text field when it is one,
+      // else the number and a button that makes it one (conditions.js formulaField)
+      if (a.formula && isFormula(String(v))) out += row(`${label(a)}<input type="text" ${at} value="${esc(String(v))}" placeholder="Alarms + 1" title="${esc(FORMULA_TITLE)}" autocomplete="off" spellcheck="false" style="width:120px">`);
+      else out += row(`${label(a)}<input type="number" ${at} value="${esc(String(v))}"${min}${max} step="${STEP[a.type] || 1}" style="width:72px">`
+        + (a.formula ? `<button type="button" data-lkfx="${j}" title="${esc(FORMULA_TITLE)}">ƒx</button>` : ''));
     } else if (a.type === 'choice') {
       const choices = a.choices || [];
       out += row(`${label(a)}<select ${at} style="flex:1;min-width:0">${choices.map(([cv, cl]) => `<option value="${esc(cv)}" ${String(cv) === String(v) ? 'selected' : ''}>${esc(cl)}</option>`).join('')}</select>`);
@@ -80,21 +120,40 @@ export function argRowsHtml(args, x, j, h) {
       out += row(`${label(a)}<a href="#" data-lkgo="${esc(x[a.id] || '')}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${has ? '' : ';color:var(--bad)'}" title="Go to it">${esc(has ? h.name(x[a.id]) : a.empty || '(none yet)')}</a><button data-lkobj="${j}" data-k="${k}" title="Click it in the map">${has ? 'change' : 'pick'}</button>`);
     } else if (a.type === 'itemclass') {
       out += row(`${label(a)}${itemSelect(h, `${at}`, v)}`);
+    } else if (a.type === 'aug') {                 // P9 slice 4: an augmentation of the game
+      out += row(`${label(a)}<select ${at} style="flex:1;min-width:0">${AUGS.map(([n, w]) => `<option value="${esc(n)}" ${n === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>`);
+    } else if (a.type === 'prop') {                // P9 slice 4: a property of the safe list of the object's family (h.props)
+      const props = h.props || [];
+      out += row(`${label(a)}<select ${at} style="flex:1;min-width:0"><option value="">(choose a property)</option>${props.map(([n, w]) => `<option value="${esc(n)}" ${n.toLowerCase() === String(v).toLowerCase() ? 'selected' : ''}>${esc(w)}</option>`).join('')}`
+        + `${v && !props.some(([n]) => n.toLowerCase() === String(v).toLowerCase()) ? `<option selected value="${esc(v)}">${esc(v)} (not for this object)</option>` : ''}</select>`);
     } else if (a.type === 'items') {
       out += itemsRowsHtml(parseItems(v), j, a.id, h, row);
     } else if (a.type === 'hex') {
       out += row(`${label(a)}<input type="color" ${at} value="${esc(/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : '#ffffff')}" style="width:56px">`);
+    } else if (a.type === 'dialogue' || a.type === 'infolink') {
+      out += storyRows(a, v, at, label(a), h, row);
     } else if (a.type === 'rule') {
       const rules = h.rules || [];
       out += row(`${label(a)}<select ${at} style="flex:1;min-width:0"><option value="">(choose a rule)</option>${rules.map((r) => `<option value="${esc(r.id)}" ${r.id === v ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}${v && !rules.some((r) => r.id === v) ? `<option selected value="${esc(v)}">${esc(v)} (missing)</option>` : ''}</select>`);
     } else {                                   // text, line, tag, state, counter, goal, map, pawnclass, song, sound...
-      const list = a.type === 'pawnclass' ? `lk-pawns-${j}` : a.type === 'song' && (h.songs || []).length ? `lk-songs-${j}` : '';
-      const opts = a.type === 'pawnclass' ? PAWN_CLASSES : a.type === 'song' ? h.songs || [] : [];
-      const ph = a.type === 'pawnclass' ? 'Package.Class, e.g. DeusEx.MJ12Troop' : a.type === 'song' ? 'Package.Song (empty: silence)' : a.label || '';
+      const list = a.type === 'pawnclass' ? `lk-pawns-${j}` : a.type === 'song' && (h.songs || []).length ? `lk-songs-${j}`
+        : a.type === 'signal' ? `lk-signals-${j}` : a.type === 'faction' ? 'factionlist' : '';
+      const opts = a.type === 'pawnclass' ? PAWN_CLASSES : a.type === 'song' ? h.songs || [] : a.type === 'signal' ? h.signals || [] : [];
+      const ph = a.type === 'pawnclass' ? 'Package.Class, e.g. DeusEx.MJ12Troop' : a.type === 'song' ? 'Package.Song (empty: silence)'
+        : a.type === 'signal' ? 'Alarm' : a.type === 'faction' ? 'MJ12' : a.type === 'propvalue' ? 'a number, or yes / no' : a.label || '';
       out += row(`${label(a)}<input type="text" ${at} value="${esc(String(v))}" placeholder="${esc(ph)}" ${list ? `list="${list}"` : ''} style="flex:1;min-width:0">`
-        + (list ? `<datalist id="${list}">${opts.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>` : ''));
+        + (list && list !== 'factionlist' ? `<datalist id="${list}">${opts.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>` : ''));
     }
   }
+  return out;
+}
+// a dialogue or an InfoLink of the map's Story (P5), by its title: one gone said missing, none yet said
+function storyRows(a, v, at, label, h, row) {
+  const { esc } = h, all = a.type === 'dialogue' ? h.dialogues : h.infolinks, opts = all || [];
+  const what = a.type === 'dialogue' ? 'a dialogue' : 'an InfoLink';
+  let out = row(`${label}<select ${at} style="flex:1;min-width:0"><option value="">(choose ${what})</option>${opts.map((o) => `<option value="${esc(o.id)}" ${o.id === v ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}`
+    + `${v && !opts.some((o) => o.id === v) ? `<option selected value="${esc(v)}">${esc(v)} (${all ? 'missing' : 'reading the Story...'})</option>` : ''}</select>`);
+  if (all && !opts.length) out += row(`<span class="hint" style="margin:0;flex:1">The map's Story has no ${a.type === 'dialogue' ? 'dialogue' : 'InfoLink'} yet: write one in Story first.</span>`);
   return out;
 }
 function itemSelect(h, attrs, v) {
@@ -132,7 +191,14 @@ export function causeRowsHtml(entry, c, ci, h) {
     const v = c[a.id] ?? a.default ?? '';
     out += NUMERIC.has(a.type)
       ? row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="number" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" min="0"${a.type === 'percent' ? ' max="100"' : ''} step="1" style="width:64px">`)
-      : row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="text" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" placeholder="${esc(a.empty && a.empty !== '?' ? a.empty : a.label || '')}" style="flex:1;min-width:0">`);
+      : a.type === 'choice'
+        ? row(`<label style="width:auto">${esc(a.label || a.id)}</label><select data-lkwarg="${ci}" data-k="${esc(a.id)}" style="flex:1;min-width:0">${(a.choices || []).map(([cv, cl]) => `<option value="${esc(cv)}" ${String(cv) === String(v) ? 'selected' : ''}>${esc(cl)}</option>`).join('')}</select>`)
+      : a.type === 'dialogue' || a.type === 'infolink'
+        ? storyRows(a, String(v), `data-lkwarg="${ci}" data-k="${esc(a.id)}"`, `<label style="width:auto">${esc(a.label || a.id)}</label>`, h, row)
+      : a.type === 'signal'
+        ? row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="text" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" placeholder="Alarm" list="lk-wsignals-${ci + 1}" style="flex:1;min-width:0">`
+          + signalList(`lk-wsignals-${ci + 1}`, h, esc))
+        : row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="text" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" placeholder="${esc(a.empty && a.empty !== '?' ? a.empty : a.label || '')}" style="flex:1;min-width:0">`);
   }
   return out;
 }
@@ -145,6 +211,12 @@ export function causeDefaults(c) {
   if (c.when === 'changes' && !c.watch) c.watch = { flag: '' };
   if (c.when === 'jchealth' && c.below === undefined) c.below = '30';
   if (c.when === 'gametag' && c.gameTag === undefined) c.gameTag = '';
+  if (c.when === 'signal' && c.signal === undefined) c.signal = '';
+  if (c.when === 'ended' && c.dialogue === undefined) c.dialogue = '';
+  if (c.when === 'heard' && c.infolink === undefined) c.infolink = '';
+  if (c.when === 'goaldone' && c.goal === undefined) c.goal = '';                      // the world (P9 slice 3)
+  if (c.when === 'noise' && !c.noise) { c.noise = 'loud'; if (c.within === undefined) c.within = '0'; }
+  if (c.when === 'appears' && !c.what) c.what = 'character';
   return c;
 }
 
@@ -171,7 +243,7 @@ export function ruleOptionsHtml(l, h) {
   });
   s += `<div class="row"><select data-lkalsoadd style="flex:1;min-width:0"><option value="">+ Or when...</option>`
     + '<option value="@pick">an object does something (click it)…</option>'
-    + WORLD_CAUSES.map((w) => `<option value="${w}">${esc(h.whenLabel({ when: w }, w))}</option>`).join('') + '</select></div>';
+    + WORLD_CAUSES.filter((w) => !GAME_WORLD.includes(w)).map((w) => `<option value="${w}">${esc(h.whenLabel({ when: w }, w))}</option>`).join('') + '</select></div>';
   s += `<div class="row"><label style="width:auto" title="What happens when it is set off again while it is still running">If set off again</label><select data-lkagain style="flex:1;min-width:0">${AGAIN.map(([v, t]) => `<option value="${v}" ${v === (l.again || '') ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
   s += `<div class="row"><label style="width:auto" title="0: no limit">At most</label><input type="number" data-lkmaxruns value="${+l.max || 0}" min="0" step="1" style="width:60px"><span class="hint" style="margin:0">times (0: no limit)</span>`
     + `<label style="width:auto" title="The least time from one start to the next">at least</label><input type="number" data-lkcool value="${+l.cooldown || 0}" min="0" step="0.5" style="width:60px"><span class="hint" style="margin:0">s apart</span></div>`;

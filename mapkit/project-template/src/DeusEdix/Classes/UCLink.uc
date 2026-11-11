@@ -47,6 +47,8 @@ var() string Act[24];
 //   "delay|jump|||step|"                      on at that step ("stop": the end)
 //   "delay|until|who|arrived or cond|most|k"  wait until who has arrived (sent with goto / run), or StepCond[k]
 //                                             holds, at most `most` seconds (0: as long as it takes)
+//   "delay|until|UCD_<id>|ended|most|", "delay|until|UCI_<id>|heard|most|"  ... a dialogue of the Story has ended, an
+//                                             InfoLink has been heard, since the wait began (P5)
 //   "delay|wait|||||"                         only its delay
 var() bool   bSteps;
 var() string StepCond[16];
@@ -58,6 +60,8 @@ var float UntilStart;
 // by & (all), alternatives by ; each maybe "?Class:" first (only on that class)
 var() string Watch;
 var() bool   bWatchProp;
+var() string PhaseGate;       // "<counter>|2,3": it runs only while a Phases block is in one of these (P3)
+var() bool   bWatchStart;     // When=becomes: the first look runs it too when it already holds (a "while", P3)
 var string WatchBase;
 var ScriptedPawn PendingPawn; // a character killed or knocked out: which of the two is known a tick later (PlayDying)
 var bool  bPawnPending;
@@ -67,8 +71,15 @@ var bool  bDone, bPolled, bWas, bHurry;
 var bool  bViaUnTrigger;      // When=code on a keypad that toggles door locks: heard by its UnTriggerEvent
 var DeusExMover PendingDoor;  // a door that triggered opened/destroyed: which one it was is known a tick later
 var Actor PendingBy;
+var int   HeardValue;           // When=output: the number the output came with (UCScript.OutputValue), for Value
 var int   Step;
 var float Waited, Delay;
+// Live control while the editor's Play runs (P7: UCConsoleLink's "deusedix ..." lines), for this session only
+// (transient: never in a saved game). Muted, it hears its cause and does nothing ("skip|..|muted|"). Traced, each
+// cause writes how its phase and conditions are then ("trace|..|by|phase|bits": "1" or "0" each, in order). With a
+// break, the game pauses when it runs ("break|..|fire|"). Stepping, the game pauses after each of its actions
+// ("break|..|act|<step>"), until Continue.
+var transient bool bLiveMute, bLiveTrace, bLiveBreak, bLiveStep;
 
 // UCLightMemory keeps the original type of each light, shared by all interactions.
 
@@ -254,6 +265,13 @@ function Trigger(Actor Other, Pawn EventInstigator)
 	if (PassEvent != '')
 		foreach AllActors(class'Actor', A, PassEvent)
 			A.Trigger(Other, EventInstigator);
+	if (When == 'output')
+	{
+		if (UCScript(Other) != None)
+			HeardValue = UCScript(Other).SaidValue;
+		else
+			HeardValue = 0;
+	}
 	M = DeusExMover(Other);
 	if (When == 'closed' || When == 'leave' || When == 'start' || When == 'picked' || When == 'gone' || When == 'near'
 		|| When == 'arrived' || When == 'hacked' || When == 'becomes' || When == 'changes' || bWatchProp)
@@ -295,6 +313,8 @@ function Actor Who(Actor Other, Pawn EventInstigator)
 		if (A != None)
 			return A;
 	}
+	if (UCScript(Other) != None && UCScript(Other).SaidWho != None)
+		return UCScript(Other).SaidWho;   // the one the script says did it (OutputValue)
 	if ((UCEditorStory(Other) != None && UCUsable(Other) == None) || UCScript(Other) != None)
 		return Other;                 // (a usable object is JC's own doing)
 	if (EventInstigator != None)
@@ -348,6 +368,13 @@ function RunRule(optional Actor By)
 {
 	local int i;
 
+	if (!LiveHeard(By))
+		return;
+	if (!InPhase())
+	{
+		Report("skip", "phase|" $ PhaseGate);
+		return;
+	}
 	if (bOnce && bDone)
 	{
 		Report("skip", "once|");
@@ -358,6 +385,7 @@ function RunRule(optional Actor By)
 		Report("skip", "running|");
 		return;
 	}
+	CameWith = HeardValue;            // Value, for its conditions and its actions
 	for (i = 0; i < ArrayCount(Cond); i++)
 		if (Cond[i] != "" && !Holds(Cond[i]))
 		{
@@ -366,7 +394,85 @@ function RunRule(optional Actor By)
 		}
 	bDone = True;
 	Report("fire", Source $ "|" $ When $ "|" $ NameOf(By) $ "|" $ Label);
+	LiveFired();
 	GotoState('Running');
+}
+
+// ---------------------------------------------------------------- live control while Play runs (P7)
+// It heard its cause: traced, it writes its phase ("" no phase gate, "1" in one of its phases, "0" not) and each
+// condition as it holds now; muted, it does nothing more.
+function bool LiveHeard(Actor By)
+{
+	local int i;
+	local string bits, phase;
+
+	if (bLiveTrace)
+	{
+		if (PhaseGate != "" && InPhase())
+			phase = "1";
+		else if (PhaseGate != "")
+			phase = "0";
+		for (i = 0; i < ArrayCount(Cond); i++)
+			if (Cond[i] != "")
+			{
+				if (Holds(Cond[i]))
+					bits = bits $ "1";
+				else
+					bits = bits $ "0";
+			}
+		Report("trace", NameOf(By) $ "|" $ phase $ "|" $ bits);
+	}
+	if (bLiveMute)
+	{
+		Report("skip", "muted|");
+		return False;
+	}
+	return True;
+}
+
+// it runs (its actions, or its Otherwise): with a break, the game pauses
+function LiveFired()
+{
+	if (bLiveBreak)
+		LivePause("fire|");
+}
+
+// the game pauses, as its own Pause does: the level's Pauser set (the HUD's windows go on, so UCConsoleLink hears Step
+// and Continue; the game's Pause key goes on too). Set by name: GameInfo.SetPause gives it the player's name, which is
+// empty in these games, and then nothing pauses (found in the game, 10 Nov 2026). One line each time, but one pause: a
+// group's actions each come here.
+function LivePause(string why)
+{
+	Report("break", why);
+	// where, for the console link's "paused" answer: the editor asks it at once, while this line waits in the
+	// game's log, which reaches the disk in blocks of 4 KB (seconds later when the game writes little)
+	if (Rule != "")
+		class'UCConsoleLink'.default.HeldAt = Rule $ "|" $ why;
+	else
+		class'UCConsoleLink'.default.HeldAt = Name $ "|" $ why;
+	if (Level.Pauser == "")
+		Level.Pauser = "DeusEdix";
+}
+
+// "deusedix fire <rule>": as if its cause happened now (its phase, once and conditions still count)
+function LiveFire(Actor By)
+{
+	Report("live", "fire|");
+	RunRule(By);
+}
+
+// PhaseGate (P3): the phase now, the number a Phases block keeps in its counter (UCBPhases.Mirror; 0 before the block
+// has started: its first phase), is one of the list
+function bool InPhase()
+{
+	local int k;
+	local string list;
+
+	if (PhaseGate == "")
+		return True;
+	k = Max(1, GetI(StringToName(Field(PhaseGate, 0))));
+	list = "," $ Field(PhaseGate, 1) $ ",";
+	return InStr(list, "," $ k $ ",") >= 0;
 }
 
 // a cutscene was skipped: what it still had to do happens now (its "when it starts" actions)
@@ -463,6 +569,8 @@ function TickWatch()
 		bWas = bNow;
 		if (When != 'becomes' && Source != "" && A == None)
 			Report("hook", Source $ "|missing");
+		if (bNow && bWatchStart && When == 'becomes')
+			RunRule(A);
 		return;
 	}
 	if (bNow && (!bWas || InStr(Watch, " down") >= 0))
@@ -535,6 +643,10 @@ function bool TestHolds(Actor A, string t)
 	local string v;
 	local bool bDown;
 
+	// a mover resting at its key KeyNum: an ElevatorMover's SetSeq changes KeyNum a moment before it starts moving
+	// (the original game's polls saw "it reaches floor 1" as the button was pressed, then again when it got there)
+	if (t ~= "AtKey=True")
+		return Mover(A) != None && VSize(A.Location - (Mover(A).BasePos + Mover(A).KeyPos[Mover(A).KeyNum])) < 2;
 	i = InStr(t, " down");
 	if (i >= 0)
 	{
@@ -672,6 +784,27 @@ function DoArea(string s)
 	RunRecipients(First,s);
 }
 
+// A named group's action (P3): field 7 the group's name (for the log), field 8 the first UCLinkGroup of its members.
+// Each member that can do the verb does it (TagKind, as a scripting tag's): a door opens, a light in it is left out.
+function DoMembers(string s)
+{
+	local Actor A;
+	local UCLinkGroup G, First, Tail;
+	local int i, Slot;
+
+	G = UCLinkGroup(ActorCalled(Field(s, 8)));
+	while (G != None)
+	{
+		for (i=0; G.GetMember(i) != ''; i++)
+		{
+			A = ActorCalled(string(G.GetMember(i)));
+			if (TagKind(A, Field(s, 1))) QueueRecipient(A, First, Tail, Slot);
+		}
+		G = G.Next();
+	}
+	RunRecipients(First, s);
+}
+
 function DoAct(string s)
 {
 	local string verb, target, a, b, c;
@@ -681,10 +814,18 @@ function DoAct(string s)
 	local Sound snd;
 	local name n;
 
+	if (bLiveStep)                      // Step (P7): this action happens, then the game pauses
+		LivePause("act|" $ Step);
 	if (Field(s, 6) == "group" || Field(s, 6) == "area+")
 	{
 		Report("act", Field(s, 1) $ "|area " $ Field(s, 7));     // then one line for each object in it
 		DoArea(s);
+		return;
+	}
+	if (Field(s, 6) == "members")
+	{
+		Report("act", Field(s, 1) $ "|group " $ Field(s, 7));    // then one line for each member that can do it
+		DoMembers(s);
 		return;
 	}
 	if (Field(s, 6) == "tag")
@@ -823,7 +964,7 @@ function DoAct(string s)
 	else if (verb == "flag")
 		SetF(StringToName(a), b != "0");
 	else if (verb == "count")                           // a counter changes by b, or is set to b
-		Count(StringToName(a), int(b), c == "set");
+		Count(StringToName(a), NumberOf(b), c == "set");
 	else if (verb == "travel")
 		TravelTo(a);
 	// timers, characters using objects, effects
@@ -844,6 +985,31 @@ function DoAct(string s)
 		Report("fail", verb $ "|" $ target $ "|cannot");
 }
 
+// A dialogue to start or an InfoLink to play (P5): the map's own story (UCEd_<map>) does it. Its act line says it was
+// asked; a fail line why it did not: busy, missing, unmet, played, refused, heard (once only, and heard), off,
+// nostory (the map has no Story, or it has not been built since).
+function StoryAction(string verb, string id)
+{
+	local UCEditorStory S;
+	local string why;
+
+	if (id == "")
+	{
+		Report("fail", verb $ "||noname");
+		return;
+	}
+	why = "nostory";
+	foreach AllActors(class'UCEditorStory', S)
+		if (S != Self && !S.bDeleteMe)
+		{
+			why = S.RunStoryAction(verb, id);
+			if (why != "nostory")
+				break;
+		}
+	if (why != "")
+		Report("fail", verb $ "|" $ id $ "|" $ why);
+}
+
 // The verbs of P4 (editor/LOGIC.md): the player's resources, the view, lights, characters, the world. False: not one
 // of them, or not on this target.
 function bool DoMore(string s, string verb, Actor T, string a, string b, string c, DeusExPlayer P)
@@ -851,8 +1017,23 @@ function bool DoMore(string s, string verb, Actor T, string a, string b, string 
 	local int n;
 	local vector spot;
 
-	n = int(a);
+	n = NumberOf(a);                                    // a whole number or a formula (P9 slice 5)
 	spot = vect(1,0,0) * float(Field(s, 6)) + vect(0,1,0) * float(Field(s, 7)) + vect(0,0,1) * float(Field(s, 8));
+	// a signal (P3): every rule "As soon as the signal a is sent" runs (their Tag is UCS_<a>)
+	if (verb == "signal")
+	{
+		if (a == "")
+			Report("fail", verb $ "||noname");
+		else
+			TriggerTag(StringToName("UCS_" $ a));
+		return True;
+	}
+	// P5: a dialogue or an InfoLink of the map's Story (UCEditorStory.RunStoryAction, story.py)
+	if (verb == "talk" || verb == "infolink")
+	{
+		StoryAction(verb, a);
+		return True;
+	}
 	// the player's resources: skill points, credits, health (b "set": to that), an item given or taken
 	if (verb == "skillpoints" && P != None)
 	{
@@ -920,8 +1101,146 @@ function bool DoMore(string s, string verb, Actor T, string a, string b, string 
 		AnimTurn(Field(s, 2), DeusExMover(T));
 	else if (verb == "cancel")                          // another rule stops what it is doing
 		return CancelRule(a);
+	// P9 "Game rules" slice 4: the player's energy, an augmentation of the player, two factions, a property
+	else if (verb == "energy" && P != None)
+		P.Energy = FClamp(P.Energy + n, 0, P.EnergyMax);
+	else if (verb == "aug" && P != None)
+		return ChangeAug(P, a, b, int(c));
+	else if (verb == "allies")
+		return Allies(a, b, c);
+	else if (verb == "setprop" && T != None)
+		return SetSafeProp(T, a, b);
 	else
 		return False;
+	return True;
+}
+
+// An augmentation of the player (P9 slice 4), by its class's name (AugSpeed: the game's own or one under it): how
+// "give" (the game's GivePlayerAugmentation: its slot, its key, the HUD; nothing when the player has it), "raise" one
+// level, "level" c (1-4), "on", "off". A level is set here: the game's IncLevel wants an upgrade canister. Given when
+// needed for raise and level. Not had for on/off, no such augmentation, no free slot: a fail in the log.
+function bool ChangeAug(DeusExPlayer P, string a, string how, int lv)
+{
+	local Augmentation aug;
+	local bool bWasOn;
+
+	if (P.AugmentationSystem == None)
+		return False;
+	for (aug = P.AugmentationSystem.FirstAug; aug != None; aug = aug.next)
+		if (aug.IsA(StringToName(a)))
+			break;
+	if (aug == None)
+	{
+		Report("fail", "aug|" $ a $ "|noaug");
+		return True;
+	}
+	if (!aug.bHasIt && (how == "give" || how == "raise" || how == "level"))
+	{
+		P.AugmentationSystem.GivePlayerAugmentation(aug.Class);
+		if (!aug.bHasIt)
+		{
+			Report("fail", "aug|" $ a $ "|noslot");
+			return True;
+		}
+		if (how == "raise")
+			return True;                 // given: its first level
+	}
+	if (!aug.bHasIt)
+	{
+		Report("fail", "aug|" $ a $ "|nothad");
+		return True;
+	}
+	if (how == "raise" || how == "level")
+	{
+		if (how == "raise")
+			lv = aug.CurrentLevel + 2;
+		lv = Clamp(lv - 1, 0, aug.MaxLevel);
+		if (lv == aug.CurrentLevel)
+			return True;
+		bWasOn = aug.bIsActive;
+		if (bWasOn)
+			aug.Deactivate();
+		aug.CurrentLevel = lv;
+		if (bWasOn)
+			aug.Activate();
+		P.ClientMessage(Sprintf(aug.AugNowHave, aug.AugmentationName, aug.CurrentLevel + 1));
+	}
+	else if (how == "on" && !aug.bIsActive)
+		aug.Activate();
+	else if (how == "off" && aug.bIsActive && !aug.bAlwaysActive)
+		aug.Deactivate();
+	return True;
+}
+
+// Two factions (P9 slice 4): every character of faction a now sees faction b as c ("hostile", "neutral",
+// "friendly"; "... both": b's characters see a the same way). ChangeAlly, made permanent: an attack does not change it
+// back. The characters that come later (Send reinforcements) keep their own.
+function bool Allies(string a, string b, string c)
+{
+	local ScriptedPawn sp;
+	local name na, nb;
+	local float level;
+	local bool bBoth;
+
+	if (a == "" || b == "")
+	{
+		Report("fail", "allies||noname");
+		return True;
+	}
+	na = StringToName(a);
+	nb = StringToName(b);
+	level = 0;
+	if (InStr(c, "hostile") >= 0)
+		level = -1;
+	else if (InStr(c, "friendly") >= 0)
+		level = 1;
+	bBoth = InStr(c, "both") >= 0;
+	foreach AllActors(class'ScriptedPawn', sp)
+	{
+		if (sp.Alliance == na)
+			sp.ChangeAlly(nb, level, True);
+		else if (bBoth && sp.Alliance == nb)
+			sp.ChangeAlly(na, level, True);
+	}
+	return True;
+}
+
+// The properties a rule may set (P9 slice 4, "Set a property", Advanced): only these (config/logic.json safeProps,
+// links.py checks the same), each one written in the log with what the game took. A character's health: its body's
+// parts (ScriptedPawn.GenerateTotalHealth reads them), each hurt by the same share, so that their total is the health
+// asked for (up to its own; more: its parts whole and that health). An invincible character keeps its full health
+// (the game's own rule).
+function bool SetSafeProp(Actor T, string a, string b)
+{
+	local ScriptedPawn sp;
+	local int h;
+	local float keep;
+
+	if (a == "" || InStr(Caps(",Health,GroundSpeed,BaseAccuracy,bInvincible,SurprisePeriod,lockStrength,doorStrength,"
+		$ "bPickable,bBreakable,bFrobbable,bPushable,HitPoints,LightRadius,DrawScale,ScaleGlow,"), "," $ Caps(a) $ ",") < 0)
+	{
+		Report("fail", "setprop|" $ T.Name $ "|noprop");
+		return True;
+	}
+	sp = ScriptedPawn(T);
+	if (sp != None && a ~= "Health")
+	{
+		h = Max(1, int(b));
+		// GenerateTotalHealth: lost = (0.4 x the four limbs' shares + the head's + the torso's) x its health
+		keep = 1.0 - (1.0 - FMin(1.0, float(h) / FMax(1, sp.default.Health))) / 3.6;
+		sp.HealthHead = Max(1, int(sp.default.HealthHead * keep));
+		sp.HealthTorso = Max(1, int(sp.default.HealthTorso * keep));
+		sp.HealthArmLeft = Max(1, int(sp.default.HealthArmLeft * keep));
+		sp.HealthArmRight = Max(1, int(sp.default.HealthArmRight * keep));
+		sp.HealthLegLeft = Max(1, int(sp.default.HealthLegLeft * keep));
+		sp.HealthLegRight = Max(1, int(sp.default.HealthLegRight * keep));
+		sp.GenerateTotalHealth();
+		if (!sp.bInvincible)
+			sp.Health = h;
+	}
+	else
+		T.SetPropertyText(a, b);
+	Report("prop", T.Name $ "|" $ a $ "|" $ T.GetPropertyText(a));
 	return True;
 }
 
@@ -1557,6 +1876,22 @@ function int CheckStep(string s, int i)
 	return int(Field(s, 5));
 }
 
+// when the map's Story last saw the end named by tag (a dialogue's UCD_<id>, an InfoLink's UCI_<id>: P5); -1 never
+function float StorySeen(string tag)
+{
+	local UCEditorStory S;
+	local float t, best;
+
+	best = -1;
+	foreach AllActors(class'UCEditorStory', S)
+	{
+		t = S.SeenAt(tag);
+		if (t > best)
+			best = t;
+	}
+	return best;
+}
+
 // "delay|until|who|arrived or cond|most|k": what the step waits for is so, or its time is up (a skipped cutscene's
 // hurry ends it too)
 function bool UntilDone(string s)
@@ -1569,6 +1904,8 @@ function bool UntilDone(string s)
 		bDone = True;
 	else if (Field(s, 3) == "arrived")
 		bDone = Arrived(ScriptedPawn(ActorCalled(Field(s, 2))));
+	else if (Field(s, 3) == "ended" || Field(s, 3) == "heard")      // the Story's (P5): its end since the wait began
+		bDone = StorySeen(Field(s, 2)) >= UntilStart;
 	else
 		bDone = StepCond[int(Field(s, 5))] == "" || Holds(StepCond[int(Field(s, 5))]);
 	if (bDone)

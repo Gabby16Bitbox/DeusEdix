@@ -19,12 +19,15 @@
 //   wiring      the original game wiring: [{from, to, why}] (app.js linksOf, its 'out' links)
 //   tags        {TAG: [names]}: the objects a scripting tag reaches (lkTagTargets)
 //   external    the project's state catalog (/api/state_catalog): [{flag, source, type, uses: [{map, context, kind}]}]
+//   keeps       the flags the map's logic blocks keep as they run (P3): [{block, name, type, text}] (a Phases block's
+//               number and phase states, At least N's state, a Counter's number)
 //   map         the map's name
 import { vocabulary, fill, whenKey, verbKey, conditionNames, gameName } from './logic-vocab.js';
-import { conditionText, conditionProblem, kindOf, CONDITION_KINDS } from './conditions.js';
+import { conditionText, conditionProblem, kindOf, CONDITION_KINDS, comesText } from './conditions.js';
 import { collectDraftStates } from './story-state.js';
 import { parseFate, flagCategory, stateLabel } from './state-model.js';
 import { graphIndex, neighbourhood } from './mission-graph-model.js';
+import { isFormula, gameNumber, FormulaError } from './logic-numbers.js';
 
 const own = (table, key) => (table && Object.hasOwn(table, key) ? table[key] : undefined);    // not 'constructor'...
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
@@ -77,9 +80,12 @@ export function ensureActionIds(links) {
 // ---------------------------------------------------------------- what a field away from its default shows
 // Every field a rule can have (links.py: its docstring, blocks() and act_string(); editor/LOGIC.md; the design's
 // version 2 fields), where a value away from its default shows: 'cause' (the cause's words; on a collapsed wire a
-// badge), 'chips' (the only-if row), 'rows' (the do rows), a badge (its text), or nowhere, with the reason. needs: the
-// runtime that runs it ('' today's UCLink; until then the badge is greyed out and Check map says so). absent: the
-// value links.py builds when the rule leaves the field out, shown as that.
+// badge), 'chips' (the only-if row), 'rows' (the do rows), a badge (its text), or nowhere, with the reason. needs: a
+// field of the design that no build runs yet (links.py does not compile it, UCLink / UCRule have no code for it): its
+// badge is greyed out and Check map says so. The rest of the runtime v2 (also, match, max, cooldown, again, talkBusy,
+// else, an action's own requires, Wait until) is built by links.blocks as a UCRule / bSteps and ran in both games
+// (backup/20261105_logic_b make_m4_p4.py, 20261106_chain, 20261107_logic_p3b). absent: the value links.py builds when
+// the rule leaves the field out, shown as that.
 const V2 = 'Logic runtime v2';
 export const RULE_FIELDS = {
   id: { shown: 'the dim id beside the cause' },
@@ -89,6 +95,24 @@ export const RULE_FIELDS = {
   option: { shown: 'cause', applies: (l) => l.when === 'option', absent: 0, wire: (v, l, ix) => ix.ctx.optionText(l) || `button ${(+v || 0) + 1}` },
   near: { shown: 'cause', applies: (l) => l.when === 'near', absent: 256, wire: (v) => `within ${+v || 256}` },
   port: { shown: 'cause', applies: (l) => l.when === 'output' },
+  // the other values a cause takes (logic.json outputs' args): in its words, and on a collapsed wire (whose short words
+  // do not say them) a badge; a signal's is its hub
+  signal: { shown: 'cause' },
+  // a dialogue's, an InfoLink's end (P5): the wire comes out of its node
+  dialogue: { shown: 'cause', applies: (l) => l.when === 'ended', wire: (v, l, ix) => `"${ix.ctx.storyTitle('dialogues', v)}"` },
+  infolink: { shown: 'cause', applies: (l) => l.when === 'heard', wire: (v, l, ix) => `"${ix.ctx.storyTitle('infolinks', v)}"` },
+  key: { shown: 'cause', applies: (l) => l.when === 'keypress', wire: (v) => `key ${v}` },
+  gameTag: { shown: 'cause', applies: (l) => l.when === 'gametag', wire: (v) => `tag ${v}` },
+  below: { shown: 'cause', applies: (l) => ['damaged', 'hurt', 'jchealth'].includes(l.when), wire: (v) => `below ${v}` },
+  floor: { shown: 'cause', applies: (l) => l.when === 'atfloor', wire: (v) => `floor ${v}` },
+  // the world's own (P9 slice 3): a goal's name (none: any goal), the kind of noise and how near, a character or a body
+  goal: { shown: 'cause', applies: (l) => l.when === 'goaldone', wire: (v) => (String(v || '').trim() ? `"${v}"` : 'any goal') },
+  noise: { shown: 'cause', applies: (l) => l.when === 'noise', wire: (v) => String(v || 'loud') },
+  within: { shown: 'cause', applies: (l) => l.when === 'noise' && +l.within > 0, wire: (v) => `within ${+v}` },
+  what: { shown: 'cause', applies: (l) => l.when === 'appears', wire: (v) => String(v || 'character') },
+  // what a "becomes" or a "changes" rule watches: its words say it (the player's own, P9: "the player turns on Speed
+  // Enhancement"), and its short words on a card's title and a wire (shortOf)
+  watch: { shown: 'cause', applies: (l) => l.when === 'becomes' || l.when === 'changes' },
   requires: { shown: 'chips' },
   do: { shown: 'rows' },
   once: { dflt: false, badge: () => '1×', title: 'Only once' },
@@ -100,16 +124,22 @@ export const RULE_FIELDS = {
   // where links.py places the rule's actor (the source's place when the rule was made; none: the map's origin): it
   // shows only when something happens there
   at: { applies: (l) => happensAtRule(l), absent: [0, 0, 0], badge: (v) => 'at ' + placeText(v), title: 'Where its explosion or its sound with no object happens' },
-  also: { dflt: [], shown: 'cause', needs: V2, word: '"or as soon as"' },
-  match: { dflt: 'all', badge: () => 'any of these', title: 'Only if any of these holds', needs: V2, word: '"any of these"' },
-  phase: { dflt: null, badge: (v) => 'phase: ' + ((v && v.in) || []).join(' or '), needs: V2, word: 'a phase' },
-  max: { dflt: 0, badge: (v) => `${+v}×`, title: 'At most this many times', needs: V2, word: '"at most"' },
-  cooldown: { dflt: 0, badge: (v) => `cooldown ${+v} s`, title: 'Not again for this long', needs: V2, word: 'a cooldown' },
+  // UCRuleAlso, UCRule bAny / MaxRuns / Cooldown / Again / TalkBusy / ElseAt (links.blocks)
+  also: { dflt: [], shown: 'cause' },
+  match: { dflt: 'all', badge: () => 'any of these', title: 'Only if any of these holds' },
+  // P3: only in some phases of a Phases block (links.phase_gate, UCLink.PhaseGate)
+  phase: { dflt: null, badge: (v) => 'phase: ' + ((v && v.in) || []).join(' or '), title: 'It works only in these phases' },
+  max: { dflt: 0, badge: (v) => `${+v}×`, title: 'At most this many times' },
+  cooldown: { dflt: 0, badge: (v) => `cooldown ${+v} s`, title: 'Not again for this long' },
   again: { dflt: 'ignore', badge: (v) => ({ restart: 'again: start over', each: 'again: run another' })[v] || 'again: ' + v,
-    title: 'If it happens again while its steps run', needs: V2, word: '"if it happens again"' },
-  talkBusy: { dflt: 'wait', badge: () => 'in a conversation: give up', needs: V2, word: '"in a conversation"' },
-  else: { dflt: [], shown: 'rows', needs: V2, word: '"otherwise"' },
-  while: { dflt: false, badge: () => 'while', title: 'Undone when it stops holding', needs: V2, word: '"while"' },
+    title: 'If it happens again while its steps run' },
+  // '' goes on (logic-rule-ui TALK_BUSY); wait and giveup are built (UCRule.TalkBusy)
+  talkBusy: { dflt: '', badge: (v) => v === 'wait' ? 'in a conversation: wait' : v === 'giveup' ? 'in a conversation: give up' : 'in a conversation: ' + v,
+    title: 'When a step is due while the player is in a conversation' },
+  else: { dflt: [], shown: 'rows' },
+  // P3: links.expand_while adds the rule that undoes it when its cause ends (the player walks out, the condition stops
+  // holding...)
+  while: { dflt: false, badge: () => 'while', title: 'Undone when it stops' },
   mute: { dflt: false, badge: () => 'muted', title: 'Kept in the editor, not built' },
   note: { dflt: '', badge: () => 'note', title: (v) => String(v) },
   origin: { dflt: null, badge: () => 'from the Story', title: (v) => 'Moved from the Story event ' + (v.story || '') },
@@ -123,12 +153,15 @@ export const ACTION_FIELDS = {
   targetTag: { shown: 'rows' },
   area: { shown: 'rows' },
   delay: { dflt: 0, shown: 'the row\'s time', wire: (v) => `${+v} s` },
-  requires: { dflt: [], badge: () => 'if', title: (v, ix) => 'Only if ' + checksText(v, ix), needs: V2, word: 'a check before a step' },
-  until: { shown: 'its section\'s title', needs: V2 },
-  max: { shown: 'its section\'s title', needs: V2 },
+  // a check step before it (links.step_items, UCLink bSteps): failing, only it is skipped
+  requires: { dflt: [], badge: () => 'if', title: (v, ix) => 'Only if ' + checksText(v, ix) },
+  until: { shown: 'its section\'s title' },
+  max: { shown: 'its section\'s title' },
   _group: { none: 'written by links.blocks only' },
 };
-const WAIT = { field: 'wait', word: '"wait until"' };   // a wait step (its verb is Logic runtime v2's)
+// a Wait among a rule's own actions that is not a list of steps: links.py builds only the verbs of the catalogue
+// there (_plain_acts), so the game never waits (in a list of steps, or in an Otherwise, it is an until / wait step)
+const WAIT = { field: 'wait', word: '"wait until"' };
 // the ids of the verbs' arguments (logic.json inputs[verb].args): on an action of a verb that does not take one, it
 // changes nothing it does
 const argIdsOf = (catalog) => new Set(Object.values(catalog.inputs || {}).flatMap((v) => (v.args || []).map((a) => a.id)));
@@ -139,11 +172,11 @@ function happensAtRule(l) {
   return [...list(l.do), ...list(l.else)].some((x) => !x.target && !x.area && !x.targetTag && (x.verb === 'explode' || (x.verb === 'sound' && +x.c > 0)));
 }
 
-// What a rule uses that today's UCLink does not run (Logic runtime v2): [{field, word}], each once, in the tables' order
+// What a rule uses that today's build does not run (phase, while, a Wait outside a list of steps): [{field, word}],
+// each once, in the tables' order
 export function laterFields(l) {
-  const acts = l.steps ? [] : [...list(l.do), ...list(l.else)];      // a list of steps: the game runs its Ifs and waits
+  const acts = l.steps ? [] : list(l.do);       // a list of steps, and an Otherwise (links.blocks: flow), run their waits
   return [...Object.entries(RULE_FIELDS).filter(([field, f]) => f.needs && !isDefault(l[field], f.dflt)).map(([field, f]) => ({ field, word: f.word })),
-    ...(acts.some((x) => !isDefault(x.requires, [])) ? [{ field: 'step-requires', word: ACTION_FIELDS.requires.word }] : []),
     ...(acts.some((x) => x.verb === 'wait') ? [WAIT] : [])];
 }
 
@@ -237,16 +270,30 @@ function portsOf(spec, item, side) {
 }
 // The logic's own items as objects with ports (logic.json "pieces"): a block, a phase set, a signal, a group, a point.
 // Their inputs and outputs are a script's ('input:<port>', 'output:<port>'), so a rule reaches them the same way.
-function pieceActors(logic, catalog) {
+// a named group's objects (P3): those it holds; a group by tag (slice 11, filter.tag) those with the tag, as the game
+// compares tags (case-insensitive), null when the page does not say which objects have which tag
+// (a group of a kind or a faction, P9: the characters in it now, as the page found them (input.sets), null unknown)
+export const isSetGroup = (item) => !!item && !!item.filter && typeof item.filter === 'object' && !!(item.filter.kind || item.filter.faction);
+// what can start a rule on anyone of a kind or a faction (links.EVERY_WHENS): a character's, as the game rules look
+export const SET_WHENS = ['killed', 'knockedout', 'dies', 'hurt', 'sees', 'turnshostile', 'findsbody'];
+function groupMembers(item, tags, sets) {
+  if (isSetGroup(item)) return sets ? (Array.isArray(own(sets, item.id)) ? own(sets, item.id) : []).filter((n) => typeof n === 'string') : null;
+  const tag = item.filter && typeof item.filter === 'object' ? item.filter.tag : '';
+  if (!tag) return [...(item.members || [])];
+  if (!tags) return null;
+  return Object.entries(tags).filter(([t]) => t.toLowerCase() === String(tag).toLowerCase()).flatMap(([, n]) => n);
+}
+function pieceActors(logic, catalog, tags, sets) {
   const out = {};
   for (const [key, [, kind]] of Object.entries(PIECE_KINDS)) {
     for (const item of list(own(logic, key))) {
       const family = key === 'blocks' ? item.kind : kind, spec = own(catalog.pieces, family) || { in: [], out: [] };
       const name = pieceId(key, key === 'signals' ? item.name : item.id), ports = { in: portsOf(spec, item, 'in'), out: portsOf(spec, item, 'out') };
       out[name] = { family, kind, item, ports, label: item.name || item.id, title: `${spec.noun || family} "${item.name || item.id}"`,
-        format: spec.value || '', inputs: ports.in.map((p) => p.key), outputs: ports.out.map((p) => p.key),
+        format: spec.value || '', inputs: ports.in.map((p) => p.key), outputs: key === 'groups' && isSetGroup(item) ? [...SET_WHENS] : ports.out.map((p) => p.key),
         labels: Object.fromEntries([...ports.in, ...ports.out].map((p) => [p.key, p.label])),
-        members: key === 'groups' ? [...(item.members || [])] : undefined };
+        members: key === 'groups' ? groupMembers(item, tags, sets) : undefined,
+        filter: key === 'groups' && item.filter && typeof item.filter === 'object' ? item.filter : undefined };
     }
   }
   return out;
@@ -274,36 +321,86 @@ function contextOf(input, actors) {
     optionText: (l) => ((actor(l.src) || {}).options || [])[+l.option || 0] || '',
     portLabel: (n, key) => own(actor(n) && actor(n).labels, key) || key.split(':')[1] || '?',
     itemName: (cls) => own(input.items, cls) || String(cls).split('.').pop(),
+    groupName: (id) => (list(own(edits.logic, 'groups')).find((g) => g.id === id) || {}).name || '',
+    // a dialogue's, an InfoLink's title (P5), "(missing)" when the Story given has no such one
+    storyTitle: (key, id) => (!input.story ? String(id) : (actor(storyId(key, id)) || {}).label || `${id} (missing)`),
+    // a Phases block (P3): its name in the flags and its phases ({id, text}), null when it is no such block
+    phaseSet: (n) => (actor(n) && Array.isArray(actor(n).phases) ? { name: actor(n).stateName || actor(n).title || n, phases: actor(n).phases } : null),
   };
 }
 
 // A rule's causes (its own and its "also"), each a thing's output pin; its actions, each its id, its wire and the pin
 // of what it acts on
-function causesOf(l) {
+// (a rule started by any of a named group, P3: on its first object, as the game builds it; its words say the group)
+// (a rule waiting for a signal (P3): on the signal's hub, sig:<name>, not on the map)
+// (a rule on a dialogue's end or an InfoLink heard (P5): out of that node's Ended / Heard, when the Story has it)
+// (a rule on anyone of a kind or a faction (P9: no src, its group): out of the group's node)
+function causesOf(l, hubs, storyIds) {
   return [l, ...list(l.also)].map((c) => ({ src: c.when === 'start' ? '' : c.src || '', key: whenKey(c), cause: c,
-    node: thingId(c.when === 'start' ? '' : c.src), pin: 'out:' + whenKey(c) }));
+    node: c.when === 'signal' && hubOf(hubs, c.signal) ? hubOf(hubs, c.signal) : storySource(c, storyIds)
+      || (c.group && !c.src && c.when !== 'start' ? pieceId('groups', c.group) : thingId(c.when === 'start' ? '' : c.src)),
+    pin: 'out:' + whenKey(c) }));
+}
+const STORY_OUT = { ended: ['dialogues', 'dialogue'], heard: ['infolinks', 'infolink'] };
+const storySource = (c, storyIds) => {
+  const k = own(STORY_OUT, c.when) ? STORY_OUT[c.when] : null, id = k && c[k[1]] ? storyId(k[0], c[k[1]]) : null;
+  return id && storyIds && storyIds.has(id) ? id : null;
+};
+// Signals as hubs (P3, the design's "one small hub node per signal"): every name the rules send ("Send a signal") or
+// wait for, once whatever its case (the game's Tag UCS_<name> ignores it), as it was first written. {key: node id}
+const signalKey = (name) => gameName(String(name ?? '').trim()).toLowerCase();
+function signalHubs(links, story) {
+  const out = new Map();
+  const add = (n) => { const s = String(n ?? '').trim(); if (s && !out.has(signalKey(s))) out.set(signalKey(s), pieceId('signals', s)); };
+  for (const l of links) {
+    for (const c of [l, ...list(l.also)]) if (c.when === 'signal') add(c.signal);
+    for (const x of [...list(l.do), ...list(l.else)]) if (x.verb === 'signal') add(x.a);
+  }
+  // the Story's signals (P5): its dialogues', events' and InfoLinks' "Send a signal"
+  for (const key of ['dialogues', 'events', 'infolinks']) for (const item of list((story || {})[key])) for (const a of storyActions(item)) if (a.type === 'signal') add(a.signal);
+  return out;
+}
+const hubOf = (hubs, name) => (hubs && String(name ?? '').trim() ? hubs.get(signalKey(name)) || null : null);
+// a signal's hub in the index (its name written either way), null when no rule or Story part names it
+export const signalHub = (ix, name) => hubOf(ix.hubs, name);
+// a hub as a thing of the map: what a sentence calls it, its two pins' words (logic.json pieces.signal)
+function hubActors(hubs, catalog) {
+  const spec = own(own(catalog, 'pieces'), 'signal') || {}, say = (side, k) => ((list(spec[side])[0] || {}).label || k);
+  return Object.fromEntries([...hubs.values()].map((id) => {
+    const name = id.slice(PIECE_KINDS.signals[0].length);
+    return [id, { family: 'signal', kind: 'signal', label: name, title: `the signal "${name}"`, hub: { in: say('in', 'send it'), out: say('out', 'it is sent') },
+      inputs: ['signal'], outputs: ['signal'] }];
+  }));
 }
 // what set the rule's run off (UCRule: @by, @it) is no object of the map: no node, no wire, its words in the row
 const SPECIAL = { '@by': 'whoever set it off', '@it': 'the object it happened to' };
-function targetOf(rule, x, id) {
+// a rule's dialogue to start, InfoLink to play (P5): the Story's node and its pin (STORY_PINS)
+const STORY_IN = { talk: ['dialogues', 'in:start'], infolink: ['infolinks', 'in:play'] };
+const storyTarget = (x, storyIds) => (own(STORY_IN, x.verb) && x.a && storyIds && storyIds.has(storyId(STORY_IN[x.verb][0], x.a))
+  ? storyId(STORY_IN[x.verb][0], x.a) : null);
+function targetOf(rule, x, id, hubs, storyIds) {
+  if (x.verb === 'signal' && hubOf(hubs, x.a)) return hubOf(hubs, x.a);      // sending a signal (P3): into its hub
+  if (storyTarget(x, storyIds)) return storyTarget(x, storyIds);
   if (x.area) return `${GROUP_KINDS.area}${rule}/${id}`;
   if (x.targetTag) return GROUP_KINDS.tag + x.targetTag;
+  if (x.group) return pieceId('groups', x.group);         // a named group (P3): its own node
   return x.target && !own(SPECIAL, x.target) ? thingId(x.target) : null;
 }
-function actsOf(l, acts, prefix) {
+function actsOf(l, acts, prefix, hubs, storyIds) {
   const ids = actionIds(acts, prefix);
-  return acts.map((x, j) => ({ x, j, id: ids[j], wire: actId(l.id, ids[j]), node: targetOf(l.id, x, ids[j]),
-    pin: targetOf(l.id, x, ids[j]) ? 'in:' + verbKey(x) : null }));
+  return acts.map((x, j) => ({ x, j, id: ids[j], wire: actId(l.id, ids[j]), node: targetOf(l.id, x, ids[j], hubs, storyIds),
+    pin: storyTarget(x, storyIds) ? STORY_IN[x.verb][1] : targetOf(l.id, x, ids[j], hubs, storyIds) ? 'in:' + verbKey(x) : null }));
 }
-function ruleEntry(l) {
-  return { l, id: l.id, node: ruleId(l.id), causes: causesOf(l), acts: actsOf(l, list(l.do), 'a'), otherwise: actsOf(l, list(l.else), 'e'),
-    simple: isSimple(l) };
+function ruleEntry(l, hubs, storyIds) {
+  return { l, id: l.id, node: ruleId(l.id), causes: causesOf(l, hubs, storyIds), acts: actsOf(l, list(l.do), 'a', hubs, storyIds),
+    otherwise: actsOf(l, list(l.else), 'e', hubs, storyIds), simple: isSimple(l) };
 }
 
 // The Story's dialogues, InfoLinks and events as read-only nodes: their states (story-state.js reads them, one item
 // at a time so each use keeps its node) and the actions they take, as a rule's (logic.json "story": their words).
 function storyActions(item) {
-  const steps = list(item.steps).filter((s) => s.type === 'do').flatMap((s) => list(s.do));
+  // (a dialogue's signal step (P5) is one of them, where it is in the dialogue)
+  const steps = list(item.steps).flatMap((s) => (s.type === 'do' ? list(s.do) : s.type === 'signal' ? [s] : []));
   const walk = (acts) => list(acts).flatMap((a) => (a.type === 'do' ? walk(a.do) : [a]));
   return walk([...steps, ...list(item.do)]);
 }
@@ -317,6 +414,8 @@ function storyAct(a, alias) {
     case 'travel': return { verb: 'travel', a: a.map || '', b: a.tag || '' };
     case 'talk': return { verb: 'talk', target: a.dialogue ? storyId('dialogues', a.dialogue) : '' };
     case 'infolink': return { verb: 'play', target: a.infolink ? storyId('infolinks', a.infolink) : '' };
+    case 'signal': return { verb: 'signal', a: a.signal || '' };
+    case 'act': return { ...(a.act || {}), verb: (a.act && a.act.verb) || '?' };     // a Logic action (P5): the rule's own
     default: return { verb: a.type || '?' };
   }
 }
@@ -337,6 +436,14 @@ export const stateKey = (name) => gameName(name).toLowerCase();
 // Every state and counter the logic reads or sets: who sets it, who reads it ({node, pin, text, rule}), and whether
 // the game or another map may set it (a character's fate, a mission state, the original game's). Each is named as
 // it was first typed.
+// the counters a formula reads (P9 slice 5: "Alarms + 1" reads Alarms); none for a number or a bad one
+function formulaCounters(v) {
+  if (!isFormula(v)) return [];
+  try { return gameNumber(v).slice(1).split(',').filter((t) => t.startsWith('@')).map((t) => t.slice(1)); } catch (e) { if (e instanceof FormulaError) return []; throw e; }
+}
+// the amounts that take a formula (logic.json "formula")
+const FORMULA_ARGS = { count: 'b', skillpoints: 'a', credits: 'a', health: 'a', energy: 'a' };
+
 function stateIndex(ix) {
   const states = new Map();
   const entry = (name, type) => {
@@ -356,17 +463,25 @@ function stateIndex(ix) {
       const use = { node: r.node, pin: 'if:' + i, rule: r.id, text: who };
       if (kindOf(c) === 'flag') add(c.flag, 'bool', 'readers', use);
       if (kindOf(c) === 'counter') add(c.counter, 'int', 'readers', use);
+      for (const n of formulaCounters(c && c.value)) add(n, 'int', 'readers', use);
     });
+    const watch = r.l.watch;                                // a condition watched by "becomes": its formula's counters
+    if (watch && typeof watch === 'object') for (const n of formulaCounters(watch.value)) add(n, 'int', 'readers', { node: r.node, pin: null, rule: r.id, text: who });
     for (const act of [...r.acts, ...r.otherwise]) {
       const use = { node: r.node, pin: act.wire, rule: r.id, text: who };
       if (act.x.verb === 'flag') add(act.x.a, 'bool', 'setters', use);
       if (act.x.verb === 'count') add(act.x.a, 'int', 'setters', use);
+      if (Object.hasOwn(FORMULA_ARGS, act.x.verb)) for (const n of formulaCounters(act.x[FORMULA_ARGS[act.x.verb]])) add(n, 'int', 'readers', use);
     }
   }
   for (const s of ix.story) {
     // (a dialogue's Played and an InfoLink's Heard are set by the game itself: auto)
     const text = ix.ctx.name(s.node);
     for (const st of s.states) for (const u of st.uses) add(st.flag, st.type, u.kind === 'read' ? 'readers' : 'setters', { node: s.node, pin: null, text, auto: u.kind === 'automatic' });
+  }
+  // what the logic blocks keep in the flags: set as the map runs (automatic: not "never read" when nothing reads it)
+  for (const k of list(ix.input.keeps)) {
+    if (!ix.gone.has(k.block)) add(k.name, k.type === 'int' ? 'int' : 'bool', 'setters', { node: own(ix.actors, k.block) ? k.block : null, pin: null, text: k.text || k.block, auto: true });
   }
   for (const st of list(ix.input.external)) {
     const elsewhere = list(st.uses).filter((u) => u.map !== (ix.input.map || ''));
@@ -388,11 +503,12 @@ function stateIndex(ix) {
 
 // The index the graph, the problems and the Read view share. input: above.
 export function logicIndex(input) {
-  const edits = input.edits || {}, logic = edits.logic || {};
-  const actors = { ...pieceActors(logic, input.catalog), ...storyActors(input.story), ...(input.actors || {}) };
+  const edits = input.edits || {}, logic = edits.logic || {}, links = list(edits.links).filter((l) => l.id), hubs = signalHubs(links, input.story);
+  const actors = { ...hubActors(hubs, input.catalog), ...pieceActors(logic, input.catalog, input.tags, input.sets), ...storyActors(input.story), ...(input.actors || {}) };
+  const storyIds = new Set(Object.keys(storyActors(input.story)));
   const ix = { input, catalog: input.catalog, vocab: vocabOf(input.catalog), argIds: argIdsOf(input.catalog), edits, logic, actors, ctx: contextOf(input, actors),
     gone: new Set(Object.keys(edits.deleted || {})), off: new Set(Object.keys(edits.disabled || {}).filter((n) => edits.disabled[n])),
-    rules: list(edits.links).filter((l) => l.id).map(ruleEntry), story: storyEntries(input) };
+    hubs, rules: links.map((l) => ruleEntry(l, hubs, storyIds)), story: storyEntries(input) };
   ix.states = stateIndex(ix);
   return ix;
 }
@@ -421,7 +537,9 @@ function rowOf(act, ix) {
 // "After Guard2 arrives (at most 20 s):" (a wait step, Logic runtime v2)
 function sectionTitle(x, ix) {
   const u = x.until || {};
-  const what = u.type === 'arrived' ? `${ix.ctx.name(u.actor)} arrives` : u.type === 'ended' ? `${ix.ctx.name(u.actor)} has ended`
+  const what = u.type === 'arrived' ? `${ix.ctx.name(u.actor)} arrives`
+    : u.type === 'ended' ? `the dialogue "${ix.ctx.storyTitle('dialogues', u.dialogue || '?')}" has ended`        // P5
+    : u.type === 'heard' ? `the InfoLink "${ix.ctx.storyTitle('infolinks', u.infolink || '?')}" has been heard`
     : kindOf(u) ? conditionText(u, conditionNames(ix.ctx)) : 'the wait';
   return `After ${what}${+x.max > 0 ? ` (at most ${+x.max} s)` : ''}:`;
 }
@@ -447,7 +565,7 @@ function sectionsOf(acts, ix, steps = false) {
 function cardOf(r, ix) {
   const l = r.l;
   return { id: r.node, kind: 'rule', rule: r.id, readOnly: false, muted: !!l.mute,
-    causes: r.causes.map((c) => ({ node: c.node, pin: c.pin, text: ix.vocab.whenText(c.cause, ix.ctx), short: ix.vocab.whenLabel(c.key, c.src, ix.ctx) })),
+    causes: r.causes.map((c) => ({ node: c.node, pin: c.pin, text: ix.vocab.whenText(c.cause, ix.ctx), short: shortOf(ix, c) })),
     badges: ruleBadges(l, ix), match: l.match === 'any' ? 'any' : 'all', checks: list(l.requires).map((c, i) => chipOf(c, i, ix)),
     sections: sectionsOf(r.acts, ix, !!l.steps), otherwise: sectionsOf(r.otherwise, ix)[0].rows, sentence: ix.vocab.sentence(l, ix.ctx),
     otherwiseOf: l.otherwiseOf || null,
@@ -458,9 +576,18 @@ function collapsedOf(r, ix) {
   const c = r.causes[0], act = r.acts[0];
   return { id: r.node, kind: kindOfWire(c.node, act.node), part: 'rule', rule: r.id, act: act.id, muted: !!r.l.mute,
     from: { node: c.node, pin: c.pin }, to: { node: act.node, pin: act.pin },
-    label: `${ix.vocab.whenLabel(c.key, c.src, ix.ctx)} → ${ix.vocab.inputLabel(verbKey(act.x), act.x.target, ix.ctx)}`,
+    label: `${shortOf(ix, c)} → ${ix.vocab.inputLabel(verbKey(act.x), act.x.target, ix.ctx)}`,
     badges: [...ruleBadges(r.l, ix, true), ...actionBadges(act.x, ix, true)], sentence: ix.vocab.sentence(r.l, ix.ctx) };
 }
+// a cause's short words: a signal's hub says "it is sent"
+const shortOf = (ix, c) => ((own(ix.actors, c.node) || {}).hub || {}).out || comesShort(c, ix) || ix.vocab.whenLabel(c.key, c.src, ix.ctx);
+// a condition that says how it comes true (conditions.js comesText): "the player enters water", not "a condition
+// becomes true"
+const comesShort = (c, ix) => {
+  const l = c.cause;
+  if (!l || l.when !== 'becomes' || l.while || !l.watch || typeof l.watch !== 'object') return '';
+  try { return comesText(l.watch, { item: ix.ctx.itemName }) || ''; } catch { return ''; }
+};
 const kindOfWire = (from, to) => ([from, to || ''].some((id) => id.startsWith(PIECE_KINDS.signals[0])) ? 'signal' : 'causes');
 const posOf = (ix, id) => own(own(own(ix.logic, 'view'), 'pos'), id) || null;
 
@@ -486,9 +613,10 @@ function usePin(node, side, key, label) {
   return id;
 }
 // a pin's words: an item of the logic's own port words ("all done"), the vocabulary's for the rest
-const pieceLabel = (ix, key, name) => { const a = own(ix.actors, name); return a && a.ports ? own(a.labels, key) : undefined; };
-const outLabel = (ix, key, name) => pieceLabel(ix, key, name) || ix.vocab.whenLabel(key, name, ix.ctx);
-const inLabel = (ix, key, name) => pieceLabel(ix, key, name) || ix.vocab.inputLabel(key, name, ix.ctx);
+// (a signal's hub: "it is sent" out, "send it" in)
+const pieceLabel = (ix, key, name, side) => { const a = own(ix.actors, name); return a && a.hub ? a.hub[side] : a && a.ports ? own(a.labels, key) : undefined; };
+const outLabel = (ix, key, name) => pieceLabel(ix, key, name, 'out') || ix.vocab.whenLabel(key, name, ix.ctx);
+const inLabel = (ix, key, name) => pieceLabel(ix, key, name, 'in') || ix.vocab.inputLabel(key, name, ix.ctx);
 // the pins not in use, for "+ Show all": what it offers at the disclosure level (a script's own ports always)
 function allPins(ix, node, level) {
   const a = own(ix.actors, node.name);
@@ -514,7 +642,8 @@ function storyNode(s, ix) {
   const rows = s.acts.map((act) => ({ id: `${s.node}/${act.id}`, act: act.id, index: 0, time: 0, timeText: '',
     text: act.x.verb === 'talk' || act.x.verb === 'play' ? `${act.x.verb === 'talk' ? 'start' : 'play'} ${ix.ctx.name(act.x.target)}`
       : own(ix.catalog.inputs, act.x.verb) ? ix.vocab.actText(act.x, ix.ctx) : act.x.verb,
-    target: act.x.target ? thingId(act.x.target) : null, pin: act.x.target ? 'in:' + act.x.verb : null, key: act.x.verb, badges: [] }));
+    target: act.x.verb === 'signal' ? hubOf(ix.hubs, act.x.a) : act.x.target ? thingId(act.x.target) : null,      // a signal: its hub (P5)
+    pin: act.x.target ? 'in:' + act.x.verb : null, key: act.x.verb, badges: [] }));
   return { id: s.node, kind: s.kind, word: own(ix.actors, s.node).word, readOnly: true, title: it.title || it.id, disabled: !!it.disabled, first: first ? first.text || '' : '',
     owner: it.owner ? thingId(it.owner) : null, caller: it.name || it.caller || '',
     cause: s.kind === 'storyrule' ? storyCause(it.when || {}, ix) : '', once: it.once !== false,
@@ -539,9 +668,11 @@ export function logicGraph(ix, options = {}) {
   const pinIn = (id, key, name) => usePin(node(id), 'in', key, inLabel(ix, key, name));
   for (const s of ix.story) nodes.set(s.node, storyNode(s, ix));          // first: a rule may act on them
   for (const r of ix.rules) {
-    for (const c of r.causes) pinOut(c.node, c.key, c.src);
+    const hub = (id) => (own(ix.actors, id) || {}).hub;                  // a signal's hub names its own pins
+    for (const c of r.causes) pinOut(c.node, c.key, hub(c.node) ? c.node : c.src);
     for (const act of [...r.acts, ...r.otherwise].filter((a) => a.node)) {
-      pinIn(act.node, verbKey(act.x), act.x.target);
+      if (node(act.node).readOnly) continue;                             // the Story's: its own pins (STORY_PINS)
+      pinIn(act.node, verbKey(act.x), hub(act.node) ? act.node : act.x.target);
       if (act.x.area || act.x.targetTag) Object.assign(node(act.node), groupOf(ix, act.x));
     }
     if (r.simple && !open.has(r.id)) { wires.push(collapsedOf(r, ix)); continue; }
@@ -592,7 +723,7 @@ function storyGraph(ix, node, nodes, wires) {
     for (const row of n.rows.filter((x) => x.target)) {
       // into a dialogue's Start or an InfoLink's Play; into an object's input, as a rule's
       const to = node(row.target), pin = to.readOnly ? (to.pins.in[0] || {}).id || null : usePin(to, 'in', row.key, inLabel(ix, row.key, to.name));
-      wires.push({ id: row.id, kind: 'causes', part: 'story', readOnly: true, from: { node: s.node, pin: row.id }, to: { node: row.target, pin } });
+      wires.push({ id: row.id, kind: kindOfWire(s.node, row.target), part: 'story', readOnly: true, from: { node: s.node, pin: row.id }, to: { node: row.target, pin } });
     }
   }
 }

@@ -55,6 +55,7 @@ class El {
   set textContent(v) { this.replaceChildren(); this.text = String(v); }
   matches(sel) { return sel.split(',').some((s) => s.trim().startsWith('.') && this.cls.includes(s.trim().slice(1))); }
   closest(sel) { for (let n = this; n; n = n.parentElement) if (n.matches(sel)) return n; return null; }
+  contains(o) { for (let n = o; n; n = n.parentElement) if (n === this) return true; return false; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) { return this.all().filter((e) => e.matches(sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
@@ -562,4 +563,95 @@ test('the arrows go from node to node, select it and tell a screen reader', () =
   assert.equal(c.root.getAttribute('aria-activedescendant'), c.nodeEl('C').id);
   assert.equal(c.root.querySelector('.gc-say').textContent, 'C');
   c.g.destroy();
+});
+
+test('a double click opens the node under the pointer, though the press gave the pointer to the canvas (9 Nov 2026)', () => {
+  const c = canvas(), was = document.elementFromPoint;
+  try {
+    document.elementFromPoint = () => c.nodeEl('B').querySelector('.gc-r') || c.nodeEl('B');
+    c.pointer('dblclick', c.root, [420, 20]);           // the browser's target: the canvas, which holds the pointer
+    assert.deepEqual(c.named('onOpen').map((x) => x[1]), ['B']);
+    document.elementFromPoint = () => new El('div');     // something over the canvas, not in it: nothing opened
+    c.pointer('dblclick', c.root, [2000, 2000]);
+    c.pointer('dblclick', c.nodeEl('A'), [20, 20]);    // a target of its own (a made-up event): that one
+    assert.deepEqual(c.named('onOpen').map((x) => x[1]), ['B', 'A']);
+  } finally { if (was) document.elementFromPoint = was; else delete document.elementFromPoint; }
+});
+
+test('a node with a text block, a colour of its own and coloured ways: drawn, kept to safe colours, written in place (the Story, 9 Nov 2026)', () => {
+  const c = canvas();
+  const story = {
+    nodes: [
+      { id: 'L', title: 'Mr Talker', at: [0, 0], colour: '#afa9ec', body: { text: 'Hello there.', lines: 3 }, in: { id: 'in' }, out: { id: 'next' } },
+      { id: 'E', title: 'JC Denton', at: [300, 0], colour: 'red; background:url(x)', body: { text: 'Double-click to write', empty: true, lines: 3 }, in: { id: 'in' } },
+      { id: 'C', title: "JC's answers", at: [600, 0], colour: 'hsl(120 55% 68%)', in: { id: 'in' },
+        rows: [{ id: 'way:0', text: 'Yes', colour: '#5dcaa5', out: { id: '0' } }, { id: 'way:1', text: 'No', out: { id: '1' } }] },
+    ],
+    wires: [{ id: 'w', from: { node: 'C', pin: '0' }, to: { node: 'L', pin: 'in' }, colour: '#5dcaa5' },
+      { id: 'v', from: { node: 'L', pin: 'next' }, to: { node: 'E', pin: 'in' }, colour: 'url(evil)' }],
+  };
+  c.g.set(story);
+  const L = c.nodeEl('Mr Talker'), E = c.nodeEl('JC Denton'), C = c.nodeEl("JC's answers");
+  const body = L.querySelector('.gc-body');
+  assert.equal(body.getAttribute('style'), '--gc-lines:3');
+  assert.equal(body.textContent, 'Hello there.');
+  assert.equal(body.title, 'Hello there.');                                  // the whole text, when it is cut
+  assert.ok(E.querySelector('.gc-body').cls.includes('empty'));
+  // the cover zoomed out says the text too; not a placeholder
+  assert.equal(L.querySelector('.gc-bc').textContent, 'Hello there.');
+  assert.equal(E.querySelector('.gc-bc'), null);
+  // who speaks: a bar of their colour; a colour that is not one is not put in a style
+  assert.ok(L.cls.includes('accent'));
+  assert.equal(L.style.props['--gc-accent'], '#afa9ec');
+  assert.ok(!E.cls.includes('accent'));
+  assert.equal(E.style.props['--gc-accent'], undefined);
+  assert.equal(C.style.props['--gc-accent'], 'hsl(120 55% 68%)');
+  // an answer's way: its row and pin in its colour, and its wire; a bad colour falls back to the kind's
+  const [yes, no] = C.querySelectorAll('.gc-r');
+  assert.ok(yes.cls.includes('way'));
+  assert.equal(yes.getAttribute('style'), '--gc-way:#5dcaa5');
+  assert.ok(!no.cls.includes('way'));
+  const wires = c.root.querySelectorAll('.gc-wire');
+  assert.ok(wires.some((p) => p.style.props['--gc-stroke'] === '#5dcaa5'));
+  assert.ok(!wires.some((p) => /url/.test(p.style.props['--gc-stroke'] || '')));
+  // the rows' pins under the text block: level with their row (the geometry's), the wire ends there
+  assert.equal(c.g.part('L'), body);
+  assert.equal(c.g.part('C', 'way:1'), no.querySelector('.gc-tx'));
+  assert.equal(c.g.part('C', 'nope'), null);
+  assert.equal(c.g.part('ghost'), null);
+  // a double click on a row says which row
+  c.pointer('dblclick', yes, [610, 40]);
+  c.pointer('dblclick', L, [10, 10]);
+  assert.deepEqual(c.named('onOpen').map((x) => x.slice(1)), [['C', 'way:0'], ['L', undefined]]);
+});
+
+test('a view given before the first fit is kept (a dialogue drawn again after a step back keeps its zoom)', async () => {
+  // the stylesheet in: from then on the first set() with nodes fits them all, unless a view was given
+  for (const link of document.head.children) link.fire('load', {});
+  await Promise.resolve();
+  const kept = createGraphCanvas(new El('div'), {}), fresh = createGraphCanvas(new El('div'), {});
+  kept.setView({ x: 12, y: 34, k: 0.7 });
+  const g = { nodes: [{ id: 'Z', title: 'Z', at: [5000, 5000] }], wires: [] };
+  kept.set(g);
+  fresh.set(g);
+  await Promise.resolve();                                             // each canvas sees the stylesheet in
+  assert.deepEqual(kept.view(), { x: 12, y: 34, k: 0.7 });
+  assert.notDeepEqual(fresh.view(), { x: 40, y: 40, k: 1 });          // fitted onto the node far away
+});
+
+test('a picture that comes while a node is written in waits for the next set(): the field is not taken away', async () => {
+  let give;
+  const host = new El('div'), g = createGraphCanvas(host, { thumb: () => new Promise((done) => { give = done; }) });
+  const n = { id: 'L', title: 'Mr Talker', thumb: 'npc', at: [0, 0], body: { text: 'Hi', lines: 3 } };
+  g.set({ nodes: [n], wires: [] });
+  const field = new El('textarea');
+  field.className = 'gc-field';
+  g.part('L').replaceChildren(field);
+  give('face.png');
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(g.part('L').firstChild, field, 'still written in');
+  assert.equal(g.element.querySelector('.gc-thumb'), null);
+  g.set({ nodes: [{ ...n }], wires: [] });                       // written: the caller gives the graph back
+  assert.ok(g.element.querySelector('.gc-thumb'), 'the picture now');
+  assert.equal(g.element.querySelector('.gc-field'), null);
 });

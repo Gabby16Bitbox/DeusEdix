@@ -3,6 +3,7 @@
 // declares, start on its outputs (editor/LOGIC.md). Compile builds the scripts' own package in a few seconds and
 // lists the problems by line (click one to go there).
 import { attachToolWindow } from './tool-window.js';
+import { parsePorts, writePorts, portsProblem, ARG_TYPES, ARG_WORDS, MAX_PORTS, PORT_ID } from './script-ports.js';
 
 const css = document.createElement('link');
 css.rel = 'stylesheet';
@@ -57,9 +58,11 @@ function ensureDom() {
         <span class="sc-title">No script open</span><span class="sc-dirty" hidden>●</span><span style="flex:1"></span>
         <button type="button" class="sc-save" title="Save (Ctrl+S)">Save</button>
         <button type="button" class="sc-compile primary" title="Save every script and compile them (Ctrl+B)">Compile</button>
+        <button type="button" class="sc-portsbtn" aria-expanded="false" title="The inputs the rules can call and the outputs that start rules: a table that writes them in defaultproperties">Inputs and outputs</button>
         <button type="button" class="sc-place" title="Place this script in the map, then click what sets it off (a button, a trigger...)">Place in map</button>
         <button type="button" class="sc-delete" title="Delete this script">Delete</button>
       </div>
+      <div class="sc-ports" role="region" aria-label="Inputs and outputs" hidden></div>
       <div class="sc-code">
         <div class="sc-gutter" aria-hidden="true"></div>
         <div class="sc-edit">
@@ -79,7 +82,7 @@ function ensureDom() {
     for (const p of problems) gutter.querySelector(`[data-line="${p.line}"]`)?.classList.add(p.kind === 'error' ? 'sc-gerr' : 'sc-gwarn');
     $('.sc-dirty', el).hidden = text.value === saved;
   };
-  text.addEventListener('input', repaint);
+  text.addEventListener('input', () => { repaint(); portsSoon(); });
   text.addEventListener('scroll', () => { hl.scrollTop = text.scrollTop; hl.scrollLeft = text.scrollLeft; gutter.scrollTop = text.scrollTop; });
   text.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {                       // a tab, not the next control
@@ -102,6 +105,8 @@ function ensureDom() {
   $('.sc-compile', el).onclick = () => compile();
   $('.sc-place', el).onclick = () => place();
   $('.sc-delete', el).onclick = () => remove();
+  $('.sc-portsbtn', el).onclick = () => { portsOpen = !portsOpen; renderPorts(); };
+  wirePorts();
   $('.sc-help', el).onclick = () => help();
   $('.sc-close', el).onclick = () => close();
   $('.sc-import', el).onclick = () => window.__modImport?.open();
@@ -123,7 +128,7 @@ function renderList() {
   for (const item of list.querySelectorAll('[data-name]')) item.onclick = () => openScript(item.dataset.name);
   const text = $('.sc-text', el), has = !!current;
   text.disabled = !has;
-  for (const b of el.querySelectorAll('.sc-save, .sc-place, .sc-delete')) b.disabled = !has;
+  for (const b of el.querySelectorAll('.sc-save, .sc-place, .sc-delete, .sc-portsbtn')) b.disabled = !has;
   $('.sc-compile', el).disabled = !info.scripts.length;
   $('.sc-title', el).textContent = has ? `${current}.uc` : 'No script open';
 }
@@ -141,6 +146,7 @@ async function openScript(name) {
   $('.sc-text', el).value = j.text;
   el._repaint();
   renderList();
+  renderPorts();
   $('.sc-text', el).focus();
 }
 async function save(quiet) {
@@ -219,6 +225,104 @@ function place() {
   close();
   window.__editor.placeClass(cls, current);
 }
+// ---- the Ports table (P8 slice 5, script-ports.js): the inputs and outputs of the open script, written as its
+// defaultproperties lines; the code stays the truth (typed there, the table follows)
+let portsOpen = false, portsTimer = 0;
+const portsNow = () => parsePorts($('.sc-text', el).value);
+function portsSoon() {
+  clearTimeout(portsTimer);
+  portsTimer = setTimeout(() => { if (!$('.sc-ports', el).contains(document.activeElement)) renderPorts(); }, 300);
+}
+function renderPorts() {
+  const box = $('.sc-ports', el), btn = $('.sc-portsbtn', el);
+  btn.setAttribute('aria-expanded', String(portsOpen));
+  btn.classList.toggle('on', portsOpen);
+  box.hidden = !portsOpen || !current;
+  if (box.hidden) return;
+  const p = portsNow();
+  const type = (t) => ARG_TYPES.map((k) => `<option value="${k}"${k === t ? ' selected' : ''}>${ARG_WORDS[k]}</option>`).join('');
+  const row = (kind, x, i) => `<div class="sc-prow" data-kind="${kind}" data-i="${i}">
+      <input class="sc-pid" value="${esc(x.id)}" aria-label="Its name in the code" title="Its name in the code (Input's InputName, Output(&quot;...&quot;)): letters, digits and _" spellcheck="false">
+      <input class="sc-plabel" value="${esc(x.label === x.id ? '' : x.label)}" placeholder="${kind === 'inputs' ? 'what a rule says: Start it' : 'what a rule says: it is done'}" aria-label="What the rules say" spellcheck="false">
+      ${kind === 'inputs' ? `<span class="sc-pargs">${(x.args || []).map((a, k) => `<span class="sc-parg" data-k="${k}"><input class="sc-paname" value="${esc(a.name)}" aria-label="The value's name" title="Its name: Arg(Args, &quot;${esc(a.name)}&quot;) in the code" spellcheck="false"><select class="sc-patype" aria-label="What it takes">${type(a.type)}</select><button type="button" class="sc-parm" title="Take this value away" aria-label="Take this value away">×</button></span>`).join('')}<button type="button" class="sc-paadd" title="A value the rule gives with it (ArgFloat, ArgBool, Arg...)">+ value</button></span>` : ''}
+      ${kind === 'outputs' ? `<label class="sc-pcarry" title="The script says OutputValue(&quot;${esc(x.id)}&quot;, 3): the rules it starts read the 3 as Value (Alarms + Value)"><input type="checkbox" class="sc-pcarries"${x.carries ? ' checked' : ''}> with a number</label>` : ''}
+      <button type="button" class="sc-prm" title="Take this ${kind === 'inputs' ? 'input' : 'output'} away (the code that uses it stays)" aria-label="Take it away">×</button></div>`;
+  const part = (kind, word, list) => `<div class="sc-psec"><div class="sc-ph"><b>${word === 'input' ? 'Inputs' : 'Outputs'}</b><span class="hint">${word === 'input'
+    ? 'what a rule can make it do: <code>Input(InputName, Args, Caller)</code>' : 'what it tells the rules: <code>Output("Name")</code> starts the rules on it, <code>OutputValue("Name", 3)</code> with a number'}</span></div>
+    ${list.map((x, i) => row(kind, x, i)).join('') || `<div class="hint sc-pnone">No ${word}s.</div>`}
+    <button type="button" class="sc-padd" data-kind="${kind}"${list.length >= MAX_PORTS ? ' disabled' : ''} title="At most ${MAX_PORTS}">+ ${word === 'input' ? 'Input' : 'Output'}</button></div>`;
+  box.innerHTML = part('inputs', 'input', p.inputs) + part('outputs', 'output', p.outputs);
+}
+// the table changed: its ports written into the code (one step of the text's own undo), the table drawn again
+function writeTable(change, focus) {
+  const area = $('.sc-text', el), p = portsNow();
+  change(p);
+  const why = portsProblem(p);
+  if (why) { output(`<div class="sc-bad">${esc(why)}</div>`); renderPorts(); return false; }
+  const next = writePorts(area.value, p);
+  if (next !== area.value) {
+    area.focus();
+    area.select();
+    document.execCommand('insertText', false, next);      // Ctrl+Z in the code takes it back
+    if (area.value !== next) area.value = next;
+    el._repaint();
+  }
+  renderPorts();
+  if (focus) $(focus, el)?.focus();
+  return true;
+}
+function wirePorts() {
+  const box = $('.sc-ports', el);
+  const at = (t) => { const r = t.closest('.sc-prow'); return r ? { kind: r.dataset.kind, i: +r.dataset.i } : null; };
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const w = at(b);
+    if (b.classList.contains('sc-padd')) {
+      const kind = b.dataset.kind;
+      writeTable((p) => {
+        const used = new Set([...p.inputs, ...p.outputs].map((x) => x.id.toLowerCase()));
+        let n = p[kind].length + 1, id = (kind === 'inputs' ? 'Input' : 'Output') + n;
+        while (used.has(id.toLowerCase())) id = (kind === 'inputs' ? 'Input' : 'Output') + ++n;
+        p[kind].push(kind === 'inputs' ? { id, label: id, args: [] } : { id, label: id });
+      }, `.sc-prow[data-kind="${kind}"]:last-of-type .sc-pid`);
+    } else if (b.classList.contains('sc-prm') && w) writeTable((p) => { p[w.kind].splice(w.i, 1); });
+    else if (b.classList.contains('sc-paadd') && w) writeTable((p) => {
+      const args = p.inputs[w.i].args, names = new Set(args.map((a) => a.name.toLowerCase()));
+      let n = args.length + 1;
+      while (names.has('value' + n)) n++;
+      args.push({ name: 'Value' + n, type: 'number' });
+    }, `.sc-prow[data-kind="inputs"][data-i="${w.i}"] .sc-parg:last-of-type .sc-paname`);
+    else if (b.classList.contains('sc-parm') && w) writeTable((p) => { p.inputs[w.i].args.splice(+b.closest('.sc-parg').dataset.k, 1); });
+  });
+  box.addEventListener('change', (e) => {
+    const t = e.target, w = at(t);
+    if (!w) return;
+    const k = t.closest('.sc-parg') ? +t.closest('.sc-parg').dataset.k : -1;
+    if (t.classList.contains('sc-pid')) {
+      const from = portsNow()[w.kind][w.i]?.id, to = t.value.trim();
+      if (!PORT_ID.test(to)) { output('<div class="sc-bad">A name has letters, digits and _ only, and starts with a letter.</div>'); renderPorts(); return; }
+      if (writeTable((p) => { const x = p[w.kind][w.i]; if (x.label === x.id) x.label = to; x.id = to; }) && from && from !== to) renamed(w.kind, from, to);
+    } else if (t.classList.contains('sc-plabel')) writeTable((p) => { const x = p[w.kind][w.i]; x.label = t.value.trim() || x.id; });
+    else if (t.classList.contains('sc-paname') && k >= 0) writeTable((p) => { p.inputs[w.i].args[k].name = t.value.trim(); });
+    else if (t.classList.contains('sc-patype') && k >= 0) writeTable((p) => { p.inputs[w.i].args[k].type = t.value; });
+    else if (t.classList.contains('sc-pcarries')) writeTable((p) => { const x = p.outputs[w.i]; if (t.checked) x.carries = true; else delete x.carries; });
+  });
+}
+// a port renamed: the rules of the map open that use it may follow (one undoable step of the map editor)
+function renamed(kind, from, to) {
+  const cls = `${info.package}.${current}`, word = kind === 'inputs' ? 'input' : 'output';
+  const n = window.__editor?.scriptPortUses?.(cls, kind, from) || 0;
+  const code = kind === 'inputs' ? `case "${from}":` : `Output("${from}")`;
+  const note = `<div class="hint">Change the code too, where it says <code>${esc(code)}</code>.</div>`;
+  if (!n) { output(`<div class="sc-ok">The ${word} "${esc(from)}" is now "${esc(to)}".</div>${note}`); return; }
+  output(`<div class="sc-ok">The ${word} "${esc(from)}" is now "${esc(to)}". ${n} rule${n === 1 ? '' : 's'} of this map use${n === 1 ? 's' : ''} "${esc(from)}".
+    <button type="button" class="sc-follow">Make ${n === 1 ? 'it' : 'them'} use "${esc(to)}"</button></div>${note}`);
+  $('.sc-follow', el).onclick = () => {
+    const done = window.__editor?.renameScriptPort?.(cls, kind, from, to) || 0;
+    output(`<div class="sc-ok">${done} rule${done === 1 ? '' : 's'} of this map now use${done === 1 ? 's' : ''} "${esc(to)}" (Ctrl+Z in the map editor takes it back). Other maps keep "${esc(from)}".</div>${note}`);
+  };
+}
 // the scripts' inputs and outputs may have changed: the editor asks for them again (its rules, the Inspector)
 function portsChanged() {
   for (const name of info?.scripts || []) window.__editor?.forgetClass?.(`${info.package}.${name}`);
@@ -231,7 +335,9 @@ function help() {
     and <code>Input(InputName, Args, Caller)</code> for the inputs it declares.<br>
     <b>Inputs and outputs</b> are declared in <code>defaultproperties</code>: <code>Inputs(0)=(Id="Start",Label="Start it",Args="Seconds")</code>,
     <code>Outputs(0)=(Id="Done",Label="it is done")</code>. A rule calls an input (with its arguments: <code>ArgFloat(Args, "Seconds")</code>);
-    <code>Output("Done")</code> starts the rules on it. The template <i>A block</i> shows both.<br>
+    <code>Output("Done")</code> starts the rules on it. An output declared with <code>Args="Value"</code> comes with a number:
+    <code>OutputValue("Found", 3)</code> (and who did it: <code>OutputValue("Found", 3, Other)</code>); the rules it starts
+    use the number as <i>Value</i> (Coins + Value). The template <i>A block</i> shows both.<br>
     Helpers: <code>Player()</code>, <code>Say("...")</code>, <code>FindNamed("Light29")</code>, <code>GetFlag('Name')</code>, <code>SetFlag('Name', True)</code>,
     <code>Give(class'Medkit')</code>. <code>log("...")</code> writes to the Console, where the Logic filter shows what the rules and scripts do.<br>
     <b>Steps:</b> + New, change it, Compile (Ctrl+B), Place in map and click what sets it off, Rebuild, Play.

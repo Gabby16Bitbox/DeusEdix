@@ -6,13 +6,18 @@ import { AREA_VERBS, areaMembers, areaRecipients } from './connect-area.js';
 import { BLOCK_WHEN, BLOCK_VERBS, blockDefaults, blockWhenText, blockActText, blockRowsHtml,
   effectOptions, effectOptionText, withExact, usableDefault, usableHtml, usableChange, usableSummary, BODY_MODES, bodyHow, bodyHowText, KEYS, BUSY_KEYS } from './interaction-blocks.js';
 import { createFpMoments } from './fp-moments.js';
-import { mountConditions, conditionText, conditionProblem, kindOf } from './conditions.js';
+import { mountConditions, conditionText, conditionProblem, kindOf, CONDITION_KINDS, newCondition, formulaField, FORMULA_TITLE } from './conditions.js';
+import { isFormula, valueText as amountText, formulaProblem } from './logic-numbers.js';   // (multi-edit.js has a valueText)
 import { stepsOf, lastTime, setWait, canOtherwise, otherwiseOf, syncOtherwise, newOtherwise, groupSteps, toSteps, addFlow, removeStep,
-  moveStep, stepsText } from './action-list.js';
-import { HAND_ROWS, HAND_CAUSES, WORLD_CAUSES, argRowsHtml, argDefaults, causeRowsHtml, causeDefaults, ruleOptionsHtml, optionsText,
-  parseItems, itemsText } from './logic-rule-ui.js';
+  moveStep, stepsText, negate } from './action-list.js';
+import { HAND_ROWS, HAND_CAUSES, WORLD_CAUSES, GAME_WORLD, PLAYER_CAUSES, argRowsHtml, argDefaults, causeRowsHtml, causeDefaults, ruleOptionsHtml, optionsText,
+  parseItems, itemsText, signalsOf } from './logic-rule-ui.js';
 import { vocabulary } from './logic-vocab.js';
-import { ensureActionIds } from './logic-graph-model.js';
+import { ensureActionIds, logicIndex } from './logic-graph-model.js';
+import { logicProblems } from './logic-graph-problems.js';
+import { applyOps, ghostIds, newProblems, mainHappening, simulate, trialWords, BLOCK_CLASSES } from './logic-propose.js';
+import { whyFromLog } from './logic-sim.js';
+import { lineText } from './logic-try.js';
 import { createWeatherPreview, weatherKind, weatherSettings, weatherPreviewControl } from './weather-preview.js';
 import { createEffectPointGizmo, setEffectPointTilt, stepEffectPreviews, effectPreviewsActive, disposeEffectPoint, isEffectPoint,
   fxPreviewOf, fxPreviewKind, fxEffectsOn, FX_PREVIEW_KINDS } from './effect-point.js';
@@ -49,7 +54,7 @@ import { createOrthoViews } from './ortho-views.js';
 import { mountPlayStates } from './play-state.js';
 import { STARTS, CHEATS, SKILL_LEVELS, MAX_SCENARIOS, MAX_COUNT, MAX_SKILL_POINTS, MAX_CREDITS, PLAY_CONTROLS, scenarioName, scenarioDraft,
   readScenarios, scenariosText, withScenario, withoutScenario, chooseScenario, activeScenario, withItem, scenarioProblems, withoutProblems,
-  playOverrides, pressedAtStart, scenarioSummary, loadoutSummary } from './play-scenarios.js';
+  playOverrides, pressedAtStart, scenarioSummary, loadoutSummary, findScenario } from './play-scenarios.js';
 import { editorIcon } from './editor-icons.js';
 import { drawText, fontFamilies, fontOptions, importFont } from './text-style.js';
 import { TUTORIAL_SCRIPT, tutorialSession, installTutorialSession, isTemporaryTutorial, clearTutorialViewPreferences } from './tutorial-session.js';
@@ -105,7 +110,10 @@ import { createHistory, clearHistory, recordStep, dropStep, renameStep, travelSt
   namedStep, propertyName } from './history-names.js';
 import { createHistoryPanel } from './history-panel.js';
 import { createLogicWindow } from './logic-window.js';
+import { expandInstances, nextInstanceId, versionKey, fillSlots, instancesOf, versionChanges } from './logic-patterns.js';
 import { createLogicWires, wiresOf, WIRE_MODES } from './logic-wires.js';
+import { createTrails, sameMap as sameLogicMap } from './logic-trails.js';
+import { startOf } from './logic-starts.js';
 import { INSPECTOR_EVENTS } from './inspector-windows.js';
 import { createInspectorWindows } from './inspector-windows-view.js';
 import { GIZMO_CHOICES, gizmoChoice, nextGizmoChoice, gizmoOption, groupPivotAt, snapSteps, AIM_TILTS, aimRotation } from './gizmo-tools.js';
@@ -135,6 +143,8 @@ import { createBuildChip } from './build-chip.js';
 import { withPublishedLayout, exerciseOnly } from './published-layout.js';
 
 import { scriptTag, originalTag, validScriptTag, tagMatches, TAG_VERBS } from './object-tags.js';
+import { linkedSet, linkedId, linkBlock, syncMission, openMissionPhases } from './mission-phases.js';
+import { moverPhasesPlan, phasesOfMover } from './mover-phases.js';
 
 installTutorialSession(window);
 
@@ -174,7 +184,11 @@ let buildJob = null;               // the Rebuild running in the background (reb
 let dirty = false, selected = null, placing = null, snap = true;
 const undoHistory = createHistory();   // Ctrl+Z's steps, each with its name (history-names.js)
 let historyPanel = null;           // Window > History: the steps listed (history-panel.js)
+let missionSets = [];                     // the project's mission phases (Map > Mission phases, mission-phases.js)
 let logicWindow = null, logicVocab = null, logicTimer = 0;     // Window > Logic (logic-window.js)
+// the AI assistant's proposal waiting for the user in the Logic window (logicPropose), how many were made, and whether
+// the edits are the proposal's for a moment (logicWithEdits: no change of the user's may land in them)
+let logicProposal = null, logicProposals = 0, logicSwapped = false;
 let logicWires = null, logicWireMode = 'selected';             // the logic's wires in the 3D view (logic-wires.js)
 try { logicWireMode = localStorage.getItem('deusedix.logicWires') || 'selected'; } catch { /* no storage */ }
 let vpBar = null;                  // the 3D view's toolbar (viewport-toolbar.js)
@@ -689,6 +703,8 @@ async function loadScene(s, resetCamera) {
     if (Array.isArray(edits.deleted)) edits.deleted = Object.fromEntries(edits.deleted.map((n) => [n, {}]));
     clearHistory(undoHistory); historyChanged(); dirty = false; selected = null;      // another map's redo would bring its edits here
     logicChanged();
+    loadMissionSets();                     // (its linked Phases blocks: the server's edits have the sets already)
+    loadLogicRuntime();
     clearMaterials();
     // the sky colour Sky & time of day gave the background belongs to the map it was made on
     scene.background.set(getComputedStyle(document.documentElement).getPropertyValue('--viewport').trim() || '#0a0d16');
@@ -2760,8 +2776,36 @@ function menuFor(spec, surface = null) {
     if (dialogue && isCharacter(a)) items.push(dialogue);
     if (a) items.push({ label:'Connect…', off:locked, run:use(() => connectObject(o)) });
     if (a) items.push({ label:'Connect within radius…', off:locked, run:use(() => connectAreaObject(o)) });
+    if (a && isCharacter(a) && !edits.deleted?.[a.name]) {     // P9: the game rules on anyone of a kind, of a faction
+      const fac = factionOf(a);
+      items.push({ label:`Make a group of every ${lgKindLabel(a.cls)}…`, off:locked, run:() => lgMakeSet({ kind: String(a.cls).split('.').pop() }) });
+      if (fac && fac !== 'None') items.push({ label:`Make a group of the faction ${fac}…`, off:locked, run:() => lgMakeSet({ faction: fac }) });
+    }
+    const mover = a || (d?.box?.mover ? lkActor(d.box.name) : null);      // P3 slice 8: a door's phases (mover-phases.js),
+    if (mover && mayHavePhases(mover)) {                                   // a moving block's too
+      const has = moverPhasesOf(mover);
+      items.push({ label: has ? 'Its phases…' : 'Give it phases…', off: locked && !has, run: use(() => giveItPhases(mover)) });
+    }
     if (dialogue && !isCharacter(a)) items.push(dialogue);
     if (a) items.push({ sep:true });
+  }
+  if (several) {        // rules on all of them at once (P3): the objects that can set a rule off, at least two
+    const things = targets.map((p) => p.userData.actor).filter(Boolean);
+    if (things.length > 1) {
+      items.push({ label: 'When all of these…', off: locked, run: () => whenSeveral('all', things) });
+      items.push({ label: 'When any of these…', off: locked, run: () => whenSeveral('any', things) });
+      items.push({ label: 'When at least N of these…', off: locked, run: () => whenSeveral('some', things) });
+      items.push({ sep: true });
+    }
+    const names = lgSelNames();
+    if (names.length > 1) {
+      items.push({ label: 'Make a group…', off: locked, run: () => lgMake(names) });
+      for (const g of lgGroups().filter((x) => !(lgFilter(x) || {}).tag && !lgSet(x)).slice(0, 6)) {
+        const more = names.filter((n) => !g.members.includes(n));
+        if (more.length) items.push({ label: `Add to the group "${g.name}"`, off: locked, run: () => lgChange('Add to a group', () => { g.members.push(...more); }) });
+      }
+      items.push({ sep: true });
+    }
   }
   const hidden = targets.length > 0 && targets.every(objectEyeOff);
   items.push({ label: hidden ? 'Show in Scene' : 'Hide in Scene', run: () => setObjectView(keys, 'hidden', !hidden) });
@@ -3002,6 +3046,15 @@ function prefabMenu(keys, locked) {
   outZone.addEventListener('drop', (e) => { e.preventDefault(); if (dragSpec) finish(planFor(null, null)); });
   hier.addEventListener('dragend', () => { dragSpec = null; dragKeys = []; hierarchyDragging = false; outZone.hidden = true; clearMarks(); buildHierarchy(); });
   hier.addEventListener('contextmenu', (e) => {
+    const grp = e.target.closest('[data-lgroup]');
+    if (grp) {
+      e.preventDefault();
+      e.stopPropagation();
+      resetInput();
+      rightDown = null;
+      openMenu(e.clientX, e.clientY, lgMenu(grp.dataset.lgroup));
+      return;
+    }
     const spec = specOf(e.target);
     if (!spec) return;
     e.preventDefault();
@@ -3609,9 +3662,10 @@ function rebuildProxies() {
   proxies.clear();
   selected = null;
   syncStructures();
-  const added = new Set(edits.added.map((a) => a.name));
+  // Unreal names ignore letter case: an added "C2" the engine built as "c2" (a name it already knew) is the same object
+  const added = new Set(edits.added.map((a) => String(a.name).toLowerCase()));
   for (const a of baseActors) {
-    if (added.has(a.name) || edits.deleted[a.name]) continue;
+    if (added.has(String(a.name).toLowerCase()) || edits.deleted[a.name]) continue;
     if (/^UCEdit\d+$/.test(a.name)) continue;      // added here, then deleted: its built copy goes at the next Rebuild
     const m = edits.moved[a.name];
     const st = structures[actorStruct[a.name]];
@@ -4642,6 +4696,7 @@ function setViewGrid(on) {
 // them back (hold). Other code that puts edits in place wholesale gives it theirs too (none: hold(null), as Revert all).
 // The cap is history-names.js's own (undefined), the exact mappings given after it
 function pushUndo(label = '', state = JSON.stringify(edits)) {   // label: the change's name ("Move 3 objects");
+  if (logicSwapped) throw new Error('The editor is reading the assistant\'s proposal: try again in a moment.');
   textureSlip?.cancel();                                        // (another change: a Texture Slip ends first, unqueued)
   if (buildJob) return;                                         // (none while a Rebuild runs: setDirty takes it back)
   recordStep(undoHistory, state, label, undefined, textureSlip?.held);   // state: the edits as it found them (a drag keeps them)
@@ -4654,11 +4709,57 @@ function dropUndo() {
   dropStep(undoHistory);
   historyChanged();
 }
-function afterHistory() { rebuildProxies(); setDirty(); showDetails(); if (logicBox.style.display === 'block') renderLogic(); }
-// one step back ('undo') or forward ('redo') in the edits, nothing drawn yet: the step taken, or null
+// A change of the map's Story (story.js; P5: the Story in the same history): a step of Ctrl+Z, Ctrl+Y and the History
+// panel, with the Story as the change found it (before: its JSON) and the edits left out (a step back or forward puts
+// the Story back and leaves the map as it is). None while a Rebuild runs or the assistant's proposal is shown, as
+// pushUndo. -> the step recorded (the Story's typing in one field stays that step: storyStepOnTop), or null
+function storyStep(label, before) {
+  if (logicSwapped || buildJob) return null;
+  textureSlip?.cancel();
+  recordStep(undoHistory, null, label, undefined, null, before);
+  historyChanged();
+  return undoHistory.undo.at(-1);
+}
+const storyStepOnTop = (step) => !!step && undoHistory.undo.at(-1) === step;
+// Story > Move to Logic and Put back (P5, story-move.js): the map's rules and the Story changed in one step of the
+// history (one Ctrl+Z takes both back). before: the Story as it was (its JSON); fn({add, remove, get}) changes the
+// rules: add(rule) -> the new rule's id, remove(id) -> the rule taken away (null: none), get(id) -> the rule or null.
+// -> what fn returns, or null when nothing can be changed now (a Rebuild runs, the assistant's proposal is shown)
+function storyRulesStep(label, before, fn) {
+  if (logicSwapped || buildJob) return null;
+  textureSlip?.cancel();
+  recordStep(undoHistory, JSON.stringify(edits), label, undefined, textureSlip?.held, before);
+  historyChanged();
+  const result = fn({
+    add(rule) {
+      const l = { ...JSON.parse(JSON.stringify(rule)), id: lkNewId() };
+      lkList().push(l);
+      ensureActionIds(lkList());
+      l.label = lkSentence(l);
+      return l.id;
+    },
+    remove(id) { const i = lkList().findIndex((l) => l.id === id); return i < 0 ? null : lkList().splice(i, 1)[0]; },
+    get: (id) => lkGet(id) || null,
+  });
+  setDirty();
+  lkRefresh(() => showDetails());
+  logicChanged();
+  refreshLogicWires();
+  return result;
+}
+// after steps back or forward: the map drawn again when a step had its edits (map), the Logic window when only the
+// Story changed
+function afterHistory(map = true) {
+  if (!map) { if (logicBox.style.display === 'block') renderLogic(); return; }
+  rebuildProxies(); setDirty(); showDetails(); if (logicBox.style.display === 'block') renderLogic();
+}
+// one step back ('undo') or forward ('redo') in the edits, nothing drawn yet: the step taken, or null. A step of the
+// Story puts the Story back (story.js restore: drawn once, after); one of the Story only leaves the edits alone
 function travel(way) {
-  const step = travelStep(undoHistory, way, JSON.stringify(edits), textureSlip?.held);
-  if (step) { edits = JSON.parse(step.state); textureSlip?.hold?.(step.page); }
+  const step = travelStep(undoHistory, way, JSON.stringify(edits), textureSlip?.held, () => window.__story?.snapshot?.() ?? null);
+  if (!step) return null;
+  if (step.state !== null) { edits = JSON.parse(step.state); textureSlip?.hold?.(step.page); }
+  if (typeof step.story === 'string') window.__story?.restore?.(step.story);
   return step;
 }
 // Ctrl+Z and Ctrl+Y (and Edit's Undo and Redo): one step, drawn, and the status says which
@@ -4667,7 +4768,7 @@ function historyStep(way) {
   if (waitsForRebuild()) return false;
   const step = travel(way);
   if (!step) { status(way === 'undo' ? 'Nothing to undo.' : 'Nothing to redo.'); return false; }
-  afterHistory(); historyChanged();
+  afterHistory(step.state !== null); historyChanged();
   status(`${way === 'undo' ? 'Undone' : 'Redone'}: ${step.label}`);
   return true;
 }
@@ -4679,19 +4780,86 @@ function jumpHistory(at) {
   if (!script || gameView?.active || tc.dragging || inspectorDrag || propertySlider || waitsForRebuild()) return;
   if (mapPose.active) { status('Finish the pose first: while posing, Ctrl+Z and Ctrl+Y are the pose\'s own.', 'warn'); return; }
   const { way, count } = stepsTo(at);
-  let n = 0;
-  while (n < count && travel(way)) n++;
+  let n = 0, map = false;
+  for (let step; n < count && (step = travel(way)); n++) map ||= step.state !== null;
   if (!n) return;
-  afterHistory(); historyChanged();
+  afterHistory(map); historyChanged();
   status(`${n} ${n === 1 ? 'step' : 'steps'} ${way === 'undo' ? 'undone' : 'redone'}: the map is at "${currentName(undoHistory)}".`);
 }
 // the History panel again after any change of the steps (drawn in the next frame: once for many)
 function historyChanged() { historyPanel?.refresh(); }
 historyPanel = $('#history') && createHistoryPanel({ root: $('#history'), rows: () => historyRows(undoHistory), jump: jumpHistory });
 // Window > Logic (logic-window.js): the map's rules as a graph or as sentences, drawn from the model's input below
+// Trails (P2, logic-trails.js): the logic lines the Console reads from the game's log, kept as the session; the Logic
+// window marks its graph with them and replays them, and the 3D view's wires light as each rule runs
+const logicTrails = createTrails();
+window.addEventListener('deusedix:logic-lines', (e) => { const d = e.detail || {}; logicTrails.add(d.lines || [], { at: d.at, started: d.started }); });
+window.addEventListener('deusedix:logic-restart', () => logicTrails.restart());
+logicTrails.subscribe(({ added }) => {
+  const ran = (added || []).filter((l) => l.live && mapName && sameLogicMap(l.entry.map, mapName) && /^(fire|else|act)$/.test(l.entry.kind));
+  if (ran.length) logicWires?.pulse([...new Set(ran.map((l) => l.entry.rule))]);
+});
+// Try it's named starts (logic-starts.js): the project's Play scenarios, so a start tried in the editor is played in the
+// game as it is ("Play with this start": it becomes the scenario Play starts with)
+const logicStarts = {
+  list: () => playScenarios().list.map((s) => ({ name: s.name })),
+  get: (name) => findScenario(playScenarios().list, name),
+  save(s) {
+    try { return keepScenarios(withScenario(playScenarios(), s)); } catch (e) { status(e.message || String(e), 'warn'); return false; }
+  },
+  async play(name) {
+    if (temporaryTutorial()) { status('Play with a start is not part of the tutorial.', 'warn'); return false; }
+    if (!keepScenarios(chooseScenario(playScenarios(), name))) return false;
+    return startPlay('embedded');
+  },
+};
 logicWindow = $('#logic') && createLogicWindow({ root: $('#logic'), input: logicInput, status, trial: logicTrial, listView: logicListView,
   picture: (key) => (key.startsWith('cls:') ? serverThumb(key.slice(4)) : Promise.resolve(null)),
-  select: (name) => { const q = proxyOf(name); if (q) select(q); else status(`${name} is not in the 3D view.`, 'warn'); } });
+  select: (name) => { const q = proxyOf(name); if (q) select(q); else status(`${name} is not in the 3D view.`, 'warn'); },
+  phases: logicPhaseBlocks, addRule: logicAddOutputRule, proposal: () => logicProposalNow(), decide: (how) => logicDecide(how),
+  why: (q) => logicWhy(q), trails: logicTrails, played: (rules) => logicWires?.pulse(rules), starts: logicStarts,
+  storyGraph: (host, id) => window.__story?.mountGraph(host, id) ?? null, storyOpen: (key, id) => window.__story?.openItem(key, id) ?? false,
+  watch: (name, on) => lgWatch(name, on), startValue: (name, value) => lgStart(name, value),
+  live: (line, o) => logicLive(line, o), boxes: (label, list) => lgBoxes(label, list),
+  patterns: { save: async (name, version) => (await api('/api/logic_patterns', { name, version })).pattern,
+    list: async () => (await api('/api/logic_patterns')).patterns || [],
+    place: (slug, chosen) => lgPlacePattern(slug, chosen), unplace: (id, how) => lgUnplacePattern(id, how),
+    update: (id) => lgUpdatePattern(id), changes: (id) => lgUpdatePreview(id), objects: (family) => lgObjectsOf(family),
+    example: (name) => lgOpenExample(name) },
+  // Turn into script (P8 slice 6): rules -> a new script; Back to rules: the script's object -> its rules again
+  scripts: { turn: (ids, name, preview) => lgTurnIntoScript(ids, name, preview), back: (object) => lgBackToRules(object),
+    does: (object) => lgReplacedBy(object),
+    freeName: async () => (await api('/api/logic/to_script', { edits: { links: [] }, rules: [], name: '', preview: true })).name },
+  lastPlay: async () => { const { log, notes } = await logicPlayed(); return { lines: log.loads ? log.lines : [], notes }; } });
+// Live control while Play runs (P7, logic-live.js): a "deusedix ..." line to the running game, through the Console's
+// link (UCConsoleLink.Live), shown in the Console as if typed there; the game's answer in words. The game says what it
+// did in the logic log too (live and break lines), which the Logic window's buttons follow.
+async function logicLive(line, { quiet = false } = {}) {
+  if (!quiet) window.__console?.add(['> ' + line]);
+  const r = await fetch('/api/console', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: line }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw new Error(j.error || 'the editor could not send it');
+  if (j.answer && !quiet) window.__console?.add(String(j.answer).split(/\r?\n/).map((l) => '< ' + l));
+  return j.queued ? 'Sent: the game takes it as soon as it answers (a map loading).' : j.answer || 'Sent.';
+}
+// The Phases page's blocks (logic-phases-page.js): the map's Phases blocks, by the Hierarchy's names, with the mission
+// phases each one is linked to
+async function logicPhaseBlocks() {
+  const sets = lkPhaseSets(), labels = logicLabels(sets.map((s) => s.name));
+  return sets.map((s) => ({ name: s.name, label: labels[s.name] || s.name, stateName: s.stateName, phases: s.phases,
+    mission: linkedSet(edits, s.name, missionSets)?.name || '' }));
+}
+// A new rule on one of an object's outputs (the Phases page's "+ When it starts…"), opened in the List
+async function logicAddOutputRule(name, port) {
+  const a = lkActor(name);
+  if (!a) return;
+  if (keysLocked(['a:' + name])) { status('Unlock it first.', 'warn'); return; }
+  await chainOf(a.cls);
+  let made = null;
+  lkChange(null, () => { made = lkAdd(a, 'output', null); made.port = port; made.label = lkSentence(made); },
+    () => { if (selected && selected.userData.actor) renderProps(selected); }, 'Add an interaction');
+  if (made) logicOpen(name, 'list', made.id);
+}
 // drawn again a moment after a change (one draw for a drag of many steps)
 function logicChanged() { if (!logicWindow) return; clearTimeout(logicTimer); logicTimer = setTimeout(() => { logicWindow.refresh(); refreshLogicWires(); }, 250); }
 // The logic's wires in the 3D view (logic-wires.js): Off, the selected object's rules, its chain, every rule (View >
@@ -4730,6 +4898,8 @@ function logicNames(links) {
     if (!v || typeof v !== 'object') return;
     for (const [k, x] of Object.entries(v)) {
       if ((k === 'src' || k === 'target' || k === 'actor') && typeof x === 'string' && x) { if (!x.startsWith('@')) out.add(x); }   // not what set it off (@by, @it)
+      else if (k === 'group' && typeof x === 'string') { for (const n of lgGroup(x)?.members || []) out.add(n); }      // a named group: its members
+      else if (k === 'phase' && x && typeof x.set === 'string' && x.set) out.add(x.set);         // its Phases block (P3)
       // the chair of "Sit", the object of "Use" and the first point of "Patrol a route" are their first value
       else if (k === 'a' && (v.verb === 'sit' || v.verb === 'npcuse' || v.verb === 'patrol') && typeof x === 'string' && x) out.add(x);
       else if (x && typeof x === 'object') walk(x);
@@ -4743,24 +4913,40 @@ function logicNames(links) {
 // a script's ports (logic-sim.js createSession's world)
 async function logicTrial() {
   const input = await logicInput();
-  const compiled = await api('/api/logic/compile', { edits });
+  return logicWorld(input, await api('/api/logic/compile', { edits }));
+}
+// the same from the model's input and the compiled rules, with no wait (the assistant's proposals: logicProposeOf)
+function logicWorld(input, compiled) {
   const actors = [], names = {}, labels = {}, options = {};
   const yes = (v) => /^(true|1)$/i.test(String(v ?? '').trim());
   // the objects the rules name, and those their tag actions reach
   const used = new Set((edits.links || []).flatMap((l) => [...(l.do || []), ...(l.else || [])]).filter((x) => x && x.targetTag)
     .map((x) => String(x.targetTag).toLowerCase()));
   const tagged = Object.entries(input.tags || {}).filter(([t]) => used.has(t.toLowerCase())).flatMap(([, n]) => n);
-  for (const n of new Set([...logicNames(edits.links || []), ...tagged])) {
+  // and the Story's dialogue owners (P5: Try it plays their dialogues, logic-sim.js startTalk)
+  const owners = ((input.story || {}).dialogues || []).filter((d) => d && d.id && !d.disabled && d.owner).map((d) => d.owner);
+  // and the characters of the groups of a kind or a faction the rules use (P9: logic-sim.js, the game rules' sets)
+  const exLinks = expandInstances(edits).links || [];          // (their classes' chains: logicInput loaded them)
+  for (const n of new Set([...logicNames(exLinks), ...tagged, ...owners, ...lgSetNames(exLinks)])) {
     const a = lkActor(n);
     if (!a) continue;
     const w = { name: n, chain: chainNow[a.cls] || [a.cls], at: a.loc, tag: scriptingTagOf(a) };
+    if (isCharacter(a)) w.alliance = factionOf(a);
     if (w.chain.includes('UCTimer')) {
       w.seconds = +(actorProp(a, 'Seconds') ?? 0) || 0;
       w.loop = yes(actorProp(a, 'bLoop'));
       w.autostart = yes(actorProp(a, 'bAutoStart'));
     }
+    if (w.chain.includes('UCBlock')) {        // a logic block's settings (UCBAllOf, UCBGate, UCBSwitch); unset: its defaults
+      const text = (k) => String(actorProp(a, k) ?? '').replace(/^"|"$/g, '');
+      w.block = { need: text('Need'), again: yes(actorProp(a, 'bAgain')), closed: yes(actorProp(a, 'bClosed')),
+        choices: text('NumWays') || '2', mode: text('Mode') || 'In turn', weights: text('Weights'),
+        phases: phaseList(actorProp(a, 'Phases')).map((p) => p.id), statename: text('StateName'), states: text('States'),
+        timelimit: text('TimeLimit'), clockatstart: yes(actorProp(a, 'bClockAtStart')), goal: text('ReachedAt') };
+    }
     const io = lkIo(a), port = (side) => io[side + 's'].filter((k) => k.startsWith(side + ':'))
-      .map((k) => ({ id: k.slice(side.length + 1), label: (io.labels || {})[k] || k.slice(side.length + 1) }));
+      .map((k) => ({ id: k.slice(side.length + 1), label: (io.labels || {})[k] || k.slice(side.length + 1),
+        ...((io.carries || []).includes(k) ? { carries: true } : {}) }));      // comes with a number: Value (P8 slice 5b)
     // a script: its declared ports; what its code says after an input only the game knows (the outputs are buttons)
     if (io.family === 'script') {
       w.ports = { inputs: port('input'), outputs: port('output') };
@@ -4772,8 +4958,25 @@ async function logicTrial() {
     names[n] = (input.actors[n] || {}).title || (input.labelsOf || {})[n] || lkName(n);
   }
   const families = Object.fromEntries(actors.map((w) => [w.name, (input.actors[w.name] || {}).family || lkCatOf(lkActor(w.name))]));
-  return { compiled, world: { player: 'JCDentonMale0', actors }, catalog: input.catalog, names, labels, options, families,
+  // the Story's dialogues and InfoLinks (P5): Try it says which are missing, which InfoLink was heard (its game state),
+  // plays each dialogue line by line (talks) and says an InfoLink's lines, doing their actions (story.py: an InfoLink's
+  // own "play this InfoLink" is left out)
+  const talking = (input.story?.dialogues || []).filter((d) => d && d.id && !d.disabled);
+  const story = input.story && { dialogues: talking.map((d) => d.id),
+    infolinks: (input.story.infolinks || []).filter((il) => il.id).map((il) => ({ id: il.id, once: il.once !== false,
+      flag: input.storyFlags ? input.storyFlags.heardFlag(il) : '', name: il.name || il.caller || '',
+      lines: (il.lines || []).map((l) => ({ text: (l && l.text) || '' })),
+      do: (il.do || []).filter((a) => a && !(a.type === 'infolink' && a.infolink === il.id)) })),
+    talks: Object.fromEntries(talking.map((d) => [d.id, { id: d.id, title: d.title || d.id, owner: d.owner || '',
+      start: d.start || 'talk', once: d.once !== false, requires: d.requires || [], steps: d.steps || [] }])) };
+  return { compiled, world: { player: 'JCDentonMale0', actors, ...(story ? { story } : {}) }, catalog: input.catalog, names, labels, options, families,
     rules: edits.links || [], items: input.items, usable: edits.usable || {}, map: mapName || 'Map',
+    groups: Object.fromEntries(lgGroups().map((g) => [g.id, g.name])),
+    place: lkPlaceName,                       // "near a point": the object there (Try it's places)
+    zone: lkCondNames.zone,                   // "in a zone": its name (Try it's player rows, P9)
+    // the Story's titles (P5): a dialogue, an InfoLink said by its title in Try it's lines
+    storyTitles: Object.fromEntries(['dialogues', 'infolinks'].map((k) => [k, Object.fromEntries(((input.story || {})[k] || [])
+      .filter((x) => x && x.id).map((x) => [x.id, x.title || x.id]))])),
     key: `${mapName}:${editRevision}` };
 }
 // The Logic window's names for things (logic-window.js): as the Hierarchy calls them (objectLabel: "Keypad", "Officer
@@ -4800,8 +5003,16 @@ function logicLabels(names) {
 // offers it: lkEventsOf, lkInputsOf, a usable object's 'used', an animated one's anim verbs)
 async function logicInput() {
   if (!logicVocab) logicVocab = await api('/api/logic_vocab');
-  const links = edits.links || [], names = logicNames(links);
+  // the patterns placed in the map written out (P8: logic-patterns.js), as the build does
+  // the rules a script does now (Turn into script, replacedBy) left out: the window shows the thin rules calling it
+  const ex = expandInstances(edits);
+  const ed = (ex.links || []).some((l) => l && l.replacedBy) ? { ...ex, links: ex.links.filter((l) => !(l && l.replacedBy)) } : ex;
+  const links = ed.links || [];
+  // the characters of the groups of a kind or a faction the rules use (P9): their nodes' words, Try it's world
+  if (lgGroups().some(lgSet)) await lgSetReady();
+  const names = [...new Set([...logicNames(links), ...lgSetNames(links)])];
   const found = names.map((n) => [n, lkActor(n)]).filter(([, a]) => a);
+  const sets = Object.fromEntries(lgGroups().filter(lgSet).map((g) => [g.id, lgSetMembers(lgSet(g))]));
   await Promise.all([...new Set(found.map(([, a]) => a.cls))].map((cls) => chainOf(cls)));
   const actors = {}, friendly = logicLabels(found.map(([n]) => n));
   for (const [n, a] of found) {
@@ -4809,8 +5020,9 @@ async function logicInput() {
     actors[n] = { family, cls: a.cls, chain: chainNow[a.cls] || [a.cls], title: friendly[n], label: friendly[n], at: a.loc,
       outputs: lkEventsOf(a).concat(edits.usable?.[n] ? ['used'] : []),
       inputs: (edits.motions?.[n] ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(a)),
-      labels: io.labels || {} };
+      labels: io.labels || {}, ...(io.carries ? { carries: io.carries } : {}) };      // outputs with a number (P8 5b)
     if (family === 'computer') actors[n].options = lkOptions(a).map((o) => structShown(new Map(o.pairs).get('Text') || ''));
+    if (a.cls === 'UCBPhases') Object.assign(actors[n], lkPhaseSet(a));          // its phases (P3: rules kept to some)
   }
   const items = Object.fromEntries((propItems || []).map((i) => [i.cls, i.name]));
   // the map's scripting tags (tag -> names, as UCObjectTag.Of gives them) when a rule acts on objects tagged alike
@@ -4833,7 +5045,24 @@ async function logicInput() {
   const tagged = Object.entries(tags || {}).filter(([t]) => used.has(t.toLowerCase())).flatMap(([, list]) => list);
   const labelsOf = logicLabels([...new Set([...found.map(([n]) => n), ...tagged])]);
   for (const n of Object.keys(actors)) actors[n].title = actors[n].label = labelsOf[n];      // one numbering for all ("Light 4")
-  return { catalog: logicVocab, edits, actors, items, tags, tagFamilies, labelsOf, map: mapName || '' };
+  const keeps = allActors().filter((a) => !edits.deleted[a.name]).flatMap((a) => lkKeeps(a).map((k) => ({ ...k, block: a.name, text: labelsOf[a.name] || lkName(a.name) })));
+  // the map's Story (P5): its dialogues and InfoLinks are nodes a rule can start or play
+  const storyKit = window.__story, story = storyKit ? await storyKit.ensure().then((ok) => (ok ? storyKit.data() : null), () => null) : null;
+  if (story) lkStoryFor = script;
+  return { catalog: logicVocab, edits: ed, actors, items, tags, tagFamilies, sets, labelsOf, map: mapName || '', keeps,
+    ...(story ? { story, storyFlags: storyKit.storyFlags ? storyKit.storyFlags() : undefined } : {}) };
+}
+// The flags a logic block keeps as it runs (statecatalog.collect_edits): a Phases block its number and a state per
+// phase, At least N its state (when named), a Counter its number (its StateName, else its own name: UCBCounter.Root)
+function lkKeeps(a) {
+  const text = (k) => String(actorProp(a, k) ?? '').replace(/^"|"$/g, '');
+  if (a.cls === 'UCBPhases') {
+    const { stateName, phases } = lkPhaseSet(a);
+    return [{ name: stateName, type: 'int' }, ...phases.map((p) => ({ name: `${stateName}_${p.id}`, type: 'bool' }))];
+  }
+  if (a.cls === 'UCBAtLeast') return blockFlagName(text('StateName')) ? [{ name: blockFlagName(text('StateName')), type: 'bool' }] : [];
+  if (a.cls === 'UCBCounter') return [{ name: blockFlagName(text('StateName')) || blockFlagName(a.name), type: 'int' }];
+  return [];
 }
 // a step's name for what a change does to these things (proxies): "Move Light4", "Move 3 objects"; tail after them
 function stepOf(verb, list, tail = '') {
@@ -5667,7 +5896,7 @@ function addedKind(cls) {
   if (/^(Light|Spotlight)$/.test(cls)) return 'light';
   if (/^UCCustom/.test(cls)) return 'pawn';
   if (NAV_CLASSES.test(cls)) return 'path';
-  if (/^(UCSoundFX|AmbientSound|Trigger|UCTriggerBox|UCCutscene|UCTimer|UCEffectPoint)$/.test(cls) || ZONE_CLASSES.test(cls)) return 'logic';
+  if (/^(UCSoundFX|AmbientSound|Trigger|UCTriggerBox|UCCutscene|UCTimer|UCEffectPoint|UCBAllOf|UCBGate|UCBSwitch|UCBPhases|UCBAtLeast|UCBFirstOf|UCBCounter)$/.test(cls) || ZONE_CLASSES.test(cls)) return 'logic';
   if (palette.some((c) => c.category === 'Characters' && c.items.some((it) => it.cls === cls))) return 'pawn';
   if (/Teleporter|PlayerStart|MapExit/.test(cls)) return 'logic';
   return 'prop';
@@ -5686,8 +5915,9 @@ function nextName(prefix) {
     for (const name of Object.keys(edits[field] || {})) used.add(name);
   const state = viewState();
   for (const key of [...state.hidden, ...state.locked]) if (/^[ab]:/.test(key)) used.add(key.slice(2));
+  const low = new Set([...used].map((n) => String(n).toLowerCase()));       // Unreal names ignore letter case
   let i = 0;
-  while (used.has(prefix + i)) i++;
+  while (low.has((prefix + i).toLowerCase())) i++;
   return prefix + i;
 }
 
@@ -8506,6 +8736,14 @@ function renderHierarchy() {
     if (!list || !list.length) continue;
     html += `<details data-hk="k:${k}" ${open('k:' + k)}><summary>${hierarchyIcon(k)}<span class="hl">${title}</span><small>${list.length}</small>${kindButtons(k)}</summary>${sortRows(list).map((it) => row(it, null)).join('')}</details>`;
   }
+  // the Logic's named groups (P3): a click selects their objects, the right click their menu (lgMenu)
+  const words = String($('#hsearch').value || '').trim().toLowerCase();
+  const groupRows = lgGroups().filter((g) => !q || g.name.toLowerCase().includes(words));
+  if (groupRows.length) {
+    html += `<details data-hk="lgroups" ${open('lgroups')}><summary>${hierarchyIcon('folder')}<span class="hl">Groups</span><small>${groupRows.length}</small></summary>`
+      + groupRows.map((g) => { const n = lgMembers(g.id).length, by = lgFilterText(g); return `<div class="hrow hgroup" data-lgroup="${escapeHtml(g.id)}" title="${escapeHtml(g.name)}: a group of ${n} object${n === 1 ? '' : 's'} for the rules${by ? ' (' + escapeHtml(by) + ')' : ''}. Click: select them. Right click: add, take out, rename, rules.">${hierarchyIcon('logic')}<span class="hl">${escapeHtml(g.name)}</span><small>${n}</small><button class="hb del" data-lgdel="${escapeHtml(g.id)}" title="Delete the group (its objects stay)">${trash}</button></div>`; }).join('')
+      + '</details>';
+  }
   showDefaultFolderBar();
   el.innerHTML = html || `<div class="hint">${q ? 'Nothing in this map matches the search.' : 'Open a map.'}</div>`;
   if (q || searchView.active) wake();          // the 3D view shows the search (or its end) at once
@@ -8541,6 +8779,18 @@ function renderHierarchy() {
     });
     r.addEventListener('dblclick', (e) => { e.preventDefault(); selectNest(id); focusSelected(); });
   }
+  for (const r of el.querySelectorAll('[data-lgroup]')) r.addEventListener('click', (e) => { if (e.target.closest('.hb')) return; e.preventDefault(); lgSelect(r.dataset.lgroup); });
+  // the pointer on a group (slice 11): its objects stand out in the 3D view as the search shows what it finds, through
+  // walls too (not while the Hierarchy's own search is on)
+  for (const r of el.querySelectorAll('[data-lgroup]')) {
+    r.addEventListener('mouseenter', () => {
+      if (q) return;
+      const objs = lgMembers(r.dataset.lgroup).map(lgKey).filter(Boolean).map(objOf).filter(Boolean);
+      if (objs.length) { searchView.show(objs); wake(); }
+    });
+    r.addEventListener('mouseleave', () => { if (!q && searchView.active) { searchView.show(null); wake(); } });
+  }
+  for (const b of el.querySelectorAll('[data-lgdel]')) b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); lgMenu(b.dataset.lgdel).at(-1).run(); };
   for (const b of el.querySelectorAll('[data-nf]')) b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); selectNest(b.dataset.nf); focusSelected(); };
   for (const b of el.querySelectorAll('[data-nd]')) b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); selectNest(b.dataset.nd); if (selected === groupPivot) deleteSelected(); else deleteFolder(b.dataset.nd); };
   // a piece still inside its structure: shown where it is (the structure is what moves)
@@ -9012,7 +9262,8 @@ $('#search').addEventListener('input', buildPalette);
 const NAMES = {
   UCSoundFX: 'Sound effect', AmbientSound: 'Ambient sound', Trigger: 'Trigger', UCTriggerBox: 'Collision box', UCCutscene: 'Cutscene camera',
   UCTimer: 'Timer', UCEffectPoint: 'Effect point',
-  DeusExMover: 'Moving block',               // a block made to move (built: the map's own mover)
+  UCBAllOf: 'All of these', UCBGate: 'Gate', UCBSwitch: 'Switch', UCBPhases: 'Phases', UCBAtLeast: 'At least N', UCBFirstOf: 'First of', UCBCounter: 'Counter',     // the logic blocks (Objects > Logic)
+  DeusExMover: 'Moving block',              // a block made to move (built: the map's own mover)
   CrateUnbreakableSmall: 'small crate', CrateUnbreakableMed: 'medium crate', CrateUnbreakableLarge: 'large crate',
   CrateBreakableMedGeneral: 'wooden crate', CrateBreakableMedCombat: 'military crate', CrateBreakableMedMedical: 'medical crate',
   BoxSmall: 'small box', BoxMedium: 'medium box', BoxLarge: 'large box', Barrel1: 'barrel', BarrelFire: 'burning barrel',
@@ -10074,8 +10325,8 @@ function propValue(a, f, i = 0) {
   return v === undefined ? (f.default[i] ?? '') : v;
 }
 function allActors() {                    // the map's actors; one added in the editor and already built counts once
-  const added = new Set((edits.added || []).map((a) => a.name));
-  return baseActors.filter((a) => !added.has(a.name)).concat(edits.added || []);
+  const added = new Set((edits.added || []).map((a) => String(a.name).toLowerCase()));      // in any letter case, as Unreal
+  return baseActors.filter((a) => !added.has(String(a.name).toLowerCase())).concat(edits.added || []);
 }
 function tagDescription(a) {
   const chain = chainNow[a.cls] || [], l = liveLight(a);
@@ -10111,7 +10362,7 @@ function tagSuggestions(id) {
   return `<datalist id="${escapeHtml(id)}">${tags.map(tag=>`<option value="${escapeHtml(tag)}"></option>`).join('')}</datalist>`;
 }
 // the objects an action acts on (src: its rule's object): its own, the members of its area, or those with its tag
-function lkTargetsOf(x, src) { return x.area ? lkAreaTargets(x, src) : x.targetTag ? lkTagTargets(x, src) : [x.target]; }
+function lkTargetsOf(x, src) { return x.group !== undefined ? lkGroupTargets(x, src) : x.area ? lkAreaTargets(x, src) : x.targetTag ? lkTagTargets(x, src) : [x.target]; }
 function lkTagTargets(x,source) {
   const kind=TAG_CHARACTER_VERBS.has(x.verb) ? 'character' : x.verb.startsWith('light') ? 'light' : TAG_DOOR_VERBS.has(x.verb) ? 'door' : '';
   return allActors().filter(a=>a.name !== source && lkAreaAvailable(a.name) && x.targetTag && tagMatches(scriptingTagOf(a),x.targetTag)
@@ -10122,7 +10373,12 @@ const TAG_DOOR_VERBS=new Set(['open','close','toggle','lock','unlock','blow']);
 
 function tagOf(a) { const v = actorProp(a, 'Tag'); return String(v === undefined ? (a.tag || '') : v); }
 function eventOf(a) { const v = actorProp(a, 'Event'); return String(v === undefined ? (a.event || '') : v); }
-function proxyOf(name) { return proxies.children.find((c) => c.userData.actor && c.userData.actor.name === name); }
+function proxyOf(name) {                 // exact first; then in any letter case, as Unreal names (the game's log says "c2")
+  const own = proxies.children.find((c) => c.userData.actor && c.userData.actor.name === name);
+  if (own || name == null) return own;
+  const low = String(name).toLowerCase();
+  return proxies.children.find((c) => c.userData.actor && String(c.userData.actor.name).toLowerCase() === low);
+}
 
 // who triggers what: Event -> Tag, keypads' FailEvent, security computers, keys and doors
 function linksOf(a) {
@@ -10991,7 +11247,8 @@ function navNodes(mainOnly = false) {
   const pts = (pathData && pathData.points) || {}, gone = edits.deleted || {}, moved = edits.moved || {}, out = [];
   const keep = mainOnly && pathGroups().length ? new Set(pathGroups()[0]) : null;
   for (const [name, p] of Object.entries(pts)) if (!gone[name] && (!keep || keep.has(name))) out.push({ name, p: T(moved[name]?.loc || [p[1], p[2], p[3]]) });
-  for (const a of edits.added || []) if (NAV_CLASSES.test(a.cls) && !pts[a.name] && a.loc && !gone[a.name]) out.push({ name: a.name, p: T(a.loc) });
+  const built = new Set(Object.keys(pts).map((n) => n.toLowerCase()));      // in any letter case, as Unreal names
+  for (const a of edits.added || []) if (NAV_CLASSES.test(a.cls) && !built.has(String(a.name).toLowerCase()) && a.loc && !gone[a.name]) out.push({ name: a.name, p: T(a.loc) });
   return out;
 }
 // the decorations a filled path node must not stand in, nor a link cross (their collision cylinders)
@@ -11714,13 +11971,14 @@ function drawProps(p, fields, box) {
       if (group) html += '</div></details>';
       group = nextGroup;
       html += groupSectionStart(group);
+      if (group === 'Phases' && a.cls === 'UCBPhases') { html += missionRowHtml(a); wires.push(() => wireMissionRow(a, p, redraw)); }
     }
     const id = 'pp' + k, tip = f.help ? ` title="${escapeHtml(f.help)}"` : '';
     const label = INSPECTOR_LABELS[f.prop] || f.label;
     const lab = `<label style="width:auto;min-width:96px" data-prop="${escapeHtml(f.prop)}"${tip}>${escapeHtml(label)}</label>`;
     const v = propValue(a, f), readOnly = readOnlyReason(a, f.prop);
     if (readOnly) {
-      html += `<div class="row">${lab}<input type="text" readonly aria-label="Original conversation BindName" value="${escapeHtml(unquote(v))}" style="flex:1;min-width:0" title="${escapeHtml(readOnly)}"></div>`;
+      html += `<div class="row">${lab}<input type="text" readonly aria-label="${escapeHtml(label)}" value="${escapeHtml(unquote(v))}" style="flex:1;min-width:0" title="${escapeHtml(readOnly)}"></div>`;
     } else if (f.kind === 'collision_shape') {
       html += `<div class="row">${lab}<select id="${id}" aria-label="Collision shape" style="flex:1;min-width:0;padding:0 8px"${tip}><option value="False" ${!isCylinder(a, actorProp) ? 'selected' : ''}>Box</option><option value="True" ${isCylinder(a, actorProp) ? 'selected' : ''}>Cylinder</option></select></div>`;
       wires.push(() => { $('#' + id).onchange = () => {
@@ -11878,10 +12136,12 @@ function drawProps(p, fields, box) {
       html += `<div class="row">${lab}<input type="text" id="${id}" value="${escapeHtml(shown)}" placeholder="${f.kind === 'name' ? 'None' : ''}" style="flex:1;min-width:0"></div>`;
       wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, propText(f.kind, $('#' + id).value)); redraw(); }; });
     } else if (f.kind === 'choice' || f.kind === 'enum') {
-      const opts = f.options.includes(String(v)) ? f.options : [String(v)].concat(f.options);
-      html += `<div class="row">${lab}<select id="${id}">${opts.map((o) => `<option ${o === String(v) ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}</select></div>`;
+      // a string property's choice (a Switch block's Mode) is kept in quotes, as UnrealEd writes a string
+      const quoted = f.type === 'StrProperty', cur = quoted ? String(v).replace(/^"(.*)"$/, '$1') : String(v);
+      const opts = f.options.includes(cur) ? f.options : [cur].concat(f.options);
+      html += `<div class="row">${lab}<select id="${id}">${opts.map((o) => `<option ${o === cur ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}</select></div>`;
       // (a light's Effect: a spotlight shows its cone, the others their sphere)
-      wires.push(() => { $('#' + id).onchange = () => { setProp(a, f.prop, $('#' + id).value); refreshLight(p); redraw(); }; });
+      wires.push(() => { $('#' + id).onchange = () => { const val = $('#' + id).value; setProp(a, f.prop, quoted ? `"${val}"` : val); refreshLight(p); redraw(); }; });
     } else if (f.kind === 'anim') {
       // the animation of a patrol point: one of the characters patrolling through it (their models)
       const users = routeUsers(a);
@@ -12194,6 +12454,12 @@ let lkFreeVerbs = [];                        // the actions without an object (c
 // hand-made rows of lkRuleHtml do not know (the P4 verbs and outputs): their labels, sentences and arguments.
 // Asked once; the forms are drawn again when it comes.
 let lkVocab = null, lkVocabAsked = null;
+// the properties "Set a property" may set on an object of a family (P9 slice 4: config/logic.json safeProps, its own
+// and every object's), [name, words]
+function lkSafeProps(fam) {
+  const safe = (logicVocab && logicVocab.safeProps) || {};
+  return [...(safe[fam] || []), ...(safe.any || [])].map(([n, w]) => [n, w]);
+}
 function lkVocabLoad() {
   if (lkVocab || lkVocabAsked) return;
   lkVocabAsked = (logicVocab ? Promise.resolve(logicVocab) : api('/api/logic_vocab')).then((data) => {
@@ -12205,8 +12471,41 @@ function lkVocabLoad() {
     if (logicBox.style.display === 'block') renderLogic();
   }).catch(() => { lkVocabAsked = null; });
 }
+// The map's Story (story.js) for the rules' dialogues and InfoLinks (P5): null until it has been read for this map;
+// reading it draws the rule panels again.
+let lkStoryFor = null, lkStoryAsk = null;
+function lkStory() {
+  const s = window.__story;
+  if (!s || !script) return null;
+  if (lkStoryFor === script) return s.data();
+  if (lkStoryAsk !== script) {
+    const want = lkStoryAsk = script;
+    s.ensure().then((ok) => {
+      if (!ok || want !== script) { lkStoryAsk = null; return; }
+      lkStoryFor = want;
+      if (selected && selected.userData.actor) renderProps(selected);
+      if (logicBox.style.display === 'block') renderLogic();
+    }, () => { lkStoryAsk = null; });
+  }
+  return null;
+}
+// its dialogues or InfoLinks as a field lists them ([{id, label}]), null while it is read
+const lkStoryList = (key) => { const st = lkStory(); return st ? (st[key] || []).filter((x) => x && x.id).map((x) => ({ id: x.id, label: x.title || x.id })) : null; };
+// a "Wait until" the Story's end (P5, links.STORY_UNTIL): its field and list, and the row that chooses it
+const LK_STORY_UNTIL = { ended: ['dialogue', 'dialogues', 'a dialogue', 'dialogue'], heard: ['infolink', 'infolinks', 'an InfoLink', 'InfoLink'] };
+function lkUntilStoryRow(j, u) {
+  const [field, key, what, kind] = LK_STORY_UNTIL[u.type], all = lkStoryList(key), opts = all || [], v = u[field] || '';
+  let h = `<div class="row" style="padding-left:24px"><select data-lkuntilstory="${j}" style="flex:1;min-width:0"><option value="">(choose ${what})</option>`
+    + opts.map((o) => `<option value="${escapeHtml(o.id)}" ${o.id === v ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')
+    + (v && !opts.some((o) => o.id === v) ? `<option selected value="${escapeHtml(v)}">${escapeHtml(v)} (${all ? 'missing' : 'reading the Story...'})</option>` : '')
+    + '</select></div>';
+  if (all && !opts.length) h += `<div class="row" style="padding-left:24px"><span class="hint" style="margin:0;flex:1">The map's Story has no ${kind} yet: write one in Story first.</span></div>`;
+  return h;
+}
+const lkStoryTitle = (key, id) => { const it = (lkStoryList(key) || []).find((x) => x.id === id); return it ? it.label : String(id || '?'); };
 const lkVocabCtx = () => ({ name: lkName, family: (n) => lkCatOf(lkActor(n)), itemName: lkCondNames.item, names: lkCondNames,
-  ruleLabel: (id) => (lkGet(id) ? `rule ${id}` : String(id || '?')), portLabel: lkPortLabel, usable: (n) => !!(edits.usable || {})[n] });
+  ruleLabel: (id) => (lkGet(id) ? `rule ${id}` : String(id || '?')), portLabel: lkPortLabel, usable: (n) => !!(edits.usable || {})[n],
+  groupName: (id) => lgGroup(id)?.name || '', storyTitle: lkStoryTitle });
 const lkArgsOf = (verb) => (lkVocab ? lkVocab.args('verb', verb) : []);
 // an action's object that is no object of the map: what set the run off, the object it happened to (UCRule)
 const LK_SPECIAL = { '@by': 'whoever set it off', '@it': 'the object it happened to' };
@@ -12237,7 +12536,66 @@ function forgetClass(cls) {
 // make it do), from its class (/api/props io: editor/logic_catalog.py, config/logic.json). Until its class is known,
 // nothing: every path that shows rules waits for chainOf first.
 const IO_LOADING = { family: 'other', outputs: [], inputs: [], default: '', labels: {}, args: {} };
-const lkIo = (a) => (a && ioNow[a.cls]) || IO_LOADING;
+const lkIo = (a) => blockPorts(a, (a && ioNow[a.cls]) || IO_LOADING);
+// A logic block's ports that come from its settings: a Switch or a First of offers only the ways it has (NumWays,
+// 2 to 6: UCBSwitch.Ways, UCBFirstOf.Ways), the others are left out; Phases offers Go to / enters / leaves for each
+// phase of its list (UCBPhases: the class declares only Next, Previous, Reset and Changed)
+function blockPorts(a, io) {
+  if (io.family === 'switchblock' || io.family === 'firstof') {
+    const n = Math.min(6, Math.max(2, parseInt(String(actorProp(a, 'NumWays') ?? '2'), 10) || 2));
+    const keep = (k) => { const m = /^(?:output:Out|output:First|input:In)(\d)$/.exec(k); return !m || +m[1] <= n; };
+    return { ...io, outputs: io.outputs.filter(keep), inputs: io.inputs.filter(keep) };
+  }
+  if (io.family !== 'phases') return io;
+  const phases = phaseList(actorProp(a, 'Phases'));
+  const labels = { ...(io.labels || {}) };
+  for (const p of phases) {
+    labels['input:GoTo_' + p.id] = `Go to the phase '${p.text}'`;       // (single quotes: a sentence quotes the label)
+    labels['output:Enter_' + p.id] = `it enters the phase '${p.text}'`;
+    labels['output:Leave_' + p.id] = `it leaves the phase '${p.text}'`;
+  }
+  return { ...io, labels, inputs: [...phases.map((p) => 'input:GoTo_' + p.id), ...io.inputs],
+    outputs: [...io.outputs, ...phases.flatMap((p) => ['output:Enter_' + p.id, 'output:Leave_' + p.id])] };
+}
+// The map's Phases blocks (P3: a rule kept to some of their phases): {name, label, stateName, phases: [{id, text}]}
+function lkPhaseSet(a) {
+  const stateName = blockFlagName(String(actorProp(a, 'StateName') ?? 'Phase').replace(/^"|"$/g, '')) || 'Phase';
+  return { stateName, phases: phaseList(actorProp(a, 'Phases')) };
+}
+function lkPhaseSets() {
+  return allActors().filter((a) => a.cls === 'UCBPhases' && !edits.deleted[a.name])
+    .map((a) => ({ name: a.name, label: `${lkName(a.name)} (${lkPhaseSet(a).stateName})`, ...lkPhaseSet(a) }));
+}
+// "Raid is Alarm or Escape" (the sentence's check), '' for a rule that works in every phase
+function lkPhaseText(ph) {
+  if (!ph || !ph.set) return '';
+  const set = lkPhaseSets().find((s) => s.name === ph.set);
+  if (!set) return `${ph.set} (gone) is in some phase`;
+  const text = (id) => (set.phases.find((p) => p.id.toLowerCase() === String(id).toLowerCase()) || { text: id }).text;
+  return `${set.stateName} is ${(ph.in || []).map(text).join(' or ') || 'in no phase'}`;
+}
+// the Check's first row: only in some phases of a Phases block (shown when the map has one, or the rule uses one)
+function lkPhaseRowHtml(l) {
+  const sets = lkPhaseSets(), ph = l.phase || null;
+  if (!sets.length && !ph) return '';
+  const set = ph && sets.find((s) => s.name === ph.set);
+  const opts = '<option value="">in every phase</option>' + sets.map((s) => `<option value="${escapeHtml(s.name)}" ${ph && ph.set === s.name ? 'selected' : ''}>only in phases of ${escapeHtml(s.label)}</option>`).join('')
+    + (ph && ph.set && !set ? `<option value="${escapeHtml(ph.set)}" selected>only in phases of ${escapeHtml(ph.set)} (gone)</option>` : '');
+  const ticks = set ? set.phases.map((p) => `<label style="width:auto" title="It works while ${escapeHtml(set.stateName)} is ${escapeHtml(p.text)}"><input type="checkbox" data-lkph="${escapeHtml(p.id)}" ${(ph.in || []).some((x) => String(x).toLowerCase() === p.id.toLowerCase()) ? 'checked' : ''}> ${escapeHtml(p.text)}</label>`).join('') : '';
+  return `<div class="row" style="padding-left:12px;flex-wrap:wrap"><select data-lkphset style="flex:1;min-width:0" title="Out of these phases the rule does nothing, its Otherwise neither">${opts}</select>${ticks}</div>`;
+}
+// A Phases block's list ("Arrive, Alarm, Escape"): each phase's text and its name in the game's flags, made as
+// UCBlock.FlagName makes it (anything but an ASCII letter, a digit or _ becomes _, a leading digit gets X_, 60 at most)
+function phaseList(value) {
+  const seen = new Set();
+  return String(value ?? '').replace(/^"|"$/g, '').split(',').map((t) => t.trim()).filter(Boolean)
+    .map((text) => ({ text, id: blockFlagName(text) })).filter((p) => p.id && !seen.has(p.id.toLowerCase()) && seen.add(p.id.toLowerCase()));
+}
+function blockFlagName(text) {
+  let s = [...String(text ?? '').trim()].map((ch) => (/^[A-Za-z0-9_]$/.test(ch) ? ch : '_')).join('');
+  if (/^[0-9]/.test(s)) s = 'X_' + s;
+  return s.slice(0, 60);
+}
 const lkCatOf = (a) => lkIo(a).family;
 // The kind of object as the scripting tags have always named it (tagDescription): the first match of its class
 // chain, as UCObjectTag computes it in the game. The rules use the catalogue's families instead (lkIo).
@@ -12344,6 +12702,7 @@ function lkVerbLabel(v, cat) {
 
 function lkList() { if (!edits.links) edits.links = []; return edits.links; }
 function lkGet(id) {
+  if (lkCarriers.has(id)) return lkCarriers.get(id);
   if (String(id).endsWith('#else')) { const main = lkGet(String(id).slice(0, -5)); return main && main.else ? lkElseOf(main) : undefined; }
   return lkList().find((l) => l.id === id);
 }
@@ -12398,7 +12757,8 @@ function lkOptionText(l) {
   return c ? structShown(new Map(lkOptions(c)[+l.option || 0].pairs).get('Text') || '') : '';
 }
 function lkWhenText(l) {
-  const s = lkName(l.src);
+  if (l.while && lkVocab && lkCanWhile(l)) return lkVocab.whenText(l, lkVocabCtx());     // "While the player is in Zone1"
+  const s = l.group ? `any of the group "${lgName(l.group)}"` : lkName(l.src);
   switch (l.when) {
     case 'opened': return `When ${s} has opened`;
     case 'closed': return `When ${s} starts closing`;
@@ -12433,7 +12793,7 @@ function lkActText(x) {
 }
 function lkActText1(x) {
   if (x.area) return `${lkVerbLabel(x.verb, x.area.kind).toLowerCase()}: ${x.area.members.length} saved ${x.area.kind === 'character' ? 'characters' : x.area.kind === 'light' ? 'lights' : 'objects'}${x.area.dynamic ? ` + newcomers within ${x.area.radius} units` : ''}`;
-  const t = x.targetTag ? `objects tagged ${x.targetTag}` : lkName(x.target), q = (s) => `"${String(s || '').slice(0, 60)}"`;
+  const t = x.group !== undefined ? `the group "${lgName(x.group)}"` : x.targetTag ? `objects tagged ${x.targetTag}` : lkName(x.target), q = (s) => `"${String(s || '').slice(0, 60)}"`;
   switch (x.verb) {
     case 'open': return `open ${t}`;
     case 'close': return `close ${t}`;
@@ -12459,7 +12819,9 @@ function lkActText1(x) {
     case 'on': return lkCatOf(lkActor(x.target)) === 'script' ? `set off ${t}` : `${lkVerbLabel('on', lkCatOf(lkActor(x.target))).toLowerCase()}: ${t}`;
     case 'input': return `${t}: ${lkPortLabel(x.target, lkVerbKey(x))}${x.b ? ' (' + String(x.b).replace(/;/g, ', ') + ')' : ''}`;
     case 'floor': return `${t} goes to floor ${Math.max(0, lkWholeOf(x.a, 0))}`;
-    case 'count': { const n = lkWholeOf(x.b, 1);
+    case 'count': { if (isFormula(String(x.b ?? ''))) {      // a formula of counters (P9 slice 5): as it was written
+        return x.c === 'set' ? `set the counter ${x.a || '?'} to ${amountText(x.b)}` : `add ${amountText(x.b)} to the counter ${x.a || '?'}`; }
+      const n = lkWholeOf(x.b, 1);
       return x.c === 'set' ? `set the counter ${x.a || '?'} to ${n}` : `${n < 0 ? 'take' : 'add'} ${Math.abs(n)} ${n < 0 ? 'from' : 'to'} the counter ${x.a || '?'}`; }
     case 'off': return `${lkVerbLabel('off', lkCatOf(lkActor(x.target))).toLowerCase()}: ${t}`;
     case 'hide': return `${t} vanishes`;
@@ -12487,17 +12849,59 @@ function lkVocabWhen(l) {
   lkVocabLoad();
   try { return lkVocab && lkVocab.entry('output', l.when) ? lkVocab.whenText(l, lkVocabCtx()) : ''; } catch { return ''; }
 }
-// the names in a condition's sentence (conditions.js): the map's characters, the game's items, the states
+// the names in a condition's sentence (conditions.js): the map's characters, the game's items, the states, a point
+// by the object there
 const lkCondNames = { actor: (n) => lkName(n), state: (c) => (parseFate(c.flag) ? stateLabel(c) : conditionText(c)),
-  item: (cls) => ((propItems || []).find((i) => i.cls === cls) || {}).name || String(cls).split('.').pop() };
+  item: (cls) => ((propItems || []).find((i) => i.cls === cls) || {}).name || String(cls).split('.').pop(),
+  place: (at) => lkPlaceName(at),
+  zone: (n) => (lkZones().find((z) => z.name.toLowerCase() === String(n).toLowerCase()) || {}).label || n };
+// the zones of the map, for "the player is in a zone" (P9 slice 2): its zone actors (zones.py ZONE_CLASSES, not the
+// sky's) and the pools of its boxes (zones.py actors: a WaterZone "UCZone_<box>"), [{name, label}]
+const LK_ZONE_CLASSES = new Set(['zoneinfo', 'waterzone', 'precipitationzone', 'snowzone', 'revsoundzone', 'revzoneinfo', 'lavazone']);
+function lkZones() {
+  const out = [];
+  for (const b of edits.boxes || []) {        // a pool: by its box (the built map has its WaterZone too)
+    if (b && b.water) out.push({ name: 'UCZone_' + String(b.name || 'Box').replace(/\W/g, ''), label: `${b.water.name || b.name || 'Box'} (water)` });
+  }
+  const had = new Set(out.map((z) => z.name.toLowerCase()));
+  for (const a of allActors()) {
+    if (edits.deleted?.[a.name] || had.has(String(a.name).toLowerCase()) || !LK_ZONE_CLASSES.has(String(a.cls).split('.').pop().toLowerCase())) continue;
+    had.add(String(a.name).toLowerCase());
+    out.push({ name: a.name, label: lkName(a.name) });
+  }
+  return out;
+}
+// "near a point" (conditions.js): the object of the map nearest the point, within 128 units, as the Logic window names
+// it ('' none: the sentence gives the point's numbers). Lights and things the rules do not know are no landmarks.
+function lkPlaceName(at) {
+  if (!Array.isArray(at) || at.length !== 3) return '';
+  let best = null, far = 128;
+  for (const a of allActors()) {
+    if (edits.deleted[a.name] || !Array.isArray(a.loc)) continue;
+    const d = Math.hypot(a.loc[0] - at[0], a.loc[1] - at[1], a.loc[2] - at[2]);
+    if (d >= far) continue;
+    const f = lkCatOf(a);
+    if (!f || f === 'other' || f === 'light') continue;
+    best = a; far = d;
+  }
+  return best ? lkName(best.name) : '';
+}
+// a point of the scene for a "near a point" condition: the selected object's place, or in front of the camera
+function lkScenePoint(how) {
+  const p = how === 'selected' ? window.__editor.selectedLoc() : window.__editor.cameraPoint(160);
+  return p ? p.map((v) => Math.round(v)) : null;
+}
+const lkPointOpts = { point: lkScenePoint, warn: (t) => log(t, 'warn'), get zones() { return lkZones(); } };
 function lkStepsSaid(l) {
-  return l.steps ? [stepsText(l, lkActText, { name: lkName, cond: (c) => conditionText(c, lkCondNames) })].filter(Boolean)
+  return l.steps ? [stepsText(l, lkActText, { name: lkName, cond: (c) => conditionText(c, lkCondNames), storyTitle: lkStoryTitle })].filter(Boolean)
     : [...(l.do || [])].sort((x, y) => (+x.delay || 0) - (+y.delay || 0)).map((x) => (+x.delay > 0 ? `after ${+x.delay} s ` : '') + lkActText(x));
 }
 function lkSentence(l) {
   if (l.elseOf) return 'Otherwise: ' + (lkStepsSaid(l).join(', ') || 'nothing yet');
   const parts = lkStepsSaid(l), o = optionsText(l, lkWhenText);
   const reqs = (l.requires || []).map((c) => conditionText(c, lkCondNames));
+  const ph = lkPhaseText(l.phase);
+  if (ph) reqs.unshift(ph);
   const other = l.else ? `; otherwise: ${lkStepsSaid({ steps: l.steps, do: l.else }).join(', ') || 'nothing'}` : '';
   return `${lkWhenText(l)}${o.also}${reqs.length ? ', only if ' + reqs.join(l.match === 'any' && reqs.length > 1 ? ' or ' : ' and ') : ''}: ${parts.join(', ') || 'nothing yet'}${other}${l.once ? ' (only once)' : ''}${o.more.length ? ` (${o.more.join(', ')})` : ''}`;
 }
@@ -12562,11 +12966,12 @@ async function lkFixLabels() {
   for (const l of lkList()) l.label = lkSentence(l);
 }
 function lkChange(l, fn, redraw, label = 'Edit an interaction') {
+  if (l && l.carrier) { fn(); l.carrier.changed(); return; }   // a Story action (lkStoryActs): the Story keeps it (null: a new rule)
   pushUndo(label);
   fn();
   ensureActionIds(lkList());                 // a new step gets its id (a1..., the Otherwise's e1...): the game's log names it
   const main = lkMainOf(l);
-  if (main && lkList().includes(main)) { main.label = lkSentence(main); lkSyncOtherwise(main); }
+  if (main && lkList().includes(main)) { delete main.by; main.label = lkSentence(main); lkSyncOtherwise(main); }
   setDirty();
   lkRefresh(redraw);
 }
@@ -12592,6 +12997,9 @@ function lkRenderNow() { if (logicBox.style.display === 'block') renderLogic(); 
 // picking an object (or a place) in the 3D view or the Hierarchy
 let lkPicking = null;
 function lkStartPick(opts) {
+  // a pick asked from the Story panel (a Story action's object or place): the panel steps aside meanwhile
+  lkPickStory = !!(lkStoryHook && document.activeElement && lkStoryHook.owns(document.activeElement));
+  if (lkPickStory) lkStoryHook.start(opts.hint, () => { if (lkPicking === opts) lkEndPick(); });      // its Back cancels
   if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
   cancelPlacing();
   lkPicking = opts;
@@ -12599,7 +13007,10 @@ function lkStartPick(opts) {
   status(opts.hint + '  (Esc cancels)');
   return () => { if (lkPicking === opts) lkEndPick(); };
 }
-function lkEndPick() { lkPicking = null; canvas.style.cursor = ''; }
+function lkEndPick() {
+  lkPicking = null; canvas.style.cursor = '';
+  if (lkPickStory) { lkPickStory = false; lkStoryHook.end(); }
+}
 async function lkPicked(actor, point) {
   const pk = lkPicking;
   if (!pk) return;
@@ -12617,6 +13028,55 @@ async function lkPicked(actor, point) {
   lkEndPick();
   pk.done(actor, null);
 }
+
+// ---- the Story's Logic actions (P5, story.js {type: 'act', act}): drawn and edited by the rules' own rows (lkActHtml,
+// lkWire) as the one action of a carrier, a rule that is no rule of the map: lkGet finds it, lkChange tells the Story
+// (its own history and save) instead of the map's. The verbs a rule only can do are left out (story.py STORY_NO_VERBS).
+const LK_STORY_NO = new Set(['ownorders']);
+// the Story's own action for a verb it has always had (story.js, story.py action_code): the same words, its own rows
+const LK_STORY_NATIVE = { message: 'message', note: 'note', goal: 'goal', flag: 'flag', travel: 'travel', talk: 'talk', infolink: 'infolink', signal: 'signal' };
+const lkCarriers = new Map();
+let lkCarrierN = 0, lkStoryHook = null, lkPickStory = false;
+const lkStoryActs = {
+  // the words and the object classes known (the free verbs come with the first object class asked)
+  ready: () => { lkVocabLoad(); return Promise.all([lkVocabAsked, chainOf('PlayerStart')]).then(() => true, () => false); },
+  native: LK_STORY_NATIVE,
+  // the "+ action..." options of a Story list: an object, then the rules' free verbs in their groups ("type:<Story
+  // type>" for the Story's own, "verb:<verb>" for a Logic action)
+  addOptions() {
+    const free = lkFreeVerbs.filter((v) => !LK_STORY_NO.has(v));
+    return `<optgroup label="An object"><option value="@pick">Make an object do something (click it)…</option></optgroup>`
+      + groupSteps(free).map(([title, verbs]) => `<optgroup label="${escapeHtml(title)}">${verbs.map((v) =>
+        `<option value="${LK_STORY_NATIVE[v] ? 'type:' + LK_STORY_NATIVE[v] : 'verb:' + v}">${escapeHtml(lkVerbLabel(v, ''))}</option>`).join('')}</optgroup>`).join('');
+  },
+  // a new action of a free verb, with its defaults (a sound: its picker opens; done(act) when one is chosen)
+  newAct(verb) { const x = { verb, target: '', delay: 0 }; lkDefaults(x, null); return x; },
+  // an object clicked in the map: its first verb, as a rule's "Make an object do something" does
+  pick(done) {
+    lkStartPick({ hint: 'Click the object the Story acts on (a door, a character, a light...)',
+      done: async (o) => { await chainOf(o.cls); done(lkNewAct(o, null)); } });
+  },
+  pickSound: (cur, done) => pickSound(cur || '', done),
+  text: (x) => lkActText(x),
+  // what keeps it from working in the game, in words ('' nothing): no action, an object gone or not chosen
+  problem(x) {
+    if (!x.verb) return 'an action with nothing to do';
+    if (x.target && !lkActor(x.target)) return `${x.target} is not in the map`;
+    if (!x.target && (LK_VERBS[x.verb] || [])[1]) return `"${lkVerbLabel(x.verb, '')}" with no object`;
+    return '';
+  },
+  // host: the card's place; act: the Story action's act; changed(): the Story saves and draws its list again
+  mount(host, act, { changed }) {
+    for (const [id, c] of lkCarriers) if (!c.carrier.host.isConnected) lkCarriers.delete(id);
+    const l = { id: '@story' + (++lkCarrierN), src: '', when: 'start', do: [act], carrier: { host, changed } };
+    lkCarriers.set(l.id, l);
+    host.innerHTML = lkRuleHtml(l);
+    lkWire(host, () => {});
+    return l.id;
+  },
+  // the Story panel: whether a field is its own, and stepping aside while the scene is clicked
+  hook(h) { lkStoryHook = h; },
+};
 
 // Radius selects a saved group. The optional checkbox adds current entrants at execution time.
 function lkAreaCategory(a) {
@@ -12668,6 +13128,7 @@ function lkAreaHtml(x, j, source) {
     <label style="display:flex;width:auto;gap:6px;align-items:center"><input type="checkbox" data-lkadynamic="${j}" ${area.dynamic ? 'checked' : ''}> Include newcomers</label>
     <div class="hint" style="margin:4px 0">${area.dynamic ? 'Saved group + matching objects in the zone when the action runs.' : 'Saved group: moving its members does not disconnect them.'} The radius also reaches through walls.</div>
     <button data-lkacapture="${j}" title="Replace the saved group with the objects currently inside the radius">Refresh group</button>
+    <button data-lkname="${j}" title="Give these objects a name: other rules can use the same group, and a change to it changes them all">Name this group…</button>
     <details open><summary>${names.length} recipients${area.dynamic ? ' now' : ''}</summary><div style="max-height:150px;overflow:auto">${names.map(n => `<a href="#" data-lkgo="${escapeHtml(n)}" style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="color:#ffd17b;width:14px;display:inline-flex;flex:none">${ICON.connect.replace('<svg ', '<svg width="14" height="14" ')}</span>${escapeHtml(lkName(n))}</a>`).join('') || '<span class="hint">No matching objects. Change the radius, center or group.</span>'}</div></details>
   </div>`;
 }
@@ -12692,7 +13153,7 @@ function lkClearArea() {
 function lkDrawAreas(a) {
   lkClearArea();
   const marked = new Set();
-  for (const l of lkList()) for (const x of l.do || []) {
+  for (const l of lkList()) for (const x of l.replacedBy ? [] : l.do || []) {
     if (!x.area || edits.disabled?.[l.src]) continue;
     const names = lkAreaTargets(x, l.src);
     if (l.src !== a.name && !names.includes(a.name)) continue;
@@ -12739,7 +13200,7 @@ const lkStepTools = (j) => lkMoveTools(j) + `<button data-lkrm="${j}" title="Rem
 // the steps one can add (action-list.js groupSteps), Flow last: Wait, Wait until, If, If ... otherwise
 function lkAddOptions(first) {
   return `<option value="">${escapeHtml(first)}</option>
-    <optgroup label="An object"><option value="@pick">Make an object do something (click it)…</option><option value="@area">Objects within a radius…</option><option value="@tag">Objects with a tag…</option></optgroup>
+    <optgroup label="An object"><option value="@pick">Make an object do something (click it)…</option><option value="@area">Objects within a radius…</option><option value="@tag">Objects with a tag…</option><option value="@group">A group…</option></optgroup>
     ${groupSteps(lkFreeVerbs).map(([title, verbs]) => `<optgroup label="${escapeHtml(title)}">${verbs.map((v) => `<option value="${v}">${escapeHtml((LK_VERBS[v] || [v])[0])}</option>`).join('')}</optgroup>`).join('')}
     <optgroup label="Flow"><option value="@wait">Wait…</option><option value="@until">Wait until…</option><option value="@if">If…</option><option value="@ifelse">If… otherwise…</option></optgroup>`;
 }
@@ -12776,14 +13237,18 @@ function lkSyncOtherwise(l) {
 }
 function lkRuleHtml(l, inPanel, branch = false) {
   lkVocabLoad();
+  if (l.carrier) return `<div class="lk-rule lk-carrier" data-lk="${escapeHtml(l.id)}">${lkActHtml(l, { kind: 'act', x: l.do[0], j: 0, depth: 0 }, '', '')}</div>`;
   const src = lkActor(l.src), cat = lkCatOf(src), cur = lkWhenKey(l);
-  const evs = !l.src ? (WORLD_CAUSES.includes(cur) ? WORLD_CAUSES : [cur]) : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
+  // a rule on anyone of a kind or a faction (P9): what can happen to a character as the game rules look at it
+  const evs = lgSetRule(l) ? (LG_SET_WHENS.includes(cur) ? LG_SET_WHENS : [cur].concat(LG_SET_WHENS))
+    : !l.src ? (WORLD_CAUSES.includes(cur) ? WORLD_CAUSES : [cur]) : lkEventsOf(src).includes(cur) ? lkEventsOf(src) : [cur].concat(lkEventsOf(src));
   const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(l.src, w)}"` : LK_WHEN[w] || w);
   let h = `<div class="lk-rule${branch ? ' lk-branch' : ''}" data-lk="${escapeHtml(l.id)}">`;
   if (branch) h += '<div class="row lk-elsehead"><b>If not</b><span class="hint" style="margin:0">when the check fails, these steps instead</span></div>';
-  else h += `<div class="row"><b>When</b>${inPanel && l.src ? `<a href="#" data-lkgo="${escapeHtml(l.src)}" title="Go to it">${escapeHtml(lkName(l.src))}</a>` : ''}
+  else h += `<div class="row"><b>When</b>${inPanel && l.src ? `<a href="#" data-lkgo="${escapeHtml(l.src)}" title="Go to it">${escapeHtml(lkName(l.src))}</a>` : lgSetRule(l) ? `<span title="${escapeHtml(lgFilterText(lgGroup(l.group)))}">any of "${escapeHtml(lgName(l.group))}"</span>` : ''}
     <select data-lkw style="flex:1 1 130px;min-width:0">${evs.map((w) => `<option value="${escapeHtml(w)}" ${w === cur ? 'selected' : ''}>${escapeHtml(whenLabel(w))}</option>`).join('')}</select>
     <label style="width:auto" title="Only the first time"><input type="checkbox" data-lko ${l.once ? 'checked' : ''}> once</label>
+    ${lkCanWhile(l) || l.while ? `<label style="width:auto" title="${escapeHtml(lkWhileTitle(l))}"><input type="checkbox" data-lkwhile ${l.while ? 'checked' : ''}> while</label>` : ''}
     <button data-lkx title="Delete this rule">✕</button></div>`;
   if (l.when === 'option' && src && !branch) {
     const opts = lkOptions(src), cur = opts[+l.option || 0], m = new Map(cur.pairs);
@@ -12797,14 +13262,15 @@ function lkRuleHtml(l, inPanel, branch = false) {
       + `<span class="hint${busy ? ' bad' : ''}" style="margin:0">${busy ? 'the game uses this key: the player can no longer do that with it' : 'works in Play (the key is bound for that launch)'}</span></div>`;
   }
   if (l.when === 'near' && !branch) h += `<div class="row" style="padding-left:12px"><label style="width:auto">within</label><input type="number" data-lkn value="${+l.near || 256}" step="32" min="32" style="width:70px"><span class="hint" style="margin:0">units (a door is 128 high)</span></div>`;
-  if (!branch && !HAND_CAUSES.has(l.when) && lkVocab) h += causeRowsHtml(lkVocab.entry('output', l.when), l, -1, { esc: escapeHtml });
+  if (!branch && !HAND_CAUSES.has(l.when) && lkVocab) h += causeRowsHtml(lkVocab.entry('output', l.when), l, -1, { esc: escapeHtml, signals: signalsOf(lkList(), lkStory()),
+    dialogues: lkStoryList('dialogues'), infolinks: lkStoryList('infolinks') });
   // the conditions: all must hold when it happens, or the rule does nothing that time (conditions.js, mounted by lkWire)
   // the steps, numbered: Check, then the actions in the order of their time with a Wait where the time goes on
   let n = 0;
-  if (!branch) h += `<div class="lk-step lk-check"><div class="row"><span class="lk-n">${(l.requires || []).length ? ++n : ''}</span><b>Check</b>`
+  if (!branch) h += `<div class="lk-step lk-check"><div class="row"><span class="lk-n">${(l.requires || []).length || l.phase ? ++n : ''}</span><b>Check</b>`
     + ((l.requires || []).length > 1
       ? `<select data-lkmatchrule style="flex:1;min-width:0" title="Whether all the conditions must hold, or one is enough"><option value="all">go on only if all of these hold</option><option value="any" ${l.match === 'any' ? 'selected' : ''}>go on if any of these holds</option></select>`
-      : '<span class="hint" style="margin:0">go on only if</span>') + '</div><div class="lk-cond" data-lkcond></div></div>';
+      : '<span class="hint" style="margin:0">go on only if</span>') + '</div>' + lkPhaseRowHtml(l) + '<div class="lk-cond" data-lkcond></div></div>';
   const chars = l.steps ? allActors().filter((a) => isCharacter(a) && a.cls !== 'PlayerStart' && !edits.deleted[a.name]) : [];
   for (const step of stepsOf(l)) {
     const pad = step.depth ? ` style="margin-left:${step.depth * 14}px"` : '';
@@ -12829,65 +13295,18 @@ function lkRuleHtml(l, inPanel, branch = false) {
     if (step.kind === 'until') {              // Wait until a character arrives or a condition holds, at most n s
       const x = step.x, u = x.until || {};
       h += `<div class="lk-step lk-until"${pad}><div class="row"><span class="lk-n">${++n}</span><b>Wait until</b><select data-lkuntil="${step.j}" style="flex:1;min-width:0">`
-        + `<option value="arrived">a character has arrived</option><option value="cond" ${u.type !== 'arrived' ? 'selected' : ''}>a condition holds</option></select>${lkStepTools(step.j)}</div>`
+        + `<option value="arrived">a character has arrived</option>`
+        + `<option value="ended" ${u.type === 'ended' ? 'selected' : ''}>a dialogue has ended</option><option value="heard" ${u.type === 'heard' ? 'selected' : ''}>an InfoLink has been heard</option>`
+        + `<option value="cond" ${!['arrived', 'ended', 'heard'].includes(u.type) ? 'selected' : ''}>a condition holds</option></select>${lkStepTools(step.j)}</div>`
         + (u.type === 'arrived'
           ? `<div class="row" style="padding-left:24px"><select data-lkuntilwho="${step.j}" style="flex:1;min-width:0"><option value="">(choose the character)</option>${chars.map((a) => `<option value="${escapeHtml(a.name)}" ${a.name === u.actor ? 'selected' : ''}>${escapeHtml(lkName(a.name))}</option>`).join('')}</select></div>`
+          : LK_STORY_UNTIL[u.type] ? lkUntilStoryRow(step.j, u)
           : `<div class="lk-cond" data-lkuntilcond="${step.j}"></div>`)
         + `<div class="row" style="padding-left:24px"><label style="width:auto">at most</label><input type="number" data-lkmax="${step.j}" value="${+x.max || 0}" min="0" step="1" style="width:60px"><span class="hint" style="margin:0">s (0: no limit)</span></div></div>`;
       continue;
     }
-    const x = step.x, j = step.j;
-    const t = lkActor(x.target), tcat = x.target ? lkCatOf(t) : '', vcur = lkVerbKey(x);
-    const animated = x.target && ((edits.motions || {})[x.target] || tcat === 'door');
-    const special = !!LK_SPECIAL[x.target];
-    const verbs = x.area ? AREA_VERBS[x.area.kind] : x.targetTag ? TAG_VERBS : special ? Object.keys(LK_VERBS).filter((v) => ['any', 'character'].includes(LK_VERBS[v][1]))
-      : x.target ? [...new Set((animated ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(t)))] : lkFreeVerbs;
-    const vlist = verbs.includes(vcur) ? verbs : [vcur].concat(verbs);
-    const verbLabel = (v) => (v.startsWith('input:') ? lkPortLabel(x.target, v) : lkVerbLabel(v, tcat));
-    h += `<div class="lk-act lk-step"${pad}><div class="row"><span class="lk-n">${++n}</span>
-      <select data-lkv="${j}" style="flex:1 1 120px;min-width:0">${vlist.map((v) => `<option value="${escapeHtml(v)}" ${v === vcur ? 'selected' : ''}>${escapeHtml(verbLabel(v))}</option>`).join('')}</select>
-      <button data-lkreq="${j}" title="${x.requires ? 'Take away its own check' : 'Do this step only if a condition holds (checked just before it)'}" ${x.requires ? 'class="on"' : ''}>if…</button>${l.steps ? lkMoveTools(j) : ''}<button data-lka="${j}" title="Remove this action">✕</button></div>`;
-    if (x.requires) h += `<div class="row" style="padding-left:38px"><select data-lkmatch="${j}" style="flex:1;min-width:0"><option value="all">only if all of these hold</option><option value="any" ${x.match === 'any' ? 'selected' : ''}>only if any of these holds</option></select></div>`
-      + `<div class="lk-cond" data-lkcondstep="${j}" style="margin-left:38px"></div>`;
-    if (x.area) h += lkAreaHtml(x, j, l.src);
-    if (x.targetTag !== undefined) h += `<div class="row"><label>Tag</label><input data-lktag="${j}" value="${escapeHtml(x.targetTag)}" maxlength="64" aria-label="Target scripting tag" list="target-tags-${escapeHtml(l.id)}-${j}" style="flex:1;min-width:0">${tagSuggestions(`target-tags-${l.id}-${j}`)}<span class="hint">${(n => `${n} ${n === 1 ? 'match' : 'matches'}`)(lkTagTargets(x,l.src).length)}</span></div>`;
-    if (!x.area && x.targetTag === undefined && (x.target || LK_VERBS[x.verb] && LK_VERBS[x.verb][1])) {
-      h += `<div class="row" style="padding-left:38px"><a href="#" data-lkgo="${escapeHtml(x.target || '')}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${t || special ? '' : ';color:var(--bad)'}" title="Go to it">${escapeHtml(lkName(x.target))}</a>${special ? '' : `<button data-lkboth="${j}" title="See this object and the one it acts on together">both</button>`}<button data-lkp="${j}" title="Click another object for this action">change</button>`
-        + (['any', 'character'].includes((LK_VERBS[x.verb] || [])[1]) || special ? `<select data-lkwho="${j}" title="Or what set the rule off: the player, a character, the object it happened to" style="width:auto"><option value="">an object of the map</option>${Object.entries(LK_SPECIAL).map(([k, v]) => `<option value="${k}" ${x.target === k ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('')}</select>` : '')
-        + '</div>';
-    }
-    const arg = (k, ph, w = 'flex:1;min-width:0') => `<input type="text" data-lkarg="${j}" data-k="${k}" value="${escapeHtml(x[k] || '')}" placeholder="${escapeHtml(ph)}" style="${w}">`;
-    const row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
-    if (x.verb === 'key') h += row(`<label style="width:auto">called</label>${arg('a', 'Key to the vault')}`);
-    if (x.verb === 'attack' || x.verb === 'hostile') h += row(`<label style="width:auto" title="Their friends do not join in (nor defend them when the player fights back)"><input type="checkbox" data-lkalone="${j}" ${x.a === 'alone' ? 'checked' : ''}> alone (their faction stays out of it)</label>`);
-    if (x.verb === 'goto' || x.verb === 'run') h += row(`<span class="hint" style="margin:0;flex:1">to ${x.at ? x.at.map((v) => Math.round(v)).join(', ') : '?'}</span><button data-lkat="${j}" title="Click the floor where they go">pick</button>`)
-      + row(`<label style="width:auto" title="The way a man would walk, on the walkable area (View > Walkable area), without path nodes; it goes into the map at Rebuild. Off: on the AI paths, as the game's characters go"><input type="checkbox" data-lknav="${j}" ${x.nav ? 'checked' : ''}> on the walkable area</label>`);
-    if (x.verb === 'explode') h += row(`<label style="width:auto">damage</label><input type="number" data-lkarg="${j}" data-k="a" value="${+x.a || 0}" min="0" style="width:60px"><label style="width:auto">radius</label><input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 256}" min="16" step="16" style="width:64px">`);
-    if (x.verb === 'sound') {
-      h += row(`<span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(x.a || '')}">${escapeHtml(x.a ? x.a.split('.').slice(1).join(' · ') : '(no sound)')}</span>${x.a ? `<button data-lkplay="${j}" title="Listen">▶</button>` : ''}<button data-lksnd="${j}">Choose...</button>`);
-      h += row(`<label style="width:auto" title="As loud wherever the player is (a radio, a voice); off: it comes from the object"><input type="checkbox" data-lkhead="${j}" ${+x.c > 0 ? '' : 'checked'}> in the player's head</label>${+x.c > 0 ? `<label style="width:auto">heard within</label><input type="number" data-lkarg="${j}" data-k="c" value="${+x.c}" min="64" step="64" style="width:64px">${x.target ? '' : `<button data-lkp="${j}" title="The object it comes from">from...</button>`}` : ''}<label style="width:auto">volume</label><input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 1}" min="0.1" max="4" step="0.1" style="width:52px">`);
-    }
-    if (x.verb === 'message' || x.verb === 'note') h += row(arg('a', x.verb === 'note' ? 'What the player notes' : 'What appears on the screen'));
-    if (x.verb === 'goal') h += row(`${arg('b', 'The goal, as the player reads it')}<label style="width:auto" title="Mark it as completed (the same name as when it was given)"><input type="checkbox" data-lkdone="${j}" ${x.c === 'done' ? 'checked' : ''}> completed</label>`) + row(`<label style="width:auto" title="The same name gives and completes the same goal">name</label>${arg('a', 'Goal1', 'width:110px')}`);
-    if (x.verb === 'flag') h += `<div data-lkstate="${j}" style="margin:6px 0 6px 38px;min-width:0"></div>`;
-    if (x.verb === 'input') {                // the arguments the script's input takes (its Args)
-      const given = new Map(String(x.b || '').split(';').map((pair) => pair.split('=')).filter((kv) => kv[0]).map(([k, ...v]) => [k, v.join('=')]));
-      for (const key of (lkIo(t).args || {})[x.a] || [])
-        h += row(`<label style="width:auto">${escapeHtml(key)}</label><input type="text" data-lkiarg="${j}" data-k="${escapeHtml(key)}" value="${escapeHtml(given.get(key) || '')}" placeholder="its value (empty: the script's own)" style="flex:1;min-width:0">`);
-    }
-    if (x.verb === 'floor') h += row(`<label style="width:auto" title="Its sequence: 0 is where it starts">floor</label><input type="number" data-lkarg="${j}" data-k="a" value="${Math.max(0, lkWholeOf(x.a, 0))}" min="0"${lkFloorMax(t) !== null ? ` max="${lkFloorMax(t)}"` : ''} step="1" style="width:60px">`);
-    if (x.verb === 'count') h += row(`<label style="width:auto">counter</label>${arg('a', 'Levers', 'flex:1;min-width:0')}<label style="width:auto" title="Set the counter to the number instead of adding it"><input type="checkbox" data-lkset="${j}" ${x.c === 'set' ? 'checked' : ''}> set to</label><input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px">`);
-    h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
-    if (!HAND_ROWS.has(x.verb) && lkArgsOf(x.verb).length) h += argRowsHtml(lkArgsOf(x.verb), x, j, { esc: escapeHtml, name: lkName,
-      items: propItems || [], rules: lkList().filter((r) => r !== lkMainOf(l) && !r.otherwiseOf).map((r) => ({ id: r.id, label: `${r.id}: ${r.label || lkSentence(r)}`.slice(0, 90) })) });
-    if (x.verb === 'body') h += bodyRowsHtml(x, j);
-    if (x.verb === 'fpmoment') {             // a moment of Tools > First-person moments (fp-moments.js)
-      const names = fpMoments.list();
-      h += `<div class="row" style="padding-left:38px"><select data-lkfpm="${j}" style="flex:1;min-width:0"><option value="">(choose a moment)</option>${names.map((n) => `<option ${n === x.a ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}${x.a && !names.includes(x.a) ? `<option selected>${escapeHtml(x.a)} (missing)</option>` : ''}</select>`
-        + `<button data-lkfpedit="${j}" ${x.a && names.includes(x.a) ? '' : 'disabled'} title="Change this moment">Edit…</button><button data-lkfpnew="${j}" title="Make a new moment for it">New…</button></div>`;
-    }
-    if (x.verb === 'travel') h += row(`<select data-lkarg="${j}" data-k="a" style="flex:1;min-width:0"><option value="">(choose a map)</option>${(allMapNames || []).map((m) => `<option ${m === x.a ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}${x.a && !(allMapNames || []).includes(x.a) ? `<option selected>${escapeHtml(x.a)}</option>` : ''}</select>${arg('b', 'arriving at (Tag)', 'width:100px')}`);
-    h += '</div>';
+    n += 1;
+    h += lkActHtml(l, step, n, pad);
   }
   const pending = lkWaitNext.get(l.id);
   if (pending !== undefined) h += `<div class="lk-step lk-wait"><div class="row"><span class="lk-n">${++n}</span><b>Wait</b><input type="number" data-lkwaitnext value="${pending}" min="0" step="0.5" style="width:56px" aria-label="Seconds"><span class="hint" style="margin:0">s, then the next step</span></div></div>`;
@@ -12907,7 +13326,8 @@ function lkRuleHtml(l, inPanel, branch = false) {
       ${l.do.map((x, j) => `<div class="lk-tlrow"><span class="lk-tlname" title="${escapeHtml(lkActText(x))}">${escapeHtml(lkActText(x))}</span><div class="lk-tltrack"><div class="lk-tlbar ${/^anim/.test(x.verb) ? 'anim' : ''}" data-tlj="${j}" style="left:${(+x.delay || 0) / tmax * 100}%;width:${Math.max(1.5, dur(x) / tmax * 100)}%" title="Drag: when it happens (${+x.delay || 0} s)"></div></div></div>`).join('')}
       </div><div class="hint" style="margin:2px 0">Drag a bar to when it happens.</div></details>`;
   }
-  if (!branch && !l.otherwiseOf) h += ruleOptionsHtml(l, { esc: escapeHtml, name: lkName, keys: KEYS, open: lkMoreOpen.has(l.id),
+  if (!branch && !l.otherwiseOf) h += ruleOptionsHtml(l, { esc: escapeHtml, name: lkName, keys: KEYS, open: lkMoreOpen.has(l.id), signals: signalsOf(lkList(), lkStory()),
+    dialogues: lkStoryList('dialogues'), infolinks: lkStoryList('infolinks'),
     entryOf: (w) => (lkVocab ? lkVocab.entry('output', w) : null),
     eventsOf: (c) => (c.src ? lkEventsOf(lkActor(c.src)) : WORLD_CAUSES),
     whenLabel: (c, w) => (w.startsWith('output:') ? `it says "${lkPortLabel(c.src, w)}"` : LK_WHEN[w] || w) });
@@ -12915,6 +13335,85 @@ function lkRuleHtml(l, inPanel, branch = false) {
   const other = !branch && otherwiseOf(l, lkList());
   if (other) h += lkRuleHtml(other, inPanel, true);
   else if (!branch && l.else) h += lkRuleHtml(lkElseOf(l), inPanel, true);
+  return h;
+}
+
+// One action of a rule's form (lkRuleHtml), numbered num: its verb, its object, its arguments. A Story carrier
+// (lkStoryActs) draws its one action with it too.
+function lkActHtml(l, step, num, pad) {
+  let h = '';
+  const x = step.x, j = step.j;
+  const t = lkActor(x.target), tcat = x.target ? lkCatOf(t) : '', vcur = lkVerbKey(x);
+  const animated = x.target && ((edits.motions || {})[x.target] || tcat === 'door');
+  const special = !!LK_SPECIAL[x.target];
+  const verbs0 = x.area ? AREA_VERBS[x.area.kind] : x.targetTag || x.group !== undefined ? TAG_VERBS : special ? Object.keys(LK_VERBS).filter((v) => ['any', 'character'].includes(LK_VERBS[v][1]))
+    : x.target ? [...new Set((animated ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(t)))] : lkFreeVerbs;
+  const verbs = l.carrier ? verbs0.filter((v) => !LK_STORY_NO.has(v)) : verbs0;
+  const vlist = verbs.includes(vcur) ? verbs : [vcur].concat(verbs);
+  const verbLabel = (v) => (v.startsWith('input:') ? lkPortLabel(x.target, v) : lkVerbLabel(v, tcat));
+  h += `<div class="lk-act lk-step"${pad}><div class="row"><span class="lk-n">${num}</span>
+    <select data-lkv="${j}" style="flex:1 1 120px;min-width:0">${vlist.map((v) => `<option value="${escapeHtml(v)}" ${v === vcur ? 'selected' : ''}>${escapeHtml(verbLabel(v))}</option>`).join('')}</select>
+    ${l.carrier ? '' : `<button data-lkreq="${j}" title="${x.requires ? 'Take away its own check' : 'Do this step only if a condition holds (checked just before it)'}" ${x.requires ? 'class="on"' : ''}>if…</button>${l.steps ? lkMoveTools(j) : ''}<button data-lka="${j}" title="Remove this action">✕</button>`}</div>`;
+  if (x.requires) h += `<div class="row" style="padding-left:38px"><select data-lkmatch="${j}" style="flex:1;min-width:0"><option value="all">only if all of these hold</option><option value="any" ${x.match === 'any' ? 'selected' : ''}>only if any of these holds</option></select></div>`
+    + `<div class="lk-cond" data-lkcondstep="${j}" style="margin-left:38px"></div>`;
+  if (x.area) h += lkAreaHtml(x, j, l.src);
+  if (x.targetTag !== undefined) h += `<div class="row"><label>Tag</label><input data-lktag="${j}" value="${escapeHtml(x.targetTag)}" maxlength="64" aria-label="Target scripting tag" list="target-tags-${escapeHtml(l.id)}-${j}" style="flex:1;min-width:0">${tagSuggestions(`target-tags-${l.id}-${j}`)}<span class="hint">${(n => `${n} ${n === 1 ? 'match' : 'matches'}`)(lkTagTargets(x,l.src).length)}</span></div>`
+    + `<div class="row" style="padding-left:38px"><button data-lkname="${j}" title="Give the objects with this tag a name: other rules can use the same group, and a change to it changes them all">Name this group…</button></div>`;
+  if (x.group !== undefined) {
+    const can = lkGroupTargets(x, l.src).length, all = lgMembers(x.group).length;
+    h += `<div class="row"><label>Group</label><select data-lkgroup="${j}" style="flex:1;min-width:0" aria-label="The group it acts on">${lgGroup(x.group) ? '' : `<option value="" selected>(${escapeHtml(lgName(x.group))})</option>`}${lgGroups().map((g) => `<option value="${escapeHtml(g.id)}" ${g.id === x.group ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select>`
+      + `<span class="hint"${can ? '' : ' style="color:var(--bad)"'} title="The objects of the group that can do it (a light cannot open)">${can} of ${all}</span><button data-lkgsel="${j}" title="Select the group's objects">see</button></div>`;
+  }
+  if (!x.area && x.targetTag === undefined && x.group === undefined && (x.target || LK_VERBS[x.verb] && LK_VERBS[x.verb][1])) {
+    h += `<div class="row" style="padding-left:38px"><a href="#" data-lkgo="${escapeHtml(x.target || '')}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${t || special ? '' : ';color:var(--bad)'}" title="Go to it">${escapeHtml(lkName(x.target))}</a>${special || l.carrier ? '' : `<button data-lkboth="${j}" title="See this object and the one it acts on together">both</button>`}<button data-lkp="${j}" title="Click another object for this action">change</button>`
+      + (!l.carrier && (['any', 'character'].includes((LK_VERBS[x.verb] || [])[1]) || special) ? `<select data-lkwho="${j}" title="Or what set the rule off: the player, a character, the object it happened to" style="width:auto"><option value="">an object of the map</option>${Object.entries(LK_SPECIAL).map(([k, v]) => `<option value="${k}" ${x.target === k ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('')}</select>` : '')
+      + '</div>';
+  }
+  const arg = (k, ph, w = 'flex:1;min-width:0') => `<input type="text" data-lkarg="${j}" data-k="${k}" value="${escapeHtml(x[k] || '')}" placeholder="${escapeHtml(ph)}" style="${w}">`;
+  const row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
+  if (x.verb === 'key') h += row(`<label style="width:auto">called</label>${arg('a', 'Key to the vault')}`);
+  if (x.verb === 'attack' || x.verb === 'hostile') h += row(`<label style="width:auto" title="Their friends do not join in (nor defend them when the player fights back)"><input type="checkbox" data-lkalone="${j}" ${x.a === 'alone' ? 'checked' : ''}> alone (their faction stays out of it)</label>`);
+  if (x.verb === 'goto' || x.verb === 'run') h += row(`<span class="hint" style="margin:0;flex:1">to ${x.at ? x.at.map((v) => Math.round(v)).join(', ') : '?'}</span><button data-lkat="${j}" title="Click the floor where they go">pick</button>`)
+    + row(`<label style="width:auto" title="The way a man would walk, on the walkable area (View > Walkable area), without path nodes; it goes into the map at Rebuild. Off: on the AI paths, as the game's characters go"><input type="checkbox" data-lknav="${j}" ${x.nav ? 'checked' : ''}> on the walkable area</label>`);
+  if (x.verb === 'explode') h += row(`<label style="width:auto">damage</label><input type="number" data-lkarg="${j}" data-k="a" value="${+x.a || 0}" min="0" style="width:60px"><label style="width:auto">radius</label><input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 256}" min="16" step="16" style="width:64px">`);
+  if (x.verb === 'sound') {
+    h += row(`<span class="hint" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(x.a || '')}">${escapeHtml(x.a ? x.a.split('.').slice(1).join(' · ') : '(no sound)')}</span>${x.a ? `<button data-lkplay="${j}" title="Listen">▶</button>` : ''}<button data-lksnd="${j}">Choose...</button>`);
+    h += row(`<label style="width:auto" title="As loud wherever the player is (a radio, a voice); off: it comes from the object"><input type="checkbox" data-lkhead="${j}" ${+x.c > 0 ? '' : 'checked'}> in the player's head</label>${+x.c > 0 ? `<label style="width:auto">heard within</label><input type="number" data-lkarg="${j}" data-k="c" value="${+x.c}" min="64" step="64" style="width:64px">${x.target ? '' : `<button data-lkp="${j}" title="The object it comes from">from...</button>`}` : ''}<label style="width:auto">volume</label><input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 1}" min="0.1" max="4" step="0.1" style="width:52px">`);
+  }
+  if (x.verb === 'message' || x.verb === 'note') h += row(arg('a', x.verb === 'note' ? 'What the player notes' : 'What appears on the screen'));
+  if (x.verb === 'goal') h += row(`${arg('b', 'The goal, as the player reads it')}<label style="width:auto" title="Mark it as completed (the same name as when it was given)"><input type="checkbox" data-lkdone="${j}" ${x.c === 'done' ? 'checked' : ''}> completed</label>`) + row(`<label style="width:auto" title="The same name gives and completes the same goal">name</label>${arg('a', 'Goal1', 'width:110px')}`);
+  if (x.verb === 'flag') h += `<div data-lkstate="${j}" style="margin:6px 0 6px 38px;min-width:0"></div>`;
+  if (x.verb === 'input') {                // the arguments the script's input takes (its Args)
+    const given = new Map(String(x.b || '').split(';').map((pair) => pair.split('=')).filter((kv) => kv[0]).map(([k, ...v]) => [k, v.join('=')]));
+    // each one asked for as the script says it is (Args="Seconds:seconds,Who:thing": scripts.ARG_TYPES), else as text
+    const kinds = (lkIo(t).argTypes || {})[x.a] || {};
+    for (const key of (lkIo(t).args || {})[x.a] || []) {
+      const v = given.get(key) || '', at = `data-lkiarg="${j}" data-k="${escapeHtml(key)}"`, kind = kinds[key] || 'text';
+      const opts = (list, none) => `<option value="">${none}</option>` + list.map(([val, txt]) => `<option value="${escapeHtml(val)}"${val === v ? ' selected' : ''}>${escapeHtml(txt)}</option>`).join('');
+      const field = kind === 'number' || kind === 'seconds'
+        ? `<input type="number" ${at} value="${escapeHtml(v)}" step="any"${kind === 'seconds' ? ' min="0"' : ''} placeholder="the script's own" style="width:90px">${kind === 'seconds' ? '<span class="hint">seconds</span>' : ''}`
+        : kind === 'yesno' ? `<select ${at}>${opts([['True', 'Yes'], ['False', 'No']], "the script's own")}</select>`
+        : kind === 'thing' ? `<select ${at} style="flex:1;min-width:0">${opts(allActors().filter((a) => !edits.deleted[a.name]).map((a) => [a.name, lkName(a.name)]).sort((p, q) => p[1].localeCompare(q[1], undefined, { numeric: true })), 'nothing (the script\'s own)')}</select>`
+        : `<input type="text" ${at} value="${escapeHtml(v)}" placeholder="its value (empty: the script's own)" style="flex:1;min-width:0">`;
+      h += row(`<label style="width:auto">${escapeHtml(key)}</label>${field}`);
+    }
+  }
+  if (x.verb === 'floor') h += row(`<label style="width:auto" title="Its sequence: 0 is where it starts">floor</label><input type="number" data-lkarg="${j}" data-k="a" value="${Math.max(0, lkWholeOf(x.a, 0))}" min="0"${lkFloorMax(t) !== null ? ` max="${lkFloorMax(t)}"` : ''} step="1" style="width:60px">`);
+  if (x.verb === 'count') h += row(`<label style="width:auto">counter</label>${arg('a', 'Levers', 'flex:1;min-width:0')}<label style="width:auto" title="Set the counter to the number instead of adding it"><input type="checkbox" data-lkset="${j}" ${x.c === 'set' ? 'checked' : ''}> set to</label>${isFormula(String(x.b ?? ''))      // a formula of counters (P9 slice 5)
+    ? `<input type="text" data-lkarg="${j}" data-k="b" value="${escapeHtml(String(x.b))}" placeholder="Alarms + 1" title="${escapeHtml(FORMULA_TITLE)}" autocomplete="off" spellcheck="false" style="width:120px">`
+    : `<input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px"><button type="button" data-lkfx="${j}" title="${escapeHtml(FORMULA_TITLE)}">ƒx</button>`}`);
+  h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
+  if (x.verb === 'allies' && !factionData) loadFactions().catch(() => {});      // the faction fields' list (P9 slice 4)
+  if (!HAND_ROWS.has(x.verb) && lkArgsOf(x.verb).length) h += argRowsHtml(lkArgsOf(x.verb), x, j, { esc: escapeHtml, name: lkName,
+    props: lkSafeProps(tcat), items: propItems || [], signals: signalsOf(lkList(), lkStory()), dialogues: lkStoryList('dialogues'), infolinks: lkStoryList('infolinks'), rules: lkList().filter((r) => r !== lkMainOf(l) && !r.otherwiseOf).map((r) => ({ id: r.id, label: `${r.id}: ${r.label || lkSentence(r)}`.slice(0, 90) })) });
+  if (x.verb === 'body') h += bodyRowsHtml(x, j);
+  if (x.verb === 'fpmoment') {             // a moment of Tools > First-person moments (fp-moments.js)
+    const names = fpMoments.list();
+    h += `<div class="row" style="padding-left:38px"><select data-lkfpm="${j}" style="flex:1;min-width:0"><option value="">(choose a moment)</option>${names.map((n) => `<option ${n === x.a ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}${x.a && !names.includes(x.a) ? `<option selected>${escapeHtml(x.a)} (missing)</option>` : ''}</select>`
+      + `<button data-lkfpedit="${j}" ${x.a && names.includes(x.a) ? '' : 'disabled'} title="Change this moment">Edit…</button><button data-lkfpnew="${j}" title="Make a new moment for it">New…</button></div>`;
+  }
+  if (x.verb === 'travel') h += row(`<select data-lkarg="${j}" data-k="a" style="flex:1;min-width:0"><option value="">(choose a map)</option>${(allMapNames || []).map((m) => `<option ${m === x.a ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}${x.a && !(allMapNames || []).includes(x.a) ? `<option selected>${escapeHtml(x.a)}</option>` : ''}</select>${arg('b', 'arriving at (Tag)', 'width:100px')}`);
+  h += '</div>';
   return h;
 }
 
@@ -12962,7 +13461,7 @@ function lkWire(box, redraw) {
       const list = c.watch && (c.watch.flag || c.watch.type) ? [c.watch] : [];
       mountConditions(host, list, { mountState: (hh, value, onChange) => mountStateField(hh, value, { onChange }), items: propItems || [],
         characters: allActors().filter((a) => isCharacter(a) && !edits.deleted[a.name]).map((a) => ({ name: a.name, label: lkName(a.name) })),
-        counters: [...new Set(lkList().flatMap((r) => (r.do || []).filter((y) => y.verb === 'count' && y.a).map((y) => y.a)))],
+        counters: [...new Set(lkList().flatMap((r) => (r.do || []).filter((y) => y.verb === 'count' && y.a).map((y) => y.a)))], ...lkPointOpts,
         change: (mutate) => ch(() => { mutate(); c.watch = list[list.length - 1] || { flag: '', is: true }; list.splice(0, list.length - 1); }) });
     }
     const more = el.querySelector(`[data-lkmore="${CSS.escape(l.id)}"]`);
@@ -13015,6 +13514,8 @@ function lkWire(box, redraw) {
     for (const s of q('[data-lkitemadd]')) s.onchange = () => { if (!s.value) return; ch(() => { const [x, list] = itemsOf(s); list.push({ cls: s.value, w: 1 }); x[s.dataset.k] = itemsText(list); }); };
     const lko = el.querySelector('[data-lko]'), lkx = el.querySelector('[data-lkx]');
     if (lko) lko.onchange = (e) => ch(() => { l.once = e.target.checked; });
+    const lkwh = el.querySelector('[data-lkwhile]');
+    if (lkwh) lkwh.onchange = (e) => ch(() => { if (e.target.checked) l.while = true; else delete l.while; });
     if (lkx) lkx.onclick = () => ch(() => { edits.links = lkList().filter((x) => x !== l && x.otherwiseOf !== l.id); });
     const lkey = el.querySelector('[data-lkkey]');
     if (lkey) lkey.onchange = () => ch(() => { l.key = lkey.value; });
@@ -13024,11 +13525,21 @@ function lkWire(box, redraw) {
     if (lo) lo.onchange = () => ch(() => { l.option = +lo.value; });
     for (const t of q('[data-lkot]')) t.onchange = () => ch(() => lkSetOption(src, +l.option || 0, t.dataset.lkot, t.value));
     for (const s of q('[data-lkv]')) s.onchange = () => ch(() => { const x = l.do[+s.dataset.lkv]; lkApplyVerb(x, s.value); lkDefaults(x, src); });
+    // only in some phases (P3): the block, then its phases ticked (in the block's order)
+    const phs = el.querySelector('[data-lkphset]');
+    if (phs) phs.onchange = () => ch(() => { if (phs.value) l.phase = { set: phs.value, in: [] }; else delete l.phase; });
+    for (const t of q('[data-lkph]')) t.onchange = () => ch(() => {
+      const set = lkPhaseSets().find((s) => s.name === l.phase?.set);
+      const on = new Set((l.phase?.in || []).map((x) => String(x).toLowerCase()));
+      if (t.checked) on.add(t.dataset.lkph.toLowerCase()); else on.delete(t.dataset.lkph.toLowerCase());
+      l.phase = { set: l.phase.set, in: (set ? set.phases.map((p) => p.id) : [...on]).filter((id) => on.has(id.toLowerCase())) };
+    });
     // the conditions (conditions.js): l.requires is made with the first one, and goes with the last
     const condHost = el.querySelector('[data-lkcond]');
     if (condHost) {
       const list = l.requires || [];
-      mountConditions(condHost, list, {
+      mountConditions(condHost, list, { ...lkPointOpts,
+        empty: l.phase && l.phase.set ? 'No other conditions.' : undefined,          // (a rule kept to phases: P3)
         change: (mutate) => ch(() => { l.requires = list; mutate(); if (!list.length) delete l.requires; }),
         mountState: (host, value, onChange) => mountStateField(host, value, { onChange }),
         items: propItems || [],
@@ -13042,6 +13553,9 @@ function lkWire(box, redraw) {
       x.b = [...args].map(([k, v]) => `${k}=${v}`).join(';');
     });
     for (const c of q('[data-lkset]')) c.onchange = () => ch(() => { act(c).c = c.checked ? 'set' : ''; });
+    for (const s of q('[data-lkgroup]')) s.onchange = () => { if (s.value) ch(() => { l.do[+s.dataset.lkgroup].group = s.value; }); };
+    for (const b of q('[data-lkgsel]')) b.onclick = () => lgSelect(l.do[+b.dataset.lkgsel].group);
+    for (const b of q('[data-lkname]')) b.onclick = () => lgNameStep(l, +b.dataset.lkname, redraw);
     for (const input of q('[data-lktag]')) input.onchange = () => { const tag=input.value.trim(); if (!validScriptTag(tag)) { input.setCustomValidity('Use 1-64 letters, digits or underscores.'); input.reportValidity(); return; } input.setCustomValidity(''); ch(() => { l.do[+input.dataset.lktag].targetTag=tag; }); };
     for (const d of q('[data-lkd]')) d.onchange = () => ch(() => { l.do[+d.dataset.lkd].delay = Math.max(0, Math.round((+d.value || 0) * 10) / 10); });
     for (const b of q('[data-lka]')) b.onclick = () => ch(() => { l.do.splice(+b.dataset.lka, 1); });
@@ -13053,10 +13567,17 @@ function lkWire(box, redraw) {
     for (const b of q('[data-lkup]')) b.onclick = () => ch(() => moveStep(l, +b.dataset.lkup, -1));
     for (const b of q('[data-lkdown]')) b.onclick = () => ch(() => moveStep(l, +b.dataset.lkdown, 1));
     for (const b of q('[data-lkrm]')) b.onclick = () => ch(() => removeStep(l, +b.dataset.lkrm));
-    for (const s of q('[data-lkuntil]')) s.onchange = () => ch(() => { l.do[+s.dataset.lkuntil].until = s.value === 'arrived' ? { type: 'arrived', actor: '' } : { flag: '', is: true }; });
+    for (const s of q('[data-lkuntil]')) s.onchange = () => ch(() => {
+      l.do[+s.dataset.lkuntil].until = s.value === 'arrived' ? { type: 'arrived', actor: '' }
+        : LK_STORY_UNTIL[s.value] ? { type: s.value, [LK_STORY_UNTIL[s.value][0]]: '' } : { flag: '', is: true };
+    });
+    for (const s of q('[data-lkuntilstory]')) s.onchange = () => ch(() => {
+      const x = l.do[+s.dataset.lkuntilstory], t = (x.until || {}).type;
+      if (LK_STORY_UNTIL[t]) x.until = { type: t, [LK_STORY_UNTIL[t][0]]: s.value };
+    });
     for (const s of q('[data-lkuntilwho]')) s.onchange = () => ch(() => { l.do[+s.dataset.lkuntilwho].until = { type: 'arrived', actor: s.value }; });
     for (const m of q('[data-lkmax]')) m.onchange = () => ch(() => { l.do[+m.dataset.lkmax].max = Math.max(0, Math.round(+m.value || 0)); });
-    const stepCondOpts = { mountState: (host, value, onChange) => mountStateField(host, value, { onChange }), items: propItems || [],
+    const stepCondOpts = { ...lkPointOpts, mountState: (host, value, onChange) => mountStateField(host, value, { onChange }), items: propItems || [],
       characters: allActors().filter((a) => isCharacter(a) && !edits.deleted[a.name]).map((a) => ({ name: a.name, label: lkName(a.name) })),
       counters: [...new Set(lkList().flatMap((r) => (r.do || []).filter((y) => y.verb === 'count' && y.a).map((y) => y.a)))] };
     for (const host of q('[data-lkcondstep]')) {
@@ -13065,7 +13586,7 @@ function lkWire(box, redraw) {
     }
     for (const host of q('[data-lkuntilcond]')) {             // one condition: the first one is the one waited for
       const x = l.do[+host.dataset.lkuntilcond], u = x.until || {};
-      const list = u.type === 'arrived' || (!u.type && !u.flag) ? [] : [u];
+      const list = u.type === 'arrived' || LK_STORY_UNTIL[u.type] || (!u.type && !u.flag) ? [] : [u];
       mountConditions(host, list, { ...stepCondOpts, change: (mutate) => ch(() => { mutate(); x.until = list[0] || { flag: '', is: true }; }) });
     }
     const wn = el.querySelector('[data-lkwaitnext]');
@@ -13089,11 +13610,13 @@ function lkWire(box, redraw) {
     for (const inp of q('[data-lkarg]')) inp.onchange = () => ch(() => {
       const x = l.do[+inp.dataset.lkarg], k = inp.dataset.k;
       let v = inp.value.trim();                // the numbers as the game will take them (cleared: 0)
+      if (isFormula(v) && inp.type === 'text' && (lkArgsOf(x.verb).find((a) => a.id === k) || {}).formula) { x[k] = v; return; }   // a formula (P9 slice 5)
       if (x.verb === 'count' && k === 'b') v = String(lkWholeOf(v, 0));
       else if (x.verb === 'floor' && k === 'a') v = String(Math.max(0, lkWholeOf(v, 0)));
       else if (inp.type === 'number' && v !== '' && !HAND_ROWS.has(x.verb)) v = String(+v || 0);
       x[k] = v;
     });
+    for (const b of q('[data-lkfx]')) b.onclick = () => formulaField(b);      // the amount becomes a formula (P9 slice 5)
     for (const host of q('[data-lkstate]')) {
       const x = l.do[+host.dataset.lkstate];
       mountStateField(host, { flag: x.a || '', is: x.b !== '0' }, { mode: 'set', onChange: value => ch(() => {
@@ -13190,6 +13713,12 @@ function lkWire(box, redraw) {
       if (['@if', '@ifelse', '@until'].includes(v) || (v === '@wait' && l.steps)) { ch(() => { lkStepsToo(l); addFlow(l, v.slice(1), at); }); return; }
       if (v === '@wait') { lkWaitNext.set(l.id, 1); redraw(); return; }       // shown at the end, until a step follows it
       if (v === '@tag') { if (await lkAreaReady() && lkLive(l) && document.body.contains(el)) ch(() => lkAppend(l, {verb:'lightoff',target:'',targetTag:'green',delay:0}, at)); return; }
+      if (v === '@group') {
+        if (!lgGroups().length) { status('No groups yet: select some objects, right click > Make a group…', 'warn'); return; }
+        const g = lgGroups()[lgGroups().length - 1];
+        if (await lkAreaReady() && lkLive(l) && document.body.contains(el)) ch(() => lkAppend(l, { verb: lgFirstVerb(g.id), target: '', group: g.id, delay: 0 }, at));
+        return;
+      }
       if (v === '@area') {
         if (await lkAreaReady() && lkLive(l) && document.body.contains(el)) ch(() => lkAppend(l, lkNewArea(src), at));
         return;
@@ -13272,8 +13801,10 @@ function usableSection(a, redraw) {
 // lists of steps (List) or seen as a graph (Graph), as the Story's dialogues are (5 Nov 2026: the Inspector stays
 // uncluttered). A rule added here opens in the List.
 function lkSummary(a, redraw) {
-  const own = lkList().filter((l) => l.src === a.name && !l.otherwiseOf);
-  const incoming = lkList().filter((l) => l.src !== a.name && !l.otherwiseOf && (l.do || []).some((x) => x.target === a.name));
+  const own = lkList().filter((l) => l.src === a.name && !l.otherwiseOf && !l.replacedBy);
+  const incoming = lkList().filter((l) => l.src !== a.name && !l.otherwiseOf && !l.replacedBy && (l.do || []).some((x) => x.target === a.name));
+  const scripted = lkList().filter((l) => l.src === a.name && l.replacedBy);       // Turn into script: a script does them
+  const doesFor = lgReplacedBy(a.name);                                              // this object is that script
   const evs = lkEventsOf(a), cat = lkCatOf(a);
   const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(a.name, w)}"` : LK_WHEN[w] || w);
   const steps = (l) => { const n = (l.do || []).length + ((otherwiseOf(l, lkList()) || {}).do || []).length; return `${n} step${n === 1 ? '' : 's'}`; };
@@ -13282,15 +13813,22 @@ function lkSummary(a, redraw) {
     + '<button data-lkopen="graph" title="See its rules as a graph in the Logic window">Graph</button></div>';
   h += own.map((l) => `<a href="#" class="lk-sum" data-lkopenrule="${escapeHtml(l.id)}" title="${escapeHtml(lkSentence(l))}">`
     + `<span>${escapeHtml(cap('when ' + whenLabel(lkWhenKey(l))) + ((l.requires || []).length ? ', if ' + (l.requires || []).map((c) => conditionText(c, lkCondNames)).join(' and ') : '')
-      + (l.once ? ' (once)' : ''))}</span><i>${steps(l)}</i></a>`).join('');
+      + (l.once ? ' (once)' : '') + (l.while && (!lkVocab || lkCanWhile(l)) ? ' (while)' : ''))}</span><i>${steps(l)}</i></a>`).join('');
   h += incoming.map((l) => `<a href="#" class="lk-sum lk-sum-in" data-lkopenrule="${escapeHtml(l.id)}" title="${escapeHtml(lkSentence(l))}">`
     + `<span>← ${escapeHtml(lkName(l.src))}: ${escapeHtml(whenLabel(lkWhenKey(l)))}</span></a>`).join('');
+  h += scripted.map((l) => `<a href="#" class="lk-sum lk-sum-in" data-lkscript="${escapeHtml(l.replacedBy.object)}" title="${escapeHtml(lkSentence(l))}: the script ${escapeHtml(l.replacedBy.script)} does it now (Back to rules is on its object)">`
+    + `<span>${escapeHtml(cap('when ' + whenLabel(lkWhenKey(l))))}</span><i>script ${escapeHtml(l.replacedBy.script)}</i></a>`).join('');
+  if (doesFor.length) h += `<div class="lk-scripted"><div class="hint" style="margin:2px 0">It does what ${doesFor.length === 1 ? 'a rule' : doesFor.length + ' rules'} did (Turn into script): change it in Tools &gt; Scripts.</div>`
+    + `<button type="button" class="lk-back" title="The rules put back as they were: this object and the rules that call it go (the script stays in Tools > Scripts)">Back to rules</button></div>`;
   if (evs.length) h += `<div class="row"><select data-lkaddwhen style="flex:1;min-width:0"><option value="">+ When ${cat === 'character' ? 'they' : 'it'}…</option>`
     + `${evs.map((w) => `<option value="${escapeHtml(w)}">${escapeHtml(whenLabel(w))}</option>`).join('')}</select></div>`;
   else h += '<div class="hint" style="margin:2px 0">It does nothing by itself: another object acts on it.</div>';
   const wire = () => {
     const box = $('#propsec');
     for (const b of box.querySelectorAll('[data-lkopen]')) b.onclick = () => logicOpen(a.name, b.dataset.lkopen);
+    for (const g of box.querySelectorAll('[data-lkscript]')) g.onclick = (e) => { e.preventDefault(); window.__editor.selectActor(g.dataset.lkscript); };
+    const back = box.querySelector('.lk-back');
+    if (back) back.onclick = () => { const n = lgBackToRules(a.name); log(`${n} rule${n === 1 ? '' : 's'} put back as ${n === 1 ? 'it was' : 'they were'} (Ctrl+Z takes it back).`, 'ok'); };
     for (const r of box.querySelectorAll('[data-lkopenrule]')) r.onclick = (e) => {
       e.preventDefault();
       const l = lkGet(r.dataset.lkopenrule);
@@ -13308,12 +13846,912 @@ function lkSummary(a, redraw) {
       logicOpen(a.name, 'list', made.id);
     };
   };
-  return { html: inspectorSection('interactions', 'Logic', h, own.length + incoming.length > 0), wire };
+  return { html: inspectorSection('interactions', 'Logic', h, own.length + incoming.length + scripted.length + doesFor.length > 0), wire };
 }
 // the Logic window shown, on a thing ('' the map) in a view (list, graph), a rule of it brought into sight
+// ---------------------------------------------------------------- named groups (P3, edits.logic.groups)
+// A group is a list of objects with a name: a rule's step can make all of them do something at once (each one that
+// can: a light does not open), and a rule can start when any of them is used. Kept in edits.logic.groups as
+// [{id, name, members}]; the Rebuild writes the members into the step (links.py expand_groups), so a group changed
+// later changes every rule that uses it. Not edits.groups: that holds the poses of the map's structures.
+const lgGroups = () => (edits.logic && Array.isArray(edits.logic.groups) ? edits.logic.groups : []);
+const lgGroup = (id) => lgGroups().find((g) => g.id === id) || null;
+const lgName = (id) => (lgGroup(id) ? lgGroup(id).name : 'a group that no longer exists');
+// A group with a filter (slice 11, links.group_filter), made by "Name this group" from a step on objects tagged so or
+// within a radius: {tag} every object with the scripting tag when a step runs; {area: {kind, at, radius, tag, dynamic}}
+// its saved members (g.members) and, with dynamic, those inside the radius then
+const lgFilter = (g) => (g && g.filter && typeof g.filter === 'object' ? g.filter : null);
+// A group of a kind or of a faction (P9, links.every_set: {kind: 'MJ12Troop'} / {faction: 'MJ12'}): every character
+// of that class (its subclasses too) or of that faction, as the game finds them while it plays, newcomers too; it
+// keeps no objects of its own. Its rules are the game rules' (UCRule Every): "When any of them is killed, sees the
+// player..." and a step on it reaches each living one.
+const lgSet = (g) => { const f = lgFilter(g); return f && (f.kind || f.faction) ? f : null; };
+const LG_SET_WHENS = ['killed', 'knockedout', 'dies', 'hurt', 'sees', 'turnshostile', 'findsbody'];
+const lgSetRule = (l) => !!l && !l.src && !!lgSet(lgGroup(l.group));
+// a kind's words: the class's own name in the editor (NAMES, else what the map's objects of that class are called)
+function lgKindLabel(cls) {
+  const bare = String(cls).split('.').pop().toLowerCase(), one = allActors().find((a) => String(a.cls).split('.').pop().toLowerCase() === bare);
+  const s = NAMES[cls] || (one && (NAMES[one.cls] || one.label)) || clsShown(cls).replace(/([a-z])([A-Z0-9])/g, '$1 $2');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+const lgInSet = (f, a) => (f.kind ? (chainNow[a.cls] || [a.cls]).some((c) => String(c).toLowerCase() === String(f.kind).toLowerCase())
+  : factionOf(a).toLowerCase() === String(f.faction).toLowerCase());
+// the characters of the map in it now (their classes' chains as far as the page knows them: lgSetReady loads them)
+const lgSetMembers = (f) => allActors().filter((a) => a.name && !edits.deleted?.[a.name] && isCharacter(a) && lgInSet(f, a)).map((a) => a.name);
+const lgSetReady = () => Promise.all([...new Set(allActors().filter(isCharacter).map((a) => a.cls))].map((c) => chainOf(c)));
+// the characters of the groups of a kind or a faction the rules use, for the Logic window and Try it
+function lgSetNames(links) {
+  const ids = new Set(links.flatMap((l) => [l, ...(l.do || []), ...(l.else || [])]).filter((x) => x && x.group).map((x) => x.group));
+  return [...new Set([...ids].map(lgGroup).filter(lgSet).flatMap((g) => lgSetMembers(lgSet(g))))];
+}
+// its saved objects (a group of picked objects: all of them; by radius: those it keeps; by tag, kind, faction: none)
+function lgSaved(id) { const g = lgGroup(id); return g && !(lgFilter(g) || {}).tag && !lgSet(g) ? (g.members || []).filter((n) => lkActor(n)) : []; }
+// the objects in it now
+function lgMembers(id) {
+  const g = lgGroup(id), f = lgFilter(g);
+  if (lgSet(g)) return lgSetMembers(f);
+  if (f && f.tag) return lkTagTargets({ verb: '', targetTag: f.tag }, null);
+  if (f && f.area) return lkAreaTargets({ verb: '', area: { ...f.area, members: g.members || [] } }, null);
+  return lgSaved(id);
+}
+// what its filter is, in words ('' for a group of picked objects)
+function lgFilterText(g) {
+  const f = lgFilter(g);
+  if (!f) return '';
+  if (f.kind) return `every ${lgKindLabel(f.kind)}, newcomers too`;
+  if (f.faction) return `every character of the faction ${f.faction}, newcomers too`;
+  if (f.tag) return `everything tagged ${f.tag}`;
+  const kind = { light: 'lights', character: 'characters', object: 'objects' }[f.area.kind] || 'objects';
+  return `${kind}${f.area.tag ? ' tagged ' + f.area.tag : ''} within ${f.area.radius} units of a point${f.area.dynamic ? ', newcomers too' : ''}`;
+}
+function lgNewId() { const used = new Set(lgGroups().map((g) => g.id)); let k = 1; while (used.has('G' + k)) k++; return 'G' + k; }
+const lgKey = (name) => (objOf('a:' + name) ? 'a:' + name : objOf('b:' + name) ? 'b:' + name : null);
+// the objects of the selection a group can hold: those with a name in the game (an object, a moving block)
+const lgSelNames = () => [...new Set(stateTargets(selKeys()).map((p) => p.userData.actor?.name || (p.userData.box?.mover ? p.userData.box.name : null)).filter(Boolean))];
+// the rules that use a group (a step on it, or started by any of it)
+const lgUses = (id) => lkList().filter((l) => l.group === id || [...(l.do || []), ...(l.else || [])].some((x) => x && x.group === id));
+// the members that can do a verb, as the game picks them (UCLink.TagKind): not the rule's own object
+function lkGroupTargets(x, source) {
+  const g = lgGroup(x.group), f = lgFilter(g);
+  if (lgSet(g)) return TAG_CHARACTER_VERBS.has(x.verb) ? lgSetMembers(f).filter((n) => n !== source) : [];   // UCRule.DoEvery
+  if (f && f.tag) return lkTagTargets({ ...x, targetTag: f.tag }, source);      // as the build makes it (expand_groups)
+  if (f && f.area && (AREA_VERBS[f.area.kind] || []).includes(x.verb)) return lkAreaTargets({ ...x, area: { ...f.area, members: g.members || [] } }, source);
+  const kind = TAG_CHARACTER_VERBS.has(x.verb) ? 'character' : String(x.verb || '').startsWith('light') ? 'light' : TAG_DOOR_VERBS.has(x.verb) ? 'door' : '';
+  const can = (n) => { const a = lkActor(n); return !!a && (kind === 'door' ? lkCatOf(a) === 'door' : tagDescription(a).kind === kind); };
+  return lgSaved(x.group).filter((n) => n !== source && lkAreaAvailable(n) && (!kind || can(n)));
+}
+// the first thing a new step on a group does: what its first member can
+function lgFirstVerb(id) {
+  if (lgSet(lgGroup(id))) return 'stand';             // a kind, a faction: characters only, there or not yet
+  const a = lkActor(lgMembers(id)[0]);
+  if (!a) return 'hide';
+  const kind = lkCatOf(a) === 'door' ? 'door' : tagDescription(a).kind;
+  return kind === 'door' ? 'open' : kind === 'light' ? 'lighton' : kind === 'character' ? 'stand' : 'hide';
+}
+function lgAskName(title, action, value, own = null, hint = 'Rules can tell all of them to do something at once, or start when any of them is used.') {
+  return askName({ title, label: 'Name of the group', action, value, hint,
+    check: (text) => {
+      const t = String(text).trim().replace(/\s+/g, ' ');
+      if (!t) throw new Error('Write a name.');
+      if (t.length > 60) throw new Error('At most 60 letters.');
+      if (lgGroups().some((g) => g.id !== own && g.name.toLowerCase() === t.toLowerCase())) throw new Error('Another group has this name.');
+      return t;
+    } });
+}
+async function lgMake(names) {
+  if (names.length < 1) { status('Select the objects of the group first.', 'warn'); return null; }
+  const name = await lgAskName('Make a group', 'Make the group', `Group ${lgGroups().length + 1}`);
+  if (!name) return null;
+  pushUndo('Make a group');
+  const logic = edits.logic && typeof edits.logic === 'object' ? edits.logic : (edits.logic = {});
+  const g = { id: lgNewId(), name, members: names };
+  (logic.groups ||= []).push(g);
+  hierOpen.add('lgroups');
+  setDirty();
+  buildHierarchy();
+  status(`Group "${name}": ${names.length} object${names.length === 1 ? '' : 's'}. A rule's step can now act on all of them ("A group…").`, 'ok');
+  return g;
+}
+// "Make a group of every UNATCO Troop…", "…of the faction MJ12…" (P9): a group of a kind or of a faction, from a
+// character's right click; the same kind or faction twice is the group there is
+async function lgMakeSet(filter) {
+  const same = lgGroups().find((g) => { const f = lgSet(g); return f && (filter.kind ? String(f.kind).toLowerCase() === filter.kind.toLowerCase() : String(f.faction || '').toLowerCase() === String(filter.faction).toLowerCase()); });
+  if (same) { hierOpen.add('lgroups'); buildHierarchy(); status(`The group "${same.name}" is already ${lgFilterText(same)}.`, 'warn'); return same; }
+  const what = filter.kind ? `Every ${lgKindLabel(filter.kind)}` : `Faction ${filter.faction}`;
+  const name = await lgAskName('Make a group', 'Make the group', what.slice(0, 60), null,
+    'Rules can start when any of them is killed, knocked out, hurt, sees the player, turns hostile or finds a body, and tell each living one to do something. Characters that come later count too.');
+  if (!name) return null;
+  pushUndo('Make a group');
+  const logic = edits.logic && typeof edits.logic === 'object' ? edits.logic : (edits.logic = {});
+  const g = { id: lgNewId(), name, members: [], filter: filter.kind ? { kind: filter.kind } : { faction: filter.faction } };
+  (logic.groups ||= []).push(g);
+  hierOpen.add('lgroups');
+  setDirty();
+  buildHierarchy();
+  await lgSetReady();
+  const n = lgSetMembers(g.filter).length;
+  status(`Group "${name}": ${lgFilterText(g)} (${n} in the map now). Right-click it in the Hierarchy: "When any of them…".`, 'ok');
+  return g;
+}
+// "Name this group" (slice 11, the design's migration 4): a step on objects tagged so, or within a radius, becomes a
+// step on a named group with the same filter, which builds exactly as before (links.expand_groups). By tag, every
+// step of the map on the same tag goes to the group too; by radius, this step. One undo step.
+async function lgNameStep(l, j, redraw) {
+  const x = (l.do || [])[j];
+  if (!x || (!x.targetTag && !x.area)) return;
+  const area = x.area ? { kind: x.area.kind, at: [...x.area.at], radius: x.area.radius, tag: x.area.tag || '', dynamic: x.area.dynamic === true } : null;
+  const name = await lgAskName('Name this group', 'Name the group', x.targetTag ? `Tagged ${x.targetTag}` : `${{ light: 'Lights', character: 'Characters', object: 'Objects' }[area.kind] || 'Objects'} near ${lkName(l.src) || 'a point'}`.slice(0, 60), null,
+    x.targetTag ? `Rules can tell everything tagged ${x.targetTag} to do something at once, under this name. Every step on this tag will use it.`
+      : 'Rules can tell all of them to do something at once, or start when one of the objects it keeps is used.');
+  if (!name || !lkList().includes(l) || l.do[j] !== x) return;
+  const id = lgNewId(), steps = [];
+  lkChange(l, () => {
+    const logic = edits.logic && typeof edits.logic === 'object' ? edits.logic : (edits.logic = {});
+    (logic.groups ||= []).push(area ? { id, name, members: [...new Set(x.area.members || [])], filter: { area } } : { id, name, members: [], filter: { tag: x.targetTag } });
+    const tag = String(x.targetTag || '').toLowerCase();
+    for (const r of lkList()) {
+      for (const y of [...(r.do || []), ...(r.else || [])]) {
+        if (!y || !(y === x || (tag && !y.area && String(y.targetTag || '').toLowerCase() === tag))) continue;
+        delete y.targetTag; delete y.area; y.target = ''; y.group = id;
+        steps.push(r);
+      }
+    }
+    for (const r of new Set(steps)) if (r !== l) r.label = lkSentence(r);
+  }, redraw, 'Name a group');
+  hierOpen.add('lgroups');
+  buildHierarchy();
+  const n = steps.length;
+  status(`Group "${name}": ${lgFilterText(lgGroup(id))}. ${n === 1 ? 'Its step uses it' : `${n} steps use it`}; other rules can use it too ("A group…").`, 'ok');
+}
+// The states and counters watched while playing (P5, edits.logic.watch: their names), pinned in the Logic window's
+// list: the Rebuild gives them to the map's UCLogicHub (links.py hub), which writes their changes to the logic log
+function lgWatch(name, on) {
+  const same = (n) => String(n).toLowerCase() === String(name).toLowerCase();
+  const now = edits.logic && Array.isArray(edits.logic.watch) ? edits.logic.watch : [];
+  if (on === now.some(same)) return;
+  lgChange(on ? `Watch ${name} while playing` : `Stop watching ${name}`, () => {
+    if (!edits.logic || typeof edits.logic !== 'object') edits.logic = {};
+    const w = now.filter((n) => !same(n));
+    if (on) w.push(name);
+    if (w.length) edits.logic.watch = w; else delete edits.logic.watch;
+  });
+  status(on ? `${name} is watched while playing: Rebuild, then Play, and its changes show in the list and the Console.` : `${name} is no longer watched.`);
+}
+// A state's or counter's start value (P5, edits.logic.start: {name: true / false / a whole number}): the map's
+// UCLogicHub sets it on the first visit when nothing has set it yet; Try it starts from it too
+function lgStart(name, value) {
+  const same = (n) => String(n).toLowerCase() === String(name).toLowerCase();
+  const now = edits.logic && edits.logic.start && typeof edits.logic.start === 'object' ? edits.logic.start : {};
+  const had = Object.keys(now).find(same);
+  if (had !== undefined && now[had] === value) return;
+  if (had === undefined && value === undefined) return;
+  const words = (v) => (typeof v === 'number' ? String(v) : v ? 'Yes' : 'No');
+  lgChange(value === undefined ? `${name}: no start value` : `${name} starts as ${words(value)}`, () => {
+    if (!edits.logic || typeof edits.logic !== 'object') edits.logic = {};
+    const next = Object.fromEntries(Object.entries(now).filter(([k]) => !same(k)));
+    if (value !== undefined) next[name] = value;
+    if (Object.keys(next).length) edits.logic.start = next; else delete edits.logic.start;
+  });
+  status(value === undefined ? `${name} has no start value.`
+    : `${name} starts as ${words(value)} on the map's first visit, if nothing has set it yet. Rebuild to use it in the game.`);
+}
+// The map's blocks of its own (P8, the Logic window's Ctrl+G: logic-boxes.js), edits.logic.boxes: rules and logic
+// pieces drawn as one node in the graph. Only a way of looking: the build (links.py) does not read them.
+function lgBoxes(label, list) {
+  lgChange(label, () => {
+    if (!edits.logic || typeof edits.logic !== 'object') edits.logic = {};
+    if (Array.isArray(list) && list.length) edits.logic.boxes = list; else delete edits.logic.boxes;
+  });
+}
+// A pattern of the project placed in the map (P8 slice 3, the Logic window's Patterns): an instance in
+// edits.logic.instances ({id: P1, pattern, v, name, slots}), the version it uses in edits.logicPatterns (the server's
+// loaders put it there too: logicpatterns.apply), the logic blocks it brings added as objects near the first object
+// chosen. chosen: {slot id: object name}. One undoable step; the build writes its rules out (links.py).
+async function lgPlacePattern(slug, chosen) {
+  const { pattern } = await api('/api/logic_pattern?slug=' + encodeURIComponent(slug));
+  const ver = pattern.versions[pattern.versions.length - 1];
+  const slots = Object.fromEntries(Object.entries(chosen || {}).filter(([, n]) => n && lkActor(n)));
+  const first = Object.values(slots)[0];
+  const base = first ? lkWhere(first).map((v, k) => Math.round(v + [96, 0, 48][k])) : UE(camera.position.clone()).map(Math.round);
+  let id = '';
+  lgChange(`Place the pattern "${pattern.name}"`, () => {
+    if (!edits.logic || typeof edits.logic !== 'object') edits.logic = {};
+    id = nextInstanceId(edits);
+    const made = [];
+    for (const o of ver.objects || []) {
+      const e = { name: nextName('UCEdit'), cls: o.cls, loc: base.map((v, k) => v + ((o.at || [])[k] || 0)), rot: [0, 0, 0], props: { ...(o.props || {}) } };
+      edits.added.push(e);
+      made.push(e);
+      slots[o.slot] = e.name;
+    }
+    for (const e of made) e.props = fillSlots(e.props, slots);     // a block's settings may name the others
+    if (made.length) intoDefaultFolder(made.map((e) => 'a:' + e.name));
+    edits.logic.instances = [...(Array.isArray(edits.logic.instances) ? edits.logic.instances : []),
+      { id, pattern: slug, v: ver.v, name: pattern.name, slots }];
+    edits.logicPatterns = { ...(edits.logicPatterns || {}), [versionKey(slug, ver.v)]: { ...ver, name: pattern.name } };
+  });
+  rebuildProxies();
+  return { id, name: pattern.name, v: ver.v, slots };
+}
+// the map's objects to fill a pattern's slot of that family, by their names in the Hierarchy: [{name, label, fits}],
+// those of its family (fits) first ('other' or none: every one fits)
+async function lgObjectsOf(family) {
+  const all = allActors().filter((a) => !edits.deleted[a.name] && !String(a.name).startsWith('UCLink_'));
+  await Promise.all([...new Set(all.map((a) => a.cls))].map((cls) => chainOf(cls)));
+  const any = !family || family === 'other';
+  const labels = logicLabels(all.map((a) => a.name));
+  return all.map((a) => ({ name: a.name, label: labels[a.name] || a.name, fits: any || lkIo(a).family === family }))
+    .sort((x, y) => (y.fits - x.fits) || x.label.localeCompare(y.label, undefined, { numeric: true }));
+}
+// The rules of this map on a port of a script (Tools > Scripts' Ports table, P8 slice 5): kind 'inputs' (a step
+// "input" to one of its objects) or 'outputs' (a cause "output" of one of them, an "Or when..." too). to: the port's
+// new name, the rules changed to it in one undoable step; null: only counted. Gives the number of rules.
+function scriptPortRules(cls, kind, from, to) {
+  const objects = new Set(allActors().filter((a) => !edits.deleted[a.name] && String(a.cls).toLowerCase() === String(cls).toLowerCase()).map((a) => a.name));
+  if (!objects.size || !from) return 0;
+  const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+  const hits = [];                                 // [rule, the things in it to rename]
+  for (const l of edits.links || []) {
+    const parts = kind === 'outputs'
+      ? [l, ...(l.also || [])].filter((c) => c && c.when === 'output' && objects.has(c.src) && same(c.port, from))
+      : [...(l.do || []), ...(l.else || [])].filter((x) => x && x.verb === 'input' && objects.has(x.target) && same(x.a, from));
+    if (parts.length) hits.push([l, parts]);
+  }
+  if (to && hits.length) {
+    lgChange(`Rename the ${kind === 'outputs' ? 'output' : 'input'} "${from}" in the rules`, () => {
+      for (const [l, parts] of hits) {
+        for (const p of parts) if (kind === 'outputs') p.port = to; else p.a = to;
+        l.label = lkSentence(l);
+      }
+    });
+  }
+  return hits.length;
+}
+// a placed pattern taken away: 'keep' writes its rules and logic items into the map's own (P1_R1...), else they go;
+// the logic blocks it brought stay (objects of the map, deleted as any other)
+function lgUnplacePattern(id, how) {
+  const inst = (edits.logic?.instances || []).find((x) => x && x.id === id);
+  if (!inst) return false;
+  lgChange(how === 'keep' ? `Unpack the pattern "${inst.name}"` : `Remove the pattern "${inst.name}"`, () => {
+    if (how === 'keep') {
+      const out = expandInstances({ ...edits, logic: { ...edits.logic, instances: [inst] } });
+      const mine = (out.links || []).filter((l) => l.instance === id).map(({ instance, ...l }) => l);
+      // the map's own ids (L8...), their "If not" and step ids following
+      const ids = new Map();
+      edits.links = edits.links || [];
+      for (const l of mine) { const nid = lkNewId(); ids.set(l.id, nid); edits.links.push({ id: nid }); }
+      edits.links.splice(edits.links.length - mine.length, mine.length);
+      for (const l of mine) {
+        const old = l.id, nid = ids.get(old);
+        l.id = nid;
+        if (ids.has(l.otherwiseOf)) l.otherwiseOf = ids.get(l.otherwiseOf);
+        for (const key of ['do', 'else']) for (const a of l[key] || []) {
+          if (a && typeof a.id === 'string' && a.id.startsWith(old + '_')) a.id = nid + a.id.slice(old.length);
+        }
+      }
+      edits.links.push(...mine);
+      for (const key of ['blocks', 'phases', 'groups', 'points']) {
+        const extra = (out.logic[key] || []).filter((x) => x && String(x.id).startsWith(id + '_'));
+        if (extra.length) edits.logic[key] = [...(edits.logic[key] || []), ...extra];
+      }
+      for (const l of mine) l.label = lkSentence(l);
+    }
+    edits.logic.instances = edits.logic.instances.filter((x) => x !== inst);
+    if (!edits.logic.instances.length) delete edits.logic.instances;
+    lgPatternsUsed();
+  });
+  return true;
+}
+// a placed pattern moved to the newest version of its pattern (the blocks a newer version brings added)
+// what updating it would change, in words, before it is done: {v, same, words}
+async function lgUpdatePreview(id) {
+  const inst = (edits.logic?.instances || []).find((x) => x && x.id === id);
+  if (!inst) return null;
+  const { pattern } = await api('/api/logic_pattern?slug=' + encodeURIComponent(inst.pattern));
+  const ver = pattern.versions[pattern.versions.length - 1];
+  const older = pattern.versions.find((x) => x.v === inst.v) || (edits.logicPatterns || {})[versionKey(inst.pattern, inst.v)];
+  return { v: ver.v, same: ver.v === inst.v, words: versionChanges(older, ver).words };
+}
+async function lgUpdatePattern(id) {
+  const inst = (edits.logic?.instances || []).find((x) => x && x.id === id);
+  if (!inst) return null;
+  const { pattern } = await api('/api/logic_pattern?slug=' + encodeURIComponent(inst.pattern));
+  const ver = pattern.versions[pattern.versions.length - 1];
+  if (ver.v === inst.v) return { v: ver.v, same: true };
+  const older = pattern.versions.find((x) => x.v === inst.v) || (edits.logicPatterns || {})[versionKey(inst.pattern, inst.v)];
+  const change = versionChanges(older, ver);
+  const slots = { ...(inst.slots || {}) };
+  const first = Object.values(slots).find((n) => n && lkActor(n));
+  const base = first ? lkWhere(first).map((v, k) => Math.round(v + [96, 0, 48][k])) : UE(camera.position.clone()).map(Math.round);
+  lgChange(`Update the pattern "${inst.name}" to version ${ver.v}`, () => {
+    for (const o of ver.objects || []) {
+      if (slots[o.slot] && lkActor(slots[o.slot])) continue;
+      const e = { name: nextName('UCEdit'), cls: o.cls, loc: base.map((v, k) => v + ((o.at || [])[k] || 0)), rot: [0, 0, 0], props: fillSlots({ ...(o.props || {}) }, slots) };
+      edits.added.push(e);
+      intoDefaultFolder(['a:' + e.name]);
+      slots[o.slot] = e.name;
+    }
+    inst.v = ver.v; inst.slots = slots;
+    edits.logicPatterns = { ...(edits.logicPatterns || {}), [versionKey(inst.pattern, ver.v)]: { ...ver, name: pattern.name } };
+    lgPatternsUsed();
+  });
+  rebuildProxies();
+  return { v: ver.v, same: false, words: change.words, slots: change.slots };
+}
+// the copies of the patterns' versions kept with the map: only those its placed patterns use (logicpatterns.apply)
+function lgPatternsUsed() {
+  const used = new Set(instancesOf(edits).map((x) => versionKey(x.pattern, x.v)));
+  const kept = Object.fromEntries(Object.entries(edits.logicPatterns || {}).filter(([k]) => used.has(k)));
+  if (Object.keys(kept).length) edits.logicPatterns = kept; else delete edits.logicPatterns;
+}
+// Turn into script (P8 slice 6, rulescript.py): the rules (ids) written as a new script of Tools > Scripts, compiled,
+// placed near the first rule's object; each rule's cause stays as a thin rule calling the script's input of its id,
+// the rule itself marked replacedBy (the build leaves it out). One undoable step after the script is made. Gives
+// {name, object, rules, refused} or {refused, error}.
+async function lgTurnIntoScript(ids, name, preview = false) {
+  const body = { edits, rules: ids, name: name || '', map: mapName || script || '', preview };
+  const made = await api('/api/logic/to_script', body);
+  if (preview || !made.rules.length) return made;
+  const r = await api('/api/scripts_compile', {});
+  if (!r.ok) {                                       // it should compile: if not, nothing is left half done
+    await api('/api/script_delete', { name: made.name }).catch(() => {});
+    await api('/api/scripts_compile', {}).catch(() => {});
+    const first = (r.problems || [])[0];
+    return { ...made, error: `The script did not compile${first ? ': ' + first.message : ''}. Nothing was changed.` };
+  }
+  forgetClass(made.cls);
+  await chainOf(made.cls).catch(() => {});           // its inputs' words, for the thin rules' sentences
+  const rules = made.rules.map((id) => (edits.links || []).find((l) => l.id === id)).filter(Boolean);
+  const src = rules.map((l) => l.src).find((n) => n && lkActor(n));
+  const base = src ? lkWhere(src).map((v, k) => Math.round(v + [96, 0, 48][k])) : UE(camera.position.clone()).map(Math.round);
+  let object = '';
+  lgChange(`Turn ${rules.length === 1 ? 'a rule' : rules.length + ' rules'} into the script ${made.name}`, () => {
+    object = nextName(made.name);
+    edits.added.push({ name: object, cls: made.cls, loc: base, rot: [0, 0, 0], props: {} });
+    intoDefaultFolder(['a:' + object]);
+    for (const l of rules) {
+      const { do: _d, else: _e, requires, match, once, steps, replacedBy, ...cause } = l;
+      const thin = { ...cause, id: lkNewId(), do: [{ verb: 'input', target: object, a: l.id }] };
+      edits.links.push(thin);
+      thin.label = lkSentence(thin);
+      l.replacedBy = { script: made.name, object, rule: thin.id };
+    }
+  });
+  rebuildProxies();
+  return { name: made.name, object, rules: made.rules, refused: made.refused };
+}
+// Back to rules: the rules a script made by Turn into script does (its object in the map) put back as they were;
+// their thin rules and the object go, the script's file stays in Tools > Scripts. Gives the number of rules.
+function lgBackToRules(object) {
+  const rules = (edits.links || []).filter((l) => l.replacedBy && String(l.replacedBy.object).toLowerCase() === String(object).toLowerCase());
+  if (!rules.length) return 0;
+  lgChange(`Back to rules from the script ${rules[0].replacedBy.script}`, () => {
+    const thin = new Set(rules.map((l) => l.replacedBy.rule));
+    edits.links = edits.links.filter((l) => !thin.has(l.id));
+    for (const l of rules) delete l.replacedBy;
+    const p = proxyOf(object);
+    if (p) removeOne(p); else edits.added = edits.added.filter((a) => a.name !== object);
+    forgetKeys(['a:' + object]);
+  });
+  rebuildProxies();
+  return rules.length;
+}
+// the rules a script object does (Turn into script): [{id, label}]
+function lgReplacedBy(object) {
+  return (edits.links || []).filter((l) => l.replacedBy && String(l.replacedBy.object).toLowerCase() === String(object).toLowerCase())
+    .map((l) => ({ id: l.id, label: l.label || lkSentence(l) }));
+}
+function lgChange(label, fn) {
+  pushUndo(label);
+  fn();
+  setDirty();
+  buildHierarchy();
+  lkRefresh(() => { if (selected && selected.userData.actor) renderProps(selected); });
+}
+function lgSelect(id) {
+  const keys = lgMembers(id).map(lgKey).filter(Boolean);
+  if (!keys.length) { status(`"${lgName(id)}" has nothing in it now.`, 'warn'); return; }
+  selectKeys(keys);
+  status(`"${lgName(id)}": ${keys.length} selected.`);
+}
+// a rule started by any member of a group: on the first one, said "any of" the group
+async function lgWhenAny(id) {
+  if (lgSet(lgGroup(id))) {          // a kind, a faction (P9): no object of its own, the game looks at each one
+    await lgSetReady();
+    const first = lkActor(lgMembers(id)[0]);
+    let made = null;
+    lkChange(null, () => {
+      made = lkAdd(null, 'killed', null);
+      made.group = id;
+      if (first) made.at = lkWhere(first.name);
+      made.label = lkSentence(made);
+    }, () => { if (selected && selected.userData.actor) renderProps(selected); }, 'When any of a group');
+    if (made) logicOpen('', 'list', made.id);
+    return;
+  }
+  const names = lgSaved(id);
+  if (!names.length) { status(`"${lgName(id)}" has nothing in it now.`, 'warn'); return; }
+  const a = lkActor(names[0]);
+  await chainOf(a.cls);
+  const w = lkEventsOf(a)[0];
+  if (!w) { status('Nothing can happen to the objects of this group that could start a rule.', 'warn'); return; }
+  let made = null;
+  lkChange(null, () => {
+    made = lkAdd(a, 'used', null);
+    made.when = w.startsWith('output:') ? 'output' : w;
+    if (w.startsWith('output:')) made.port = w.slice(7);
+    made.group = id;
+    made.label = lkSentence(made);
+  }, () => { if (selected && selected.userData.actor) renderProps(selected); }, 'When any of a group');
+  if (made) logicOpen(made.src, 'list', made.id);
+}
+function lgMenu(id) {
+  const g = lgGroup(id);
+  if (!g) return [{ label: 'Nothing to do here', off: true }];
+  const sel = lgSelNames(), inside = sel.filter((n) => g.members.includes(n)), outside = sel.filter((n) => !g.members.includes(n));
+  const things = lgMembers(id).map(lkActor).filter(Boolean), uses = lgUses(id).length, f = lgFilter(g);
+  // a group by tag holds what has the tag: nothing to add or take out; by radius: its saved objects, taken again
+  const edit = lgSet(g) ? [{ label: `Its objects: ${lgFilterText(g)}`, off: true, title: f.kind ? 'Every character of this kind is in it, those that come later too' : 'Change a character\'s faction in the Inspector to put it in the group or take it out' }]
+    : f && f.tag ? [{ label: `Its objects: ${lgFilterText(g)}`, off: true, title: 'Give an object this Scripting tag in the Inspector to put it in the group' }]
+    : f && f.area ? [{ label: `Its objects: ${lgFilterText(g)}`, off: true },
+      { label: 'Keep the objects inside the radius now', title: 'Its saved objects become those inside the radius now', run: () => lgChange('Keep the objects inside the radius', () => { g.members = lkAreaCurrent(f.area, null); }) }]
+      : [{ label: outside.length ? `Add the selection (${outside.length})` : 'Add the selection', off: !outside.length, run: () => lgChange('Add to a group', () => { g.members.push(...outside); }) },
+        { label: inside.length ? `Take the selection out (${inside.length})` : 'Take the selection out', off: !inside.length, run: () => lgChange('Take out of a group', () => { g.members = g.members.filter((n) => !inside.includes(n)); }) }];
+  return [
+    { label: 'Select its objects', run: () => lgSelect(id) },
+    { sep: true },
+    ...edit,
+    { sep: true },
+    { label: 'When any of them…', off: !lgSaved(id).length && !lgSet(g), title: f && f.tag ? 'A group by tag keeps no objects of its own: a rule cannot start on it' : '', run: () => lgWhenAny(id) },
+    { label: 'When all of them…', off: things.length < 2, run: () => whenSeveral('all', things) },
+    { sep: true },
+    { label: 'Rename…', run: async () => { const t = await lgAskName('Rename the group', 'Rename', g.name, id); if (t) lgChange('Rename a group', () => { g.name = t; for (const l of lgUses(id)) l.label = lkSentence(l); }); } },
+    { label: uses ? `Delete the group (${uses} rule${uses === 1 ? ' uses' : 's use'} it)` : 'Delete the group', run: () => {
+      lgChange('Delete a group', () => { edits.logic.groups = lgGroups().filter((x) => x.id !== id); });
+      if (uses) status(`The group is gone: its ${uses} rule${uses === 1 ? '' : 's'} now act${uses === 1 ? 's' : ''} on nothing (Logic > To check lists them).`, 'warn');
+    } },
+  ];
+}
+// The right click on several objects (P3): one rule for all of them. "any": a rule on the first, set off by the others
+// too (its also). "all" / "some": an All of these block in the middle of them, each object's usual happening ticks
+// it off (Need 0: all of them; N: at least N), and a rule on its Done that the Logic window opens to fill in.
+// One undo step; objects with nothing that can set a rule off are left out.
+async function whenSeveral(kind, actors) {
+  await Promise.all(actors.map((a) => chainOf(a.cls)));
+  const usable = actors.map((a) => ({ a, w: lkEventsOf(a)[0] })).filter((x) => x.w);
+  if (usable.length < 2) { status('Choose at least two objects that something can happen to.', 'warn'); return; }
+  let need = 0;
+  if (kind === 'some') {
+    const got = await askName({ title: 'When at least N of these', label: `How many of the ${usable.length}`, action: 'Make the rule',
+      value: String(Math.max(1, usable.length - 1)), hint: `The rule runs once that many of them have happened (1 to ${usable.length}).`,
+      check: (text) => {
+        const n = Number(String(text).trim());
+        if (!Number.isInteger(n) || n < 1 || n > usable.length) throw new Error(`Write a whole number from 1 to ${usable.length}.`);
+        return n;
+      } });
+    if (!got) return;
+    need = got;
+  }
+  const cause = (x, c) => { c.when = x.w.startsWith('output:') ? 'output' : x.w; if (x.w.startsWith('output:')) c.port = x.w.slice(7); return c; };
+  let made = null, block = null;
+  lkChange(null, () => {
+    if (kind === 'any') {
+      made = lkAdd(usable[0].a, 'used', null);
+      cause(usable[0], made);
+      made.also = usable.slice(1).map((x) => causeDefaults(cause(x, { src: x.a.name, at: lkWhere(x.a.name) })));
+      made.label = lkSentence(made);
+      return;
+    }
+    const at = [0, 1, 2].map((k) => Math.round(usable.reduce((n, x) => n + lkWhere(x.a.name)[k], 0) / usable.length));
+    block = { name: nextName('UCEdit'), cls: 'UCBAllOf', loc: at, rot: [0, 0, 0], props: need ? { Need: String(need) } : {} };
+    edits.added.push(block);
+    intoDefaultFolder(['a:' + block.name]);
+    for (const x of usable) {
+      const l = lkAdd(x.a, 'used', null);
+      cause(x, l);
+      l.do.push({ verb: 'input', target: block.name, a: 'Add', delay: 0 });
+      l.label = lkSentence(l);
+    }
+    made = lkAdd(block, 'output', null);
+    made.port = 'Done';
+    made.label = lkSentence(made);
+  }, () => { if (block) rebuildProxies(); if (selected && selected.userData.actor) renderProps(selected); },
+  kind === 'any' ? 'When any of these' : kind === 'all' ? 'When all of these' : 'When at least N of these');
+  if (made) logicOpen(made.src, 'list', made.id);
+}
+// "Give it phases" (P3 slice 8, mover-phases.js): a door, a bridge, a lift... gets two phases (Closed / Open, Raised /
+// Lowered: its word's, config/logic.json movers), kept by a Phases block next to it that two rules of its own move.
+// One undo step. A mover that has them already: its block is selected and its rules shown.
+const mayHavePhases = (a) => (ioNow[a.cls] ? ioNow[a.cls].family === 'door' : (chainNow[a.cls] || [a.cls]).includes('DeusExMover'));
+const moverWordOf = (a) => {
+  const words = (edits.logic && edits.logic.words) || {};
+  const key = Object.keys(words).find((k) => k.toLowerCase() === a.name.toLowerCase());
+  return (key && words[key]) || a.word || '';
+};
+// what its phases are called (their state): its own name in the game, else its name; an object added in the editor
+// (UCEdit<n>) by what it is ("Door")
+function moverPhaseLabel(a) {
+  const own = unquote(actorProp(a, 'FamiliarName') || '');
+  return own || (a.box || !/^UCEdit\d/i.test(a.name) ? a.name : String(logicLabels([a.name])[a.name] || a.name).replace(/\s+/g, ''));
+}
+function moverPhasesOf(a) {
+  const blocks = allActors().filter((b) => b.cls === 'UCBPhases' && !edits.deleted[b.name]).map((b) => b.name);
+  return phasesOfMover(a.name, lkList(), blocks);
+}
+async function giveItPhases(a) {
+  await Promise.all([chainOf(a.cls), chainOf('UCBPhases')]);
+  if (lkCatOf(a) !== 'door') { status('Only a door, a bridge, a lift or a platform can be given phases this way.', 'warn'); return; }
+  const had = moverPhasesOf(a);
+  if (had) {
+    const q = proxyOf(had);
+    if (q) select(q);
+    logicOpen(a.name, 'list');
+    status(`${moverPhaseLabel(a)} already has its phases: the Phases block ${had} keeps them.`, 'ok');
+    return;
+  }
+  lkVocabLoad();
+  if (lkVocabAsked) await lkVocabAsked.catch(() => null);
+  const label = moverPhaseLabel(a);
+  const taken = [...lkPhaseSets().map((s) => s.stateName), ...missionSets.map((s) => s.name)];
+  const plan = moverPhasesPlan({ label, name: a.name, word: moverWordOf(a), words: lkVocab ? lkVocab.movers() : [], taken });
+  let block = null;
+  lkChange(null, () => {
+    const at = lkWhere(a.name);
+    block = { name: nextName('UCEdit'), cls: 'UCBPhases', loc: [at[0], at[1], at[2] + 48], rot: [0, 0, 0], props: { ...plan.props } };
+    edits.added.push(block);
+    intoDefaultFolder(['a:' + block.name]);
+    for (const r of plan.rules) {
+      const l = lkAdd(a, r.when, null);
+      l.do.push({ verb: 'input', target: block.name, a: r.input, delay: 0 });
+      l.label = lkSentence(l);
+    }
+  }, () => { if (block) rebuildProxies(); if (selected && selected.userData.actor) renderProps(selected); }, 'Give it phases');
+  status(`${label} has the phases ${plan.phases.join(' and ')}: conditions and dialogues can ask for "${plan.stateName} is ${plan.phases[1]}".`, 'ok');
+  logicOpen(a.name, 'list');
+}
 function logicOpen(name, view, rule) {
   window.__workspace?.show('logic');
   logicWindow?.open({ name: name || '', view, rule });
+}
+// ---------------------------------------------------------------- the AI assistant's level logic (P3)
+// agent.js's logic_* operations (deusedix_mcp.py logic_read, logic_offer, logic_check, logic_try, logic_propose,
+// logic_proposal). The assistant reads the rules and what each object can do, tries them in the simulator, and
+// proposes changes (logic-propose.js): the proposal is drawn in the Logic window as ghosts and changes nothing until
+// the user accepts it there, as one undo step "Assistant: ...". A rule it made keeps a faint mark (by: 'assistant')
+// until the user changes it (lkChange).
+//
+// The model's input of other edits than the map's (a proposal's): the edits are those for the moment it is read, with
+// every class and the vocabulary already asked for, so nothing waits for the server while they are (a user's change
+// meanwhile is refused by pushUndo, never written into them).
+async function logicWithEdits(e, fn) {
+  const real = edits;
+  edits = e; logicSwapped = true;
+  try { return await fn(); } finally { edits = real; logicSwapped = false; }
+}
+// the names an assistant's operations name (src, target, from, to, members, a Phases block)
+function logicOpNames(ops) {
+  const out = new Set();
+  const walk = (v) => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (!v || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v)) {
+      if (['src', 'target', 'from', 'to', 'set'].includes(k) && typeof x === 'string' && x && !/^[@$]/.test(x)) out.add(x);
+      else if (k === 'members' && Array.isArray(x)) x.forEach((n) => typeof n === 'string' && out.add(n));
+      else if (x && typeof x === 'object') walk(x);
+    }
+  };
+  walk(ops);
+  return [...out];
+}
+// the vocabulary and the classes of these objects, of the rules' objects (of every object when a step acts on a tag
+// or a block is to be placed), asked for before a model is read
+async function logicWarm(names, classes = []) {
+  if (!logicVocab) logicVocab = await api('/api/logic_vocab');
+  const cls = new Set([...names, ...logicNames(edits.links || [])].map(lkActor).filter(Boolean).map((a) => a.cls).concat(classes));
+  if (classes.length || (edits.links || []).some((l) => [...(l.do || []), ...(l.else || [])].some((x) => x && x.targetTag)))
+    for (const a of allActors()) cls.add(a.cls);
+  await Promise.all([...cls].map((c) => chainOf(c)));
+}
+// what a proposal's checks ask of the page (logic-propose.js applyOps ctx)
+function logicProposeCtx() {
+  const outs = (a) => lkEventsOf(a).concat(edits.usable?.[a.name] ? ['used'] : []);
+  return {
+    exists: (n) => !!lkActor(n),
+    outputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? outs(a) : null; },
+    inputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? lkInputsOf(a).concat(edits.motions?.[n] ? ['anim', 'animback', 'animstop'] : []) : null; },
+    blockIo: (cls) => (ioNow[cls] ? { outputs: ioNow[cls].outputs, inputs: ioNow[cls].inputs } : null),
+    verbs: logicVocab.inputs, outputs: logicVocab.outputs, free: logicVocab.free,
+    where: (n) => (n && lkActor(n) ? lkWhere(n) : [0, 0, 0]),
+    newName: (cls, taken) => { const m = /^(.*?)(\d+)$/.exec(nextName('UCEdit')); let i = +m[2]; while (taken(m[1] + i)) i++; return m[1] + i; },
+  };
+}
+const logicProblemOut = (p) => ({ level: p.level, text: p.text, ...(p.rule ? { rule: p.rule } : {}) });
+// a rule as the assistant reads it: its id, object, sentence and data
+function logicRuleOut(l, json = true) {
+  const o = { id: l.id, src: l.src || '', sentence: lkSentence(l) };
+  if (l.by) o.by = l.by;
+  if (json) { const r = { ...l }; delete r.label; delete r.at; delete r.by; o.rule = r; }
+  return o;
+}
+async function logicRead({ object = '', format = 'both' } = {}) {
+  await logicWarm(object ? [object] : []);
+  if (object && !lkActor(object)) throw new Error(`${object}: not in the map (find_objects gives the names).`);
+  const ix = logicIndex(await logicInput());
+  const mine = (l) => !object || l.src === object || (l.also || []).some((c) => c.src === object)
+    || [...(l.do || []), ...(l.else || [])].some((x) => x && x.target === object);
+  const rules = lkList().filter(mine).map((l) => logicRuleOut(l, format !== 'sentences'));
+  const named = [...new Set([object, ...rules.map((r) => r.src)])].filter(Boolean), labels = logicLabels(named);
+  return {
+    map: mapName, rules,
+    names: Object.fromEntries(Object.entries(labels).filter(([n, l]) => n !== l)),
+    groups: lgGroups().map((g) => ({ id: g.id, name: g.name, members: g.members || [], ...(g.filter ? { filter: g.filter, says: lgFilterText(g) } : {}) })),
+    phases: lkPhaseSets().map((x) => ({ block: x.name, phases: x.phases })),
+    signals: [...ix.hubs.values()].map((id) => id.slice(4)),
+    problems: logicProblems(ix).map(logicProblemOut),
+    ...(logicProposalNow() ? { proposal: logicProposalStatus() } : {}),
+  };
+}
+async function logicCheck() {
+  await logicWarm([]);
+  const ix = logicIndex(await logicInput());
+  const compiled = await api('/api/logic/compile', { edits });
+  return { problems: logicProblems(ix).map(logicProblemOut), build: compiled.error || 'ok',
+    notInGame: (compiled.left || []).map((l) => `${l.id}: ${l.text}`) };
+}
+// what an object can set off and be made to do, in the Inspector's words, with the values each takes; with no object,
+// what belongs to the map (its causes, the steps with no object) and the logic blocks there are
+async function logicOffer({ object = '' } = {}) {
+  await logicWarm(object ? [object] : [], object ? [] : BLOCK_CLASSES);
+  if (object && !lkActor(object)) throw new Error(`${object}: not in the map (find_objects gives the names).`);
+  const out = (when) => { const e = logicVocab.outputs[when.startsWith('output:') ? 'output' : when] || {}; return { when, label: e.label || when, ...(e.args ? { args: e.args } : {}) }; };
+  const inp = (verb) => { const e = logicVocab.inputs[verb.startsWith('input:') ? 'input' : verb] || {}; return { verb, label: e.label || verb, ...(e.args ? { args: e.args } : {}) }; };
+  const free = (logicVocab.free || []).map(inp);
+  if (!object) {
+    const ports = (cls, side) => (ioNow[cls]?.[side] || []).map((k) => ({ [side === 'outputs' ? 'when' : 'verb']: k, label: ioNow[cls].labels?.[k] || k }));
+    return { causes: WORLD_CAUSES.filter((w) => logicVocab.outputs[w]).map(out),       // (P9 slice 3: the world's own too)
+      free, blocks: BLOCK_CLASSES.map((cls) => ({ cls, outputs: ports(cls, 'outputs'), inputs: ports(cls, 'inputs') })),
+      // the conditions (a rule's requires, a "becomes" rule's watch), each kind with a filled example; the player's
+      // happenings (P9 slice 2): "becomes" with that watch
+      conditions: CONDITION_KINDS.map(([kind, label]) => ({ kind, label, example: newCondition(kind) })),
+      player: PLAYER_CAUSES.map(([, label, watch]) => ({ when: 'becomes', label: label.replace(/…$/, ''), watch })),
+      note: 'A rule: {src, when, do: [{verb, target, a, b, delay}], once}. A block\'s or a script\'s output: when "output" with port; '
+        + 'its input: a step {verb: "input", target, a: the input}. Objects tagged alike: a step\'s targetTag instead of target. '
+        + 'loaded, back, goaldone, noise and appears are rules of their own, never an "also". '
+        + 'An argument with formula: true, and the value a condition compares with, may be a formula of counters: "Alarms + 1", '
+        + '"Guards * 2 - Dead", or a counter\'s name (whole numbers, + - * / %, brackets). Value in a formula is the number '
+        + 'a script\'s output comes with (an output with carries: true); with any other cause it is 0.' };
+  }
+  const a = lkActor(object), io = lkIo(a), label = (k, d) => (io.labels || {})[k] || d.label;
+  const props = lkSafeProps(io.family);                    // what "setprop" may set on it (P9 slice 4)
+  return { object, name: logicLabels([object])[object], cls: a.cls, family: io.family,
+    ...(props.length ? { safeProps: props.map(([name, label]) => ({ name, label })) } : {}),
+    outputs: lkEventsOf(a).concat(edits.usable?.[object] ? ['used'] : []).map(out).map((d) => ({ ...d, label: label(d.when, d),
+      ...((io.carries || []).includes(d.when) ? { carries: true } : {}) })),      // comes with a number: Value (P8 slice 5b)
+    inputs: lkInputsOf(a).concat(edits.motions?.[object] ? ['anim', 'animback', 'animstop'] : []).map(inp).map((d) => ({ ...d, label: label(d.verb, d) })),
+    free };
+}
+// from: a named start (a Play scenario, logic-starts.js), what `start` gives on top of it
+async function logicTry({ fire = [], seconds = 5, start = {}, from = '' } = {}) {
+  await logicWarm(fire.map((f) => f && f.thing).filter((n) => typeof n === 'string'));
+  let base = {};
+  if (from) {
+    const s = logicStarts.get(String(from));
+    if (!s) throw new Error(`There is no start "${from}": the starts are ${logicStarts.list().map((x) => `"${x.name}"`).join(', ') || 'none yet'} (the Play scenarios).`);
+    base = startOf(s);
+  }
+  const merged = { ...base, ...start, flags: { ...(base.flags || {}), ...(start.flags || {}) } };
+  return simulate(await logicTrial(), fire, seconds, merged);
+}
+// "Why didn't it run?" (P2, the Whyline idea), and the last Play's logic log read in words. What the last Play was,
+// as notes: none yet, another map, the game still running, the map rebuilt or changed since.
+async function logicPlayed() {
+  const log = await api('/api/logic_log?script=' + encodeURIComponent(script));
+  const clock = (ms) => { const d = new Date(ms), two = (n) => String(n).padStart(2, '0'); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
+  const notes = [];
+  if (!log.written) notes.push('No game has run yet: Play the map, then ask again.');
+  else if (!log.loads) {
+    const maps = log.maps.filter((m) => !/^entry$/i.test(m));        // the game's own first map (its menu)
+    notes.push(maps.length ? `The last game (${clock(log.written)}) did not open this map: it opened ${maps.join(', ')}. Play this map, then ask again.`
+      : `The last game (${clock(log.written)}) did not open a map.`);
+  } else {
+    const times = log.loads > 1 ? ` (it opened this map ${log.loads} times)` : '';
+    notes.push(log.running ? `The game is running${log.started ? ` since ${clock(log.started)}` : ''}: this is what it has written so far${times}.`
+      : `From the last Play, which ended at ${clock(log.written)}${times}.`);
+    const from = log.running && log.started ? log.started : log.written;
+    if (log.built && log.built > from) notes.push('The map was rebuilt after that Play started: what it says is about the rules as they were then.');
+    else if (dirty || (log.saved && log.saved > from)) notes.push('The map has changed since that Play: play it again to see the rules as they are now.');
+  }
+  return { log, notes };
+}
+// A rule's answer, or the answers of the rules an object sets off and then of those that act on it, in sentences, from
+// three places: the game's own log of the last Play of this map (logic-sim.js whyFromLog), the Logic window's Try it
+// (when something was tried there) and the checks (logic-graph-problems.js)
+async function logicWhy({ rule = '', object = '' } = {}) {
+  if (!mapName) throw new Error('No map is open.');
+  const links = edits.links || [];
+  if (rule && !links.some((l) => l.id === rule)) throw new Error(`There is no rule ${rule} on this map (logic_read gives their ids).`);
+  if (!rule && !object) throw new Error('Ask it of a rule (its id) or of an object (its name).');
+  if (!rule && !lkActor(object)) throw new Error(`${object}: not in the map (find_objects gives the names).`);
+  await logicWarm(rule ? [] : [object]);
+  const input = await logicInput(), problems = logicProblems(logicIndex(input));
+  const acts = (l) => [...(l.do || []), ...(l.else || [])].some((x) => x && x.target === object);
+  const sets = (l) => l.src === object || (l.also || []).some((c) => c.src === object);
+  const mine = rule ? links.filter((l) => l.id === rule) : [...links.filter(sets), ...links.filter((l) => !sets(l) && acts(l))];
+  const t = logicWorld(input, await api('/api/logic/compile', { edits })), c = t.compiled || {};
+  let played = null, notes = [];
+  try {
+    const p = await logicPlayed();
+    notes = p.notes;
+    if (p.log.loads && !c.error) {
+      played = whyFromLog({ actors: c.actors || [], outputs: c.outputs || t.catalog.outputs, left: c.left || [], world: t.world,
+        map: mapName, lines: p.log.lines, vocab: vocabulary(t.catalog), ctx: trialWords(t) });
+    }
+  } catch (e) { notes.push(`The game's log could not be read: ${e.message || e}`); }
+  if (c.error) notes.push(`The rules cannot be compiled: ${c.error}`);
+  const out = (w) => ({ text: w.text, why: w.why, ...(w.t !== null && w.t !== undefined ? { t: w.t } : {}) });
+  // each rule in the Logic window's words (things by the Hierarchy's names)
+  const vocab = vocabulary(t.catalog), words = trialWords(t);
+  const sentence = (l) => { try { return vocab.sentence(l, words); } catch { return lkSentence(l); } };
+  return { map: mapName, notes, rules: mine.map((l) => ({ id: l.id, src: l.src || '', sentence: sentence(l),
+    play: played ? played.why(l.id).map(out) : [], tried: (logicWindow?.tryWhy?.(l.id, `${mapName}:${editRevision}`) || []).map(out),
+    checks: problems.filter((p) => p.rule === l.id && p.level !== 'info').map(logicProblemOut) })) };
+}
+// The last Play's logic log of this map in Try it's words: its last lines, or one rule's
+async function logicLog({ rule = '', last = 200, raw = false } = {}) {
+  if (!mapName) throw new Error('No map is open.');
+  await logicWarm([]);
+  const t = logicWorld(await logicInput(), {});
+  const { log, notes } = await logicPlayed();
+  const vocab = vocabulary(t.catalog), words = trialWords(t), sentences = {};
+  for (const l of edits.links || []) { try { sentences[l.id] = vocab.sentence(l, words); } catch { sentences[l.id] = l.label || l.id; } }
+  const said = { vocab, words, sentences, player: t.world.player };
+  let lines = log.lines.map((line, n) => ({ n, line, s: lineText(line, said) }));
+  if (rule) lines = lines.filter((x) => x.s.rule === rule);
+  const keep = Math.max(1, Math.min(2000, Math.round(+last) || 200));
+  return { map: mapName, notes, total: lines.length, lines: lines.slice(-keep).map(({ n, line, s }) => ({ n,
+    text: `${s.mark ? s.mark + ' ' : ''}${s.text}`, ...(s.rule ? { rule: s.rule } : {}), ...(raw ? { raw: line } : {}) })) };
+}
+// an example map of the editor (examples.py: the Logic Lab), added to the project's maps the first time, then opened
+async function lgOpenExample(name) {
+  const r = await api('/api/example_map', { name });
+  if (r.copied) { await loadMaps(); log(`${r.map} added to the project's maps: each room holds a pattern; Unpack one to change its rules.`, 'ok'); }
+  await openMap(r.script);                    // (it asks first about unsaved changes of the map open now)
+}
+// a pattern's newest version, with its name (null: the project has none of that slug)
+async function lgPatternNewest(slug) {
+  try {
+    const { pattern } = await api('/api/logic_pattern?slug=' + encodeURIComponent(slug));
+    const ver = pattern && pattern.versions[pattern.versions.length - 1];
+    return ver ? { ...ver, name: pattern.name } : null;
+  } catch { return null; }
+}
+// logic_patterns (P8 slice 7, deusedix_mcp.py): the project's patterns, or one placed now with its places filled
+async function logicPatterns({ action = 'list', pattern = '', slots = {} } = {}) {
+  if (action === 'list') {
+    const list = (await api('/api/logic_patterns')).patterns || [];
+    return { patterns: list.map((x) => ({ pattern: x.slug, name: x.name, version: x.v, rules: (x.rules || []).length || x.rules,
+      places: (x.slots || []).filter((s) => !s.carried).map((s) => ({ id: s.id, words: s.words, family: s.family })),
+      brings: (x.slots || []).filter((s) => s.carried).map((s) => s.family), ...(x.shipped ? { shipped: true } : {}) })),
+      placed: instancesOf(edits).map((i) => ({ id: i.id, pattern: i.pattern, version: i.v, name: i.name, slots: i.slots })) };
+  }
+  if (action !== 'place') throw new Error('action: list or place.');
+  if (!mapName) throw new Error('No map is open.');
+  const ver = await lgPatternNewest(String(pattern));
+  if (!ver) throw new Error(`There is no pattern "${pattern}" in the project (action list gives them).`);
+  const places = (ver.slots || []).filter((x) => !x.carried).map((x) => x.id);
+  for (const [k, n] of Object.entries(slots || {})) {
+    if (!places.includes(k)) throw new Error(`"${k}" is not a place of "${ver.name}" (its places: ${places.join(', ') || 'none'}).`);
+    if (n && !lkActor(String(n))) throw new Error(`${n}: not in the map (find_objects gives the names).`);
+  }
+  const before = new Set(edits.added.map((a) => a.name));
+  const r = await lgPlacePattern(String(pattern), slots || {});
+  return { placed: r.id, name: r.name, version: r.v, slots: r.slots, blocks: edits.added.filter((a) => !before.has(a.name)).map((a) => a.name),
+    empty: places.filter((k) => !r.slots[k]), note: 'Placed (Ctrl+Z takes it back). A place left empty: its rules wait for an object.' };
+}
+// A proposal's operations on a copy of these edits, checked as the build checks them
+async function logicProposeOf(ops, base) {
+  const classes = (Array.isArray(ops) ? ops : []).filter((o) => o && o.op === 'add_block' && BLOCK_CLASSES.includes(o.cls)).map((o) => o.cls);
+  const patterns = {};                                 // place_pattern (P8): each pattern's newest version
+  for (const o of Array.isArray(ops) ? ops : []) {
+    if (!o || o.op !== 'place_pattern' || !o.pattern || String(o.pattern) in patterns) continue;
+    patterns[String(o.pattern)] = await lgPatternNewest(String(o.pattern));
+    for (const x of patterns[String(o.pattern)]?.objects || []) classes.push(x.cls);
+  }
+  for (const o of Array.isArray(ops) ? ops : []) for (const n of Object.values((o && o.op === 'place_pattern' && o.slots) || {})) if (typeof n === 'string' && !n.startsWith('$')) classes.push(...(lkActor(n) ? [lkActor(n).cls] : []));
+  await logicWarm(logicOpNames(ops), classes);
+  const p = applyOps(base, ops, { ...logicProposeCtx(), pattern: (slug) => patterns[slug] || null });
+  if (p.errors.length) return { p, errors: p.errors };
+  const compiled = await api('/api/logic/compile', { edits: p.edits });
+  if (compiled.error) return { p, errors: [`The build refuses it: ${compiled.error}`] };
+  return { p, compiled, errors: [] };
+}
+// The assistant's proposal: checked, tried in the simulator, then shown in the Logic window to be accepted or not. A
+// new one replaces the one waiting. Nothing in the map changes here.
+async function logicPropose({ ops, summary = '', fire, seconds = 5 } = {}) {
+  if (!mapName) throw new Error('No map is open.');
+  if (buildJob) throw new Error('A Rebuild is running: wait for it to end.');
+  const { p, compiled, errors } = await logicProposeOf(ops, edits);
+  if (errors.length) return { proposed: false, errors };
+  const before = logicProblems(logicIndex(await logicInput()));
+  // the proposal's own model, sentences and world, read with its edits
+  const { input, sentences, trial } = await logicWithEdits(p.edits, async () => {
+    const input = await logicInput(), sentences = {};
+    for (const l of p.edits.links) if (p.added.includes(l.id) || p.changed.includes(l.id)) sentences[l.id] = l.label = lkSentence(l);
+    return { input, sentences, trial: logicWorld(input, compiled) };
+  });
+  const after = logicProblems(logicIndex(input));
+  const happening = fire ? (Array.isArray(fire) ? fire : [fire]) : [mainHappening(p)].filter(Boolean);
+  const run = happening.length ? simulate(trial, happening, seconds) : null;
+  if (logicProposalNow()) logicProposal.state = 'replaced';
+  const removed = p.removed.map((id) => { const l = lkGet(id); return { id, sentence: l ? lkSentence(l) : id }; });
+  const said = String(summary || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  logicProposal = { id: ++logicProposals, state: 'waiting', summary: said, ops: JSON.parse(JSON.stringify(ops)), input, ghost: ghostIds(p),
+    added: p.added, changed: p.changed, removed, groups: p.groups, blocks: p.blocks, sentences, generation: mapGeneration,
+    problems: newProblems(before, after) };
+  // shown where it acts: the object of its first rule, in the Graph
+  const first = p.edits.links.find((l) => l.id === (p.added[0] || p.changed[0]));
+  logicOpen(first ? first.src : p.blocks[0] || '', 'graph');
+  logicWindow?.refresh();                     // (now too: open() waits for a frame, which a hidden page never has)
+  status(`The assistant proposes ${said ? '"' + said + '"' : 'a change to the rules'}: accept it or not in the Logic window.`, 'ok');
+  const tell = (id) => ({ id, sentence: sentences[id] });
+  return { proposed: true, proposal: logicProposal.id, waiting: 'for the user to accept or reject it in the Logic window (logic_proposal tells)',
+    added: p.added.map(tell), changed: p.changed.map(tell), removed, groups: p.groups, blocks: p.blocks, refs: p.refs,
+    ...(p.instances.length ? { patterns: p.instances } : {}), ...(p.boxes.length ? { boxes: p.boxes } : {}),
+    problems: { brought: logicProposal.problems.brought.map((x) => `${x.level}: ${x.text}`), fixed: logicProposal.problems.fixed.map((x) => x.text) },
+    ...(run ? { tried: { with: happening, ...run } } : {}),
+    notInGame: (compiled.left || []).filter((l) => p.added.includes(l.id) || p.changed.includes(l.id)).map((l) => `${l.id}: ${l.text}`) };
+}
+// the proposal the Logic window draws: the one waiting on this map (another map opened: gone)
+function logicProposalNow() {
+  const q = logicProposal;
+  if (!q || q.state !== 'waiting') return null;
+  if (q.generation !== mapGeneration) { q.state = 'gone'; return null; }
+  return q;
+}
+function logicProposalStatus() {
+  const q = logicProposal;
+  if (!q) return { state: 'none' };
+  logicProposalNow();
+  // accepted, then taken back by the user (Ctrl+Z): what it added (rules, blocks, groups) is not in the map any more
+  const m = q.made, back = m && m.added.length + m.blocks.length + m.groups.length > 0
+    && !m.added.some((id) => lkGet(id)) && !m.blocks.some((n) => lkActor(n)) && !m.groups.some((g) => lgGroup(g));
+  return { proposal: q.id, state: q.state, summary: q.summary, ...(q.made ? { made: q.made } : {}), ...(back ? { now: 'taken back by the user (undo)' } : {}),
+    ...(q.state === 'gone' ? { why: 'another map was opened' } : {}) };
+}
+// the user's answer in the Logic window: accept, reject, or accept and edit (its first rule opened in the List). Its
+// operations run again on the edits as they are now (the user may have changed some meanwhile), as one undo step.
+async function logicDecide(how) {
+  const q = logicProposalNow();
+  if (!q) return;
+  if (how === 'reject') {
+    q.state = 'rejected';
+    status('The assistant\'s proposal was rejected: nothing changed.', 'ok');
+    logicWindow?.refresh();
+    return;
+  }
+  if (buildJob) { status('A Rebuild is running: accept it when it ends.', 'warn'); return; }
+  const { p, errors } = await logicProposeOf(q.ops, edits);
+  if (errors.length) { status(`The proposal no longer fits the map: ${errors[0]}`, 'warn'); return; }
+  if (logicProposalNow() !== q) return;
+  pushUndo('Assistant: ' + (q.summary || 'change the rules'));
+  edits.links = p.edits.links;
+  edits.logic = p.edits.logic;
+  if (p.edits.logicPatterns) edits.logicPatterns = p.edits.logicPatterns;      // a pattern placed (P8)
+  for (const a of p.edits.added.slice(edits.added.length)) edits.added.push(a);
+  ensureActionIds(lkList());
+  for (const id of [...p.added, ...p.changed]) { const l = lkGet(id); if (l) { l.label = lkSentence(l); lkSyncOtherwise(l); } }
+  if (p.blocks.length) { intoDefaultFolder(p.blocks.map((n) => 'a:' + n)); rebuildProxies(); }
+  if (p.groups.length) hierOpen.add('lgroups');
+  buildHierarchy();
+  setDirty();
+  q.state = 'accepted';
+  q.made = { added: p.added, changed: p.changed, removed: q.removed.map((r) => r.id), groups: p.groups, blocks: p.blocks,
+    ...(p.instances.length ? { patterns: p.instances } : {}), ...(p.boxes.length ? { boxes: p.boxes } : {}) };
+  lkRefresh(() => { if (selected && selected.userData.actor) renderProps(selected); });
+  status(`Done: ${q.summary || 'the assistant\'s change'} (Ctrl+Z takes it back).`, 'ok');
+  const first = lkGet(p.added[0] || p.changed[0]);
+  if (how === 'edit' && first) logicOpen(first.src, 'list', first.id);
+  else logicWindow?.refresh();
 }
 // The Logic window's List view (logic-window.js): the rules of a thing as lists of steps, edited there (lkSection's
 // form, lkRuleHtml); '' the map's own (when the map starts, when the player presses a key)
@@ -13342,8 +14780,10 @@ async function logicListView(host, name, rule) {
 }
 function lkSection(a, p, redraw) {
   const cat = lkCatOf(a), evs = lkEventsOf(a), ins = lkInputsOf(a);
-  const own = lkList().filter((l) => l.src === a.name && !l.otherwiseOf);
-  const incoming = lkList().filter((l) => l.src !== a.name && (l.do || []).some((x) => x.target === a.name || x.area && lkAreaTargets(x, l.src).includes(a.name)));
+  const own = lkList().filter((l) => l.src === a.name && !l.otherwiseOf && !l.replacedBy);
+  const scripted = lkList().filter((l) => l.src === a.name && l.replacedBy);       // Turn into script: a script does them
+  const doesFor = lgReplacedBy(a.name);                                              // this object is that script
+  const incoming = lkList().filter((l) => l.src !== a.name && !l.replacedBy && (l.do || []).some((x) => x.target === a.name || x.area && lkAreaTargets(x, l.src).includes(a.name)));
   const whenLabel = (w) => (w.startsWith('output:') ? `it says "${lkPortLabel(a.name, w)}"` : LK_WHEN[w] || w);
   const inLabel = (v) => (v.startsWith('input:') ? lkPortLabel(a.name, v) : lkVerbLabel(v, cat));
   // what it offers to the rules (config/logic.json): what can happen to it, with its rules on each; what it can do,
@@ -13353,6 +14793,9 @@ function lkSection(a, p, redraw) {
   if (evs.length) h += `<div class="lk-io"><span class="hint">When ${cat === 'character' ? 'they' : 'it'}...</span>${evs.map((w) => `<button class="lk-chip" data-lkout="${escapeHtml(w)}" title="Add a rule on this">${escapeHtml(whenLabel(w))}${ruleCount(own.filter((l) => lkWhenKey(l) === w).length)}</button>`).join('')}</div>`;
   if (ins.length) h += `<div class="lk-io"><span class="hint">It can...</span>${ins.map((v) => `<button class="lk-chip lk-chip-in" data-lkinput="${escapeHtml(v)}" title="Click what makes it do this">${escapeHtml(inLabel(v))}${ruleCount(incoming.filter((l) => (l.do || []).some((x) => x.target === a.name && lkVerbKey(x) === v)).length)}</button>`).join('')}</div>`;
   h += own.map((l) => lkRuleHtml(l, false)).join('');
+  if (scripted.length) h += scripted.map((l) => `<div class="row lk-in"><span class="hint" style="margin:0">${escapeHtml(lkSentence(l))}: done by the script <a href="#" data-lkscript="${escapeHtml(l.replacedBy.object)}" title="Select the script's object (Back to rules is there)">${escapeHtml(l.replacedBy.script)}</a></span></div>`).join('');
+  if (doesFor.length) h += `<div class="lk-scripted"><span class="hint" style="margin:0">It does what ${doesFor.length === 1 ? 'this rule' : 'these rules'} did (Turn into script): ${doesFor.map((r) => escapeHtml(r.label)).join('; ')}.</span>
+    <button type="button" class="lk-back" title="The rules put back as they were; this object and the rules that call it go (the script stays in Tools > Scripts)">Back to rules</button></div>`;
   h += `<div class="row" style="flex-wrap:wrap;row-gap:3px">${evs.length ? `<select id="lkwhen" style="flex:1 1 130px;min-width:0"><option value="">+ When ${cat === 'character' ? 'they...' : 'it...'}</option>${evs.map((w) => `<option value="${escapeHtml(w)}">${escapeHtml(whenLabel(w))}</option>`).join('')}</select>` : '<span class="hint" style="margin:0;flex:1">It does nothing by itself: another object acts on it.</span>'}
     </div>`;
   if (incoming.length) h += incoming.map((l) => `<div class="row lk-in"><span style="color:#6fdc8c">←</span><a href="#" data-lkin="${escapeHtml(l.id)}" title="Go to the object of this rule">${escapeHtml(lkSentence(l))}</a></div>`).join('');
@@ -13360,6 +14803,9 @@ function lkSection(a, p, redraw) {
     const box = into || $('#propsec');
     lkWire(box, redraw);
     for (const g of box.querySelectorAll('[data-lkin]')) g.onclick = (e) => { e.preventDefault(); const l = lkGet(g.dataset.lkin); const q = l && proxyOf(l.src); if (q) { select(q); focusSelected(); } };
+    for (const g of box.querySelectorAll('[data-lkscript]')) g.onclick = (e) => { e.preventDefault(); const q = proxyOf(g.dataset.lkscript); if (q) { select(q); focusSelected(); } };
+    const back = box.querySelector('.lk-back');
+    if (back) back.onclick = () => { const n = lgBackToRules(a.name); log(`${n} rule${n === 1 ? '' : 's'} put back as ${n === 1 ? 'it was' : 'they were'} (Ctrl+Z takes it back).`, 'ok'); };
     // a rule on one of its outputs (a script's: 'output:<Id>', its port)
     const addOn = (key) => lkChange(null, () => {
       const l = lkAdd(a, key.startsWith('output:') ? 'output' : key, null);
@@ -13392,14 +14838,14 @@ function lkSection(a, p, redraw) {
       } });
 
   };
-  return { html: inspectorSection('interactions', 'Interactions', h, own.length + incoming.length > 0), body: h, wire };
+  return { html: inspectorSection('interactions', 'Interactions', h, own.length + incoming.length + scripted.length + doesFor.length > 0), body: h, wire };
 }
 
 // arrows in the 3D view: green from the object of a rule to what it acts on
 function lkDraw(a) {
   lkDrawAreas(a);
   const pairs = [];
-  for (const l of lkList()) for (const x of l.do || []) {
+  for (const l of lkList()) for (const x of l.replacedBy ? [] : l.do || []) {
     if (x.verb === 'travel' && l.src === a.name && x.a) lkEdgeAdd(a.name, null, `takes JC to ${x.a}`, true);
     if (!x.target || x.target === l.src) continue;
     if (l.src === a.name || x.target === a.name) pairs.push([l.src, x.target]);
@@ -13452,15 +14898,58 @@ function renderLogic() {
   $('#lgkey').onclick = () => lkChange(null, () => { const l = lkAdd(null, 'keypress', null); l.key = 'K'; l.label = lkSentence(l); }, () => {});
   lkWorldAddWire($('#lgworld'), () => {});
 }
+// A rule that holds "while" (P3, links.expand_while): its cause has an end (the player walks out, the door starts
+// closing, a phase is left, the condition stops holding), and the Rebuild adds the rule that undoes its steps then
+function lkCanWhile(l) {
+  if (!l || l.otherwiseOf || l.elseOf || !lkVocab) return false;
+  return !!lkVocab.untilOf(l) && (l.when !== 'becomes' || !!negate(l.watch));
+}
+function lkWhileTitle(l) {
+  const end = lkVocab && lkVocab.untilOf(l);
+  if (!end) return 'Nothing ends what sets it off: its steps cannot be undone';
+  const how = l.when === 'becomes' ? 'when the condition stops holding' : end.when === 'output' ? `when it says "${lkPortLabel(l.src, 'output:' + end.port)}"` : `when ${String(LK_WHEN[end.when] || end.when).replace(/^it /, l.src ? lkName(l.src) + ' ' : 'it ')}`;
+  return `Only while it lasts: its steps are undone ${how} (opened doors close, lights go back, a state goes back to No)`;
+}
+// "+ When... > A state that is Yes while a condition holds" (P3, a derived state): a "while" rule on the condition
+// that sets the state; the condition is chosen in the rule, the state is read like any other
+async function lkStateWhile(redraw) {
+  const name = await askName({ title: 'A state that holds while a condition does', label: 'Name of the state', action: 'Make it',
+    value: 'Ready', hint: 'It is Yes while the condition you choose next holds, and No otherwise. Conditions and dialogues can read it.',
+    check: (text) => {
+      const t = String(text).trim();
+      if (!/^[A-Za-z]\w{0,59}$/.test(t)) throw new Error('A letter, then letters, digits or _ (no spaces).');
+      return t;
+    } });
+  if (!name) return;
+  let made = null;
+  lkChange(null, () => {
+    made = lkAdd(null, 'becomes', null);
+    causeDefaults(made);
+    made.while = true;
+    made.do.push({ verb: 'flag', target: '', a: name, b: '1', delay: 0 });
+    made.label = lkSentence(made);
+  }, redraw, 'A state that holds while');
+  if (made) { logicOpen('', 'list', made.id); status(`"${name}" is Yes while the condition holds: choose the condition in the rule.`, 'ok'); }
+}
 // "+ When...": the causes of the world (a condition becomes true, a state or a counter changes, the player's health,
 // an event of the game), a rule of the map's own
 function lkWorldAddHtml(attr) {
   lkVocabLoad();
   return `<select ${attr} title="A rule set off by something in the world, not by an object"><option value="">+ When...</option>`
-    + WORLD_CAUSES.filter((w) => w !== 'start' && w !== 'keypress').map((w) => `<option value="${w}">${escapeHtml(LK_WHEN[w] || w)}</option>`).join('') + '</select>';
+    + WORLD_CAUSES.filter((w) => w !== 'start' && w !== 'keypress' && !GAME_WORLD.includes(w)).map((w) => `<option value="${w}">${escapeHtml(LK_WHEN[w] || w)}</option>`).join('')
+    + '<option value="@state">a state that is Yes while a condition holds…</option>'
+    + `<optgroup label="The player">${PLAYER_CAUSES.map(([id, label]) => `<option value="@p:${id}">${escapeHtml(label)}</option>`).join('')}</optgroup>`
+    // the world's own (P9 slice 3): a saved game loaded, coming back, a goal, a noise, someone appearing
+    + `<optgroup label="The world">${GAME_WORLD.map((w) => `<option value="${w}">${escapeHtml(LK_WHEN[w] || w)}</option>`).join('')}</optgroup></select>`;
 }
 function lkWorldAddWire(sel, redraw) {
-  if (sel) sel.onchange = () => { const w = sel.value; sel.value = ''; if (w) lkChange(null, () => { const l = lkAdd(null, w, null); causeDefaults(l); l.label = lkSentence(l); }, redraw); };
+  if (sel) sel.onchange = () => {
+    const w = sel.value; sel.value = '';
+    if (w === '@state') { lkStateWhile(redraw); return; }
+    const p = w.startsWith('@p:') ? PLAYER_CAUSES.find((x) => x[0] === w.slice(3)) : null;    // the player's (P9): a condition becomes true
+    if (p) lkChange(null, () => { const l = lkAdd(null, 'becomes', null); l.watch = JSON.parse(JSON.stringify(p[2])); l.label = lkSentence(l); }, redraw);
+    else if (w) lkChange(null, () => { const l = lkAdd(null, w, null); causeDefaults(l); l.label = lkSentence(l); }, redraw);
+  };
 }
 $('#logicbtn').onclick = () => (logicBox.style.display === 'block' ? (logicBox.style.display = 'none') : openLogic().catch((e) => log('Logic: ' + e.message, 'bad')));
 
@@ -13506,15 +14995,21 @@ function lkCheck(add) {
     const who = l.src || (l.do || []).map((x) => x.target).find(Boolean);
     const say = lkSentence(l);
     if (edits.disabled?.[l.src]) { add('info', `Interaction "${say}": its source is disabled in game.`, who); continue; }
-    if (l.src ? !lkActor(l.src) : !WORLD_CAUSES.includes(l.when)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
+    if (lgSetRule(l) && !LG_SET_WHENS.includes(l.when)) add('error', `Interaction "${say}": a group of a kind or a faction cannot start it on "${LK_WHEN[l.when] || l.when}".`, null);
+    else if (l.src ? !lkActor(l.src) : !WORLD_CAUSES.includes(l.when) && !lgSetRule(l)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
     for (const c of l.also || []) if (c.src && !lkActor(c.src)) add('error', `Interaction "${say}": ${c.src}, one of the things that set it off, is not in the map any more.`, who);
     if (!(l.do || []).length) add('warn', `Interaction "${say}": it does nothing yet (+ Then...).`, who);
     for (const x of [...(l.do || []), ...(l.else || [])]) {
       if (x.area && !lkAreaTargets(x, l.src).length) add('warn', `Interaction "${say}": the area group currently has no recipients.`, who);
       if (edits.disabled?.[x.target]) { add('warn', `Interaction "${say}": ${x.target} is disabled in game.`, x.target); continue; }
       if (x.target && !LK_SPECIAL[x.target] && !lkActor(x.target)) add('error', `Interaction "${say}": ${x.target} is not in the map any more.`, who);
-      if (LK_VERBS[x.verb] && LK_VERBS[x.verb][1] && LK_VERBS[x.verb][1] !== 'any' && !x.target && !x.area && !x.targetTag) add('error', `Interaction "${say}": "${LK_VERBS[x.verb][0]}" has no object.`, who);
+      if (LK_VERBS[x.verb] && LK_VERBS[x.verb][1] && LK_VERBS[x.verb][1] !== 'any' && !x.target && !x.area && !x.targetTag && x.group === undefined) add('error', `Interaction "${say}": "${LK_VERBS[x.verb][0]}" has no object.`, who);
+      if (x.group !== undefined && !lgGroup(x.group)) add('error', `Interaction "${say}": its group no longer exists.`, who);
+      else if (x.group !== undefined && lgSet(lgGroup(x.group)) && !TAG_CHARACTER_VERBS.has(x.verb)) add('warn', `Interaction "${say}": the group "${lgName(x.group)}" holds characters only, and they cannot do that.`, who);
+      else if (x.group !== undefined && !lgSet(lgGroup(x.group)) && !lkGroupTargets(x, l.src).length) add('warn', `Interaction "${say}": nothing in the group "${lgName(x.group)}" can do that.`, who);
       if (x.verb === 'count' && !String(x.a || '').trim()) add('error', `Interaction "${say}": the counter has no name.`, who);
+      for (const arg of lkArgsOf(x.verb).filter((a) => a.formula && formulaProblem(String(x[a.id] ?? ''))))    // P9 slice 5
+        add('error', `Interaction "${say}": the formula "${x[arg.id]}" cannot be worked out: ${formulaProblem(String(x[arg.id]))}.`, who);
       if (x.verb === 'flag' && !String(x.a || '').trim()) add('error', `Interaction "${say}": no state chosen.`, who);
       if (x.verb === 'floor' && lkActor(x.target) && !lkFloorOk(lkActor(x.target), Math.max(0, lkWholeOf(x.a, 0)))) add('error', `Interaction "${say}": ${x.target} has no floor ${Math.max(0, lkWholeOf(x.a, 0))}.`, who);
       if (x.verb === 'goal' && !String(x.a || '').trim()) add('error', `Interaction "${say}": the goal has no name.`, who);
@@ -14380,7 +15875,76 @@ function hasOriginalConversations(a) { return !!window.__gamecons?.data?.actors[
 // why a property stays as it is on an object, read only in the Inspector and the tables and never pasted or reset
 // on it: the conversation name of a character the original conversations use (renamed, they no longer bind); ''
 // when it can change
-function readOnlyReason(a, prop) { return prop === 'BindName' && hasOriginalConversations(a) ? 'Used by the original conversations' : ''; }
+function readOnlyReason(a, prop) {
+  if (a.cls === 'UCBPhases' && /^(phases|statename)$/i.test(String(prop))) {   // a Phases block linked to mission phases (All properties: the engine's "stateName")
+    const s = linkedSet(edits, a.name, missionSets);
+    if (s) return `The mission phases "${s.name}" keep it (Map > Mission phases...)`;
+  }
+  return prop === 'BindName' && hasOriginalConversations(a) ? 'Used by the original conversations' : '';
+}
+// Map > Mission phases: the project's phase sets, asked with each map. The map's linked Phases blocks take them, not a
+// change of the map (the server gives and builds its edits with them: editor/missionphases.py)
+async function loadMissionSets() {
+  const at = mapGeneration;
+  let sets = [];
+  try { sets = (await api('/api/mission_phases')).sets || []; } catch (e) { sets = []; }
+  if (at !== mapGeneration) return;
+  missionSets = sets;
+  missionSynced();
+}
+function missionSynced() {
+  syncMission(edits, missionSets);
+  logicChanged();
+  if (selected && selected.userData.actor && selected.userData.actor.cls === 'UCBPhases') renderProps(selected);
+}
+// Map > Classic rules (P6, editor/logicruntime.py), kept for one release as a way back: every rule built as before,
+// a rule with the newer options refused by the build (and by the Logic window's check). The project's choice; the
+// server puts it in the edits it gives (edits.logicRuntime), so it is set here too when changed.
+let logicRuntime = 'v2';
+async function loadLogicRuntime() {
+  try { logicRuntime = (await api('/api/logic_runtime')).runtime || 'v2'; } catch (e) { logicRuntime = 'v2'; }
+}
+async function toggleClassicRules() {
+  await loadLogicRuntime();
+  const want = logicRuntime === 'classic' ? 'v2' : 'classic';
+  try { logicRuntime = (await api('/api/logic_runtime', { runtime: want })).runtime; } catch (e) { status(e.message, 'warn'); return; }
+  if (edits) { if (logicRuntime === 'v2') delete edits.logicRuntime; else edits.logicRuntime = logicRuntime; }
+  logicChanged();
+  status(logicRuntime === 'classic'
+    ? 'Classic rules on: every rule is built the way it was before, and a rule that uses the newer options stops the build. The maps take it at their next Rebuild.'
+    : 'Classic rules off: the maps take it at their next Rebuild.', 'ok');
+}
+function openMissionPhasesWindow() {
+  const used = (id) => {
+    const names = Object.entries((edits.logic && edits.logic.mission) || {}).filter(([, v]) => v === id).map(([k]) => lkName(k));
+    return names.length ? `Used in this map by ${names.join(', ')}` : '';
+  };
+  openMissionPhases({ sets: missionSets, used, save: async (sets) => {
+    missionSets = (await api('/api/mission_phases', { sets })).sets || [];
+    missionSynced();
+    status('Mission phases saved. The maps that use them take them at their next Rebuild.', 'ok');
+    return missionSets;
+  } });
+}
+// the first row of a Phases block's settings: its phases this map's own, or a set of the project's mission phases
+function missionRowHtml(a) {
+  const id = linkedId(edits, a.name), known = missionSets.some((s) => s.id === id);
+  const opts = '<option value="">(this map only)</option>' + missionSets.map((s) => `<option value="${escapeHtml(s.id)}" ${s.id === id ? 'selected' : ''}>${escapeHtml(s.name)}: ${escapeHtml(s.phases.join(', '))}</option>`).join('')
+    + (id && !known ? `<option value="${escapeHtml(id)}" selected>(a set the project no longer has)</option>` : '');
+  return `<div class="row"><label style="width:auto;min-width:96px" for="pp-mission" title="The same phases in several maps: the phase goes on from one map to the next">Mission phases</label>`
+    + `<select id="pp-mission" style="flex:1;min-width:0">${opts}</select><button type="button" id="pp-mission-edit" title="Add or change the project's mission phases">Edit…</button></div>`;
+}
+function wireMissionRow(a, p, redraw) {
+  const sel = document.getElementById('pp-mission');
+  if (!sel) return;
+  sel.onchange = () => {
+    if (!requireUnlocked(p)) { redraw(); return; }
+    pushUndo(`Mission phases of ${hierLabel(a)}`);
+    linkBlock(edits, a.name, sel.value, missionSets);
+    setDirty(); redraw();
+  };
+  document.getElementById('pp-mission-edit').onclick = () => openMissionPhasesWindow();
+}
 function fieldOf(a, prop) { return (propSchema[a.cls] || []).find((f) => f.prop === prop) || (LINK_FIELDS.includes(prop) ? linkField(prop) : null); }
 // what shows objects' properties in the 3D view, after they changed: a light's colour, a collision box's shape
 function refreshProps(list) {
@@ -15800,6 +17364,7 @@ function closeMap() { return !mapLoading && !waitsForRebuild('closing the map wa
 // for debugging from the browser console
 window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, renderer, SNAP, applySnap, placeSelected, mapPose,
   get snapOn() { return snap; },                // Edit > Grid snap's tick (menubar.js)
+  get mapZones() { return lkZones(); },          // the Story's conditions: "the player is in a zone" (story.js)
   undoLabel: (way) => menuLabel(undoHistory, way),     // Edit > Undo / Redo with the step's name (menubar.js)
   status,                                              // the status bar (menubar.js: Window > layouts, the menus' note)
   setGizmo, get gizmo() { return { ...gizmo }; }, armAim,      // the toolbar's Center / Pivot and Global / Local (Settings); Edit > Aim at a point
@@ -15842,6 +17407,9 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   },
   startDraw: (kind) => startDraw(kind),         // Map > Draw wall / road / floor / roof
   openSky: () => skyTool.open(),                // Map > Sky & time of day
+  openMissionPhases: () => openMissionPhasesWindow(),   // Map > Mission phases
+  toggleClassicRules: () => toggleClassicRules(),       // Map > Classic rules
+  get classicRules() { return logicRuntime === 'classic'; },
   fillPaths: () => fillPaths(),                 // Map > Fill AI paths
   // a script of Tools > Scripts, a weapon or ammunition of Tools > Weapons (preset: its properties, e.g. its model)
   placeClass: (cls, name, preset = null, size = null) => startPlacing(Object.assign({ cls, name, radius: 16, height: 16 }, size || {}, preset ? { preset } : {})),
@@ -15874,6 +17442,10 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
   setLightGain(g) { lightGain = g; flushLightGain(); },
   startPlacing(item) { startPlacing(item); }, refreshPalette() { buildPalette(); }, log, loadFactions, updateCustom, renderThumb, portraitOf,
   forgetClass,                            // a script compiled again: its ports are asked for again (scripts.js)
+  scriptPortUses: (cls, kind, id) => scriptPortRules(cls, kind, id, null),
+  turnIntoScript: (ids, name, preview = false) => lgTurnIntoScript(ids, name, preview),     // P8 slice 6 (tests, assistant)
+  backToRules: (object) => lgBackToRules(object),          // the Ports table (P8 slice 5)
+  renameScriptPort: (cls, kind, from, to) => scriptPortRules(cls, kind, from, to),
   get palette() { return palette; }, animsChanged, applyTexture,
   useStudioAnim(name, anim) {                // the Studio gives one of its animations to a character of this map
     const a = allActors().find((x) => x.name === name), q = proxyOf(name);
@@ -15923,7 +17495,17 @@ window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorPro
   get lightMode() { return lightMode; }, setLightMode, api,
   structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,
   get undoDepth() { return undoHistory.undo.length; }, get redoDepth() { return undoHistory.redo.length; }, get placing() { return placing; } };
+// the map's Story in the same history (story.js, P5): its changes as steps, and its graph's Undo and Redo the editor's
+Object.assign(window.__editor, { storyStep, storyStepOnTop, undoStep, redoStep, storyRulesStep,
+  // Move to Logic's preview: a rule not in the map yet in words; a rule of the map opened in the Logic window
+  ruleSentence: (rule) => lkSentence(JSON.parse(JSON.stringify(rule))),
+  openRule: (id) => { const l = lkGet(id); if (l) logicOpen(l.src || '', 'list', id); return !!l; },
+  ruleCopy: (id) => { const l = lkGet(id); return l ? JSON.parse(JSON.stringify(l)) : null; } });
+// the assistant's level logic (agent.js logic_*: logicPropose and the rest above)
+window.__editor.logicKit = { read: logicRead, offer: logicOffer, check: logicCheck, tryRun: logicTry, propose: logicPropose,
+  status: logicProposalStatus, decide: logicDecide, why: logicWhy, log: logicLog, patterns: logicPatterns };
 // the cutscene cameras (cutscene.js) use these
+window.__editor.storyActs = lkStoryActs;
 window.__editor.cutKit = { T, UE, canvas, proxyOf, select, focusSelected, pushUndo, undoPop: dropUndo, setDirty, allActors,
   hierLabel, isCharacter, status, log, lkList, lkStartPick, lkNewAct, lkSentence, lkActText, showDetails: () => showDetails(),
   pickSound, playSound, makeProxy, nextName, intoDefaultFolder, warnHiddenKinds,

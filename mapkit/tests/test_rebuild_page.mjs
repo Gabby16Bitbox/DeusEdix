@@ -15,7 +15,8 @@ const body = (name) => { const at = source.indexOf(`function ${name}(`); return 
 
 // a stand-in server: the job runs through `stages` (one a question), then ends 'done', unless Cancel came first
 function server({ stages = ['load', 'bsp', 'lights'], gate = null } = {}) {
-  const s = { calls: [], asked: 0, cancelled: false, token: 'job-1' };
+  // clock: the page's own (performance.now), which the Build report's total is taken from (build-progress.js)
+  const s = { calls: [], asked: 0, cancelled: false, token: 'job-1', clock: 0 };
   const status = (state, extra = {}) => ({ state, token: s.token, map: '01_Lab', stage: 'prepare', label: 'Preparing', elapsed: s.asked, estimate: 40, ...extra });
   s.api = async (path, body) => {
     s.calls.push([path, body]);
@@ -28,8 +29,9 @@ function server({ stages = ['load', 'bsp', 'lights'], gate = null } = {}) {
     }
     if (path === '/api/build_status') {
       s.asked++;
-      if (s.cancelled) return status('cancelled', { ok: false, lines: [], report: { stages: [{ label: 'Lighting', seconds: 3 }], counts: {} } });
+      if (s.cancelled) { s.clock = 3000; return status('cancelled', { ok: false, lines: [], report: { stages: [{ label: 'Lighting', seconds: 3 }], counts: {} } }); }
       if (s.asked <= stages.length) return status('running', { stage: stages[s.asked - 1], label: stages[s.asked - 1] });
+      s.clock = 12000;
       return status('done', { ok: true, lines: ['built 01_Lab in 12.0s', '  IN SOLID: Light|Light3|0 0 0'],
         report: { stages: [{ label: 'CSG and BSP', seconds: 4 }, { label: 'Lighting', seconds: 8 }], counts: { lights: 3 } } });
     }
@@ -41,9 +43,9 @@ function server({ stages = ['load', 'bsp', 'lights'], gate = null } = {}) {
 function page(srv) {
   const calls = [], rows = [], chip = { shown: [], hidden: 0 }, classes = new Set();
   const c = vm.createContext({
-    script: 'dx:01_Lab', mapName: '01_Lab', edits: { moved: {}, added: [] }, buildJob: null, selected: null, gameView: null,
+    script: 'dx:01_Lab', mapName: '01_Lab', edits: { moved: {}, added: [] }, buildJob: null, logicSwapped: false, selected: null, gameView: null,
     camera: { position: { clone: () => ({}), copy() {} } }, cam: { yaw: 0, pitch: 0 },
-    api: srv.api, PAGE_STAGES, chipView, waitsForBuild, browserKey, PRESSABLE, isWarning, buildReport, performance, setTimeout, setInterval, clearInterval,
+    api: srv.api, PAGE_STAGES, chipView, waitsForBuild, browserKey, PRESSABLE, isWarning, buildReport, performance: { now: () => srv.clock }, setTimeout, setInterval, clearInterval,
     mapLoading: false, startScreen: { closeMap: () => { calls.push('closeMap'); return true; } }, window: { __menubar: { comboOf: (e) => e.combo } },
     createBuildChip: () => ({ el: {}, show: (v) => chip.shown.push(v), hide: () => chip.hidden++ }),
     $: () => ({ after() {} }),

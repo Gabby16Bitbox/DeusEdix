@@ -130,7 +130,7 @@ def _own_saved_state(map_name):
     return path
 
 
-def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='external', commands=()):
+def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='external', commands=(), menu=None):
     snapshot = {}
 
     def prepare():
@@ -140,7 +140,7 @@ def _launch(map_name, runner_lines, launch, live_mode=False, display_mode='exter
         # dialog (the editor's tests got stuck there, 20 Oct 2026): with no game running, it is only a stale mark
         if not running():
             _running_mark().unlink(missing_ok=True)
-        _session_inis(display_mode)
+        _session_inis(display_mode, menu, photos=live_mode)
         _set_section(runner_lines)
         _set_console()
         _set_keys(project_keys())
@@ -216,10 +216,12 @@ def _preview_display_ini(text, display_mode):
     return section.sub(compatible, text)
 
 
-def _session_inis(display_mode='external'):
+def _session_inis(display_mode='external', menu=None, photos=False):
     """The game's ini files for one launch (PLAY_INI, INI), made fresh each time from the player's own, read now: the
     ini with the project's folders first and its save folder (as project_game.activate writes them for an Install), in
-    a window (WINDOWED), the user ini as the player has it (or, when it is missing, as the game would make it)."""
+    a window (WINDOWED), the user ini as the player has it (or, when it is missing, as the game would make it).
+    `menu`: the map behind the project's own main menu, for a Play from the menu (project_game.menu_ini).
+    `photos`: a live session, whose runner takes photos (the 'shot' command): with the Direct3D 9 renderer."""
     import project_game
     import workspace
     text = settings.GAME_INI.read_text(encoding='latin1')
@@ -241,6 +243,16 @@ def _session_inis(display_mode='external'):
     # Default.ini's UseDirectDraw=True), with which its start-up waited 17-33 s inside DirectDraw before its window
     # opened ('Startup time' 29.5 s -> 4.5 s with it off in the copy, 30 Oct 2026). Revision's ini has it off already
     text = re.sub(r'(?im)^UseDirectDraw=[^\r\n]*', 'UseDirectDraw=False', text)
+    if menu:
+        # the project's root window that opens its menu (editor/main_menu.py root_class), from this project's package
+        text = project_game.menu_ini(text, settings.PACKAGE + '.UCMenuRoot', menu)
+    if photos and (SYS / 'D3D9Drv.dll').is_file():
+        # the original game's Direct3D 7 renderer (D3DDrv) reads no picture back: every shot of a live session was all
+        # magenta, 640x480 (Oct-Nov 2026). The installed Direct3D 9 one (as for the embedded Play) does; this copy only
+        text = _preview_display_ini(text, 'embedded')
+        # and pictures big enough to read: a window of at least 1280 x 720 (the original game's own is 640 x 480)
+        text = re.sub(r'(?im)^(WindowedViewportX=)(\d+)', lambda m: m.group(1) + str(max(int(m.group(2)), 1280)), text)
+        text = re.sub(r'(?im)^(WindowedViewportY=)(\d+)', lambda m: m.group(1) + str(max(int(m.group(2)), 720)), text)
     display_text = _preview_display_ini(text, display_mode)
     if display_text != text and not (SYS / 'D3D9Drv.dll').is_file():
         raise RuntimeError('Resizable embedded Play needs a Deus Ex-compatible Direct3D 9 renderer (D3D9Drv.dll) in the game System folder. Use Play in game window to keep the original renderer.')
@@ -453,6 +465,41 @@ def read_log(offset=-1, limit=400000):
     return offset + cut, data[:cut].decode('latin1').splitlines()
 
 
+LOGIC_TAG = b'DeusEdixLogic: '              # the logic log's lines (editor/LOGIC.md, logic-log.js LOGIC_TAG)
+LOAD_MAP = re.compile(rb'^Log: LoadMap: ([^?\s]+)')
+
+
+def logic_lines(map_name, limit=64 << 20, keep=6000):
+    """What one map's rules wrote in the game that ran last (its log starts again with each game): a dict of
+    lines (the logic log's, the tag taken off: the last `keep` of them, from the log's last `limit` bytes), loads (how
+    many times that game loaded the map), maps (the maps it loaded, in order, once each) and written (when the log was
+    last written, ms since 1970). None when there is no log."""
+    path = log_path()
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    want, out, maps, loads = map_name.lower(), [], {}, 0
+    with path.open('rb') as f:
+        if st.st_size > limit:
+            f.seek(st.st_size - limit)
+            f.readline()                      # from the next whole line
+        for raw in f:
+            if raw.startswith(LOGIC_TAG):
+                line = raw[len(LOGIC_TAG):].rstrip(b'\r\n').decode('latin1')
+                parts = line.split('|', 2)
+                if len(parts) > 1 and parts[1].lower() == want:
+                    out.append(line)
+                continue
+            m = LOAD_MAP.match(raw)
+            if m:
+                name = m.group(1).decode('latin1').rsplit('/', 1)[-1].rsplit('\\', 1)[-1]
+                name = re.sub(r'\.(dx|unr)$', '', name, flags=re.I)
+                maps.setdefault(name.lower(), name)
+                loads += name.lower() == want
+    return dict(lines=out[-keep:], loads=loads, maps=list(maps.values()), written=st.st_mtime_ns // 1000000)
+
+
 def _section():
     m = _SECTION.search(INI.read_text(encoding='latin1', errors='replace'))
     out = {}
@@ -491,12 +538,14 @@ def _wait_done(seq, timeout):
     raise TimeoutError('no answer from the game for step %d' % seq)
 
 
-def start(map_name='06_HongKong_WanChai_Rooftop', setup='', delay=6, start_map='01_NYC_UNATCOIsland', timeout=180):
-    """Launch the game in live mode on map_name (or run a UCDbg* setup first). Returns its first answer."""
+def start(map_name='06_HongKong_WanChai_Rooftop', setup='', delay=6, start_map='01_NYC_UNATCOIsland', timeout=180,
+          menu=False):
+    """Launch the game in live mode on map_name (or run a UCDbg* setup first). Returns its first answer. `menu`: with
+    the project's own main menu (map_name is the map behind it)."""
     launch = start_map if setup else map_name
     _launch(map_name, [RUNNER, 'bActive=True', 'bLive=True', 'LiveSeq=0', 'LiveDone=-1',
                       'LiveCmd=', 'LiveResult=', 'Setup=%s' % setup, 'SetupFlags=', 'StartDelay=%s' % delay],
-            launch, live_mode=True)
+            launch, live_mode=True, menu=map_name if menu else None)
     STATE['folder'] = SHOTS / (time.strftime('%Y%m%d-%H%M%S') + '-live')
     STATE['folder'].mkdir(parents=True, exist_ok=True)
     return _wait_done(0, timeout).get('LiveResult', '')
@@ -543,6 +592,15 @@ def play(map_name, at=None, yaw=0, pitch=0, setup='', flags='', start_map=None, 
                        'StartDelay=%s' % PLAY_START_DELAY] + ['Shots[%d]=%s' % (i, s) for i, s in enumerate(shots)],
             launch, display_mode=display_mode, commands=commands)
     return 'starting %s%s' % (map_name, ' after %s' % setup if setup else '')
+
+
+def play_menu(menu_map, display_mode='external'):
+    """File > Main menu > Play: the game as the project's own, on the map behind its main menu with that menu open
+    (project_game.menu_ini), as a player of the mod would start it. The runner stays off: nothing is done for the player.
+    Returns at once."""
+    _launch(menu_map, [RUNNER, 'bActive=False', 'bLive=False', 'Setup=', 'SetupFlags=', 'StartDelay=0'],
+            menu_map, display_mode=display_mode, menu=menu_map)
+    return 'starting the main menu on %s' % menu_map
 
 
 def _new_shot(after):

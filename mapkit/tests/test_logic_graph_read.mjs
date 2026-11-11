@@ -16,8 +16,7 @@ test('Feature Lab as prose: each rule as app.js said it, by the thing it belongs
     ['Button UCEdit5', 'obj:UCEdit5', ['L1', 'L2', 'L3', 'L4', 'L8']], ['script UCEdit29', 'obj:UCEdit29', ['L5']], ['door UCEditBox7', 'obj:UCEditBox7', ['L6', 'L7']]]]]);
   for (const l of lab.edits.links) {
     const line = view.sections[0].groups.flatMap((g) => g.lines).find((x) => x.rule === l.id);
-    // Read old rules using the current label without rewriting their saved data.
-    assert.equal(line.text, `${l.id}: ${l.label.replace(/^When JC (uses|has used) /, 'When the player $1 ')}`);
+    assert.equal(line.text, `${l.id}: ${l.label}`);
   }
   assert.deepEqual(view.story, [{ node: 'dlg:d1', text: 'Dialogue "Rossi at the door" - "why are you mad?"' }]);
   assert.equal(readText(view), [

@@ -63,7 +63,7 @@ def main():
     results = {}
     for mode, args in [('floor', []), ('wall', []), ('tile', []), ('tile-u', []), ('tile-v', []),
                        ('pan', [16, -8]), ('scale', [2, .5]), ('rotate', []), ('flip-u', []), ('flip-v', []),
-                       ('texture', ['HK_BuildingExt.Concrete.ClenGreyCncrt_A']), ('shadows', ['ultra-low']), ('shadows', ['low']), ('shadows', ['normal']), ('shadows', ['high']), ('cylinder', [])]:
+                       ('texture', ['HK_BuildingExt.Concrete.ClenGreyCncrt_A']), ('shadows', ['low']), ('shadows', ['normal']), ('shadows', ['high']), ('cylinder', [])]:
         run = kit.new_run([source], 'surface-test-' + mode)
         target = '*' if mode == 'cylinder' else 1
         row = dict(op=mode, args=args, targets=[dict(brush=names[1], poly=target)])
@@ -114,7 +114,7 @@ def main():
                             assert all(abs((x-y)-round(x-y)) < .001 for x,y in zip(coord, shared[v])), (v, coord, shared[v])
                         shared[v] = coord
         if mode == 'shadows':
-            assert a['flags'] & 0x808000 == {'ultra-low': 0x808000, 'low': 0x8000, 'normal': 0, 'high': 0x800000}[args[0]]
+            assert a['flags'] & 0x808000 == {'low': 0x8000, 'normal': 0, 'high': 0x800000}[args[0]]
             results['shadows-' + args[0]] = surfaces.report(text)
         results[mode] = str(run)
         print('PASS', mode, *args, flush=True)

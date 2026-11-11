@@ -40,7 +40,27 @@ def _exact(old, new):
     return change
 
 
+def _region(first, last):
+    """Remove the lines from the one starting `first` to the end of `last` (once)."""
+    def change(text):
+        a = text.find(first)
+        b = text.find(last, a + 1) if a >= 0 else -1
+        if a < 0 or b < 0 or text.count(first) != 1:
+            raise ValueError('region not found once: %r' % first[:80])
+        return text[:a] + text[b + len(last):]
+    return change
+
+
 CHANGES = {
+    # the project's own main menu: Revision's root window and character screen are the original game's
+    'UCMenuRoot': [
+        _exact('class UCMenuRoot extends RevRootWindow;', 'class UCMenuRoot extends DeusExRootWindow;'),
+        # the original game's windows have no MutateNewChild (nor RevMenuMain to swap)
+        _region('// Revision only: its own screens', '// (end of Revision only)\n'),
+    ],
+    'UCNewGame': [
+        _exact('class UCNewGame extends RevMenuScreenNewGame;', 'class UCNewGame extends MenuScreenNewGame;'),
+    ],
     'UCCustomSoldier': [
         _exact('\tbShouldGuardPoints=True\n', ''),
         _exact('\tProfessionalism=1.200000\n', ''),

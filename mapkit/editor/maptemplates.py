@@ -78,6 +78,8 @@ DROP = {
     'behave': "the characters' tactics",
     'fxpreview': "the preview of the interactions' effects",
     'navmesh': 'the walkable area: made again before every Rebuild',
+    'logicRuntime': "the project's Map > Classic rules: the project's own, put in by the build (logicruntime.py)",
+    'logicPatterns': "the versions of the project's patterns the old map placed: put in by the loaders (logicpatterns.py)",
 }
 # Map settings that are the old place's own: the new map has its own place name (New map) and opening lines
 LEVEL_DROP = {'info': ('MissionLocation', 'startupMessage')}

@@ -3,8 +3,8 @@
   "title": "Outputs said while the map loads wait for Started()",
   "behaviour": "An output a script says before JC is in the map waits; when the script starts (its first tick) it runs Started() first, whose own outputs go at once, then the waiting outputs in the order they were said.",
   "derivedFrom": [
-    {"file": "UCScript.uc", "lines": [55, 78], "has": "final function Output(string OutputName)"},
-    {"file": "UCScript.uc", "lines": [221, 232], "has": "final function StartScript()"}
+    {"file": "UCScript.uc", "lines": [62, 85], "has": "final function Output(string OutputName)"},
+    {"file": "UCScript.uc", "lines": [323, 334], "has": "final function StartScript()"}
   ],
   "assumes": ["A1", "A6", "A9"],
   "map": "LogicFixtures",

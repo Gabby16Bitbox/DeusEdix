@@ -1,0 +1,173 @@
+{
+ "version": 1,
+ "name": "Countdown bomb",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:12:58",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{zone}",
+     "when": "enter",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstart",
+       "target": "{countdown}",
+       "delay": 0,
+       "id": "R1_a1"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "A bomb! Ten seconds to stop it.",
+       "id": "R1_a2"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{panel}",
+     "when": "code",
+     "once": false,
+     "do": [
+      {
+       "verb": "timerstop",
+       "target": "{countdown}",
+       "delay": 0,
+       "id": "R2_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R3",
+     "src": "{countdown}",
+     "when": "stopped",
+     "once": false,
+     "do": [
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The bomb is defused.",
+       "id": "R3_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R4",
+     "src": "{countdown}",
+     "when": "finished",
+     "once": false,
+     "do": [
+      {
+       "verb": "explode",
+       "target": "{bomb}",
+       "delay": 0,
+       "a": "50",
+       "b": "256",
+       "id": "R4_a1"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "Too late.",
+       "id": "R4_a2"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "countdown",
+     "cls": "UCTimer",
+     "props": {
+      "Seconds": "10"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "zone",
+     "words": "the zone",
+     "family": "zone",
+     "carried": false
+    },
+    {
+     "id": "countdown",
+     "words": "the countdown",
+     "family": "timer",
+     "carried": true
+    },
+    {
+     "id": "panel",
+     "words": "the panel",
+     "family": "keypad",
+     "carried": false
+    },
+    {
+     "id": "bomb",
+     "words": "the bomb",
+     "family": "crate",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{zone}|out:enter",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "in:{panel}|out:code",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R2|cause:0"
+     ]
+    },
+    {
+     "key": "out:{bomb}|in:explode",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R4|act:R4/R4_a1"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

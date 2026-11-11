@@ -48,7 +48,7 @@ test('Auto U Pan and Auto V Pan show what the selected faces do, ticked, mixed o
   assert.match(s.box('Auto U Pan'), /^data-sf-flag="512" checked/);
   assert.match(s.box('Auto V Pan'), /^data-sf-flag="1024"\s+data-mixed="1"/);
   assert.deepEqual(s.boxes.filter((c) => c.indeterminate).map((c) => +c.dataset.sfFlag), [1024]);   // drawn mixed, not unticked
-  assert.match(s.details.innerHTML, /title="Its texture moves along U at its zone's speed[^"]*, as View > Effects shows after a Rebuild"/);
+  assert.match(s.details.innerHTML, /title="Moves the texture along U\. Set the zone's Inspector > Texture panning > U speed[^"]*\. View > Effects shows it after Rebuild\."/);
   assert.doesNotMatch(s.details.innerHTML, /disabled|data-sf-shown|cannot set/);        // no greyed box left
   assert.match(s.box('Unlit'), /^data-sf-flag="4194304"/);                             // the others as they were
   // the mixed V box ticked gives both faces Auto V Pan, the U box unticked takes it off both: a row and an undo step

@@ -21,9 +21,12 @@ def copy_file(source, path):
 
 
 def write_text(path, content, encoding='utf-8'):
-    path = Path(path)
     # Encode before opening anything: bad input cannot damage a saved document.
-    raw = content.encode(encoding)
+    write_bytes(path, content.encode(encoding))
+
+
+def write_bytes(path, raw):
+    path = Path(path)
     temporary = path.with_name('.' + path.name + '.' + uuid.uuid4().hex + '.tmp')
     try:
         with temporary.open('xb') as stream:

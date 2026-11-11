@@ -4,7 +4,8 @@ derives it again, so the simulator and the game run the same data.
 
     compiled(edits)
         {'actors': links.blocks(edits): the UCLink, UCLinkGroup, UCUsable and UCObjectTag actors the game gets
-                   ({'cls', 'name', 'loc', 'props'}, the props as the T3D writes them),
+                   ({'cls', 'name', 'loc', 'props'}, the props as the T3D writes them), and the map's UCLogicHub
+                   (links.hub: its start values) when it has one,
          'outputs': {when: {'hears', 'tag'}}: how the game hears each output, and the Tag a link of it waits for
                     ({src}: the object, {option}: a computer's option; '' when it is watched or set off directly),
          'left': [{'id', 'src', 'why', 'text'}]: the rules of the edits that are not in the game, and why (LEFT),
@@ -15,6 +16,7 @@ The page asks for it with the edits it has (saved or not): /api/logic/compile (p
 import activation
 import links
 import logic_catalog
+import settings
 
 # Why a rule of the edits is not among the game's actors (links.blocks leaves it out), in the order left_out asks
 LEFT = {
@@ -70,4 +72,6 @@ def compiled(edits):
         actors = links.blocks(edits)
     except ValueError as exc:
         return dict(actors=[], outputs=outputs(), left=[], error=str(exc))
-    return dict(actors=actors, outputs=outputs(), left=left_out(edits, actors), error='')
+    left = left_out(edits, actors)
+    hub = links.hub(edits) if settings.STANDALONE else None     # the start values Try it applies as the game does
+    return dict(actors=actors + ([hub] if hub else []), outputs=outputs(), left=left, error='')

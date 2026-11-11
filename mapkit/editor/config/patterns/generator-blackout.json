@@ -1,0 +1,216 @@
+{
+ "version": 1,
+ "name": "Generator blackout",
+ "versions": [
+  {
+   "v": 1,
+   "made": "2026-11-10T16:13:01",
+   "rules": [
+    {
+     "id": "R1",
+     "src": "{generator}",
+     "when": "used",
+     "once": false,
+     "do": [
+      {
+       "verb": "input",
+       "target": "{power}",
+       "delay": 0,
+       "a": "Next",
+       "id": "R1_a1"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ]
+    },
+    {
+     "id": "R2",
+     "src": "{power}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "lightoff",
+       "target": "{light1}",
+       "delay": 0,
+       "id": "R2_a1"
+      },
+      {
+       "verb": "lightoff",
+       "target": "{light2}",
+       "delay": 0,
+       "id": "R2_a2"
+      },
+      {
+       "verb": "off",
+       "target": "{camera}",
+       "delay": 0,
+       "id": "R2_a3"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The power is cut.",
+       "id": "R2_a4"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out1"
+    },
+    {
+     "id": "R3",
+     "src": "{power}",
+     "when": "output",
+     "once": false,
+     "do": [
+      {
+       "verb": "lighton",
+       "target": "{light1}",
+       "delay": 0,
+       "id": "R3_a1"
+      },
+      {
+       "verb": "lighton",
+       "target": "{light2}",
+       "delay": 0,
+       "id": "R3_a2"
+      },
+      {
+       "verb": "on",
+       "target": "{camera}",
+       "delay": 0,
+       "id": "R3_a3"
+      },
+      {
+       "verb": "message",
+       "target": "",
+       "delay": 0,
+       "a": "The power is back.",
+       "id": "R3_a4"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      64
+     ],
+     "port": "Out2"
+    }
+   ],
+   "pieces": [],
+   "objects": [
+    {
+     "slot": "power",
+     "cls": "UCBSwitch",
+     "props": {
+      "NumWays": "2"
+     },
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "slots": [
+    {
+     "id": "generator",
+     "words": "the generator switch",
+     "family": "object",
+     "carried": false
+    },
+    {
+     "id": "power",
+     "words": "the on-or-off switch",
+     "family": "switchblock",
+     "carried": true
+    },
+    {
+     "id": "light1",
+     "words": "the first light",
+     "family": "light",
+     "carried": false
+    },
+    {
+     "id": "light2",
+     "words": "the second light",
+     "family": "light",
+     "carried": false
+    },
+    {
+     "id": "camera",
+     "words": "the camera",
+     "family": "camera",
+     "carried": false
+    }
+   ],
+   "ports": [
+    {
+     "key": "in:{generator}|out:used",
+     "side": "in",
+     "name": null,
+     "ends": [
+      "rule:R1|cause:0"
+     ]
+    },
+    {
+     "key": "out:{light1}|in:lightoff",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a1"
+     ]
+    },
+    {
+     "key": "out:{light2}|in:lightoff",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a2"
+     ]
+    },
+    {
+     "key": "out:{camera}|in:off",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R2|act:R2/R2_a3"
+     ]
+    },
+    {
+     "key": "out:{light1}|in:lighton",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a1"
+     ]
+    },
+    {
+     "key": "out:{light2}|in:lighton",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a2"
+     ]
+    },
+    {
+     "key": "out:{camera}|in:on",
+     "side": "out",
+     "name": null,
+     "ends": [
+      "rule:R3|act:R3/R3_a3"
+     ]
+    }
+   ],
+   "states": []
+  }
+ ]
+}

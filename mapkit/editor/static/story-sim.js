@@ -85,6 +85,7 @@ export function createPlay(steps, state = {}, { random = Math.random } = {}) {
         case 'goal': at++; return { type: 'effect', id: s.id, text: `Goal ${s.done ? 'completed' : 'added'}: ${s.text || s.goal || ''}` };
         case 'note': at++; return { type: 'effect', id: s.id, text: `Note: ${s.text || ''}` };
         case 'trigger': at++; return { type: 'effect', id: s.id, text: `Triggers the event ${s.tag || '?'}` };
+        case 'signal': at++; return { type: 'effect', id: s.id, text: `Sends the signal ${s.signal || '?'}` };
         case 'do': at++; return { type: 'effect', id: s.id, text: `When the dialogue ends: ${(s.do || []).length} action${(s.do || []).length === 1 ? '' : 's'}` };
         default: at++; return { type: 'effect', id: s.id, text: s.type };
       }

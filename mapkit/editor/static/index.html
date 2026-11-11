@@ -336,6 +336,8 @@
   /* an Interaction: a list of numbered steps (action-list.js), the "If not" steps under it */
   .lk-rule { border-left:3px solid var(--accent-border); background:var(--surface); border-radius:var(--radius-card); padding:4px 4px 4px 8px; margin:6px 0; }
   .lk-rule.lk-branch { margin:-4px 0 6px 14px; border-left-color:var(--dim); }
+  .lk-rule.lk-carrier { border-left:0; background:none; padding:0; margin:0; } .lk-carrier .lk-step { border-top:0; margin-top:0; padding-top:0; }
+  .lk-carrier .lk-n { display:none; } .lk-carrier .row[style*="padding-left:38px"] { padding-left:0 !important; }
   .lk-rule a { color:var(--acc); } .lk-rule .row { flex-wrap:wrap; row-gap:3px; } .lk-step { border-top:1px solid var(--line); margin-top:3px; padding-top:3px; }
   .lk-n { flex:none; width:18px; height:18px; line-height:18px; text-align:center; font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:var(--radius-control); font-variant-numeric:tabular-nums; }
   /* the Inspector's Logic summary: one line per rule, into the Logic window */
@@ -586,7 +588,7 @@
     <tr><td>Patrol route (a character's Properties)</td><td>"Draw route", then click the floor point after point (Enter or Esc when done): they walk it in a loop, waiting the seconds you give each point</td></tr>
     <tr><td><kbd>F</kbd></td><td>focus the selected object</td></tr>
     <tr><td><kbd>Delete</kbd> / <kbd>Ctrl+D</kbd> / <kbd>Ctrl+Z</kbd></td><td>delete / duplicate / undo</td></tr>
-    <tr><td><kbd>Ctrl+U</kbd> (Window &gt; History)</td><td>the History panel (a tab next to the Inspector): every change of this map by name, newest first, the map as it was opened at the bottom; a click goes back (or forward) to that step, the steps Redo would bring back are dimmed. Edit &gt; Undo / Redo say the step they take (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>), the status bar what was undone. Not kept after a Rebuild or a reload: your changes are, by Save and autosave</td></tr>
+    <tr><td><kbd>Ctrl+U</kbd> (Window &gt; History)</td><td>the History panel (a tab next to the Inspector): every change of this map and of its Story by name, newest first, the map as it was opened at the bottom; a click goes back (or forward) to that step, the steps Redo would bring back are dimmed. Edit &gt; Undo / Redo say the step they take (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>), the status bar what was undone. Not kept after a Rebuild or a reload: your changes are, by Save and autosave</td></tr>
      <tr><td><kbd>Shift</kbd>+<kbd>Space</kbd> (Window &gt; Maximize panel)</td><td>the docked panel under the pointer, or the 3D view, fills the editor; again, or <kbd>Esc</kbd>, puts the layout back</td></tr>
      <tr><td>Window &gt; Save layout as… / Layout: <i>name</i></td><td>keep the panels as they are under a name (in this browser, for every project); its item in the Window menu puts them back. Delete layout…, Export layouts… and Import layouts… (a JSON file)</td></tr>
      <tr><td>Right click &gt; Properties…</td><td>a floating Inspector of that one object, live (the gizmo, Ctrl+Z, the panel change it too), while the Inspector panel follows the selection: a keypad and its door side by side. At most 3; it closes with its object or its map</td></tr>
