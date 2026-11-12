@@ -41,7 +41,7 @@ class MoverLibrarySettingsTests(unittest.TestCase):
 
     def test_settings_survive_serialization_place_rotate_and_duplicate(self):
         pf = self.prefab(); original = json.dumps(pf)
-        settings = dict(mode='use-timed', moveTime=2.5, stayOpenTime=7, locked=True)
+        settings = dict(mode='use-timed', moveTime=2.5, stayOpenTime=7, locked=True, keyId='2')
         entry = json.loads(json.dumps(dict(_prefab=pf, pid='one', offset=[10, 0, 0], yaw=16384, moverSettings=settings)))
         raw, brushes, actors = prefabs.place(entry)
         a = next(t3d.actors(raw[0])); p = a['props']
@@ -50,9 +50,11 @@ class MoverLibrarySettingsTests(unittest.TestCase):
         self.assertEqual(p['InitialState'], 'TriggerOpenTimed'); self.assertEqual(p['bFrobbable'], 'True')
         self.assertEqual(float(p['MoveTime']), 2.5); self.assertEqual(float(p['StayOpenTime']), 7)
         self.assertEqual(p['bLocked'], 'True'); self.assertEqual(t3d.vec(p['KeyPos(1)']), (0, 80, 0))
+        self.assertEqual(p['KeyIDNeeded'], '2')
         other = json.loads(json.dumps(entry)); other['pid'] = 'two'; other['moverSettings']['locked'] = False
         second = next(t3d.actors(prefabs.place(other)[0][0]))['props']
         self.assertNotEqual(p['Tag'], second['Tag']); self.assertEqual(second['bLocked'], 'False')
+        self.assertEqual(second['KeyIDNeeded'], '2', 'A duplicate keeps the same key independently of its unique Tag')
         self.assertTrue(entry['moverSettings']['locked']); self.assertEqual(json.dumps(pf), original)
 
     def test_modes_and_sounds(self):
@@ -76,6 +78,23 @@ class MoverLibrarySettingsTests(unittest.TestCase):
         raw = self.prefab()['blocks'][0]['raw']
         self.assertEqual(moving_pieces.apply_settings(raw, None), raw)
         self.assertEqual(moving_pieces.apply_settings(raw, {}), raw)
+
+    def test_key_ids_keep_identity_and_can_be_cleared(self):
+        pf=self.prefab()
+        pf['blocks'][0]['raw']=pf['blocks'][0]['raw'].replace('End Actor','    KeyIDNeeded=OldDoor\nEnd Actor')
+        self.assertEqual(moving_pieces.description(pf)['keyId'],'OldDoor')
+        for value,expected in [('2','2'),(4,'4'),(0,'0'),('  ApartmentDoor  ','ApartmentDoor'),
+                               ('None','None'),('none','None'),('','None'),(None,'None')]:
+            with self.subTest(value=value):
+                raw=prefabs.place(dict(_prefab=pf,pid='key',moverSettings={'keyId':value}))[0][0]
+                self.assertEqual(next(t3d.actors(raw))['props']['KeyIDNeeded'],expected)
+        raw=prefabs.place(dict(_prefab=pf,pid='key',moverSettings={'locked':True}))[0][0]
+        self.assertEqual(next(t3d.actors(raw))['props']['KeyIDNeeded'],'OldDoor')
+
+    def test_key_id_rejects_malformed_t3d_and_non_names(self):
+        for value in ['Key\nEnd Actor','Door ID',"Door'ID",'a'*64,[],{},True,2.5]:
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'Key ID'):
+                prefabs.place(dict(_prefab=self.prefab(),pid='key',moverSettings={'keyId':value}))
 
 
 if __name__ == '__main__':

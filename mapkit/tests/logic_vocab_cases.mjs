@@ -11,6 +11,7 @@ import { AREA_VERBS } from '../editor/static/connect-area.js';
 import { optionsText } from '../editor/static/logic-rule-ui.js';
 import { stepsText } from '../editor/static/action-list.js';
 import { isFormula, valueText } from '../editor/static/logic-numbers.js';
+import { goalTexts } from '../editor/static/logic-vocab.js';
 
 // the outputs, verbs and families of 27 Oct 2026
 export const OUTPUTS = ['opened', 'closed', 'destroyed', 'used', 'code', 'wrongcode', 'option', 'enter', 'leave', 'laser', 'alarm',
@@ -186,6 +187,7 @@ export function appSentences(source) {
     // what app.js asks the catalogue for (the P4 words: lkVocabWhen, lkVocabAct) and the rule's options (P6)
     lkVocabWhen: () => '', lkVocabAct: () => '', optionsText, lkMainOf: (l) => l, stepsText,
     lkPhaseText: () => '',                                     // P3: a rule kept to phases (none in the cases)
+    goalTexts,                                                 // a goal completed by its words (12 Nov 2026)
     edits: { usable: Object.fromEntries([...USABLE].map((n) => [n, { text: 'Use' }])) },
     propItems: Object.entries(ITEMS).map(([cls, name]) => ({ cls, name })),
   });

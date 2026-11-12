@@ -5,7 +5,12 @@
 // Pluggable: graph-canvas.js takes any function with layered's contract as its `layout` option, so a library (dagre,
 // MIT) could replace this one later without touching the canvas.
 //
-//   graph    {nodes: [{id, w, h}], edges: [{from, to}]}   from / to: node ids (edges to other ids are left out)
+//   graph    {nodes: [{id, w, h}], edges: [{from, to, weak?}]}   from / to: node ids (edges to other ids are left out);
+//            weak: a wire that only reads (a rule reading a state another sets): it keeps the two in one piece, and a
+//            node with only weak wires sits in the column of the one it reads from, under it, but it makes no column
+//            of its own (12 Nov 2026: each state read pushed its rule a column further right, 7 columns for 14 rules);
+//            weak 'tie': only keeps the two in one piece (the map's "a condition becomes true" into a rule that watches
+//            a state: the state's own dashed wires say where it comes from)
 //   at       {id: [x, y]}: where the nodes are now, their top-left corner (a node without one has not been placed)
 //   options  {fixed: ids that never move (pinned), only: the ids to arrange (every other node stays), gapX, gapY,
 //             origin: [x, y] where the arranged block starts}
@@ -19,11 +24,12 @@ export function layered(graph, at = {}, options = {}) {
   for (const n of graph.nodes) if (!moving.has(n.id)) out[n.id] = [...at[n.id]];
   const ids = graph.nodes.map((n) => n.id).filter((id) => moving.has(id));
   if (!ids.length) return out;
-  const edges = edgesAmong(graph.edges, moving);
+  const all = edgesAmong(graph.edges, moving), edges = all.filter((e) => !e.weak), weak = all.filter((e) => e.weak === true);
   // each piece of the graph laid out on its own, the pieces stacked down in the order of their first node
-  const pieces = componentsOf(ids, edges).map((piece) => {
-    const inPiece = new Set(piece), own = edges.filter((e) => inPiece.has(e.from));
-    return { columns: orderColumns(columnsOf(piece, ranksOf(piece, own)), own), edges: own };
+  const pieces = componentsOf(ids, all).map((piece) => {
+    const inPiece = new Set(piece), own = edges.filter((e) => inPiece.has(e.from)), soft = weak.filter((e) => inPiece.has(e.from));
+    const columns = orderColumns(columnsOf(piece, ranksOf(piece, own, soft)), own);
+    return { columns: besideAnchors(columns, own, soft), edges: own };
   });
   // the columns line up across the pieces: a column is as wide as its widest node in any piece
   const widths = [];
@@ -120,8 +126,9 @@ function componentsOf(ids, edges) {
 }
 
 // the column of each node: the longest way in from a node nothing leads to, after turning round the wires that close
-// a loop (found by a walk from each node in turn); a node that only leads somewhere sits just left of its nearest target
-function ranksOf(ids, edges) {
+// a loop (found by a walk from each node in turn); a node that only leads somewhere sits just left of its nearest target;
+// a node with only weak wires (soft) in the column of what it reads from, else of what reads it
+function ranksOf(ids, edges, soft = []) {
   const { outs } = neighbours(edges), state = new Map(), forward = [];
   for (const root of ids) {
     if (state.has(root)) continue;
@@ -146,7 +153,46 @@ function ranksOf(ids, edges) {
   for (const id of ids) if (!ins.has(id) && next.has(id)) rank.set(id, Math.min(...next.get(id).map((s) => rank.get(s))) - 1);
   const low = Math.min(...rank.values());
   for (const id of ids) rank.set(id, rank.get(id) - low);
+  const strong = new Set(edges.flatMap((e) => [e.from, e.to])), placed = (id) => strong.has(id) || settled.has(id), settled = new Set();
+  for (let pass = 0; pass < ids.length; pass++) {               // a loose one reading a loose one: in turn
+    let changed = false;
+    for (const id of ids) {
+      if (placed(id)) continue;
+      const from = soft.filter((e) => e.to === id && e.from !== id && placed(e.from)).map((e) => rank.get(e.from));
+      const to = soft.filter((e) => e.from === id && e.to !== id && placed(e.to)).map((e) => rank.get(e.to));
+      if (!from.length && !to.length) continue;
+      rank.set(id, from.length ? Math.max(...from) : Math.min(...to));
+      settled.add(id);
+      changed = true;
+    }
+    if (!changed) break;
+  }
   return rank;
+}
+
+// a node with only weak wires goes just under the one of its column it reads from (or that reads it), so its dashed
+// wire is short; the others keep their order
+function besideAnchors(columns, edges, soft) {
+  if (!soft.length) return columns;
+  const strong = new Set(edges.flatMap((e) => [e.from, e.to]));
+  return columns.map((col) => {
+    const inCol = new Set(col), anchor = new Map();
+    for (const id of col) {
+      if (strong.has(id)) continue;
+      const by = soft.find((e) => e.to === id && e.from !== id && inCol.has(e.from)) || soft.find((e) => e.from === id && e.to !== id && inCol.has(e.to));
+      if (by) anchor.set(id, by.to === id ? by.from : by.to);
+    }
+    if (!anchor.size) return col;
+    const out = col.filter((id) => !anchor.has(id));
+    for (const id of col) {
+      if (!anchor.has(id)) continue;
+      let k = out.indexOf(anchor.get(id));
+      if (k < 0) { out.push(id); continue; }
+      while (k + 1 < out.length && anchor.get(out[k + 1]) === anchor.get(id)) k++;
+      out.splice(k + 1, 0, id);
+    }
+    return out;
+  });
 }
 
 function columnsOf(ids, rank) {

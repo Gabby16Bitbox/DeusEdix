@@ -105,6 +105,20 @@ export function routeWire(a, b, { lane = 0, boxes = [], via = [] } = {}) {
   return around(a, b, lane, boxes);
 }
 
+// where a wire's label goes: its middle, or else the point along it (pts) nearest the middle that is on no node: a
+// label under a card can be neither read nor clicked (12 Nov 2026). pad: half a label's size, round each box
+export function labelPoint(pts, mid, boxes, pad = [28, 10]) {
+  const free = (p) => !boxes.some((b) => b && p[0] > b[0] - pad[0] && p[0] < b[0] + b[2] + pad[0] && p[1] > b[1] - pad[1] && p[1] < b[1] + b[3] + pad[1]);
+  if (free(mid)) return mid;
+  let best = null, bestD = Infinity;
+  for (const p of pts || []) {
+    if (!free(p)) continue;
+    const d = (p[0] - mid[0]) ** 2 + (p[1] - mid[1]) ** 2;
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best || mid;
+}
+
 // the control points of a curve that leaves a and reaches b level, bending more the further apart they are
 function controls(a, b) {
   const c = Math.max(LANE.out * 2, Math.min(160, Math.abs(b[0] - a[0]) / 2));

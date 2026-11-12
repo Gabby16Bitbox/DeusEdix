@@ -4,7 +4,7 @@
   "behaviour": "While a rule is still doing its actions (state Running) its output is ignored, with a \"running\" skip; it leaves Running in the tick of its last action, so the same output later in that tick runs it again.",
   "derivedFrom": [
     {"file": "UCLink.uc", "lines": [381, 384], "has": "if (IsInState('Running'))"},
-    {"file": "UCLink.uc", "lines": [1913, 1932], "has": "state Running"}
+    {"file": "UCLink.uc", "lines": [1925, 1944], "has": "state Running"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

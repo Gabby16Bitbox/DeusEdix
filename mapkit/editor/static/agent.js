@@ -121,7 +121,7 @@ const OPS = {
       out.push({ name: a.name, cls: a.cls, label: k.hierLabel(a), loc: p ? k.UE(p.position) : a.loc });
     }
     for (const b of ed.edits.boxes || [])
-      out.push({ name: b.name, cls: 'block', label: k.boxKind(b), loc: b.lo.map((v, i) => r1((v + b.hi[i]) / 2)), size: b.hi.map((v, i) => r1(v - b.lo[i])) });
+      out.push({ name: b.name, cls: 'block', label: (typeof b.label === 'string' && b.label.trim()) || k.boxKind(b), kind: k.boxKind(b), loc: b.lo.map((v, i) => r1((v + b.hi[i]) / 2)), size: b.hi.map((v, i) => r1(v - b.lo[i])) });
     for (const d of ed.edits.drawn || []) out.push({ name: d.name, cls: 'drawn', label: d.kind, loc: d.pts?.[0] || null });
     const t = text.toLowerCase(), c = cls.toLowerCase();
     let hits = out.filter((o) => (!t || `${o.name} ${o.cls} ${o.label}`.toLowerCase().includes(t)) && (!c || String(o.cls).toLowerCase() === c));

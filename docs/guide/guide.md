@@ -29,8 +29,8 @@ itself.
 
 Start **DeusEdix** from the Start menu. The first time it prepares its workspace from your game
 (links and copies inside its own folder: nothing of the game is changed) and compiles its package,
-which takes a few seconds. The 3D view needs an internet connection (it loads three.js, the 3D
-engine, from a CDN).
+which takes a few seconds. No internet connection is needed: the 3D engine (three.js) comes with
+the editor.
 
 DeusEdix's window needs Windows 10 or 11 with Microsoft Edge WebView2 (part of Windows; Microsoft's
 WebView2 Runtime installs it if it is missing). Without it, or under Wine or Proton (Linux, Steam Deck),
@@ -1415,6 +1415,34 @@ the panel's object, and the faces of a structure are edited from the panel.
 A field shows the value you set, otherwise the map's, otherwise the game's default for that kind
 of object. Changes are applied by **Rebuild**, without touching the lighting.
 
+**Item choices and rewards** use the same names in rules, dialogue, character inventories and Play loadouts.
+Engine helpers (robot ammo, invisible NPC attacks, carried-body tokens and legacy aliases) are hidden from new
+choices. A saved special item stays selected with its original class; unavailable items stay visible too, so
+opening a form never silently replaces them. Hover an option for its full class and any restriction.
+
+- For a grenade the player can equip, choose **LAM (usable grenade)** or the corresponding EMP, gas or scramble
+  grenade. `AmmoLAM` and the other internal ammo classes are not equippable grenades.
+- For a door key, select the door, open **Inspector > Door**, enable **Locked**, and set **Key ID** (e.g. `2`).
+  A door just placed from **Objects > Movers** also has these fields before its first Rebuild. If you select its
+  prefab after Rebuild, choose **Edit mover…** to edit the actual door's Key ID and lock.
+  Give **NanoKey (set Key ID)** from a rule or a dialogue and enter the same **Key ID**. A physical NanoKey uses
+  **Inspector > Key > Key ID** instead. `2` opens doors with ID `2`; `4` opens doors with ID `4`. Names such as
+  `ApartmentDoor` work too and are case-insensitive. One key can unlock several doors. `None` means no key.
+  Optionally set the key's **Description**, shown in the native keyring. A reward with no valid ID is reported
+  before compilation; the editor never invents or changes IDs in existing maps. Keys use no inventory slot,
+  and receiving the same ID again does not duplicate it. The rule **Give the player its key** on a door still
+  reads that door's ID. During a dialogue the key arrives at the Give step, not when the dialogue is loaded.
+- A placed **Credit chit** has **Inspector > Credits > Credit amount**. In rules or dialogue use **Give credits**
+  for an exact money reward; the number of item copies is not a credit amount.
+- A placed **Augmentation canister** has two choices under **Inspector > Augmentations**. A medical bot installs
+  one of these choices. Set both explicitly: Original leaves empty slots empty, while Revision may randomize them.
+  **Augmentation Upgrade Canister** is a different, ready-to-use item that upgrades an installed augmentation.
+- **Ambrosia vial** is a mission item; add the story condition yourself. Giving it does not advance a mission.
+- Use **Give credits** for a money reward and **Change an augmentation of the player** for an augmentation.
+- **Gameplay-specific** choices need the corresponding game or gameplay mode. For example, the projectile
+  weapon mod is absent from Original Deus Ex and requires a weapon that accepts projectile-count mods. Test
+  such items in every gameplay mode you intend to support; listing a class does not make it portable.
+
 **Lights**: select one (in the 3D view or under *Lights* in the Hierarchy). The Inspector shows
 its colour and its properties, the same ones UnrealEd has. The sphere of the light takes the new
 colour at once, and while it is selected a wire sphere shows how far it reaches. The lighting of
@@ -1768,6 +1796,28 @@ What a block holds shows in the Console while Play runs (*All1: 2 of 3 done*, *S
   its lines, add steps and answers as in the Story panel (**Ctrl+Z** steps back), then **← Logic graph** goes back.
   **Open in the Story panel** shows it there, with its other pages. An InfoLink or a Story event opens the Story
   panel on it.
+- **Editing in the Graph**: the graph edits the rules as the List does, and each change is one **Ctrl+Z**.
+  * **The side panel**: select a rule card or an object and its form opens at the right of the graph (a rule's
+    cause, conditions and steps; an object's rules with **+ When it…**). **List** shows it in the List, **✕** or
+    **Esc** closes it.
+  * **Right-click** empty space for a new rule (*When the map starts*, *When the player…*, or on an object), a
+    note, a frame around the selection, **Paste** or **See the whole graph**; right-click an object for
+    **When it…**, its rules at the side, **Select in the 3D view** and **Why not?**; a rule for **Edit**,
+    **Add a step…**, **Duplicate**, **Copy**, **Cut**, **Mute** or **Pause here** while playing, **Make a block**
+    and **Delete**; a wire for **Add a delay…**, **Insert a Wait** or deleting its step. The menus are searchable:
+    type a few words, and the last choices come first.
+  * **Wires**: drag from what an object can do (*Used*, *Opened*...) to another object to make a rule on it: pick
+    what it does. Drop it on empty space to pick a step without an object (a message, a state, a goal...).
+    **Ctrl+drag** the end of a wire to another object to put that action on it (all the wires of that pin move
+    together); when the new object cannot do it, pick what it does instead.
+  * **Values**: at full zoom, the cause, a condition, a step and its time (*now*, *+2 s*) are links: click one
+    and only that part of the form opens on the card, **Enter** keeps it, **Esc** puts it back as it was.
+    **Nothing yet** adds a step.
+  * **Notes and frames** are for you (the game never reads them): **N** adds a note, **C** frames the selected
+    nodes, a double click (or **F2**) writes in one, and a frame dragged by its title takes along what is inside.
+  * **Keys**: **Ctrl+C** / **Ctrl+X** / **Ctrl+V** copy, cut and paste rules (to this map or another one: the
+    rules whose object the map lacks are left out), **Ctrl+D** duplicates, **Delete** removes rules, steps, notes
+    and frames (map objects are deleted in the 3D view or the Hierarchy).
 - **Read**: the map's rules as sentences, object by object, and what to check.
 - **Phases**: each Phases object of the map as its phases from left to right, the first marked. Each phase shows
   its state (*Raid_Alarm*), what brings the mission there (*Gate1 has opened*), what happens **When it starts** and
@@ -2945,8 +2995,27 @@ colour) each, conditions with a *Yes* and a *No* row; the arrows show where the 
 line still shows what is said.
 
 - **Drag the dot** on the right of a step onto another step to connect them, or onto empty space to add the next
-  step there (a menu offers every kind); a click on the dot offers the same menu and puts the new step beside. **Double-click** empty space
-  (or **Tab**) for a step on its own. **Right-click** a step: write it, who says it, a line after it, delete it.
+  step there; a click on the dot does the same and puts the new step beside. **Double-click** empty space (or
+  **Tab**) for a step on its own.
+- **Adding a step**: a search box opens where you asked. Type a few words (*money*, *item*, *flag*, *jc line*: in
+  any order, a typo is forgiven), use the arrows and **Enter**, or click; **Esc** closes it. Without typing, the kinds
+  come in groups (Talk, Check, Change, End), the ones you used last first, and the line at the bottom says what the
+  highlighted one does. After dragging from a step, **Fits here** comes first: after a line of a character, JC's
+  answers and JC's line; after JC's line, the character's; after an answer or a condition, a line. **Connect to an
+  existing step…** lists the dialogue's steps by what they say: pick one and that arrow goes there. **End of
+  dialogue** ends it there.
+- **Click a value in a node** to change it right there: who says a line (its name at the top), the flag and its
+  value, the item and how many, the credits, the goal, the signal, the tag, the check of a condition, the actions,
+  the conditions of an answer (*if 1*). A small box opens with the same field as in the List: **Enter** or a click
+  elsewhere keeps the change, **Esc** puts it back as it was, **All of it** opens every field of the step at the side.
+- **Right-click** a step: write it, who says it, change any of its values, everything of it at the side, add a step
+  after it, **Duplicate**, **Copy**, **Cut**, **Paste**, disconnect its ways on, delete it. Right-click an **arrow**:
+  insert a step in it, connect it to another step, or disconnect it. Right-click **empty space**: what to add there,
+  **Paste**, **Tidy**, see the whole dialogue, **Play-test**.
+- **Ctrl+C**, **Ctrl+X**, **Ctrl+V** and **Ctrl+D** copy, cut, paste and duplicate the selected steps with the
+  arrows among them, in the same dialogue or another one (paste goes where the mouse is). A pasted group stands on its
+  own, faded until you connect something to it. Each paste is one **Ctrl+Z**. Putting JC's answers into an arrow
+  makes the first answer go on where the arrow went, so nothing after it is lost.
 - **Double-click a line** (or select it and press **F2**) to write it in the node itself: **Enter** goes on to the
   next line, said by the other speaker; **Shift+Enter** starts a new row of text; **Tab** gives the line to another
   speaker; **Esc** is done. Zoomed out, the graph comes to 100% on the line first. Double-click one of JC's answers

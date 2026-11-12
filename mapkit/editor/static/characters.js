@@ -1,3 +1,4 @@
+import { itemOptionsHtml } from './item-options.js';
 // "Characters" panel of the map editor (Character Creator): characters of your own, made of the bodies,
 // faces and clothes of the game's characters (editor/characters.py reads them from the game), saved in
 // tools/mapkit/characters/<id>.json, placed with Place in map or from the Browser (Objects > Custom
@@ -213,7 +214,7 @@ function renderForm() {
       <span class="hint ch-from">${o && o.from.length ? 'from ' + esc(nameOf(o.from[0])) + (o.from.length > 1 ? ` +${o.from.length - 1}` : '') : o ? 'none' : ''}</span></div>
       ${open === g.id ? `<div class="ch-gal">${opts.map((x, i) => `<button data-pick="${g.id}:${i}" class="${i === k ? 'on' : ''}">${thumb(x, true)}</button>`).join('')}</div>` : ''}</div>`;
   }).join('');
-  const inv = (cur.inventory || []).map(([cls, n], i) => `<div class="row"><select data-inv="${i}" style="flex:1;min-width:0"><option value="">(nothing)</option>${[...new Set(items.map((x) => x.cat))].map((c) => `<optgroup label="${esc(c)}">${items.filter((x) => x.cat === c).map((x) => `<option value="${esc(x.cls)}" ${x.cls.toLowerCase() === String(cls).toLowerCase() ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}</select>
+  const inv = (cur.inventory || []).map(([cls, n], i) => `<div class="row"><select data-inv="${i}" style="flex:1;min-width:0">${itemOptionsHtml(items, cls, { empty: '(nothing)' })}</select>
       <input type="number" data-count="${i}" value="${+n || 1}" min="1" max="99" style="width:56px" title="how many"><button data-delinv="${i}" title="remove">&#10005;</button></div>`).join('');
   $('#ch-form', box).innerHTML = `
     <div class="row"><label>Name</label><input type="text" id="ch-name" value="${esc(cur.name)}" style="flex:1;min-width:0" title="Shown in the game when JC looks at them or talks to them"></div>

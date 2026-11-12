@@ -38,7 +38,7 @@ const TEXT = { value: (v) => v || '', text: (v) => String(v) };
 const TYPES = {
   text: TEXT, state: TEXT, counter: TEXT, goal: TEXT, map: TEXT, tag: TEXT, port: TEXT, choice: TEXT, toggle: TEXT,
   yesno: TEXT, look: TEXT,
-  line: { value: TEXT.value, text: (v) => String(v).slice(0, 60) },
+  line: { value: TEXT.value, text: (v) => clipLine(v) },
   args: { value: TEXT.value, text: (v) => String(v).replace(/;/g, ', ') },
   sound: { value: TEXT.value, text: (v) => String(v).split('.').pop() },
   object: { value: TEXT.value, text: (v, ctx) => ctx.name(v) },
@@ -97,6 +97,14 @@ export const ARG_TYPES = Object.keys(TYPES);
 
 // The words a sentence takes from the page (besides the arguments): of a rule's output, and of an action
 const PORT = (ctx, name, key) => (ctx.portLabel ? ctx.portLabel(name, key) : key.split(':')[1] || '?');
+// a line of text in a sentence: a long one cut after a whole word, with "…" (12 Nov 2026: 'Find the reset button in
+// the sec"', cut in the middle of a word with nothing to say so)
+function clipLine(v, max = 60) {
+  const s = String(v ?? '');
+  if (s.length <= max + 4) return s;
+  const cut = s.slice(0, max), space = cut.lastIndexOf(' ');
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.;:!?-]+$/, '') + '…';
+}
 const wordOf = (ctx, name) => (ctx.word && ctx.word(name)) || '';
 const OUTPUT_WORDS = {
   // a rule started by any of a named group (P3: l.group, edits.logic.groups): the group, not its first member
@@ -125,7 +133,28 @@ const VERB_WORDS = {
   port: (x, ctx) => PORT(ctx, x.target, verbKey(x)),
   // a character's fate in words ("Guard1 · Was killed"), '' for any other state
   fate: (x) => (parseFate(x.a) ? stateLabel({ flag: x.a, is: x.b !== '0' }) : ''),
+  // the verb and its object as one phrase: "switch on Vault alarm", "play Siren1" (a family's "Play it"); "sound the
+  // alarm: Alarm1" when its words have no place for the object (12 Nov 2026: "switch on: Vault alarm")
+  verbt: (x, ctx, vocab) => {
+    const v = VERB_WORDS.verb(x, ctx, vocab), t = VERB_WORDS.t(x, ctx, vocab);
+    if (/\bit$/.test(v)) return v.replace(/\bit$/, t);
+    if (/^(switch|turn) (on|off)$/.test(v)) return `${v} ${t}`;
+    return `${v}: ${t}`;
+  },
+  // a goal by what the player reads, from the step that gave it (ctx.goalText), else by its name (12 Nov 2026: 'the
+  // goal "Goal1" completed')
+  goaltext: (x, ctx) => clipLine((ctx.goalText && ctx.goalText(x.a)) || String(x.a ?? '')),
 };
+// a goal's text by its name, from the rules' steps that give it (logic.json "goal": a its name, b what the player reads)
+export function goalTexts(rules) {
+  const texts = new Map();
+  for (const l of rules || []) {
+    for (const x of [...(l.do || []), ...(l.else || [])]) {
+      if (x && x.verb === 'goal' && x.a && String(x.b || '').trim() && !texts.has(x.a)) texts.set(x.a, String(x.b).trim());
+    }
+  }
+  return (name) => texts.get(name) || '';
+}
 export const SENTENCE_WORDS = { output: Object.keys(OUTPUT_WORDS), verb: Object.keys(VERB_WORDS) };
 
 // A template: {name} is a value ({name:type}: shown as another type), [...] is left out when a value in it is

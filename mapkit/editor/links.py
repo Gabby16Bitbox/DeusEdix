@@ -34,6 +34,7 @@ a hostage to free in time):
 """
 import re
 import math
+import keyconfig
 import activation
 import conditions
 import formula
@@ -248,13 +249,21 @@ def _items(v):
     return ';'.join(out)
 
 
+def _give_item(a):
+    cls = _cls(a.get('a'))
+    if keyconfig.is_nanokey(cls):
+        key_id, description = keyconfig.configured(a)
+        return [cls, '1', key_id, 'key+', _text(description)]
+    return [cls, '%d' % min(20, max(1, _whole(a.get('b'), 1))), '']
+
+
 HURT_KINDS = ('fire', 'poison', 'shock', 'radiation')
 # a P4 verb's fields after delay|verb|target: a, b, c and, for some, a place (fields 6-8) and how (field 9)
 P4_FIELDS = {
     'skillpoints': lambda a: [_amount(a.get('a'), 100), '', ''],
     'credits': lambda a: [_amount(a.get('a'), 100), '', ''],
     'health': lambda a: [_amount(a.get('a'), 25), '', ''],
-    'giveitem': lambda a: [_cls(a.get('a')), '%d' % min(20, max(1, _whole(a.get('b'), 1))), ''],
+    'giveitem': _give_item,
     'takeitem': lambda a: [_cls(a.get('a')), '%d' % max(0, _whole(a.get('b'), 1)), ''],
     'shake': lambda a: ['%g' % (_secs(a.get('a'), 1) or 1), '%g' % (_secs(a.get('b'), 1) or 1), ''],
     'fade': lambda a: ['in' if a.get('a') == 'in' else 'out', '%g' % _secs(a.get('b'), 1), ''],

@@ -5,7 +5,7 @@
   "derivedFrom": [
     {"file": "UCLink.uc", "lines": [381, 384], "has": "if (IsInState('Running'))"},
     {"file": "UCLink.uc", "lines": [387, 391], "has": "for (i = 0; i < ArrayCount(Cond); i++)"},
-    {"file": "UCLink.uc", "lines": [1913, 1932], "has": "state Running"}
+    {"file": "UCLink.uc", "lines": [1925, 1944], "has": "state Running"}
   ],
   "assumes": [],
   "map": "LogicFixtures",

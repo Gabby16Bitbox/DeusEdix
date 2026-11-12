@@ -43,6 +43,7 @@ story = {
 import hashlib
 import json
 import re
+import keyconfig
 import sys
 from pathlib import Path
 
@@ -307,7 +308,12 @@ def dialogue_code(map_name, d, binds):
                     L.append("\t\tc.AnswerFlag('%s', %s, %d);" % (ident(f['flag']),str(bool(f.get('is',True))),int(f.get('expiration',0))))
         elif t == 'give':
             item = str(st.get('item') or '').strip()
-            if re.fullmatch(r'\w+(\.\w+)?', item):
+            if keyconfig.is_nanokey(item) and ('keyId' in st or not st.get('from')):
+                key_id, description = keyconfig.configured(st)
+                if st.get('from') or str(st.get('to') or 'JCDenton').lower() != 'jcdenton':
+                    raise ValueError('A configured NanoKey is given to the player. Clear From/To bindings, or use an existing NPC key transfer without Key ID.')
+                L.append('\t\tc.GiveKey(Self, %s, %s);' % (lit(key_id), original.ustr(description)))
+            elif re.fullmatch(r'\w+(\.\w+)?', item):
                 L.append('\t\tc.Give(%s, %d, %s);' % (lit(item), max(1, int(st.get('count') or 1)), original.ustr(st.get('fail',''))))
                 for key in ('from','to'):
                     if key in st: L.append('\t\tc.LastProp(%s, %s);' % (lit(key+'Name'),lit(st[key])))

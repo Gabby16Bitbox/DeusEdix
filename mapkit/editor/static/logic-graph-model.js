@@ -22,7 +22,7 @@
 //   keeps       the flags the map's logic blocks keep as they run (P3): [{block, name, type, text}] (a Phases block's
 //               number and phase states, At least N's state, a Counter's number)
 //   map         the map's name
-import { vocabulary, fill, whenKey, verbKey, conditionNames, gameName } from './logic-vocab.js';
+import { vocabulary, fill, whenKey, verbKey, conditionNames, gameName, goalTexts } from './logic-vocab.js';
 import { conditionText, conditionProblem, kindOf, CONDITION_KINDS, comesText } from './conditions.js';
 import { collectDraftStates } from './story-state.js';
 import { parseFate, flagCategory, stateLabel } from './state-model.js';
@@ -326,6 +326,7 @@ function contextOf(input, actors) {
     storyTitle: (key, id) => (!input.story ? String(id) : (actor(storyId(key, id)) || {}).label || `${id} (missing)`),
     // a Phases block (P3): its name in the flags and its phases ({id, text}), null when it is no such block
     phaseSet: (n) => (actor(n) && Array.isArray(actor(n).phases) ? { name: actor(n).stateName || actor(n).title || n, phases: actor(n).phases } : null),
+    goalText: goalTexts(edits.links),
   };
 }
 
@@ -465,8 +466,13 @@ function stateIndex(ix) {
       if (kindOf(c) === 'counter') add(c.counter, 'int', 'readers', use);
       for (const n of formulaCounters(c && c.value)) add(n, 'int', 'readers', use);
     });
-    const watch = r.l.watch;                                // a condition watched by "becomes": its formula's counters
-    if (watch && typeof watch === 'object') for (const n of formulaCounters(watch.value)) add(n, 'int', 'readers', { node: r.node, pin: null, rule: r.id, text: who });
+    const watch = r.l.watch;          // a condition watched by "becomes" / "changes": its state or counter, its formula's
+    if (watch && typeof watch === 'object') {
+      const use = { node: r.node, pin: null, rule: r.id, text: who };
+      if (kindOf(watch) === 'flag') add(watch.flag, 'bool', 'readers', use);      // (12 Nov 2026: was "Nothing reads")
+      if (kindOf(watch) === 'counter') add(watch.counter, 'int', 'readers', use);
+      for (const n of formulaCounters(watch.value)) add(n, 'int', 'readers', use);
+    }
     for (const act of [...r.acts, ...r.otherwise]) {
       const use = { node: r.node, pin: act.wire, rule: r.id, text: who };
       if (act.x.verb === 'flag') add(act.x.a, 'bool', 'setters', use);
@@ -586,7 +592,12 @@ const shortOf = (ix, c) => ((own(ix.actors, c.node) || {}).hub || {}).out || com
 const comesShort = (c, ix) => {
   const l = c.cause;
   if (!l || l.when !== 'becomes' || l.while || !l.watch || typeof l.watch !== 'object') return '';
-  try { return comesText(l.watch, { item: ix.ctx.itemName }) || ''; } catch { return ''; }
+  try {
+    const comes = comesText(l.watch, { item: ix.ctx.itemName });
+    if (comes) return comes;
+    // a state or a counter: the card says which one ("When Alarm is Yes"), not two cards "When a condition becomes true"
+    return ['flag', 'counter'].includes(kindOf(l.watch)) ? conditionText(l.watch, conditionNames(ix.ctx)) : '';
+  } catch { return ''; }
 };
 const kindOfWire = (from, to) => ([from, to || ''].some((id) => id.startsWith(PIECE_KINDS.signals[0])) ? 'signal' : 'causes');
 const posOf = (ix, id) => own(own(own(ix.logic, 'view'), 'pos'), id) || null;
@@ -678,8 +689,11 @@ export function logicGraph(ix, options = {}) {
     if (r.simple && !open.has(r.id)) { wires.push(collapsedOf(r, ix)); continue; }
     const card = cardOf(r, ix);
     nodes.set(card.id, card);
+    // the map's "a condition becomes true" into a rule that watches a state or a counter: drawn, but the layout puts the
+    // card by the rules that set that state (graph-layout.js weak 'tie'), not in a column after the map
+    const watchesState = (r.l.when === 'becomes' || r.l.when === 'changes') && r.l.watch && typeof r.l.watch === 'object' && (r.l.watch.flag || r.l.watch.counter);
     card.causes.forEach((c, i) => wires.push({ id: `${r.node}/cause${i}`, kind: kindOfWire(c.node, ''), part: 'when', rule: r.id,
-      from: { node: c.node, pin: c.pin }, to: { node: card.id, pin: 'cause:' + i } }));
+      from: { node: c.node, pin: c.pin }, to: { node: card.id, pin: 'cause:' + i }, ...(watchesState && c.node === 'world' ? { layout: 'tie' } : {}) }));
     for (const row of [...card.sections.flatMap((s) => s.rows), ...card.otherwise]) {
       if (row.target) wires.push({ id: row.id, kind: kindOfWire('', row.target), part: 'do', rule: r.id, act: row.act,
         from: { node: card.id, pin: row.id }, to: { node: row.target, pin: row.pin }, delay: row.time });

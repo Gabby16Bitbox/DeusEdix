@@ -29,7 +29,7 @@
 // have, a block of a class that is no logic block. The build's own check (/api/logic/compile) comes after it.
 
 import { createSession } from './logic-sim.js';
-import { vocabulary } from './logic-vocab.js';
+import { vocabulary, goalTexts } from './logic-vocab.js';
 import { lineText, saidLine } from './logic-try.js';
 import { boxesOf, makeBox, BOX } from './logic-boxes.js';
 import { nextInstanceId, versionKey, fillSlots } from './logic-patterns.js';
@@ -297,7 +297,7 @@ export function trialWords(t) {
     usable: (n) => !!(t.usable || {})[n], itemName: (cls) => (t.items || {})[cls] || String(cls).split('.').pop(),
     groupName: (id) => (t.groups || {})[id] || '',
     // a dialogue, an InfoLink by its title (P5; app.js logicWorld storyTitles)
-    storyTitle: (key, id) => ((t.storyTitles || {})[key] || {})[id] || String(id) };
+    storyTitle: (key, id) => ((t.storyTitles || {})[key] || {})[id] || String(id), goalText: goalTexts(t.rules) };
 }
 
 // The happening a proposal is tried with when the assistant gives none: what sets off its first new rule
@@ -322,9 +322,12 @@ export function simulate(t, fires = [], seconds = 5, start = {}) {
   const vocab = vocabulary(t.catalog), words = trialWords(t);
   const session = createSession({ actors: c.actors || [], outputs: c.outputs || t.catalog.outputs, left: c.left || [], world: t.world,
     map: t.map || 'Map', vocab, ctx: words, start });
-  const sentences = {};
-  for (const l of t.rules || []) { try { sentences[l.id] = vocab.sentence(l, words); } catch { sentences[l.id] = l.label || l.id; } }
+  const sentences = {}, rules = {};
+  for (const l of t.rules || []) { rules[l.id] = l; try { sentences[l.id] = vocab.sentence(l, words); } catch { sentences[l.id] = l.label || l.id; } }
   const stops = [];
+  // the map's first half second before the first happening, as in the game: its start, and the first look of the rules
+  // that watch a state (12 Nov 2026: three wrong codes fired at once were the "base" of "at least 3", and it never ran)
+  if (fires.length) session.run(0.5);
   // the conversation playing, on to its end (at most 200 lines and answers a time)
   const talkThrough = () => {
     for (let n = 0; n < 200 && session.talking(); n++) {
@@ -345,7 +348,7 @@ export function simulate(t, fires = [], seconds = 5, start = {}) {
     if (r && r.stopped) { stops.push(r.stopped.text); break; }
   }
   talkThrough();
-  const said = { vocab, words, sentences, player: t.world?.player || '' };
+  const said = { vocab, words, sentences, rules, player: t.world?.player || '' };
   // the game's log, and what was said in the conversations where it was said
   const lines = session.log(), told = session.said(), happened = [];
   const at10 = (x) => Math.round(x * 10) / 10;

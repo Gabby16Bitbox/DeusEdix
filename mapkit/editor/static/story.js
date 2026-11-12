@@ -1,3 +1,4 @@
+import { itemOptionsHtml, itemWarningText, isNanoKey, isKeyReward, keyFieldsHtml } from './item-options.js';
 import {mountInfoLinkStyle, DEFAULT_STYLE} from './infolink-style.js';
 import {configureStateEditor, mountStateField} from './state-editor.js';
 import {stateLabel, normalizeCatalog} from './state-model.js';
@@ -444,9 +445,10 @@ function labelSelect(d, v, key = 'goto') {
   const labels = labelsOf(d);
   return `<select data-k="${key}"><option value="">(choose)</option>${labels.map((l) => `<option ${l === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
 }
-function itemSelect(v) {                          // weapons, ammo, pickups (pkg.Class)
-  const cats = [...new Set(items.map((x) => x.cat))];
-  return `<select data-k="item" style="max-width:420px"><option value="">(choose the item)</option>${cats.map((c) => `<optgroup label="${esc(c)}">${items.filter((x) => x.cat === c).map((x) => `<option value="${esc(x.cls)}" ${x.cls === v ? 'selected' : ''}>${esc(x.name)} · ${esc(x.cls.split('.').pop())}</option>`).join('')}</optgroup>`).join('')}</select>`;
+function itemSelect(v, configureKey = false) {
+  const warning = configureKey && isNanoKey(v) ? "" : itemWarningText(items, v);
+  return `<select data-k="item" style="max-width:100%;min-width:0">${itemOptionsHtml(items, v, {configureKey})}</select>`
+    + (warning ? `<div class="hint" style="color:var(--warn);overflow-wrap:anywhere">${esc(warning)}</div>` : '');
 }
 function pawns() { return talkers().filter((a) => a.kind === 'pawn'); }
 function doors() { return (E().baseActors || []).filter((a) => a.kind === 'mover').sort((a, b) => a.name.localeCompare(b.name)); }
@@ -927,9 +929,11 @@ function renderSteps(el, d, only) {
     } else if (s.type === 'do') {
       body = `<div class="tip" style="margin:2px 0">They happen as soon as the dialogue ends (e.g. the character walks away, a door opens).</div><div class="st-doacts"></div>`;
     } else if (s.type === 'give') {
-      body = `<div class="f">${itemSelect(s.item)} how many <input type="number" data-k="count" value="${s.count || 1}" min="1" style="width:70px"></div>
-        <div class="tip" style="margin:2px 0">JC gets it during the dialogue (the game shows it in the conversation); the speaker keeps their own. With a full inventory JC doesn't get it.</div>`;
-      if (d.replaces) body+=`<div class="f">${field(s,'from','From binding (blank: create)')}${field(s,'to','To binding')} on failure ${labelSelect(d,s.fail,'fail')}</div>`;
+      body = `<div class="f">${itemSelect(s.item, true)}${isNanoKey(s.item) ? '' : ` how many <input type="number" data-k="count" value="${s.count || 1}" min="1" style="width:70px">`}</div>`
+        + (isKeyReward(s) ? keyFieldsHtml(s, k => `data-k="${k}"`)
+          + '<div class="tip">The key is added to the player’s keyring at this step. Receiving the same ID again does not duplicate it.</div>'
+          : '<div class="tip" style="margin:2px 0">The player gets it during the dialogue; the speaker keeps their own. With a full inventory the player does not get it.</div>');
+      if (d.replaces && !isKeyReward(s)) body+=`<div class="f">${field(s,'from','From binding (blank: create)')}${field(s,'to','To binding')} on failure ${labelSelect(d,s.fail,'fail')}</div>`;
     } else if (s.type === 'credits' || s.type === 'skillpoints') {
       body=`<div class="f">${field(s,'amount',s.type==='credits'?'Credits (negative: take)':'Skill points','number')}${s.type==='skillpoints'?field(s,'text','Award message'):''}</div>`;
     } else if (s.type === 'note') {
@@ -963,6 +967,7 @@ function renderSteps(el, d, only) {
     });
     else if (s.type === 'do') { s.do = s.do || []; renderActions(card.querySelector('.st-doacts'), s.do); }
     else bindFields(card, s, s.type === 'label' ? again : null);
+    if (s.type === 'give') card.querySelector('[data-k="item"]')?.addEventListener('change', again);
     if (card.querySelector('.st-native-req')) condList(card.querySelector('.st-native-req'),s.requires,{mode:s.type==='flag'?'set':'check',expiration:true,minimum:1});
     else if (['flag','if'].includes(s.type)) stateField(card.querySelector('.st-state-field'),s,s.type==='flag'?'set':'check');
     const random=card.querySelector('[data-random-labels]'); if(random) random.oninput=()=>{s.labels=random.value.split('\n').map(x=>x.trim()).filter(Boolean);changed();};
@@ -1027,7 +1032,7 @@ function stepSummary(s) {
     case 'if': return 'Only if ' + all(s.requires?.length ? s.requires : [s]);
     case 'flag': return (s.requires?.length ? s.requires : [s]).map((c) => `${c.flag || '?'} = ${c.is === false ? 'No' : 'Yes'}`).join(', ');
     case 'goal': return `${s.done ? 'Completed' : 'New'}: ${s.text || s.goal || '?'}`;
-    case 'give': return `${s.count || 1} × ${String(s.item || '?').split('.').pop()}`;
+    case 'give': return isKeyReward(s) ? `Key ${s.keyId || '(set ID)'}` : `${s.count || 1} × ${String(s.item || '?').split('.').pop()}`;
     case 'credits': return `${+s.amount >= 0 ? '+' : ''}${+s.amount || 0} credits`;
     case 'skillpoints': return `+${+s.amount || 0} skill points`;
     case 'checkitem': return `JC carries ${String(s.item || '?').split('.').pop()}`;
@@ -1041,6 +1046,66 @@ function stepSummary(s) {
     case 'trade': return s.actor || '';
     default: return '';
   }
+}
+// the same in pieces for its node, the values clickable: a click opens the List's field of that value where it is
+// (story-graph-view.js; valueField says which field)
+function stepParts(s) {
+  const t = (text) => ({ text: String(text) }), v = (text, value) => ({ text: String(text), value });
+  const short = (c) => String(c || '?').split('.').pop();
+  switch (s.type) {
+    case 'if': return [t('Only if '), v(stepSummary(s).replace(/^Only if /, '') || '?', 'state')];
+    case 'flag': return [v(stepSummary(s) || '?', 'state')];
+    case 'goal': return [t(s.done ? 'Completed: ' : 'New: '), v(s.text || s.goal || '?', 'goal')];
+    case 'give': return [v(`${s.count || 1} ×`, 'count'), t(' '), v(short(s.item), 'item')];
+    case 'credits': return [v(`${+s.amount >= 0 ? '+' : ''}${+s.amount || 0} credits`, 'amount')];
+    case 'skillpoints': return [v(`+${+s.amount || 0} skill points`, 'amount')];
+    case 'checkitem': return [t('JC carries '), v(short(s.item), 'item')];
+    case 'checkvalue': return [v({ EP_Credits: 'Credits', EP_Health: 'Health', EP_SkillPoints: 'Skill points' }[s.valueType || 'EP_Credits'], 'valueType'), t(' '),
+      v({ EC_Less: '<', EC_LessEqual: '≤', EC_Equal: '=', EC_GreaterEqual: '≥', EC_Greater: '>' }[s.condition || 'EC_GreaterEqual'], 'condition'), t(' '),
+      v(+s.amount || 0, 'amount')];
+    case 'random': return [v(`${(s.labels || []).length} ways`, 'labels'), t(', one at random')];
+    case 'trigger': return [t('Tag '), v(s.tag || '?', 'tag')];
+    case 'signal': return [t('Signal '), v(s.signal || '?', 'signal')];
+    case 'note': return [v(s.text || '(empty note)', 'text')];
+    case 'do': return [v((s.do || []).map(actTitle).join(', ') || 'Nothing yet', 'do')];
+    default: return [];
+  }
+}
+// the List's field of a value of a node (stepParts' values, 'who', an answer's 'opt:<k>'): selectors in its card
+function valueField(s, value) {
+  if (value === 'state') return ['.st-state-field', '.st-native-req'];
+  if (value === 'goal') return ['[data-k="goal"]', '[data-k="text"]', '[data-k="done"]'];
+  if (value === 'do') return ['.st-doacts'];
+  if (value === 'labels') return ['[data-random-labels]'];
+  if (String(value).startsWith('opt:')) return [`[data-o="${+String(value).slice(4)}"]`];
+  return [`[data-k="${value}"]`];
+}
+// what can be added in the Graph (graph-quick-add.js items): a line of each who can speak, then every kind, in groups
+const ADD_KINDS = [
+  ['choice', "JC's answers", 'Talk', 'Two to six answers JC can choose, each going its own way', ['choice', 'options', 'reply', 'menu', 'answer']],
+  ['if', 'Condition (flags)', 'Check', 'Yes and No go their own ways, by the state of flags', ['flag', 'state', 'branch', 'condition', 'if']],
+  ['checkitem', 'Check inventory', 'Check', 'Whether JC carries an item: has it, or missing', ['item', 'inventory', 'has', 'carry']],
+  ['checkvalue', 'Check credits, health or skill points', 'Check', "Compares JC's credits, health or skill points with a number", ['credits', 'health', 'skill', 'compare']],
+  ['random', 'Random branch', 'Check', 'One of several ways, at random', ['random', 'chance']],
+  ['flag', 'Change state', 'Change', 'Sets flags (states) that conditions and rules read', ['flag', 'state', 'set', 'variable']],
+  ['goal', 'Goal', 'Change', 'Gives JC a goal, or ticks off one given earlier', ['goal', 'objective', 'task']],
+  ['give', 'Give JC an item', 'Change', "An item into JC's inventory during the dialogue", ['item', 'weapon', 'give', 'inventory']],
+  ['credits', 'Give or take credits', 'Change', 'Adds credits (a negative number takes them)', ['money', 'credits', 'pay']],
+  ['skillpoints', 'Award skill points', 'Change', 'Skill points, with a message', ['skill', 'points', 'xp', 'reward']],
+  ['note', 'Datavault note', 'Change', "A note in JC's datavault", ['note', 'datavault', 'text']],
+  ['trigger', 'Trigger an event (Tag)', 'Change', 'Triggers the objects with that Tag: doors, lights, alarms', ['tag', 'event', 'trigger', 'door']],
+  ['signal', 'Send a signal', 'Change', "A signal the map's rules can wait for", ['signal', 'logic', 'rule']],
+  ['do', 'Actions when it ends', 'Change', 'Things that happen when the dialogue ends: someone walks away, a door opens', ['action', 'after', 'end', 'walk']],
+  ['end', 'End of dialogue', 'End', 'The dialogue ends here', ['end', 'stop', 'finish']],
+];
+function addItems(d) {
+  const lines = [{ who: 'npc', name: speakerOf(d, { who: 'npc' }).name }, { who: 'jc', name: 'JC Denton' },
+    ...talkers().filter((a) => a.kind === 'pawn' && a.name !== d.owner).map((a) => ({ who: 'actor:' + a.name, name: actorLabel(a) }))];
+  return [
+    ...lines.map((x) => ({ id: 'line:' + x.who, label: 'Line: ' + x.name, group: 'Talk', colour: speakerOf(d, { who: x.who }).colour,
+      hint: x.who === 'jc' ? 'A line JC says' : `A line ${x.name} says`, words: ['line', 'say', 'talk', 'speak'], data: { type: 'line', who: x.who } })),
+    ...ADD_KINDS.map(([type, label, group, hint, words]) => ({ id: type, label, group, hint, words, data: { type } })),
+  ];
 }
 // a new step of a kind, as the Graph view adds it (its arrows are made there)
 function newStep(type, who = 'npc') {
@@ -1081,7 +1146,8 @@ function graphOptions(host, d, start) {
     speakers: () => [{ who: 'npc', name: speakerOf(d, { who: 'npc' }).name }, { who: 'jc', name: 'JC Denton' },
       ...talkers().filter((a) => a.kind === 'pawn' && a.name !== d.owner).map((a) => ({ who: 'actor:' + a.name, name: actorLabel(a) }))],
     face: (s) => E()?.portraitOf?.(faceOf(d, s)) || Promise.resolve(null),
-    summary: { title: (s) => STEP_TYPES[s.type] || s.type, text: stepSummary },
+    summary: { title: (s) => STEP_TYPES[s.type] || s.type, text: stepSummary, parts: stepParts },
+    valueField, addItems: () => addItems(d),
     inspect: (el, i) => renderSteps(el, d, i),
     newStep,
     menu: [['line', 'Line: ' + owner], ['line', 'Line: JC', 'jc'], ['choice', "JC's answers"], '-',

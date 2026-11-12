@@ -1,3 +1,4 @@
+import { itemOptionsHtml } from './item-options.js';
 // The conditions of a rule (Interactions) and of a Story event: one model for both, the page's side of
 // conditions.py (editor/LOGIC.md, "Conditions"). A state keeps the Story's {flag, is}; the other kinds say what they
 // are: {type: 'item', item, has}, {type: 'alive', actor, is}, {type: 'skill', skill, level},
@@ -129,6 +130,14 @@ export function comesText(c, names = {}) {
     }
     case 'water': return yes ? 'the player enters water' : 'the player comes out of the water';
     case 'zone': { const z = c.zone ? zoneText(c.zone, names) : '?'; return yes ? `the player enters ${z}` : `the player leaves ${z}`; }
+    // a state, a counter: "Alarm becomes Yes", "the counter WrongCodes reaches 3" (12 Nov 2026: "When the counter
+    // WrongCodes is at least 3 becomes true"); a character's fate keeps its own words
+    case 'flag': {
+      const said = names.state ? names.state({ ...c, is: yes }) : `${c.flag || '?'} is ${yes ? 'Yes' : 'No'}`;
+      const m = /^(.*) is (Yes|No)$/.exec(String(said || ''));
+      return m ? `${m[1]} becomes ${m[2]}` : null;
+    }
+    case 'counter': return rise(`the counter ${c.counter || '?'}`);
     case 'items':
       if (c.op === '>=' && n === 1) return `the player gets ${thingsText(c, 1, item)}`;
       if (c.op === '>=' || c.op === '>') return `the player has ${c.op === '>' ? 'more than' : 'at least'} ${thingsText(c, n, item)}`;
@@ -224,9 +233,7 @@ function rowFields(c, ctx) {
   }
   switch (kindOf(c)) {
     case 'flag': return '<div class="cond-state" style="flex:1;min-width:0"></div>';
-    case 'item': return `${yesNo('has', 'The player carries', 'The player does not carry')}<select data-cf="item" style="flex:1;min-width:0"><option value="">(choose the item)</option>${
-      [...new Set((ctx.items || []).map((x) => x.cat))].map((cat) => `<optgroup label="${esc(cat)}">${options((ctx.items || []).filter((x) => x.cat === cat).map((x) => [x.cls, x.name]), c.item)}</optgroup>`).join('')}${
-      c.item && !(ctx.items || []).some((x) => x.cls === c.item) ? `<option selected value="${esc(c.item)}">${esc(c.item)}</option>` : ''}</select>`;
+    case 'item': return `${yesNo('has', 'The player carries', 'The player does not carry')}<select data-cf="item" style="flex:1;min-width:0">${itemOptionsHtml(ctx.items, c.item)}</select>`;
     case 'alive': return `<select data-cf="actor" style="flex:1;min-width:0"><option value="">(choose the character)</option>${options((ctx.characters || []).map((a) => [a.name, a.label]), c.actor)}${
       c.actor && !(ctx.characters || []).some((a) => a.name === c.actor) ? `<option selected value="${esc(c.actor)}">${esc(c.actor)}</option>` : ''}</select>${yesNo('is', 'is alive', 'is not alive')}`;
     case 'skill': return `<select data-cf="skill" style="flex:1;min-width:0">${options(SKILLS, c.skill)}</select><span class="hint" style="margin:0">at least</span><select data-cf="level">${options(LEVELS, c.level)}</select>`;
@@ -241,11 +248,9 @@ function rowFields(c, ctx) {
     case 'zone': return `${yesNo('is', 'The player is in', 'The player is not in')}<select data-cf="zone" style="flex:1;min-width:0"><option value="">(choose the zone)</option>${options((ctx.zones || []).map((z) => [z.name, z.label]), c.zone)}${
       c.zone && !(ctx.zones || []).some((z) => z.name === c.zone) ? `<option selected value="${esc(c.zone)}">${esc(c.zone)}</option>` : ''}</select>`;
     case 'items': {
-      const kinds = ITEM_KINDS.map((k) => [k[0], `any ${k[1]}`]), known = kinds.some((k) => k[0] === c.item) || (ctx.items || []).some((x) => x.cls === c.item);
+      const kinds = ITEM_KINDS.map((k) => [k[0], `any ${k[1]}`]), isKind = kinds.some((k) => k[0] === c.item);
       return `<span class="hint" style="margin:0">The player carries</span><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}`
-        + `<select data-cf="item" style="flex:1;min-width:0"><optgroup label="Kinds">${options(kinds, c.item)}</optgroup>${
-          [...new Set((ctx.items || []).map((x) => x.cat))].map((cat) => `<optgroup label="${esc(cat)}">${options((ctx.items || []).filter((x) => x.cat === cat).map((x) => [x.cls, x.name]), c.item)}</optgroup>`).join('')}${
-          c.item && !known ? `<option selected value="${esc(c.item)}">${esc(c.item)}</option>` : ''}</select>`;
+        + `<select data-cf="item" style="flex:1;min-width:0"><optgroup label="Kinds">${options(kinds, c.item)}</optgroup>${itemOptionsHtml(ctx.items, c.item, { empty: null, fallback: !isKind })}</select>`;
     }
     case 'near': return `<div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${yesNo('is', 'The player is', 'The player is not')}<span class="hint" style="margin:0">within</span><input type="number" data-cf="radius" value="${Math.round(+(c.radius ?? 256))}" step="32" min="1" style="width:64px"><span class="hint" style="margin:0">units of</span>`
       + [0, 1, 2].map((k) => `<span style="display:inline-flex;gap:3px;align-items:center;white-space:nowrap"><span class="hint" style="margin:0">${'XYZ'[k]}</span><input type="number" data-cat="${k}" value="${Math.round(+(c.at || [])[k] || 0)}" style="width:72px"></span>`).join('')
@@ -277,14 +282,15 @@ let mounts = 0;                                 // each list its own datalist of
 // mountState(host, value, onChange): the shared state field; items: [{cls, name, cat}], characters: [{name, label}],
 // counters: [names], empty: the text with no condition, max: how many it takes (a rule's: MAX_CONDITIONS; a Story
 // event's: any number, Infinity), point(how): a place of the scene for "near a point", how 'selected' (the selected
-// object's, or null) or 'camera' (in front of the camera; a new one starts there), warn(text): says a problem}
+// object's, or null) or 'camera' (in front of the camera; a new one starts there), warn(text): says a problem,
+// addLabel: the adder's words ("+ Only if..." by default; a rule's watched condition: it takes the place of the one there)}
 export function mountConditions(host, list, ctx) {
   const max = ctx.max ?? MAX_CONDITIONS;
   const counterList = 'cond-counters-' + (++mounts);
   host.innerHTML = (list.length ? '' : `<p class="hint" style="margin:2px 0">${esc(ctx.empty || 'No conditions: it always runs.')}</p>`)
     + list.map((c, i) => `<div class="row cond-row" data-ci="${i}" style="gap:4px;align-items:center">${rowFields(c, { ...ctx, counterList })}<button data-cdel="${i}" title="Remove this condition">✕</button></div>`
       + (conditionProblem(c) ? `<div class="hint" style="margin:0 0 4px 4px;color:var(--warn)">${esc(conditionProblem(c))}</div>` : '')).join('')
-    + (list.length < max ? `<div class="row"><select data-cadd style="flex:1;min-width:0"><option value="">+ Only if...</option>${options(CONDITION_KINDS, '')}</select></div>` : '')
+    + (list.length < max ? `<div class="row"><select data-cadd style="flex:1;min-width:0"><option value="">${esc(ctx.addLabel || '+ Only if...')}</option>${options(CONDITION_KINDS, '')}</select></div>` : '')
     + `<datalist id="${counterList}">${(ctx.counters || []).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
   list.forEach((c, i) => {
     const row = host.querySelector(`[data-ci="${i}"]`);

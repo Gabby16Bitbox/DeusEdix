@@ -183,9 +183,10 @@
 #logic .lt-log .lt-say span { font-style:italic; }
 #logic .lt-why { margin:4px 0 0 18px; padding:0; }
 #logic .lt-rule { height:22px; }
-/* zoomed out (only titles): a rule card's title, a sentence, goes onto as many lines as the card has room for */
+/* zoomed out (only titles): a rule card's title, a sentence, goes onto as many lines as the card has room for
+   (--gc-tl: graph-canvas.js titleLines, whole lines at this zoom) */
 #logic .gc-node.k-rule .gc-big b { white-space:normal; text-align:center; line-height:1.2; padding:0 6px; display:-webkit-box;
-  -webkit-box-orient:vertical; -webkit-line-clamp:4; }
+  -webkit-box-orient:vertical; -webkit-line-clamp:var(--gc-tl, 4); flex-shrink:0; }
 /* the AI assistant's proposal (logic-window.js proposalHtml): a bar at the foot of the graph, to accept it or not */
 #logic .lw-propose { position:absolute; left:8px; right:8px; bottom:8px; z-index:3; display:flex; flex-wrap:wrap; align-items:flex-end; gap:6px 10px;
   max-height:45%; overflow:auto; padding:8px 10px; background:var(--panel); border:1px dashed var(--acc); border-radius:var(--radius-card); font-size:12px; }
@@ -281,3 +282,31 @@
 #logic .lw-patslot > span { flex:0 0 38%; color:var(--text); }
 #logic .lw-patslot select { flex:1; min-width:0; }
 #logic .lw-pat .lw-pbtns { display:flex; gap:6px; justify-content:flex-end; margin-top:6px; }
+
+/* the graph edited (logic-graph-edit.js, 12 Nov 2026): the side panel with the selection's form, the right-click
+   menu, a value's box showing only that part of the rule's form */
+#logic .lw-edit { position:absolute; top:8px; right:8px; bottom:8px; z-index:3; width:min(360px, calc(100% - 16px)); display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 22px #0007; }
+#logic .lw-edit[hidden], #logic:not([data-view="graph"]) .lw-edit { display:none; }
+#logic .lw-edith { display:flex; align-items:center; gap:6px; padding:6px 8px; border-bottom:1px solid var(--line); }
+#logic .lw-edith b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600; color:var(--heading); }
+#logic .lw-edith button { padding:1px 7px; font-size:11px; }
+#logic .lw-editb { flex:1; min-height:0; overflow:auto; padding:6px 8px 10px; }
+#logic .lw-editb .lw-listhead { display:none; }
+#logic .lw-menu { position:absolute; z-index:21; min-width:180px; padding:4px; display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:0 10px 26px #000a; }
+#logic .lw-menu button { text-align:left; border:0; background:transparent; padding:4px 10px; border-radius:5px; font-size:12px; }
+#logic .lw-menu button:hover, #logic .lw-menu button:focus-visible { background:var(--hover); outline:none; }
+#logic .lw-menu hr { border:0; border-top:1px solid var(--line); margin:3px 4px; }
+#logic .lw-vbox.lw-only .lk-rule:not(.gve-keep), #logic .lw-vbox.lw-only .lk-rule.gve-keep > :not(.gve-keep) { display:none !important; }
+#logic .lw-vbox .lk-rule { border:0; padding:0; margin:0; background:transparent; }
+#logic .lw-vbox [data-lkx] { display:none; }     /* a value's box changes the value, it does not delete the rule */
+#logic .lw-edit:focus { outline:none; }            /* it takes the keys back when its form is drawn again */
+
+/* the side panel beside the graph when the window has room (logic-graph-edit.js dock) */
+#logic .lw-main.with-edit .lw-graph { right:calc(min(360px, 100% - 16px) + 16px); }
+#logic .lw-empty { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); z-index:2; max-width:min(420px, 80%);
+  text-align:center; color:var(--dim); font-size:13px; line-height:1.5; pointer-events:none; }
+#logic .lw-empty[hidden] { display:none; }
+#logic .lw-empty b { display:block; color:var(--text); font-size:14px; margin-bottom:4px; }
+#logic .lw-empty kbd { border:1px solid var(--line, rgba(255,255,255,.2)); border-radius:4px; padding:0 4px; font:inherit; }

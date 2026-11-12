@@ -121,7 +121,9 @@ TOOLS = {
     'story_get': ('story_get', 30, 'One dialogue: its settings, its steps (each with its id) and its graph (what '
                   'follows each step).', schema({'dialogue': {'type': 'string'}}, ['dialogue'])),
     'story_write': ('story_write', 30, 'Change a dialogue (fields: its settings; steps: the whole list, as story_get '
-                    'gives it) or, with owner and no dialogue, make a new one for that character. Unsaved until save.',
+                    'gives it) or, with owner and no dialogue, make a new one for that character. '
+                    'A give step for DeusEx.NanoKey needs keyId (e.g. "2", matching the door KeyIDNeeded) '
+                    'and optional keyDescription. Use credits steps for money, not a plain Credits item. Unsaved until save.',
                     schema({'dialogue': {'type': 'string'}, 'owner': {'type': 'string'}, 'fields': OBJ,
                             'steps': {'type': 'array', 'items': OBJ}})),
     'story_play': ('story_play', 30, 'Play-test a dialogue as the game would: state ({flags, credits, health, '

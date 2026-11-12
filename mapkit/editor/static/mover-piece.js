@@ -8,7 +8,8 @@ export function moverFields(clip) {
 export function moverPanel(entry, { escapeHtml, section, built = false }) {
   if (!entry?.mover) return '';
   const lift = entry.mover.kind === 'elevator', value = { ...entry.mover, ...entry.moverSettings };
-  if (built) return section('library-mover', lift ? 'Elevator' : 'Door', true) + '<button id="mover-details" title="Select the built mover for its sounds, tags, interactions and animation">Edit mover…</button></div></details>';
+  if (built) return section('library-mover', lift ? 'Elevator' : 'Door', true) + '<button id="mover-details" title="Select the built mover for its properties, sounds, tags, interactions and animation">Edit mover…</button>'
+    + (lift ? '' : '<div class="hint">Key ID and Locked are in the mover’s Door section.</div>') + '</div></details>';
   const options = lift ? [['stand', 'Step on / return'], ['trigger', 'Trigger / toggle']]
     : [['use', 'Use / toggle'], ['use-timed', 'Use / auto close'], ['trigger', 'Trigger / toggle']];
   const esc = v => escapeHtml(String(v));
@@ -17,7 +18,9 @@ export function moverPanel(entry, { escapeHtml, section, built = false }) {
     <div class="row"><label ${label} for="mover-mode">Activation</label><select id="mover-mode" data-mover-setting="mode" style="flex:1;min-width:0;padding:0 8px">${options.map(([id, text]) => `<option value="${id}" ${value.mode === id ? 'selected' : ''}>${text}</option>`).join('')}</select></div>
     <div class="row"><label ${label} for="mover-time">Move time (s)</label><input id="mover-time" data-mover-setting="moveTime" type="number" min="0.05" max="3600" step="any" value="${esc(value.moveTime)}" style="flex:1;min-width:0"></div>
     <div class="row"><label ${label} for="mover-wait">Wait (s)</label><input id="mover-wait" data-mover-setting="stayOpenTime" type="number" min="0" max="3600" step="any" value="${esc(value.stayOpenTime)}" style="flex:1;min-width:0" title="Used by auto-close doors and returning elevators"></div>
-    ${!lift ? `<div class="row"><label style="width:auto"><input data-mover-setting="locked" type="checkbox" ${value.locked ? 'checked' : ''}> Locked</label></div>` : ''}
+    ${!lift ? `<div class="row"><label style="width:auto"><input data-mover-setting="locked" type="checkbox" ${value.locked ? 'checked' : ''}> Locked</label></div>
+    <div class="row"><label ${label} for="mover-key">Key ID</label><input id="mover-key" data-mover-setting="keyId" type="text" value="${esc(value.keyId ?? '')}" placeholder="None" maxlength="63" pattern="[A-Za-z0-9_]+" style="flex:1;min-width:0" title="Use the same Key ID as the NanoKey, e.g. 2 or ApartmentDoor. Letters, digits and underscores; empty or None means no key."></div>
+    <div class="hint" style="overflow-wrap:anywhere">Use the same Key ID on the NanoKey, e.g. 2. Enable Locked to require it. Empty or None means no key can unlock this door.</div>` : ''}
     <div class="hint">Original movement and sounds retained. Rebuild to play.</div>
     <div class="hint">Rebuild once to edit sounds, tags and animation.</div>
     </div></div></details>`;
@@ -26,8 +29,8 @@ export function moverPanel(entry, { escapeHtml, section, built = false }) {
 export function wireMoverPanel(root, { getEntry, change }) {
   for (const input of root.querySelectorAll('[data-mover-setting]')) input.onchange = () => {
     const key = input.dataset.moverSetting;
-    const value = key === 'locked' ? input.checked : key === 'mode' ? input.value : Number(input.value);
-    if (input.type === 'number' && (!input.value.trim() || !Number.isFinite(value) || !input.checkValidity())) {
+    const value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value.trim();
+    if ((input.type === 'number' && (!input.value.trim() || !Number.isFinite(value))) || !input.checkValidity()) {
       input.reportValidity(); return;
     }
     if (!getEntry()) return;

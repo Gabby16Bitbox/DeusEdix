@@ -183,6 +183,20 @@ function Give(string className, optional int count, optional string failLabel)
 	Add(e);
 }
 
+// A level-owned helper receives a native conversation trigger at this exact step.
+// It must not give the key while SetupStory is constructing the conversation.
+function GiveKey(Actor context, string keyID, optional string description)
+{
+	local UCKeyGrant grant;
+	if (context == None || keyID == "") return;
+	grant = context.Spawn(class'UCKeyGrant', context);
+	if (grant == None) return;
+	grant.SetPropertyText("KeyID", keyID);
+	grant.KeyText = description;
+	grant.Tag = grant.Name;
+	Trigger(grant.Tag);
+}
+
 // Jumps to a label of the same conversation.
 function Jump(string l)
 {

@@ -103,7 +103,8 @@ def loadout_catalog(items, classes):
     def under(base, prefix):
         return [dict(cls=c, name=class_label(c, prefix)) for c in sorted(classes, key=str.lower)
                 if base in classes[c].get('parents', ())]
-    return dict(items=[dict(cls=i['cls'], name=i['name'], cat=i['cat']) for i in items],
+    return dict(items=[dict(cls=i['cls'], name=i['name'], cat=i['cat'],
+                           **{k: i[k] for k in ('internal', 'needsSetup', 'group', 'hint', 'warning') if k in i}) for i in items],
                 augs=under('Augmentation', 'Aug'), skills=under('Skill', 'Skill'))
 
 

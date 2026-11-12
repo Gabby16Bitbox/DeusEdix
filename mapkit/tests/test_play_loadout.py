@@ -35,6 +35,14 @@ class LoadoutTests(unittest.TestCase):
         self.assertEqual(got['augs'], [dict(cls='AugCloak', name='Cloak'), dict(cls='AugEMP', name='EMP')])
         self.assertEqual(got['skills'], [dict(cls='SkillWeaponPistol', name='Weapon Pistol')])
 
+    def test_catalog_keeps_only_supported_item_presentation_metadata(self):
+        item = dict(cls='DeusEx.NanoKey', name='NanoKey', cat='Pickups', needsSetup=True,
+                    warning='Set Key ID', extra='discard')
+        got = play.loadout_catalog([item], {})['items'][0]
+        self.assertTrue(got['needsSetup'])
+        self.assertEqual(got['warning'], 'Set Key ID')
+        self.assertNotIn('extra', got)
+
     def test_a_loadout_where_jc_is_put_lies_in_front_of_him_and_the_rest_is_console_commands(self):
         run = play.loadout_run(dict(items=[dict(cls='deusex.weaponpistol', count=1), dict(cls='DeusEx.Ammo10mm', count=2)],
                                     augs=['augcloak'], skills=[dict(cls='SkillLockpicking', level=3)], skillPoints=2000,

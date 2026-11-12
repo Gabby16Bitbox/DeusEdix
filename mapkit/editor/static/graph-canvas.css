@@ -154,6 +154,10 @@
 .gc-node:not(:has(.gc-r)) .gc-body { border-bottom:0; }
 .gc-bt { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--gc-lines, 1); overflow:hidden; }
 .gc-body.empty .gc-bt { color:var(--dim); font-style:italic; }
+/* a value that a click edits (onValue): who speaks, a state, an amount... */
+.gc-v { cursor:pointer; border-radius:3px; text-decoration:underline dotted color-mix(in srgb, currentColor 45%, transparent); text-underline-offset:3px; }
+.gc-v:hover { color:var(--acc); text-decoration-color:var(--acc); background:var(--hover); }
+.gc-c.gc-v { text-decoration:none; }
 .gc-node:has(.gc-body) .gc-h { border-bottom:0; }
 /* who speaks (colour): a bar on the node's left, under the status ring; an answer's way (a row's colour): a bar on the
    row's left, its out pin in that colour */

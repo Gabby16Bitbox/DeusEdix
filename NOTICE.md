@@ -25,9 +25,23 @@ Revision team (Caustic Creative), Eidos, Square Enix or Ion Storm.** Use it at y
   `mapkit/editor/static/audio/doctor` and their copies in the runtime package) were generated with
   ElevenLabs (https://elevenlabs.io) on a paid plan, with a public voice of its Voice Library. It is
   not the voice of anyone in Deus Ex or Revision, nor a clone of a real person.
-- **Third-party libraries** keep their own licences: three.js (MIT, loaded by the page), Pillow
-  (MIT-CMU), the MCP Python SDK (MIT), nlohmann/json 3.11.3 (MIT, `mapkit/host/third_party/nlohmann`, with its
-  `LICENSE.MIT`; compiled into the headless host).
+- **Third-party libraries** keep their own licences: Pillow (MIT-CMU), the MCP Python SDK (MIT),
+  nlohmann/json 3.11.3 (MIT, `mapkit/host/third_party/nlohmann`, with its `LICENSE.MIT`; compiled into the
+  headless host).
+- **three.js**, the 3D view (shipped with the editor, so it needs no internet):
+  - The files: `mapkit/editor/static/vendor/three` holds three.js r160 (npm `three@0.160.0`,
+    https://threejs.org), unchanged: `build/three.module.js` and the `examples/jsm` files the editor imports.
+  - three.js has the MIT licence, Copyright © 2010-2023 three.js authors. Permission is hereby granted, free
+    of charge, to any person obtaining a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including without limitation the rights to use,
+    copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+    persons to whom the Software is furnished to do so, subject to the following conditions: The above
+    copyright notice and this permission notice shall be included in all copies or substantial portions of the
+    Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+    NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+    NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+    WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 - **Recast & Detour**, for the walkable area, Fill AI paths and the walkable area in the game:
   - The files: `mapkit/editor/static/recast-navigation-core.js`, `-generators.js` and `-wasm.js` are
     recast-navigation-js 0.43.1 (https://github.com/isaac-mason/recast-navigation-js), unchanged.

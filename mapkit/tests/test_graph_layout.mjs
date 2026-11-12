@@ -151,3 +151,16 @@ test('what the new node lands on moves down, and what that lands on in turn; a p
   assert.ok(apart([...pinned.C, 200, 72], [...pinned.N, 200, 72]), 'C moved out of the way of N');
   assert.deepEqual(at, { A: [0, 0], B: [264, 0], C: [264, 90], P: [264, 600] }, 'the places given are not changed');
 });
+
+// 12 Nov 2026: a rule reading a state another rule sets made a column of its own each time (7 columns for 14 rules)
+test('a weak wire (a state read) keeps the two together but makes no column', () => {
+  const g = { nodes: ['Keypad', 'R3', 'R4', 'R5', 'Guard'].map((id) => node(id)),
+    edges: [{ from: 'Keypad', to: 'R3' }, { from: 'R3', to: 'R4', weak: true }, { from: 'R4', to: 'R5', weak: true }, { from: 'R5', to: 'Guard' }] };
+  const at = layered(g), cols = new Set(Object.values(at).map((p) => p[0]));
+  assert.equal(cols.size, 2, `columns: ${[...cols]}`);
+  assert.equal(at.R4[0], at.R3[0], 'the loose reader sits in the column of what it reads');
+  assert.ok(at.R4[1] > at.R3[1], 'under it');
+  assert.ok(at.R5[0] < at.Guard[0], 'a rule still left of what it acts on');
+  assertNoOverlap(g, at);
+  assert.deepEqual(layered(g), at, 'the same answer each time');
+});

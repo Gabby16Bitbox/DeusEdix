@@ -159,7 +159,8 @@ test('the badge rule: every field of a rule away from its default shows on its c
 });
 
 test('the badge rule: every field and argument of an action away from its default shows on its row and on its wire', () => {
-  const ARGS = ['a', 'b', 'c', 'at', 'nav', 'attack', 'kind', 'both'];   // attack, kind: P4's reinforcements and damaging area; both: P9's factions
+  // attack, kind: P4's reinforcements and damaging area; both: P9's factions; keyId, keyDescription: a NanoKey given (11 Nov 2026)
+  const ARGS = ['a', 'b', 'c', 'at', 'nav', 'attack', 'kind', 'both', 'keyId', 'keyDescription'];
   assert.deepEqual([...Object.keys(ACTION_SAMPLES)].sort(), Object.keys(ACTION_FIELDS).sort());
   const argIds = new Set(Object.values(catalog.inputs).flatMap((v) => (v.args || []).map((a) => a.id)));
   assert.deepEqual([...argIds].sort(), [...ARGS].sort(), 'the verbs take no argument the badges do not know');

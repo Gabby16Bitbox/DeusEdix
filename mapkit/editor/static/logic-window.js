@@ -1,8 +1,9 @@
 // Window > Logic: the map's rules seen as a graph, read as sentences, or tried (editor/LOGIC.md; the design:
 // backup/20261027_logic_graph/final_design.json, its mock-up logic-di-deusedix.html; the look: editor/DESIGN.md and
 // the Story's Graph). It draws logic-graph-model.js's projection of edits.links on the graph canvas (graph-canvas.js),
-// logic-graph-read.js's prose and Try it (logic-try.js); it changes nothing: a node opened selects its object in the
-// map, where the Inspector edits its rules (a dialogue's opens its Story Graph here, the Story's own editor). The page gives the model's input (app.js logicInput).
+// logic-graph-read.js's prose and Try it (logic-try.js). The graph is edited too (12 Nov 2026, logic-graph-edit.js:
+// the List's own changes, through app.js logicEditOf); a node opened selects its object in the map (a dialogue's opens
+// its Story Graph here, the Story's own editor). The page gives the model's input (app.js logicInput).
 //
 // What it shows is what a level designer needs, in their words: things by the names the Hierarchy gives them (the
 // object's own name only in the tooltip), a rule card titled by what sets it off, its conditions and its steps (their
@@ -48,6 +49,10 @@
 //                 the block away. The game runs the rules as before: a block is a way of looking at them.
 //   patterns      the project's logic patterns (P8, logic-patterns.js; app.js: /api/logic_patterns): {save(name,
 //                 version)} a Promise of the pattern kept ({name, v, ...}); a block's Save as pattern... makes the version
+//   edit          the graph edited (app.js logicEditOf, logic-graph-edit.js): a side panel with the selected rule's
+//                 form or an object's rules, right-click menus, wires dragged into new rules and steps, a wire's end
+//                 moved to another object, a card's values clicked, Ctrl+C / X / V / D and Delete on rules, notes and
+//                 frames; without it the graph is only looked at
 // Returns {refresh(), focus(name), open(), redrawList(), tryWhy(id)}: refresh draws again (the edits changed); focus
 // shows a name's chain; tryWhy(id, key) is Try it's answer for a rule (null when nothing was tried with the rules of
 // that key: app.js logicTrial's, the map and its edits now).
@@ -55,6 +60,7 @@ import { logicIndex, logicGraph, scopeOf, thingId, PIECE_KINDS, STORY_KINDS } fr
 import { readView } from './logic-graph-read.js';
 import { logicProblems, problemsByNode } from './logic-graph-problems.js';
 import { createGraphCanvas } from './graph-canvas.js';
+import { createGraphEdit } from './logic-graph-edit.js';
 import { createLogicTry } from './logic-try.js';
 import { phasesPage, phasesHtml } from './logic-phases-page.js';
 import { escapeHtml as esc } from './shortcut-bar.js';
@@ -187,7 +193,7 @@ export function canvasOf(graph, problems = new Map(), pictures = () => '') {
     : side === 'in' && end.pin === 'cause:0' ? 'cause:0' : side });
   const wires = graph.wires.filter((w) => !folded.has(w.to.node) && pins.has(at(w.from.node)) && pins.has(at(w.to.node))).map((w) => ({
     id: w.id, kind: w.kind || 'causes', from: pinOf(w.from, 'out'), to: pinOf(w.to, 'in'), label: w.label || undefined,
-    delay: w.delay || undefined, tone: tone(w.id), title: w.sentence || undefined }));
+    delay: w.delay || undefined, tone: tone(w.id), title: w.sentence || undefined, ...(w.layout ? { layout: w.layout } : {}) }));
   return { nodes, wires };
 }
 
@@ -202,8 +208,8 @@ function causeTitle(c, graph) {
   // "gets where they were sent" said of one thing
   const at = name ? new RegExp(`(?:\\bthe \\w+ )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
   if (at && at.test(text)) {
-    // ("is in it", a "while" (P3), is no phrasal verb)
-    return capital(text.replace(at, 'it').replace(/\b(?!is\b|are\b)(\w+) (up|on|off|in|out|down) it\b/, '$1 it $2')
+    // only true phrasal verbs: "is in it" and "a wrong code is typed on it" keep their order ("typed it on")
+    return capital(text.replace(at, 'it').replace(/\b(picks?|picked|turns?|turned|switch(?:es)?|switched|sets?|blows?|blew|puts?|takes?|took|gives?|gave) (up|on|off|in|out|down) it\b/, '$1 it $2')
       .replace(/\bit gets where they were sent\b/, 'it gets where it was sent'));
   }
   if (/^(while|from when) /i.test(text)) return capital(text);   // a "while" (P3): its lasting state, never the short "When ..."
@@ -315,7 +321,7 @@ Sent by ${sends} rule${sends === 1 ? '' : 's'}, waited for by ${waits}` };
 // ---------------------------------------------------------------- the window
 export function createLogicWindow({ root, input, select = () => {}, status = () => {}, trial = null, picture = null, listView = null, phases = null, addRule = null, proposal = null, decide = null, why = null,
   trails = null, lastPlay = null, played = () => {}, starts = null, storyGraph = null, storyOpen = null, watch = null, startValue = null, live = null,
-  boxes = null, patterns = null, scripts = null }) {
+  boxes = null, patterns = null, scripts = null, edit = null }) {
   root.classList.add('logic-window');
   root.innerHTML = `<div class="lw-bar">
       <div class="lw-tabs" role="tablist">
@@ -331,6 +337,7 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
         <button type="button" data-scope="map" title="Every rule of the map">Whole map</button>
       </div>
       <button type="button" class="lw-fit" title="Fit the graph (Home)">Fit</button>
+      <button type="button" class="lw-tidy" title="Lay every card out again (pinned ones stay): one step to undo">Tidy</button>
       <button type="button" class="lw-patsbtn" title="The project's patterns: place one in this map, its places filled with this map's objects">Patterns</button>
       <button type="button" class="lw-whybtn" title="Why didn't it run? For the rule or the object selected: what the last Play and Try it say of it, and what to check (W)">Why not?</button>
       <span class="lw-info"></span>
@@ -368,8 +375,12 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
   let base = null;
   const tl = { at: Infinity, playing: false, speed: 1, raf: 0, built: '' };
   const pictures = new Map();                          // a class's picture, once known: a URL, or null when it has none
+  let ge = null;                                       // the graph edited (logic-graph-edit.js), when the page gives edit
   const canvas = createGraphCanvas($('.lw-graph'), { label: 'Logic graph', icons: ICONS,
     thumb: (key) => (picture ? picture(key) : Promise.resolve(null)),
+    ...(edit ? { onContext: (h, at) => ge.context(h, at), onPinDrop: (f, at) => ge.pinDrop(f, at), onConnect: (f, t) => ge.connect(f, t),
+      onRetarget: (w, e, t) => ge.retarget(w, e, t), onValue: (n, v, at) => ge.value(n, v, at), onDelete: (s) => ge.remove(s),
+      onMove: (m) => ge.move(m), onDelay: (w, s) => ge.delay(w, s), onAdd: (at) => ge.add(at) } : {}),
     onOpen: (node) => {
       if (String(node).startsWith(BOX)) { openBox(String(node).slice(BOX.length)); return; }
       if (String(node).startsWith(PORT)) { boxUp(); return; }      // a port: what it reaches is outside, one level up
@@ -377,8 +388,9 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
       if (item) { openStory(item); return; }
       const name = objectOf(graph, node); if (name) select(name);
     },
-    onSelect: (sel) => { picked = sel; const id = (sel.nodes || [])[0]; const name = id && objectOf(graph, id); if (name) focusName = name; liveBar(); crumb(); },
+    onSelect: (sel) => { picked = sel; const id = (sel.nodes || [])[0]; const name = id && objectOf(graph, id); if (name) focusName = name; liveBar(); crumb(); ge?.selected(sel); },
     onCommand: (name, d) => {
+      if (ge && ge.command(name, d)) return;       // copy, cut, paste, duplicate: rules
       if (name === 'why') askWhy(d && d.selection);
       else if (name === 'mute' || name === 'breakpoint') liveToggle(name === 'mute' ? 'mute' : 'break', d && d.selection);
       else if (name === 'make-block') makeBlock(d && d.selection);
@@ -391,6 +403,13 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
         else if (id) { const obj = objectOf(graph, id); if (obj) select(obj); }
       }
     } });
+  if (edit) ge = createGraphEdit({ main: $('.lw-main'), host: $('.lw-graph'), edit, status, canvas: () => canvas, graph: () => graph,
+    edits: () => sideOf && sideOf.ix.edits,
+    busy: () => (proposal && proposal() ? "The assistant's proposal is shown: accept or reject it first." : ''),
+    commands: { why: (sel) => askWhy(sel), mute: (sel) => liveToggle('mute', sel), pause: (sel) => liveToggle('break', sel),
+      block: (sel) => makeBlock(sel), select: (name) => select(name),
+      whole: () => { if (boxAt || focusState || scope !== 'map') { boxAt = null; renaming = null; focusState = ''; scope = 'map'; tabs(); soon(); } },
+      list: (name, rule) => { if (name) select(name); focusName = name || ''; focusState = ''; scope = 'chain'; view = 'list'; listRule = rule; listSig = null; tabs(); draw(); } } });
   const tryPanel = trial ? createLogicTry({ root: $('.lw-try'), trial, status, starts }) : null;
   if (!why) $('.lw-whybtn').remove();
   // A dialogue's node opens its Story Graph here, in place of the rules' graph (the Story's own view: its changes are
@@ -500,8 +519,10 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
     });
   };
   root.querySelectorAll('.lw-tab').forEach((b) => b.addEventListener('click', () => { view = b.dataset.view; tabs(); draw(); }));
-  root.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { scope = b.dataset.scope; focusState = ''; boxAt = null; renaming = null; tabs(); draw(); }));
+  root.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { scope = b.dataset.scope; focusState = ''; boxAt = null; renaming = null; ge?.settle(); tabs(); draw(); }));
   $('.lw-fit').addEventListener('click', () => canvas.fit());
+  // (12 Nov 2026: cards made from the graph keep their place, so a better layout never reached them)
+  $('.lw-tidy').addEventListener('click', () => { canvas.arrange(); canvas.fit(); });
   $('.lw-propose').addEventListener('click', (ev) => {
     const b = ev.target.closest('button[data-decide]');
     if (b && decide) { b.disabled = true; Promise.resolve(decide(b.dataset.decide)).finally(() => soon()); }
@@ -538,7 +559,7 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
     const b = ev.target.closest('[data-key]');
     if (!b) return;
     const key = b.dataset.key;
-    boxAt = null; renaming = null;                  // an object, a state, a problem: seen from the map (a problem's rule in its block)
+    boxAt = null; renaming = null; ge?.settle();                  // an object, a state, a problem: seen from the map (a problem's rule in its block)
     if (key.startsWith('thing:')) {
       const id = key.slice(6);
       if (view !== 'list') view = 'graph';          // the List shows the object chosen, the other views its graph
@@ -1294,7 +1315,7 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
         if (view !== 'story') { closeStory(); storyAt = null; }
         $('.lw-side').hidden = view === 'try' || view === 'story';
         $('.lw-trail').hidden = view !== 'graph' || !trails || !!q;
-        for (const el of root.querySelectorAll('.lw-scope, .lw-fit, .lw-div, .lw-patsbtn')) el.hidden = view !== 'graph';
+        for (const el of root.querySelectorAll('.lw-scope, .lw-fit, .lw-tidy, .lw-div, .lw-patsbtn')) el.hidden = view !== 'graph';
         if (view !== 'graph') $('.lw-pats').hidden = true;
         const whyBtn = $('.lw-whybtn');
         if (whyBtn) whyBtn.hidden = view === 'try' || view === 'story';     // Try it has its own, for its session
@@ -1343,6 +1364,7 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
           const a = ix.actors[name];
           return a && a.cls ? 'cls:' + a.cls : '';
         });
+        if (ge && !q) ge.decorate(shown, graph);     // values on the cards, the notes and frames
         markShown(shown, q, ix);
         base = q ? null : { shown: structuredClone(shown), ix, graph };
         if (base) trailOn(shown);
@@ -1351,7 +1373,8 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
           canvas.set(shown); drawn = key;
           // other things shown (another chain, the whole map, a first draw): fitted, after the canvas has its size
           const ids = shown.nodes.map((n) => n.id).sort().join('\n');
-          if (ids !== fitted) { fitted = ids; requestAnimationFrame(() => canvas.fit()); }
+          // (not after a change made in the graph: its view stays where the user works)
+          if (ids !== fitted) { fitted = ids; if (!(ge && ge.recent())) requestAnimationFrame(() => canvas.fit()); }
         }
         // a block just made, renamed or left: selected (the bar's Open, Rename and Unpack are about it)
         if (boxPending) {
@@ -1360,7 +1383,15 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
           if (sel.nodes.length) requestAnimationFrame(() => { canvas.select(sel); canvas.reveal(sel.nodes); picked = sel; crumb(); liveBar(); });
         }
         if (graph.hidden) $('.lw-info').textContent += ` · ${graph.hidden} more not shown`;
+        if (ge) { if (q) ge.hide(); else ge.sync(); }
         strip();
+        // an empty graph says how to start (12 Nov 2026: a blank canvas, nothing to say what to do)
+        let emptyEl = $('.lw-graph .lw-empty');
+        if (!emptyEl) { emptyEl = document.createElement('div'); emptyEl.className = 'lw-empty'; $('.lw-graph').appendChild(emptyEl); }
+        const none = !shown.wires.length && !boxAt && !focusState && !q;
+        emptyEl.hidden = !none;
+        if (none) emptyEl.innerHTML = ge ? '<b>No rules here yet.</b> Press <kbd>Tab</kbd> or right-click the empty graph to add one ("When the map starts", "When the player uses…"), or right-click an object.'
+          : '<b>No rules on this map yet.</b>';
         liveBar();
       } catch (e) {
         status('Logic window: ' + (e.message || e), 'warn');

@@ -4,7 +4,7 @@
   "behaviour": "A rule whose action makes its own output happen again is told while it is still in Running, and skips.",
   "derivedFrom": [
     {"file": "UCLink.uc", "lines": [381, 384], "has": "if (IsInState('Running'))"},
-    {"file": "UCLink.uc", "lines": [1913, 1932], "has": "state Running"},
+    {"file": "UCLink.uc", "lines": [1925, 1944], "has": "state Running"},
     {"file": "UCTimer.uc", "lines": [45, 55], "has": "function StopIt()"}
   ],
   "assumes": ["A1"],

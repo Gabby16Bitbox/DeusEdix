@@ -397,3 +397,9 @@ body #busy { background:#000b; color:var(--heading); z-index:30; }
 /* Fixed-height fields have no vertical padding (DESIGN.md "Text in a button is always centred"): the page's
    default 5px top and bottom left 10px for 12px text in these 22px fields, and cut it (21 Oct 2026) */
 :is(#sndsearch, #gvsearch, .cn-find, .cn-input) { padding-top:0; padding-bottom:0; }
+
+/* the object's name at the top of the Inspector (app.js nameField): reads as a title, edits in place */
+.inspector-name { font:inherit; font-weight:700; color:inherit; background:transparent; border:1px solid transparent;
+  border-radius:4px; padding:1px 4px; margin-left:-5px; min-width:0; flex:1 1 auto; max-width:100%; }
+.inspector-name:hover { border-color:var(--line, rgba(255,255,255,.15)); }
+.inspector-name:focus { border-color:var(--accent, #d9b56a); background:rgba(0,0,0,.25); outline:none; }

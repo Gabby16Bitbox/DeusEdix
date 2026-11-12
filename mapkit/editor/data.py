@@ -20,6 +20,7 @@ import t3d  # noqa: E402
 import activation  # noqa: E402
 import props as props_mod  # noqa: E402
 import build_cpu  # noqa: E402
+from itemcatalog import inventory_catalog, placement_metadata  # noqa: E402
 
 CACHE = HERE / 'cache'
 OUT = KIT / 'out'
@@ -869,20 +870,9 @@ def catalog(log=print):
     return out
 
 
-# weapons only creatures and robots use (a dog's bite, a spider bot's discharge): not things to give
-NPC_ONLY = re.compile('|'.join(re.escape(name) for name in PALETTE_CONFIG['npcOnlyWeapons']))
-# the game's placeholder names ("DEFAULT DECORATION NAME - REPORT THIS AS A BUG"), as app.js gameName()
-PLACEHOLDER_NAME = re.compile(r'DEFAULT\s+\w+\s+NAME|REPORT THIS AS A BUG', re.I)
-
-
 def items():
-    """What can be given or carried: weapons, ammo and pickups of the game and the editor's package (Pkg.Class).
-    Not the game's own stand-ins named 'DEFAULT AMMO NAME - REPORT THIS AS A BUG' (AmmoNone: the ammo of what
-    shoots nothing, 24 Oct 2026)."""
-    return [dict(cls='%s.%s' % (c['pkg'], c['cls']), name=c['name'], cat=c['cat'])
-            for c in catalog(log=lambda *a: None)
-            if c['cat'] in ('Weapons', 'Ammo', 'Pickups') and c['name'] and not NPC_ONLY.search(c['cls'])
-            and not PLACEHOLDER_NAME.search(c['name'])]
+    """Inventory choices of this game, including marked helpers to preserve old selections."""
+    return inventory_catalog(catalog(log=lambda *a: None))
 
 
 # The Effects of the Objects browser: a UCParticles each (the editor's package: the game's ParticleGenerator that can
@@ -950,10 +940,15 @@ def palette():
     """Categories of the palette: the most used first, then every class of the game."""
     cat = catalog()
     by_cls = {c['cls']: c for c in cat}
+    inventory = {i['cls'].lower(): placement_metadata(i) for i in inventory_catalog(cat)}
     groups = {}
     for c in cat:
+        info = inventory.get(('%s.%s' % (c['pkg'], c['cls'])).lower(), {})
+        if info is None:
+            continue
         groups.setdefault(c['cat'], []).append(dict(cls=c['cls'], radius=c['radius'], height=c['height'],
                                                     name=c['name'], sub=c['sub'], mesh=c.get('mesh', ''), meshDrawScale=c.get('scale', 1.0),
+                                                    **info,
                                                     **({'nomodel': True} if c.get('nomodel') else {})))
     fav = []
     for c in FAVOURITES['Most used']:
@@ -961,7 +956,9 @@ def palette():
             fav.append(dict(cls=c, radius=8, height=8, name='', sub=''))
         elif c in by_cls:
             b = by_cls[c]
-            fav.append(dict(cls=c, radius=b['radius'], height=b['height'], name=b['name'], sub=''))
+            info = inventory.get(('%s.%s' % (b['pkg'], b['cls'])).lower(), {})
+            if info is not None:
+                fav.append(dict(cls=c, radius=b['radius'], height=b['height'], name=b['name'], sub='', **info))
     groups['Most used'] = fav
     groups['Lights'] = [dict(cls='Light', radius=8, height=8, name='', sub=''),
                       dict(cls='Spotlight', radius=8, height=8, name='', sub='')]

@@ -5,14 +5,20 @@
 // selection, Home fits. Drag a dot to connect it or, on empty space, to add the next step there (a click on a dot adds
 // it beside); double-click the empty space to add a step on its own. A line or an answer is written in the node itself
 // (double-click it, or F2: Enter goes on to the next line, Tab changes who says it); Enter on a step adds the next line;
-// everything else of the selected node is at the side, with the List view's own fields. Play-test runs the dialogue
-// there as the game would (story-sim.js), lighting the node it is at. The nodes: story-graph-nodes.js; the model:
-// story-graph.js.
-import { END, graphOf, ensureIds, connect, connectStart, insertAt, remove } from './story-graph.js';
+// everything else of the selected node is at the side, with the List view's own fields. A value in a node (who speaks,
+// the flag, the item, the amount, an answer's conditions) is clicked to change it right there: the List's own field
+// for it in a small box (graph-value-edit.js). What to add is searched (graph-quick-add.js), what fits where it was
+// asked first; a wire let go on empty space can also go to a step already there. A right click on a node, a wire or
+// the empty space has what can be done there; Ctrl+C / X / V / D copy, cut, paste and duplicate steps with the arrows
+// among them (between dialogues too). Play-test runs the dialogue there as the game would (story-sim.js), lighting the
+// node it is at. The nodes: story-graph-nodes.js; the model: story-graph.js.
+import { END, graphOf, ensureIds, connect, connectStart, insertAt, remove, copySteps, pasteSteps } from './story-graph.js';
 import { createPlay, answerConditions, conditionsOf } from './story-sim.js';
 import { createGraphCanvas } from './graph-canvas.js';
 import { nodeSize } from './graph-geometry.js';
 import { START, canvasOf, portOf, rowPort } from './story-graph-nodes.js';
+import { openQuickAdd } from './graph-quick-add.js';
+import { openValueEditor } from './graph-value-edit.js';
 
 const GAP_X = 70;                                // between a step and the one added after it
 const WRITE_ZOOM = 0.75;                         // under this a line is written at 100% (the canvas covers nodes under 50%)
@@ -47,17 +53,24 @@ const STYLE = `
 .sg-canvas .gc-node.k-start .gc-t, .sg-canvas .gc-node.k-end .gc-t { font-weight:500; color:var(--dim); }
 `;
 let styled = false;
+let clipboard = null;                            // steps copied, for any dialogue's Graph: copySteps + their places
+const RECENT = 'deusedix.storyQuickAdd', FITS = 'Fits here', GROUPS = ['Talk', 'Check', 'Change', 'End'];
+const VALUE_TITLES = { who: 'Who says it', state: 'Flags', item: 'Item', count: 'How many', amount: 'Amount', goal: 'Goal',
+  valueType: 'What is checked', condition: 'Comparison', labels: 'Ways', tag: 'Tag', signal: 'Signal', text: 'Text', do: 'Actions' };
+const valueTitle = (v) => (String(v).startsWith('opt:') ? `Answer ${+String(v).slice(4) + 1}` : VALUE_TITLES[v] || 'Value');
 
 // dialogue: {steps, owner...}; layout: {node id: [x, y]}, the places moved by hand (kept in the story, not compiled;
 // the others are laid out by the canvas); speaker(step) -> {name, colour}; speakers(): [{who, name}] who can say a
 // line; face(step) -> a Promise of the picture of who says it (null: none); summary {title(step), text(step)} of a node
 // that is not a line; inspect(el, index): the List view's fields of step `index` in el; changed(): the story was
-// edited; newStep(type, who): a step of that kind; menu: [[type, label, who?] | '-'] what can be added; undo(), redo():
+// edited; newStep(type, who): a step of that kind; menu: [[type, label, who?] | '-'] what can be added (addItems(): the
+// same as graph-quick-add.js items, with groups and hints, data {type, who}); summary.parts(step): its text in pieces,
+// the values clickable; valueField(step, value): selectors of that value's field in the List's card; undo(), redo():
 // the editor's own history, which the Story's changes are steps of (P5; none: the graph's own Undo, its changes only);
 // start: {view, selected, focused} as an earlier view of the same dialogue left them (getView): its zoom and
 // selection kept, and the keys' focus (a step back with Ctrl+Z draws the panel again: the next Ctrl+Z still works)
 export function createGraphView({ host, dialogue: d, layout, speaker, speakers, face, summary, inspect, changed, newStep, menu,
-  undo: undoHistory = null, redo: redoHistory = null, start = null }) {
+  addItems = null, valueField = null, undo: undoHistory = null, redo: redoHistory = null, start = null }) {
   if (!styled) { const s = document.createElement('style'); s.textContent = STYLE; document.head.appendChild(s); styled = true; }
   host.innerHTML = `<div class="sg"><div class="sg-bar">
       <button data-add="line" title="A line after the selected step (Enter)">+ Line</button>
@@ -70,11 +83,12 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
       <button data-do="fit" title="See the whole dialogue (Home)">Fit</button>
       <button data-do="play" class="primary" title="Play the dialogue here, as the game will (T)">▶ Play-test</button></div>
     <div class="sg-main"><div class="sg-canvas">
-      <div class="sg-hint">Double-click a line to write it (Enter: next line, Tab: who speaks) · drag a dot to connect or add · drag the empty space to select, the middle button to move</div></div>
+      <div class="sg-hint">Double-click a line to write it (Enter: next line, Tab: who speaks) · click a value to change it · drag a dot to connect or add · right-click for more</div></div>
       <div class="sg-side"></div></div></div>`;
   const canvasHost = host.querySelector('.sg-canvas'), side = host.querySelector('.sg-side');
   let selected = null, many = [], graph = null, playing = null, undo = [], drawn = new Map();
   let menuEl = null, writing = null;              // writing: the line or answer being written in its node
+  let quick = null, valueBox = null;              // the quick add open, the value being changed in its box
   const steps = () => (d.steps = d.steps || []);
   if (start?.selected && steps().some((s) => s.id === start.selected)) selected = start.selected;
   const stepOf = (id) => steps().find((s) => s.id === id);
@@ -98,15 +112,20 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
       return true;
     },
     onPinDrop: (from, at) => { if (from.side === 'out') addFromPin(from, at); },
-    onAdd: (at) => menuAt(at.screen, null, ([type, who]) => addApart(type, who, at.world)),
+    onAdd: (at) => quickAdd(at.screen, 'Add a step', (p) => addApart(p.type, p.who, at.world)),
     onOpen: (id, row) => open(id, row),
-    onDelete: (sel) => removeSteps(sel.nodes),
-    onCommand: (name) => {
+    onDelete: (sel) => { if (sel.wires?.length) cutWires(sel.wires); removeSteps(sel.nodes); },
+    onCommand: (name, detail) => {
       if (name === 'edit' && selected) add('line');
       else if (name === 'rename' && selected) open(selected);
       else if (name === 'try') startPlay();
+      else if (name === 'copy') copy(many);
+      else if (name === 'cut') { if (copy(many)) removeSteps(many); }
+      else if (name === 'paste') pasteAt(detail?.at?.world || middle());
+      else if (name === 'duplicate') duplicate(many);
     },
     onContext: (hit, at) => contextMenu(hit, at),
+    onValue: (id, value, at) => editValue(id, value, at),
   });
 
   // ---------------------------------------------------------------- drawing
@@ -159,17 +178,162 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
     placeNew(edit((s) => insertAt(s, from, port, step)), at, step);
   }
   function addApart(type, who, at) { const step = newStep(type, who || 'npc'); placeNew(edit((s) => apart(s, step)), [at[0] - 110, at[1] - 20], step); }
-  // a wire dragged out of a dot onto empty space, or a click on the dot: the menu of what to add there
+  // a wire dragged out of a dot onto empty space, or a click on the dot: what to add there (what fits first), or a
+  // step already there to go to
   function addFromPin(from, at) {
     const port = from.node === START ? 'start' : portOf(from.pin);
     const box = placeOf(from.node), size = sizeOf(from.node);
     const near = at.world[0] < box[0] + size[0] + 30 && at.world[0] > box[0] - 10 && at.world[1] > box[1] - 10 && at.world[1] < box[1] + size[1] + 10;
-    menuAt(at.screen, null, ([type, who]) => {
-      if (type === 'end' && port !== 'start') { edit((s) => connect(s, from.node, port, END)); return; }
-      const step = newStep(type, who || followingSpeaker(from.node));
+    const others = graph.nodes.some((n) => n.id !== from.node);
+    quickAdd(at.screen, 'What comes next', (p) => {
+      if (p.connect) return connectPicker(at.screen, from.node, port);
+      if (p.type === 'end' && port !== 'start') { edit((s) => connect(s, from.node, port, END)); return; }
+      const step = newStep(p.type, p.who || followingSpeaker(from.node));
       const id = edit((s) => (port === 'start' ? first(s, step) : insertAt(s, from.node, port, step)));
       placeNew(id, near ? rightOf(from.node) : [at.world[0], at.world[1] - 14], step);
+    }, { first: fitsAfter(from.node), extra: others ? [{ id: 'connect', label: 'Connect to an existing step…', group: FITS,
+      hint: 'Find a step of this dialogue by its words: this way goes there', words: ['connect', 'link', 'existing', 'jump', 'go to'], data: { connect: true } }] : [] });
+  }
+  // ---------------------------------------------------------------- quick add (graph-quick-add.js)
+  function kinds() {
+    if (addItems) return addItems();
+    return menu.filter((m) => m !== '-').map(([type, label, who]) => ({ id: type === 'line' ? 'line:' + (who || 'npc') : type, label, data: { type, who } }));
+  }
+  // what to add, searched; onPick(the item's data); first: ids of the kinds that fit there (shown first); extra: other
+  // items ({group: 'Edit' first, 'View' last...})
+  function quickAdd(screen, title, onPick, { first: fit = [], extra = [] } = {}) {
+    closeMenu();
+    const all = kinds();
+    const items = [...fit.map((id) => all.find((it) => it.id === id)).filter(Boolean).map((it) => ({ ...it, group: FITS })),
+      ...extra, ...all.filter((it) => !fit.includes(it.id))];
+    quick = openQuickAdd({ host: canvasHost, at: screen || [20, 20], items, groups: [...GROUPS, 'View'], lead: ['Edit', FITS],
+      recent: RECENT, title, placeholder: 'Search what to add',
+      onPick: (it) => { quick = null; onPick(it.data || {}); },
+      onClose: () => { quick = null; canvas.focus(); } });
+  }
+  // after a step, what usually comes: the other one speaks, JC answers a line of someone else's
+  function fitsAfter(id) {
+    if (id === START) return ['line:npc', 'choice'];
+    const s = stepOf(id);
+    if (!s) return [];
+    if (s.type === 'line') return s.who === 'jc' ? ['line:npc', 'end'] : ['choice', 'line:jc', 'end'];
+    if (['if', 'checkitem', 'checkvalue', 'random'].includes(s.type)) return ['line:npc', 'line:jc', 'end'];
+    return ['line:npc', 'end'];
+  }
+  // a step as a line of a list: who says what, or what it does
+  function describe(n) {
+    const s = n.step, cut = (t) => (t.length > 72 ? t.slice(0, 70) + '…' : t);
+    if (s.type === 'line') return cut(`${speaker(s).name}: ${s.text || '(not written yet)'}`);
+    if (s.type === 'choice') return cut(`JC's answers: ${(s.options || []).map((o) => o.text || '…').join(' / ')}`);
+    const text = summary?.text?.(s) || '';
+    return cut(`${summary?.title?.(s) || s.type}${text ? ': ' + text : ''}`);
+  }
+  // way `port` of step `from` (START: the start) goes to a step chosen from a list searched by its words
+  function connectPicker(screen, from, port) {
+    closeMenu();
+    const items = graph.nodes.filter((n) => n.id !== from).map((n) => ({ id: n.id, label: describe(n),
+      colour: n.step.type === 'line' ? speaker(n.step).colour : undefined,
+      hint: graph.reachable.has(n.id) ? 'Enter: this way goes here' : 'Nothing reaches this step yet', data: { to: n.id } }));
+    quick = openQuickAdd({ host: canvasHost, at: screen || [20, 20], items, title: 'Connect to which step?', placeholder: 'Search the steps by their words',
+      onPick: (it) => {
+        quick = null;
+        edit((s) => (port === 'start' ? connectStart(s, it.data.to) : connect(s, from, port, it.data.to)));
+        canvas.reveal([it.data.to]);
+        canvas.focus();
+      },
+      onClose: () => { quick = null; canvas.focus(); } });
+  }
+  // a wire's id (story-graph-nodes.js: "<from>><pin>") as the step and its way
+  function wireOf(id) {
+    const k = String(id).lastIndexOf('>'), from = String(id).slice(0, k);
+    return { from, port: from === START ? 'start' : portOf(String(id).slice(k + 1)) };
+  }
+  function cutWires(ids) {
+    edit((s) => {
+      for (const { from, port } of ids.map(wireOf)) {
+        if (port === 'start') connectStart(s, END);
+        else if (s.some((x) => x.id === from)) connect(s, from, port, null);
+      }
+      return s;
     });
+  }
+  // ---------------------------------------------------------------- copy, paste, duplicate
+  function clipOf(ids) {
+    const list = (ids || []).filter((id) => id !== START && stepOf(id));
+    if (!list.length) return null;
+    const clip = copySteps(steps(), list), o = placeOf(clip.ids[0]);
+    return { ...clip, at: clip.ids.map((id) => { const p = placeOf(id); return [p[0] - o[0], p[1] - o[1]]; }) };
+  }
+  function copy(ids) { const clip = clipOf(ids); if (clip) clipboard = clip; return !!clip; }
+  // the copy with its first step at `world`, the others where they were from it: one change (one Ctrl+Z)
+  function pasteAt(world, clip = clipboard) {
+    if (!clip?.steps?.length) return;
+    const made = edit((s) => {
+      const ids = pasteSteps(s, clip);
+      ids.forEach((id, k) => { const p = clip.at?.[k] || [k * 40, k * 40]; layout[id] = [Math.round(world[0] + p[0]), Math.round(world[1] + p[1])]; });
+      many = ids; selected = ids.length === 1 ? ids[0] : null;
+      return ids;
+    });
+    canvas.reveal(made);
+    showSide();
+  }
+  function duplicate(ids) {
+    const clip = clipOf(ids);
+    if (!clip) return;
+    const p = placeOf(clip.ids[0]);
+    pasteAt([p[0] + 40, p[1] + 40], clip);
+  }
+  // ---------------------------------------------------------------- a value changed where it is (graph-value-edit.js)
+  function editValue(id, value, at) {
+    const i = steps().findIndex((s) => s.id === id);
+    if (i < 0 || !inspect || writing || playing) return;
+    closeMenu();
+    valueBox?.close();
+    selected = id; many = [id];
+    canvas.select({ nodes: [id] });
+    showSide();
+    const before = JSON.stringify(steps()[i]), wanted = valueField ? valueField(steps()[i], value) : [];
+    let touched = false, watch = null;
+    // only the row of that value is shown: the List's card is all there (its own code binds every field), the rest hidden
+    const keep = (el) => {
+      let target = null;
+      for (const q of wanted) if ((target = el.querySelector(q))) break;
+      if (!target) { el.classList.remove('gve-only'); return el.querySelector('input, select, textarea'); }
+      el.classList.add('gve-only');
+      for (let n = target; n && n !== el; n = n.parentElement) {
+        n.classList.add('gve-keep');
+        // in a row of several fields, the others and their words ("go to") hidden
+        if (target.matches('[data-k]') && n.parentElement && n.parentElement !== el) for (const sib of [...n.parentElement.childNodes]) {
+          if (sib === n) continue;
+          if (sib.nodeType === 3 && sib.textContent.trim()) { const w = document.createElement('span'); w.className = 'gve-off'; sib.replaceWith(w); w.appendChild(sib); }
+          else if (sib.nodeType === 1 && sib.matches('input, select, textarea, label, button')) sib.classList.add('gve-off');
+        }
+      }
+      return target.matches('input, select, textarea') ? target : target.querySelector('input, select, textarea');
+    };
+    valueBox = openValueEditor({ host: canvasHost, at: at?.screen || [20, 20], title: valueTitle(value),
+      render: (el) => {
+        inspect(el, i);
+        const focus = keep(el);
+        // a field that adds a row (a condition, an action) draws the card again: the same row kept
+        if (typeof MutationObserver !== 'undefined') {
+          watch = new MutationObserver(() => { watch.disconnect(); keep(el); watch.observe(el, { childList: true }); });
+          watch.observe(el, { childList: true });
+        }
+        return focus;
+      },
+      cancel: () => {
+        if (!touched) return;
+        const k = steps().findIndex((s) => s.id === id);
+        if (k >= 0) { steps()[k] = JSON.parse(before); changed(); }
+      },
+      onClose: () => { watch?.disconnect(); valueBox = null; draw(); showSide(); canvas.focus(); },
+      more: { label: 'All of it', run: () => focusText() },
+    });
+    const touch = () => { touched = true; soon(); };
+    valueBox.el.addEventListener('input', touch);
+    valueBox.el.addEventListener('change', touch);
+    valueBox.el.addEventListener('click', (e) => { if (e.target.closest('button')) touch(); });
   }
   function placeNew(id, at, step) {
     layout[id] = [Math.round(at[0]), Math.round(at[1])];
@@ -278,23 +442,81 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
     menuAt(screen, null, ([who]) => { if (s.who !== who) { s.who = who; changed(); draw(); showSide(); } },
       speakers().map((x) => [x.who, x.name]));
   }
-  // a right click: what can be done with that node, or what to add there
+  // a right click: what can be done with that node or wire, or what to add there
   function contextMenu(hit, at) {
     if (hit.kind === 'node' && hit.pin && hit.pin.side === 'out') return addFromPin(hit.pin, at);
-    if (hit.kind !== 'node') return menuAt(at.screen, null, ([type, who]) => addApart(type, who, at.world));
+    if (hit.kind === 'wire') return wireMenu(hit.id, at);
+    if (hit.kind !== 'node') return emptyMenu(at);
     if (hit.id === START) return;
     const s = stepOf(hit.id);
     if (!s) return;
+    const group = many.length > 1 && many.includes(hit.id) ? many : [hit.id], n = group.length;
     const items = [];
     if (s.type === 'line') items.push(['write', 'Write the line'], ['who', 'Who says it…']);
     if (s.type === 'choice') items.push(['write', 'Write the first answer']);
-    items.push(['next', 'Add a line after it'], '-', ['delete', 'Delete step']);
+    for (const p of (summary?.parts?.(s) || []).filter((x) => x.value !== undefined)) items.push(['value:' + p.value, `Change: ${valueTitle(p.value).toLowerCase()}…`]);
+    if (s.type === 'choice') (s.options || []).forEach((o, k) => items.push(["value:opt:" + k, `Answer ${k + 1}…`]));
+    items.push(['side', 'Everything of it at the side'], '-', ['next', 'Add a step after it…'],
+      ['dup', n > 1 ? `Duplicate ${n} steps` : 'Duplicate'], ['copy', n > 1 ? `Copy ${n} steps` : 'Copy'], ['cut', 'Cut']);
+    if (clipboard) items.push(['paste', 'Paste']);
+    const ways = (graph.nodes.find((x) => x.id === hit.id)?.outs || []).filter((o) => o.to && o.to !== END);
+    if (ways.length) items.push(['loose', ways.length > 1 ? 'Disconnect its ways on' : 'Disconnect its way on']);
+    items.push('-', ['delete', n > 1 ? `Delete ${n} steps` : 'Delete step']);
     menuAt(at.screen, null, ([what]) => {
       if (what === 'write') open(hit.id, s.type === 'choice' ? 'way:0' : undefined);
       else if (what === 'who') chooseSpeaker(at.screen, hit.id);
-      else if (what === 'next') { selected = hit.id; add('line'); }
-      else if (what === 'delete') removeSteps(many.includes(hit.id) ? many : [hit.id]);
+      else if (what.startsWith('value:')) editValue(hit.id, what.slice(6), at);
+      else if (what === 'side') { selected = hit.id; many = [hit.id]; canvas.select({ nodes: [hit.id] }); showSide(); focusText(); }
+      else if (what === 'next') nextFrom(hit.id, at);
+      else if (what === 'dup') duplicate(group);
+      else if (what === 'copy') copy(group);
+      else if (what === 'cut') { if (copy(group)) removeSteps(group); }
+      else if (what === 'paste') pasteAt(at.world);
+      else if (what === 'loose') edit((list) => { for (const o of ways) connect(list, hit.id, o.port, null); return list; });
+      else if (what === 'delete') removeSteps(group);
     }, items);
+  }
+  // on the empty space: what to add there, searched; Paste first when something was copied; the view's own at the end
+  function emptyMenu(at) {
+    const extra = [
+      { id: 'tidy', label: 'Tidy the graph', group: 'View', hint: 'Lay every node out again, from the start', words: ['arrange', 'layout', 'tidy'], data: { view: 'tidy' } },
+      { id: 'fit', label: 'See the whole dialogue', group: 'View', hint: 'Home', words: ['fit', 'zoom', 'all'], data: { view: 'fit' } },
+      { id: 'play', label: 'Play-test the dialogue', group: 'View', hint: 'T: play it here as the game will', words: ['play', 'test', 'try'], data: { view: 'play' } },
+    ];
+    if (clipboard) extra.unshift({ id: 'paste', label: clipboard.steps.length > 1 ? `Paste ${clipboard.steps.length} steps` : 'Paste the step', group: 'Edit',
+      hint: 'Ctrl+V: here, with the arrows among them', words: ['paste'], data: { paste: true } });
+    quickAdd(at.screen, 'Add a step', (p) => {
+      if (p.paste) return pasteAt(at.world);
+      if (p.view === 'tidy') { canvas.arrange(); canvas.fit(); return; }
+      if (p.view === 'fit') return canvas.fit();
+      if (p.view === 'play') return startPlay();
+      addApart(p.type, p.who, at.world);
+    }, { extra });
+  }
+  // on a wire: a step put in it, its end moved to another step, or cut
+  function wireMenu(id, at) {
+    const { from, port } = wireOf(id);
+    menuAt(at.screen, null, ([what]) => {
+      if (what === 'insert') insertOnWire(from, port, at);
+      else if (what === 'elsewhere') connectPicker(at.screen, from, port);
+      else if (what === 'cut') cutWires([id]);
+    }, [['insert', 'Insert a step here…'], ['elsewhere', 'Connect it to another step…'], '-', ['cut', 'Disconnect']]);
+  }
+  function insertOnWire(from, port, at) {
+    quickAdd(at.screen, 'Insert a step here', (p) => {
+      if (p.type === 'end' && port !== 'start') { edit((s) => connect(s, from, port, END)); return; }
+      const step = newStep(p.type, p.who || followingSpeaker(from));
+      const id = edit((s) => (port === 'start' ? first(s, step) : insertAt(s, from, port, step)));
+      placeNew(id, [at.world[0] - 110, at.world[1] - 20], step);
+    }, { first: fitsAfter(from) });
+  }
+  // "Add a step after it": from its way on (or its first free one), as a wire let go to its right
+  function nextFrom(id, at) {
+    const n = graph.nodes.find((x) => x.id === id);
+    const o = n?.outs.find((x) => x.port === 'next') || n?.outs.find((x) => x.to === null) || n?.outs[0];
+    if (!o) { menuAt(at.screen, 'This step ends the dialogue: add the new one from another step.'); return; }
+    const r = rightOf(id);
+    addFromPin({ node: id, pin: String(o.port), side: 'out' }, { screen: at.screen, world: [r[0], r[1] + 14] });
   }
 
   // ---------------------------------------------------------------- the side: the selected node, or the play-test
@@ -402,7 +624,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
     menuEl.querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => { const pick = [b.dataset.pick, b.dataset.who]; closeMenu(); onPick(pick); });
     if (note) setTimeout(closeMenu, 2600);
   }
-  function closeMenu() { menuEl?.remove(); menuEl = null; }
+  function closeMenu() { menuEl?.remove(); menuEl = null; const q = quick; quick = null; q?.close(); }
   // a press anywhere else closes the menu (the canvas takes the pointer on its own press: this runs first)
   const outside = (e) => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); };
   document.addEventListener('pointerdown', outside, true);
@@ -412,10 +634,10 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
   host.querySelectorAll('[data-add]').forEach((b) => b.onclick = (e) => {
     if (b.dataset.add !== 'more') return add(b.dataset.add);
     const r = canvasHost.getBoundingClientRect();
-    menuAt([e.clientX - r.left, 8], null, ([type, who]) => {
+    quickAdd([e.clientX - r.left, 8], selected ? 'Add after the selected step' : 'Add a step', ({ type, who }) => {
       if (type === 'end' && selected) { const n = graph.nodes.find((x) => x.id === selected); const o = n?.outs.find((x) => x.port === 'next'); if (o) return edit((s) => connect(s, selected, 'next', END)); }
       add(type, selected, undefined, who);
-    });
+    }, { first: selected ? fitsAfter(selected) : [] });
   });
   host.querySelector('[data-do="undo"]').onclick = () => undoLast();
   host.querySelector('[data-do="tidy"]').onclick = () => { canvas.arrange(); canvas.fit(); };
@@ -434,6 +656,7 @@ export function createGraphView({ host, dialogue: d, layout, speaker, speakers, 
       document.removeEventListener('pointerdown', outside, true);
       cancelAnimationFrame(redraw);
       closeMenu();
+      valueBox?.close();
       canvas.destroy();
     },
   };

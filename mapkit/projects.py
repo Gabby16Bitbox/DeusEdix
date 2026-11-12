@@ -38,6 +38,7 @@ PYTHON.add('formula.py')                # the formulas of counters (P9 slice 5: 
 PYTHON.update({'build_cache.py', 'build_cached.py', 'build_cpu.py', 'preview_bundle.py', 'texture_cache.py', 'resident_build.py'})
 PYTHON.add('patrol_paths.py')          # walking support for drawn patrol routes
 PYTHON.add('infolink_styles.py')       # shared InfoLink styles in existing and new projects
+PYTHON.add('keyconfig.py')             # nanokey ids given by rules and dialogues (links, story)
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
 GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc', 'UCInfoLinkStyle.uc', 'UCMenuLook.uc'}

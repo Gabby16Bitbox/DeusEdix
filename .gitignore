@@ -40,6 +40,8 @@ deusedix-project.json
 
 # ---- Build output and the build tools (Inno Setup, SDK headers and import libraries) ----------
 build/
+# three.js's own folder name: the editor's copy of it is shipped (12 Nov 2026)
+!mapkit/editor/static/vendor/three/build/
 build_tools/
 dist/
 *.exe

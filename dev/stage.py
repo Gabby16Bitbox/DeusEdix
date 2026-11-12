@@ -69,6 +69,13 @@ def copy_code(source, kit):
     (editor / 'config').mkdir(exist_ok=True)
     for file in (source / 'editor' / 'config').glob('*.json'):  # the editor's settings as data (palette.json...)
         shutil.copy2(file, editor / 'config' / file.name)
+    # the library of logic patterns and the example maps (projects.py copies them into every project; 0.1.64 left
+    # them out, so an installed editor had no patterns)
+    for sub, pattern in (('patterns', '*.json'), ('examples', '*')):
+        for file in (source / 'editor' / 'config' / sub).glob(pattern):
+            if file.is_file() and file.suffix.lower() in ('.json', '.py'):
+                (editor / 'config' / sub).mkdir(parents=True, exist_ok=True)
+                shutil.copy2(file, editor / 'config' / sub / file.name)
     for folder, extensions in (('editor/static', STATIC_EXT), ('tutorial', TUTORIAL_EXT)):
         for file in (source / folder).rglob('*'):
             if file.is_file() and file.suffix.lower() in extensions and '__pycache__' not in file.parts:

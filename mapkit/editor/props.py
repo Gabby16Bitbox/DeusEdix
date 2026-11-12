@@ -14,7 +14,7 @@ import settings
 from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
-VERSION = 20               # 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
+VERSION = 21               # 21: pickup credit amounts and augmentation choices; 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
                           # 14: timers (UCTimer) 15: effect points (UCEffectPoint)
                           # 16: a lamp's phase and corona, what a zone does to the view (the 3D view's Effects)
                           # 17: a zone's echo (the Reverb row) and Revision's OpenAL reverb
@@ -44,7 +44,7 @@ FIELDS = [
     ('Links', 'Actor', 'Tag', 'Tag', 'name', 'The name other objects use to find it (the door a button opens, a story action...)'),
     ('Links', 'Actor', 'Event', 'Event', 'name', 'When it is used or triggered, it triggers every object whose Tag is this'),
     ('Door', 'DeusExMover', 'bLocked', 'Locked', 'bool', ''),
-    ('Door', 'DeusExMover', 'KeyIDNeeded', 'Key that opens it', 'name', 'The Key ID of a NanoKey (None: no key opens it)'),
+    ('Door', 'DeusExMover', 'KeyIDNeeded', 'Key ID', 'name', 'Match the NanoKey Key ID, e.g. 2 or ApartmentDoor. Enable Locked to require the key. None: no key opens it.'),
     ('Door', 'DeusExMover', 'bPickable', 'Can be lockpicked', 'bool', ''),
     ('Door', 'DeusExMover', 'lockStrength', 'Lock strength', 'float', '0 = easy to pick, 1 = very hard'),
     ('Door', 'DeusExMover', 'bBreakable', 'Can be broken', 'bool', ''),
@@ -69,8 +69,10 @@ FIELDS = [
     ('Computer', 'ComputerSecurity', 'cameraTag', 'Cameras it controls (Tag)', 'name', ''),
     ('Computer', 'ComputerSecurity', 'turretTag', 'Turrets it controls (Tag)', 'name', ''),
     ('Computer', 'ComputerSecurity', 'doorTag', 'Doors it controls (Tag)', 'name', ''),
-    ('Key', 'NanoKey', 'KeyID', 'Key ID', 'name', 'Doors whose "Key that opens it" is this ID open with this key'),
+    ('Key', 'NanoKey', 'KeyID', 'Key ID', 'name', 'Match the door Key ID, e.g. 2 or ApartmentDoor. Names are case-insensitive; one key can open several matching doors.'),
     ('Key', 'NanoKey', 'Description', 'Description', 'string', 'What the key says in the inventory'),
+    ('Credits', 'Credits', 'numCredits', 'Credit amount', 'int', 'Money in this pickup. This is not the number of credit chits. For a rule reward use Give credits.'),
+    ('Augmentations', 'AugmentationCannister', 'AddAugs', 'Choices', 'augmentations', 'The two augmentations offered at a medical bot. The player installs one choice, not both.'),
     # books, newspapers, datacubes: what JC reads. SpecialText is Revision's "script-given text" of every
     # InformationDevices (shown when textTag is empty); the editor writes it, line breaks as |n
     ('Text', 'InformationDevices', 'SpecialText', 'What it says', 'text', 'What JC reads when he uses it; a datacube also '

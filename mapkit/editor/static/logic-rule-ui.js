@@ -1,3 +1,4 @@
+import { itemOptionsHtml, itemWarningText, isNanoKey, keyFieldsHtml } from './item-options.js';
 // The parts of a rule's form (app.js lkRuleHtml) that the catalogue describes (config/logic.json): an action's
 // arguments by their type (the P4 verbs: no hand-made rows), what an output takes (hurt below N%, a floor, the
 // player's health, a game event's Tag), and the rule's own options of the Logic runtime v2 (P6: other causes, all or
@@ -58,6 +59,9 @@ export const PAWN_CLASSES = ['DeusEx.MJ12Troop', 'DeusEx.MJ12Commando', 'DeusEx.
   'DeusEx.RiotCop', 'DeusEx.Cop', 'DeusEx.ThugMale', 'DeusEx.MIB', 'DeusEx.WIB', 'DeusEx.SecurityBot2', 'DeusEx.SecurityBot3',
   'DeusEx.MilitaryBot', 'DeusEx.SpiderBot2', 'DeusEx.Greasel', 'DeusEx.Karkian'];
 
+// a character class in words, for its list: "DeusEx.MJ12Troop" -> "MJ12 Troop" (12 Nov 2026: only Package.Class)
+export const pawnWords = (cls) => String(cls).split('.').pop().replace(/([a-z])([A-Z0-9])/g, '$1 $2').replace(/([0-9A-Z])([A-Z][a-z])/g, '$1 $2');
+
 const NUMERIC = new Set(['whole', 'amount', 'number', 'seconds', 'percent', 'floor', 'button']);
 const STEP = { seconds: 0.5, number: 0.1 };
 
@@ -97,6 +101,9 @@ export function argRowsHtml(args, x, j, h) {
   const label = (a) => `<label style="width:auto" title="${esc(a.label || a.id)}">${esc(a.label || a.id)}</label>`;
   let out = '';
   for (const a of args || []) {
+    if (a.forItem && String(x.a || '').toLowerCase() !== a.forItem.toLowerCase()) continue;
+    if (a.id === 'b' && x.verb === 'giveitem' && isNanoKey(x.a)) continue;
+    if (a.id === 'keyDescription' || a.id === 'keyId') continue; // rendered together below the item
     const v = argValue(x, a), k = esc(a.id), at = `data-lkarg="${j}" data-k="${k}"`;
     if (NUMERIC.has(a.type)) {
       const min = a.type === 'whole' ? '' : ' min="0"', max = a.type === 'percent' ? ' max="100"' : '';
@@ -119,7 +126,10 @@ export function argRowsHtml(args, x, j, h) {
       const has = !!x[a.id];
       out += row(`${label(a)}<a href="#" data-lkgo="${esc(x[a.id] || '')}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${has ? '' : ';color:var(--bad)'}" title="Go to it">${esc(has ? h.name(x[a.id]) : a.empty || '(none yet)')}</a><button data-lkobj="${j}" data-k="${k}" title="Click it in the map">${has ? 'change' : 'pick'}</button>`);
     } else if (a.type === 'itemclass') {
-      out += row(`${label(a)}${itemSelect(h, `${at}`, v)}`);
+      out += row(`${label(a)}${itemSelect(h, `${at}`, v, x.verb === 'giveitem')}`);
+      if (x.verb === 'giveitem') out += isNanoKey(v)
+        ? keyFieldsHtml(x, (k) => `data-lkarg="${j}" data-k="${k}"`, row)
+        : itemWarning(v, h, row);
     } else if (a.type === 'aug') {                 // P9 slice 4: an augmentation of the game
       out += row(`${label(a)}<select ${at} style="flex:1;min-width:0">${AUGS.map(([n, w]) => `<option value="${esc(n)}" ${n === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>`);
     } else if (a.type === 'prop') {                // P9 slice 4: a property of the safe list of the object's family (h.props)
@@ -142,7 +152,7 @@ export function argRowsHtml(args, x, j, h) {
       const ph = a.type === 'pawnclass' ? 'Package.Class, e.g. DeusEx.MJ12Troop' : a.type === 'song' ? 'Package.Song (empty: silence)'
         : a.type === 'signal' ? 'Alarm' : a.type === 'faction' ? 'MJ12' : a.type === 'propvalue' ? 'a number, or yes / no' : a.label || '';
       out += row(`${label(a)}<input type="text" ${at} value="${esc(String(v))}" placeholder="${esc(ph)}" ${list ? `list="${list}"` : ''} style="flex:1;min-width:0">`
-        + (list && list !== 'factionlist' ? `<datalist id="${list}">${opts.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>` : ''));
+        + (list && list !== 'factionlist' ? `<datalist id="${list}">${opts.map((o) => `<option value="${esc(o)}"${a.type === 'pawnclass' ? ` label="${esc(pawnWords(o))}"` : ''}>`).join('')}</datalist>` : ''));
     }
   }
   return out;
@@ -156,10 +166,13 @@ function storyRows(a, v, at, label, h, row) {
   if (all && !opts.length) out += row(`<span class="hint" style="margin:0;flex:1">The map's Story has no ${a.type === 'dialogue' ? 'dialogue' : 'InfoLink'} yet: write one in Story first.</span>`);
   return out;
 }
-function itemSelect(h, attrs, v) {
-  const { esc } = h, items = h.items || [];
-  return `<select ${attrs} style="flex:1;min-width:0"><option value="">(choose an item)</option>${items.map((i) => `<option value="${esc(i.cls)}" ${i.cls === v ? 'selected' : ''}>${esc(i.name || i.cls)}</option>`).join('')}`
-    + `${v && !items.some((i) => i.cls === v) ? `<option selected value="${esc(v)}">${esc(String(v).split('.').pop())}</option>` : ''}</select>`;
+// Warn only about the selected special item; never change its saved class automatically.
+function itemWarning(v, h, row) {
+  const warning = itemWarningText(h.items, v);
+  return warning ? row(`<span class="hint" style="margin:0;flex:1;min-width:0;color:var(--warn)">${h.esc(warning)}</span>`) : '';
+}
+function itemSelect(h, attrs, v, configureKey = false) {
+  return `<select ${attrs} style="flex:1;min-width:0">${itemOptionsHtml(h.items, v, {configureKey})}</select>`;
 }
 // a crate's items, each as likely as its weight: one row each, and one to add
 function itemsRowsHtml(list, j, k, h, row) {
@@ -168,6 +181,7 @@ function itemsRowsHtml(list, j, k, h, row) {
   list.forEach((it, i) => {
     out += row(`${itemSelect(h, `data-lkitem="${j}" data-k="${esc(k)}" data-i="${i}"`, it.cls)}<label style="width:auto" title="How likely: 2 is twice as likely as 1">×</label>`
       + `<input type="number" data-lkitemw="${j}" data-k="${esc(k)}" data-i="${i}" value="${it.w}" min="0" step="1" style="width:52px"><button data-lkitemrm="${j}" data-k="${esc(k)}" data-i="${i}" title="Remove this item">✕</button>`);
+    out += itemWarning(it.cls, h, row);
   });
   out += row(itemSelect(h, `data-lkitemadd="${j}" data-k="${esc(k)}"`, '').replace('(choose an item)', '+ Add an item...'));
   return out;

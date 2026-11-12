@@ -7,7 +7,7 @@
     {"file": "UCLink.uc", "lines": [683, 689], "has": "function bool AreaKind(Actor A, string kind)"},
     {
       "file": "links.py",
-      "lines": [79, 79],
+      "lines": [80, 80],
       "has": "members=list(dict.fromkeys(n for n in members if n not in excluded))"
     },
     {"file": "UCLinkGroup.uc", "lines": [12, 16], "has": "function name GetMember(int i)"}

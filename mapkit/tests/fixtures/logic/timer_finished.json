@@ -3,7 +3,7 @@
   "title": "A timer runs out",
   "behaviour": "A timer started for 3 s runs out 3 s later and tells its \"finished\" rules, which act in that same tick (the timer ticks before the rules).",
   "derivedFrom": [
-    {"file": "UCLink.uc", "lines": [1648, 1658], "has": "function TimerDo(UCTimer T, string how, float secs)"},
+    {"file": "UCLink.uc", "lines": [1660, 1670], "has": "function TimerDo(UCTimer T, string how, float secs)"},
     {"file": "UCTimer.uc", "lines": [76, 87], "has": "function Finish()"},
     {"file": "UCTimer.uc", "lines": [112, 116], "has": "if (bRunning && !bPaused)"}
   ],

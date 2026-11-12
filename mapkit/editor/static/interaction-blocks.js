@@ -1,3 +1,4 @@
+import { itemOptionsHtml } from './item-options.js';
 // The building blocks of the Interactions (editor/links.py; in the game UCTimer, UCUsable, UCNpcUse,
 // UCEffect): timers, objects JC can use, characters going to use an object, effects on objects. Generic
 // on purpose: a bomb to defuse, a generator to sabotage, a hostage to free in time, a PC to hack while the
@@ -191,8 +192,7 @@ export function usableHtml(u, items, esc) {
   const on = !!u;
   let h = `<div class="row"><label style="width:auto" title="Works with any player character chosen for this map. The use rules run when the player finishes."><input type="checkbox" data-us="on" ${on ? 'checked' : ''}> Player can use it</label></div>`;
   if (!on) return h + '<div class="hint" style="margin:2px 0">Any model can be used: a bomb to defuse, a generator to sabotage, a lock to cut...</div>';
-  const cats = [...new Set(items.map((x) => x.cat))];
-  const itemSel = `<select data-us="item" style="flex:1;min-width:0"><option value="">(nothing)</option>${cats.map((c) => `<optgroup label="${esc(c)}">${items.filter((x) => x.cat === c).map((x) => `<option value="${esc(x.cls)}" ${String(x.cls).toLowerCase() === String(u.item || '').toLowerCase() ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}${u.item && !items.some((x) => String(x.cls).toLowerCase() === String(u.item).toLowerCase()) ? `<option value="${esc(u.item)}" selected>${esc(u.item)}</option>` : ''}</select>`;
+  const itemSel = `<select data-us="item" style="flex:1;min-width:0">${itemOptionsHtml(items, u.item, { empty: '(nothing)' })}</select>`;
   h += `<div class="row"><label style="width:auto;min-width:96px" title="What the player reads when looking at it">Use text</label><input type="text" data-us="text" value="${esc(u.text || '')}" placeholder="Use" style="flex:1;min-width:0"></div>
     <div class="row"><label style="width:auto;min-width:96px" title="0: at once. More: the player is busy that long (a bar fills up); walking away cancels it">Takes</label><input type="number" data-us="secs" value="${+u.secs || 0}" min="0" step="0.5" style="width:64px"><span class="hint" style="margin:0">s</span>
       <label style="width:auto" title="The player crouches while using it"><input type="checkbox" data-us="crouch" ${u.crouch ? 'checked' : ''}> crouching</label></div>

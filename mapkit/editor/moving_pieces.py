@@ -205,7 +205,7 @@ def description(prefab):
     lift = p.get('bIsDoor') == 'False'
     return dict(kind='elevator' if lift else 'door', mode='stand' if lift else 'use',
                 moveTime=float(p.get('MoveTime', 1)), stayOpenTime=float(p.get('StayOpenTime', 4)),
-                locked=p.get('bLocked') == 'True')
+                locked=p.get('bLocked') == 'True', keyId=p.get('KeyIDNeeded', ''))
 
 
 def apply_settings(raw, settings):
@@ -213,7 +213,7 @@ def apply_settings(raw, settings):
     import math
     if not settings:
         return raw
-    if not isinstance(settings, dict) or set(settings) - {'mode', 'moveTime', 'stayOpenTime', 'locked'}:
+    if not isinstance(settings, dict) or set(settings) - {'mode', 'moveTime', 'stayOpenTime', 'locked', 'keyId'}:
         raise ValueError('Invalid mover settings.')
     values = {}
     for key, prop, minimum in [('moveTime', 'MoveTime', .05), ('stayOpenTime', 'StayOpenTime', 0)]:
@@ -227,6 +227,14 @@ def apply_settings(raw, settings):
         if not isinstance(settings['locked'], bool):
             raise ValueError('Invalid mover lock setting.')
         values['bLocked'] = 'True' if settings['locked'] else 'False'
+    if 'keyId' in settings:
+        key = settings['keyId']
+        if key is not None and (isinstance(key, bool) or not isinstance(key, (str, int))):
+            raise ValueError('Invalid door Key ID: use letters, digits or underscores, e.g. 2 or ApartmentDoor.')
+        key = '' if key is None else str(key).strip()
+        if key and not re.fullmatch(r'[A-Za-z0-9_]{1,63}', key):
+            raise ValueError('Invalid door Key ID: use 1-63 letters, digits or underscores, e.g. 2 or ApartmentDoor.')
+        values['KeyIDNeeded'] = 'None' if not key or key.lower() == 'none' else key
     if 'mode' in settings:
         mode = settings['mode']
         states = {'use': 'TriggerToggle', 'use-timed': 'TriggerOpenTimed', 'trigger': 'TriggerToggle', 'stand': 'StandOpenTimed'}

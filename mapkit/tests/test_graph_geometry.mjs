@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   NODE, ZOOM, LANE, DELAY, bodyHeight, toWorld, toScreen, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, detailAt, pinsOf, nodeSize,
   pinPoint, pinsFit, routeWire, bundleWires, wireIndex, wiresOfNodes, insertReroute, delayFromDrag, delayText, wireAt, pinNear, boxesTouching,
-  boxesInside, frameAt, boxOf, boundsOf, nearestToward, segmentDistance,
+  boxesInside, frameAt, boxOf, boundsOf, nearestToward, segmentDistance, labelPoint,
 } from '../editor/static/graph-geometry.js';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} is not ${b}`);
@@ -179,4 +179,14 @@ test('the arrows go to the nearest node that way, straight ahead before off to t
   assert.equal(nearestToward(boxes, 'M', 'up'), 'U');
   assert.equal(nearestToward(boxes, 'M', 'left'), undefined);
   assert.equal(nearestToward(boxes, 'nothing', 'left'), 'M', 'from no node: the first');
+});
+
+// 12 Nov 2026: a wire's label at its middle could sit under a card, where it can be neither read nor clicked
+test('a wire label goes to the nearest point of the wire that no card covers', () => {
+  const pts = [[0, 0], [50, 0], [100, 0], [150, 0], [200, 0], [250, 0], [300, 0]];
+  assert.deepEqual(labelPoint(pts, [150, 0], []), [150, 0], 'the middle when nothing covers it');
+  const at = labelPoint(pts, [150, 0], [[110, -20, 80, 40]]);
+  assert.ok(at[0] <= 110 - 28 || at[0] >= 190 + 28, `off the card: ${at}`);
+  assert.deepEqual(at, [50, 0], 'the nearest free point');
+  assert.deepEqual(labelPoint(pts, [150, 0], [[-100, -20, 500, 40]]), [150, 0], 'the middle when every point is covered');
 });

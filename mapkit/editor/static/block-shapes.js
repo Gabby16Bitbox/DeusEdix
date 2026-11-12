@@ -18,6 +18,7 @@ export function blockShape(b) {
 }
 // its name in the Hierarchy: the blocks made before shapes existed stay "Block"
 export function blockLabel(b) {
+  if (b && typeof b.label === 'string' && b.label.trim()) return b.label.trim();      // its own name (the Inspector's)
   if (!b || !b.shape) return 'Block';
   return BLOCK_SHAPES.find(([k]) => k === blockShape(b))[1];
 }

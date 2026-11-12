@@ -50,7 +50,10 @@ test('the sentences: a check, and a cause that comes true', () => {
   assert.equal(comesText({ type: 'credits', op: '>=', value: 500 }), "the player's credits reach 500");
   assert.equal(conditionText({ type: 'items', item: 'DeusEx.DeusExAmmo', op: '<', value: 1 }), 'the player carries less than one box of ammunition');
   assert.equal(conditionText({ type: 'items', item: 'DeusEx.Flare', op: '==', value: 2 }, { item: () => 'Flare' }), 'the player carries exactly 2 × Flare');
-  assert.equal(comesText({ flag: 'Alarm', is: true }), null, 'a state: "... becomes true" as before');
+  // a state, a counter (12 Nov 2026: not "When the counter WrongCodes is at least 3 becomes true")
+  assert.equal(comesText({ flag: 'Alarm', is: true }), 'Alarm becomes Yes');
+  assert.equal(comesText({ flag: 'Alarm', is: false }), 'Alarm becomes No');
+  assert.equal(comesText({ type: 'counter', counter: 'WrongCodes', op: '>=', value: 3 }), 'the counter WrongCodes reaches 3');
   assert.equal(comesText({ type: 'zone', zone: 'UCZone_Pool', is: true }), 'the player enters Pool (water)', 'a pool, with no names given');
   assert.equal(conditionText({ type: 'zone', zone: 'ZoneInfo2', is: true }), 'the player is in ZoneInfo2');
   // every one the "+ When..." menu makes says itself

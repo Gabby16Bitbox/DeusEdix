@@ -17,7 +17,10 @@ test('every argument type of the catalogue has a row', () => {
   for (const [v, e] of Object.entries(logic.inputs)) {
     if (HAND_ROWS.has(v) || !(e.args || []).length) continue;
     const html = argRowsHtml(e.args, {}, 0, h);
-    for (const a of e.args) assert.ok(html.includes(`data-k="${a.id}"`), `${v}: ${a.id} (${a.type}) has no row`);
+    for (const a of e.args) {
+      const form = a.forItem ? argRowsHtml(e.args, {verb:v, a:a.forItem}, 0, h) : html;
+      assert.ok(form.includes(`data-k="${a.id}"`), `${v}: ${a.id} (${a.type}) has no row`);
+    }
   }
   assert.ok(types.size > 5);
 });
@@ -44,7 +47,7 @@ test("a crate's items: one row each with its weight, as links.py reads them", ()
   assert.equal(itemsText(list), 'DeusEx.Medkit:1;DeusEx.Flare:3;Foo.Bar:1');
   const html = argRowsHtml(argsOf('fillcrate'), { a: 'DeusEx.Medkit:1;Foo.Bar:2' }, 1, h);
   assert.match(html, /data-lkitem="1" data-k="a" data-i="1"/);
-  assert.match(html, /<option selected value="Foo.Bar">Bar<\/option>/, 'an item the game list lacks is kept');
+  assert.match(html, /<option selected value="Foo.Bar">Foo.Bar \(unavailable in this catalog\)<\/option>/, 'an item the game list lacks is kept');
   assert.match(html, /data-lkitemadd="1"/);
 });
 

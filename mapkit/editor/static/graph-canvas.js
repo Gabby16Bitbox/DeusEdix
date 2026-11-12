@@ -17,15 +17,15 @@
 // graph-layout.js (the layout, which a library could replace: options.layout).
 //
 // set({nodes, wires, frames, notes}):
-//   node  {id, title, kind? (a word: class k-<kind>, the caller's style), sub?, icon? (a key of options.icons), thumb? (a key for options.thumb), at? [x, y] (none: placed
+//   node  {id, title, titleValue? (the title is a value: a click on it is onValue's), kind? (a word: class k-<kind>, the caller's style), sub?, icon? (a key of options.icons), thumb? (a key for options.thumb), at? [x, y] (none: placed
 //          by the layout, not saved until moved), w?, badges? [{text, title?}], live? (a live value: "2 / 3", "open"),
-//          body? {text, lines, empty?} (a text block under the header, `lines` tall: a line of the Story; empty: the text
-//          is a placeholder), colour? ('#rrggbb' or 'hsl(h s% l%)': a bar on its left, who speaks),
+//          body? {text, lines, empty?, parts?} (a text block under the header, `lines` tall: a line of the Story; empty: the text
+//          is a placeholder; parts [{text, value?, title?}]: the text in pieces, those with a value clickable: onValue), colour? ('#rrggbb' or 'hsl(h s% l%)': a bar on its left, who speaks),
 //          tone? 'ok'|'warn'|'bad' (status only), dim?, bar? (a block: a bar on its left), ghost? (proposed, not made
 //          yet: dashed), pinned?, label? (for screen
 //          readers), in? / out? (header pins), rows? [row], foot?}
-//   row   {id, text, title?, time? ("2 s"), head? (a section title), sep? (a line above), indent? (px), tone?, dim?, chips? [{text,
-//          title?, tone?}], colour? ('#rrggbb': a way of its own, as an answer: a bar on its left, its out pin and wire), in? / out? (pins)}
+//   row   {id, text, value? (its text is a value: onValue), title?, time? ("2 s"), timeValue? (the time is a value), head? (a section title), sep? (a line above), indent? (px), tone?, dim?, chips? [{text,
+//          title?, tone?, value? (clickable: onValue)}], colour? ('#rrggbb': a way of its own, as an answer: a bar on its left, its out pin and wire), in? / out? (pins)}
 //   pin   {id, type?, label?, title?, free? (goes nowhere yet)}
 //   wire  {id, from: {node, pin}, to: {node, pin}, kind? (WIRE_KINDS), label?, delay? (seconds: a chip to drag),
 //          tone?, title?, via? [[x, y]...] (reroute points), ghost? (proposed: dashed), colour? ('#rrggbb': its row's way)}
@@ -37,9 +37,9 @@
 //   onDelay(wire, seconds), onReroute(wire, via), onSelect(selection), onOpen(node, row?) (a double click: on a row, its id), onRow(node, row),
 //   onWireOpen(wire), onWireDelete(wire), onDropOnWire(node, wire, moves) -> true (it kept the moves too) or why not,
 //   onRetarget(wires, end, to) -> true or why not, onAdd(at), onDelete(selection), onContext(hit, at),
-//   onCommand(name, detail).   from / to: {node, pin}; at: {world, screen, client}; moves: {nodes, frames, notes: {id:
+//   onCommand(name, detail), onValue(node, value, at) (a click on a value of a node: at.screen its bottom left in the canvas).   from / to: {node, pin}; at: {world, screen, client}; moves: {nodes, frames, notes: {id:
 //   place}}; selection: {nodes, wires, frames, notes: [ids]}.
-import { NODE, DETAIL, bodyHeight, detailAt, toWorld, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, pinsOf, pinsFit, nodeSize, pinPoint, routeWire,
+import { NODE, DETAIL, bodyHeight, detailAt, toWorld, panBy, zoomAt, wheelZoom, fitView, centreOn, visibleBox, pinsOf, pinsFit, nodeSize, pinPoint, routeWire, labelPoint,
   bundleRoute, bundleWires, wireIndex, wiresOfNodes, insertReroute, delayFromDrag, delayText, wireAt, pinNear, boxesTouching,
   boxesInside, frameAt, boxOf, boundsOf, nearestToward } from './graph-geometry.js';
 import { keyFor, passesOn, keyNames, digitOf, typing, gestureFor, emptyDrag, wheelIntent, wheelUnit, emptySelection, isSelected,
@@ -73,6 +73,10 @@ function titleStep(k) {
   const inv = level === 'titles' ? 1 / k : 1 / TITLES_FROM;
   return String(Math.floor(inv * 4) / 4);
 }
+// how many lines of a cover's title a node of this height holds at a step (--gc-tl, for a title that wraps: a 13 px
+// title at 1.2 line height, 8 px kept free): whole lines only (12 Nov 2026: four lines on a one-line card were cut
+// in the middle at 50%)
+const titleLines = (h, step) => String(Math.max(1, Math.min(6, Math.floor((h - 8) / (13 * 1.2 * (+step || 1))))));
 const TONES = ['ok', 'warn', 'bad'];               // status colours, for status only (DESIGN.md)
 const FRAME_TONES = ['t0', 't1', 't2', 't3'];
 const ICONS = { pinned: '<path d="M7 3h6l-1 5 3 3H5l3-3zM10 11v6"/>' };
@@ -130,7 +134,7 @@ export function createGraphCanvas(host, options = {}) {
   let view = { x: 40, y: 40, k: 1 }, detail = 'full', size = [1, 1], rect = { left: 0, top: 0 };
   let index = new Map(), sel = emptySelection(), drag = null, cursor = null, pointer = null;
   let space = null, held = '', lit = none(), outside = null, hovered = null;
-  let miniView = null, frame = 0, reasonTimer = 0, fitted = false, ready = false;
+  let miniView = null, frame = 0, reasonTimer = 0, fitted = false, ready = false, lastFit = null, refitTimer = 0;
 
   // ---------------------------------------------------------------- nodes
 
@@ -138,9 +142,10 @@ export function createGraphCanvas(host, options = {}) {
     const order = new Map(pinsOf(n).map((p, i) => [p.pin, i]));
     const pin = (p, side) => (p ? `<i class="gc-pin ${side}${p.free ? ' free' : ''}" data-pin="${order.get(p)}"${p.title || p.label ? ` title="${esc(p.title || p.label)}"` : ''}></i>` : '');
     const tone = (t) => (TONES.includes(t) ? ' ' + t : '');
-    const chip = (c) => `<span class="gc-c${tone(c.tone)}"${c.title ? ` title="${esc(c.title)}"` : ''}>${esc(c.text)}</span>`;
+    const val = (v) => (v != null && v !== '' ? ` gc-v" data-value="${esc(v)}` : '');
+    const chip = (c) => `<span class="gc-c${tone(c.tone)}${val(c.value)}"${c.title ? ` title="${esc(c.title)}"` : ''}>${esc(c.text)}</span>`;
     const picture = n.thumb && thumbs.get(n.thumb) ? '<i class="gc-thumb"></i>' : n.icon ? iconHtml(n.icon) : '';
-    const head = `<div class="gc-h">${pin(n.in, 'in')}${picture}<b class="gc-t">${esc(n.title)}</b>`
+    const head = `<div class="gc-h">${pin(n.in, 'in')}${picture}<b class="gc-t${val(n.titleValue)}">${esc(n.title)}</b>`
       + `${n.sub ? `<span class="gc-sub">${esc(n.sub)}</span>` : ''}<span class="gc-sp"></span>`
       + (n.badges || []).map((b) => `<span class="gc-b"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.text)}</span>`).join('')
       + (n.pinned ? `<i class="gc-pinned" title="Pinned: Arrange leaves it where it is">${iconHtml('pinned')}</i>` : '')
@@ -149,14 +154,16 @@ export function createGraphCanvas(host, options = {}) {
       .filter(Boolean).join(';');
     const rows = (n.rows || []).map((r, i) => `<div class="gc-r${r.head ? ' head' : ''}${r.sep ? ' sep' : ''}${r.dim ? ' dim' : ''}${colourOf(r.colour) ? ' way' : ''}${tone(r.tone)}"`
       + ` data-row="${i}"${r.title ? ` title="${esc(r.title)}"` : ''}${rowStyle(r) ? ` style="${rowStyle(r)}"` : ''}>${pin(r.in, 'in')}`
-      + (r.time != null && r.time !== '' ? `<span class="gc-time">${esc(r.time)}</span>` : '')
-      + `<span class="gc-tx">${esc(r.text)}</span>${(r.chips || []).map(chip).join('')}${pin(r.out, 'out')}</div>`).join('');
+      + (r.time != null && r.time !== '' ? `<span class="gc-time${val(r.timeValue)}">${esc(r.time)}</span>` : '')
+      + `<span class="gc-tx${val(r.value)}">${esc(r.text)}</span>${(r.chips || []).map(chip).join('')}${pin(r.out, 'out')}</div>`).join('');
     // zoomed out, a cover shows the title and live value only (the rows stay laid out under it: no layout to redo)
     // its text too (a line of the Story), cut to what fits: zoomed out, what is said matters more than who says it
     const said = n.body && !n.body.empty && n.body.text ? `<i class="gc-bc">${esc(n.body.text)}</i>` : '';
     const cover = `<div class="gc-big" aria-hidden="true"><b>${esc(n.title)}</b>${n.live != null && n.live !== '' ? `<span>${esc(n.live)}</span>` : ''}${said}</div>`;
     const body = n.body ? `<div class="gc-body${n.body.empty ? ' empty' : ''}" style="--gc-lines:${bodyHeight(n) ? Math.round((bodyHeight(n) - NODE.body) / NODE.line) : 1}"`
-      + `${n.body.text ? ` title="${esc(n.body.text)}"` : ''}><span class="gc-bt">${esc(n.body.text || '')}</span></div>` : '';
+      + `${n.body.text ? ` title="${esc(n.body.text)}"` : ''}><span class="gc-bt">${n.body.parts ? n.body.parts.map((p) => (p.value != null && p.value !== ''
+        ? `<span class="gc-v" data-value="${esc(p.value)}"${p.title ? ` title="${esc(p.title)}"` : ''}>${esc(p.text)}</span>` : esc(p.text))).join('')
+        : esc(n.body.text || '')}</span></div>` : '';
     return head + body + rows + (n.foot ? `<div class="gc-r gc-foot">${esc(n.foot)}</div>` : '') + cover;
   }
   function iconHtml(key) {
@@ -165,7 +172,7 @@ export function createGraphCanvas(host, options = {}) {
   }
   // what a node looks like, apart from where it is: drawn again only when this changes
   const lookOf = (n) => JSON.stringify([n.kind, n.title, n.sub, n.icon, n.thumb, thumbs.get(n.thumb) || '', n.badges, n.live, n.tone, n.dim, n.bar, n.ghost,
-    n.pinned, n.label, n.w, n.in, n.out, n.rows, n.foot, n.body, n.colour]);
+    n.pinned, n.label, n.w, n.in, n.out, n.rows, n.foot, n.body, n.colour, n.titleValue]);   // (rows: their values too)
 
   function drawNode(e) {
     const n = e.data, el = e.el;
@@ -179,6 +186,7 @@ export function createGraphCanvas(host, options = {}) {
     e.size = nodeSize(n);
     el.style.width = e.size[0] + 'px';
     el.style.height = e.size[1] + 'px';
+    el.style.setProperty('--gc-tl', titleLines(e.size[1], nodeLayer.style.getPropertyValue('--gc-inv')));
     const list = pinsOf(n);
     e.pinEls = new Map([...el.querySelectorAll('.gc-pin')].map((pinEl) => [list[+pinEl.dataset.pin].id, pinEl]));
     e.linked = new Set();
@@ -242,7 +250,10 @@ export function createGraphCanvas(host, options = {}) {
     e.geo = { pts: geo.pts, box: boundsOf(geo.pts) || [0, 0, 0, 0] };
     e.path.setAttribute('d', geo.d);
     e.path.classList.toggle('bad', !(a && b) || w.tone === 'bad');
-    if (e.chip) e.chip.style.transform = `translate(${geo.mid[0]}px,${geo.mid[1]}px) translate(-50%,-50%)`;
+    if (e.chip) {                                  // its label where no card covers it
+      const at = labelPoint(geo.pts, geo.mid, [...nodes.values()].map((n) => (n.at && n.size ? nodeBox(n) : null)));
+      e.chip.style.transform = `translate(${at[0]}px,${at[1]}px) translate(-50%,-50%)`;
+    }
     via.forEach((p, i) => { if (e.dots[i]) e.dots[i].style.transform = `translate(${p[0]}px,${p[1]}px) translate(-50%,-50%)`; });
     stats.wiresRouted++;
   }
@@ -362,7 +373,8 @@ export function createGraphCanvas(host, options = {}) {
     for (const id of ids) { auto.set(id, out[id]); placeNode(nodes.get(id), out[id]); moved.add(id); }
   }
   const graphOf = (wireList) => ({ nodes: [...nodes.values()].map((e) => ({ id: e.data.id, w: e.size[0], h: e.size[1] })),
-    edges: wireList.map((w) => ({ from: w.from.node, to: w.to.node })) });
+    // a wire that only reads a state is weak: it makes no column (graph-layout.js)
+    edges: wireList.map((w) => ({ from: w.from.node, to: w.to.node, weak: w.layout === 'tie' ? 'tie' : w.kind === 'state' })) });
   const pinnedIds = () => [...nodes.values()].filter((e) => e.data.pinned).map((e) => e.data.id);
 
   function setFrames(list) {
@@ -428,7 +440,10 @@ export function createGraphCanvas(host, options = {}) {
     const inv = Math.min(8, Math.max(1, 1 / v.k)), level = detailAt(v.k), step = titleStep(v.k);
     frameLayer.style.setProperty('--gc-inv', String(inv));
     bundleLayer.style.setProperty('--gc-inv', String(inv));
-    if (nodeLayer.style.getPropertyValue('--gc-inv') !== step) nodeLayer.style.setProperty('--gc-inv', step);
+    if (nodeLayer.style.getPropertyValue('--gc-inv') !== step) {
+      nodeLayer.style.setProperty('--gc-inv', step);
+      for (const e of nodes.values()) if (e.size) e.el.style.setProperty('--gc-tl', titleLines(e.size[1], step));
+    }
     root.style.backgroundPosition = `${v.x}px ${v.y}px`;
     root.style.backgroundSize = `${22 * v.k}px ${22 * v.k}px`;
     zoomEl.textContent = Math.round(v.k * 100) + '%';
@@ -468,7 +483,14 @@ export function createGraphCanvas(host, options = {}) {
   }
   // the first time there are nodes and the canvas has its size (its stylesheet is in): all of them in view
   function fitOnce() { if (ready && !fitted && nodes.size && size[0] > 1 && size[1] > 1) { fitted = true; fit(); } }
-  function fit() { setView(fitView(boundsOf([...nodeBoxes()].map(([, b]) => b).concat([...frames.values()].map((e) => e.rect))), size)); }
+  function fit() { setView(fitView(boundsOf([...nodeBoxes()].map(([, b]) => b).concat([...frames.values()].map((e) => e.rect))), size)); lastFit = view; }
+  // the panel grown or shrunk (maximized, docked, the window resized) while the view is still the last fit's (nothing
+  // panned or zoomed since): fitted again to the new size, once the size has settled (12 Nov 2026: it stayed at 21%)
+  function refitAfterResize() {
+    if (!lastFit || view !== lastFit) return;
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => { if (view === lastFit && nodes.size) fit(); }, 160);
+  }
   // F: the selection framed (or everything, when nothing is selected)
   function frameSelection() {
     const boxes = [...sel.nodes].filter((id) => nodes.has(id)).map((id) => nodeBox(nodes.get(id)))
@@ -581,8 +603,9 @@ export function createGraphCanvas(host, options = {}) {
     const noteEl = target.closest?.('.gc-note');
     if (noteEl) return { on: 'note', note: owner.get(noteEl).id };
     if (node !== undefined) {
-      const row = target.closest('.gc-r');
-      return { on: 'node', node, row: row && row.dataset.row !== undefined ? +row.dataset.row : -1 };
+      const row = target.closest('.gc-r'), valueEl = detail === 'full' ? target.closest('.gc-v') : null;
+      return { on: 'node', node, row: row && row.dataset.row !== undefined ? +row.dataset.row : -1,
+        ...(valueEl ? { value: valueEl.dataset.value, valueEl } : {}) };
     }
     const wire = detail === 'frames' ? null : wireAt(wireGeoms(), w, HIT / view.k);
     return wire === null ? { on: 'empty' } : { on: 'wire', wire };
@@ -678,6 +701,12 @@ export function createGraphCanvas(host, options = {}) {
           if (!moved) {
             applySelection(releaseSelect(sel, item, mods(e), false));
             const row = hit.row >= 0 && nodes.get(hit.node).data.rows?.[hit.row];
+            if (hit.value !== undefined && o.onValue && !mods(e).shift && !mods(e).ctrl) {
+              refreshRect();
+              const r = hit.valueEl.getBoundingClientRect?.() || { left: a.client?.[0] || 0, bottom: a.client?.[1] || 0 };
+              o.onValue(hit.node, hit.value, { screen: [r.left - rect.left, r.bottom - rect.top], client: [r.left, r.bottom] });
+              return;
+            }
             if (row) o.onRow?.(hit.node, row.id);
             return;
           }
@@ -960,7 +989,8 @@ export function createGraphCanvas(host, options = {}) {
       const row = hit.row >= 0 ? nodes.get(hit.node).data.rows?.[hit.row] : null;
       o.onOpen?.(hit.node, row ? row.id : undefined);
     }
-    else if (hit.on === 'frame') o.onCommand?.('rename', { frame: hit.frame });
+    else if (hit.on === 'frame') o.onCommand?.('rename', { frame: hit.frame, at });
+    else if (hit.on === 'note') o.onCommand?.('rename', { note: hit.note, at });
     else if (hit.on === 'wire') {
       const w = wires.get(hit.wire).data, a = pinAt(w.from), b = pinAt(w.to);
       if (a && b) o.onReroute?.(hit.wire, insertReroute(a.at, w.via || [], b.at, at.world));
@@ -1058,7 +1088,7 @@ export function createGraphCanvas(host, options = {}) {
   root.addEventListener('keyup', onKeyUp);
   root.addEventListener('blur', () => { space = null; held = ''; root.classList.remove('gc-grab'); });
   zoomEl.addEventListener('click', zoomTo100);
-  const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { refreshRect(); fitOnce(); dirtyMini(); }) : null;
+  const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { refreshRect(); fitOnce(); refitAfterResize(); dirtyMini(); }) : null;
   watch?.observe(root);
   refreshRect();
   setView(view);

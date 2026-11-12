@@ -1053,7 +1053,7 @@ function bool DoMore(string s, string verb, Actor T, string a, string b, string 
 	else if (verb == "health" && P != None)
 		Health(P, n);
 	else if (verb == "giveitem" && P != None)
-		GiveItem(P, a, Clamp(int(b), 1, 20));
+		GiveItem(P, a, Clamp(int(b), 1, 20), c, Field(s, 7));
 	else if (verb == "takeitem" && P != None)
 		TakeItem(P, a, int(b));
 	// the view: shake (a seconds, b strength), fade (a out / in, b seconds), flash (a colour, b strength)
@@ -1280,7 +1280,7 @@ function Health(DeusExPlayer P, int n)
 
 // the item called cls given to the player, k of them, as if picked up (DeusExPlayer.HandleItemPickup); with no room
 // it lies at his feet, as an item he cannot take does
-function GiveItem(DeusExPlayer P, string cls, int k)
+function GiveItem(DeusExPlayer P, string cls, int k, optional string keyID, optional string keyDescription)
 {
 	local class<Inventory> C;
 	local Inventory I;
@@ -1289,6 +1289,18 @@ function GiveItem(DeusExPlayer P, string cls, int k)
 	if (C == None)
 	{
 		Report("fail", "giveitem|" $ cls $ "|missing");
+		return;
+	}
+	// Configured keys go straight to the native keyring, including when the inventory is full.
+	// Unconfigured custom subclasses retain their own default KeyID and native pickup behaviour.
+	if (ClassIsChildOf(C, class'NanoKey') && keyID != "")
+	{
+		class'UCKeyGrant'.static.Grant(P, StringToName(keyID), keyDescription);
+		return;
+	}
+	if (C == class'NanoKey')
+	{
+		Report("fail", "giveitem|" $ cls $ "|missing Key ID");
 		return;
 	}
 	while (k > 0)

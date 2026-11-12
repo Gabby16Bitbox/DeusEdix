@@ -18,7 +18,7 @@
 // the session's "Why not?" for a rule ([{why, t, text}]) when the session is of the rules as they are now (key: the
 // trial's), null when nothing has been tried with them.
 import { createSession } from './logic-sim.js';
-import { vocabulary } from './logic-vocab.js';
+import { vocabulary, goalTexts } from './logic-vocab.js';
 import { LOGIC_TAG, parseLogicLine, logicSentence } from './logic-log.js';
 import { partsText } from './console-lines.js';
 import { escapeHtml as esc } from './shortcut-bar.js';
@@ -39,11 +39,12 @@ const TALK_NOT = { busy: 'A conversation is playing', unmet: "Its conditions do 
 
 // A log line of the game read as a sentence (logic-log.js), with its mark. ctx (optional): {vocab, words, sentences,
 // player} to say it in the Logic window's words: a rule that runs by its sentence, an action as the rule says it, the
-// objects by their names, JC not named as who set it off.
+// objects by their names, JC not named as who set it off; rules ({id: the rule}, optional): an action said with all of
+// its rule's step, as the log has only its first value (12 Nov 2026: 'A new goal ""' for a goal completed, "2 × ?")
 export function lineText(line, ctx = {}) {
   const e = parseLogicLine(LOGIC_TAG + line);
   if (!e) return { mark: '', text: line };
-  const { vocab, words, sentences = {}, player = '' } = ctx;
+  const { vocab, words, sentences = {}, player = '', rules = null } = ctx;
   const name = (n) => (words && words.name ? words.name(n) : n);
   const plain = (parts) => parts.map((p) => (typeof p === 'string' ? p : p.rule ? '' : name(p.name))).join('').replace(/\s+/g, ' ').trim();
   const s = logicSentence(e, words ? { actor: name, item: words.itemName, storyTitle: words.storyTitle } : {});
@@ -66,9 +67,19 @@ export function lineText(line, ctx = {}) {
     else if (/^area /.test(e.target || '')) return { ...out, text: capital(plain(s.parts)) };
     else x.target = e.target || '';
     if (DETAIL_IS_A.has(x.verb) && e.detail) x.a = e.detail;
-    try { return { ...out, text: capital(vocab.actText(x, words)) }; } catch { /* a verb the vocabulary does not know: as the log says it */ }
+    const step = stepOf(rules && rules[e.rule], x);
+    try { return { ...out, text: capital(vocab.actText(step ? { ...step, delay: 0 } : x, words)) }; } catch { /* a verb the vocabulary does not know: as the log says it */ }
   }
   return { ...out, text: capital(plain(s.parts)) };
+}
+
+// the step of a rule the game's log line is about: the same verb on the same object (and the same first value when the
+// log has it); null when the rule has none, or several that the line cannot tell apart
+function stepOf(rule, x) {
+  if (!rule || x.targetTag) return null;
+  const same = [...(rule.do || []), ...(rule.else || [])].filter((s) => s && s.verb === x.verb && low(s.target || '') === low(x.target || '')
+    && (x.a === undefined || String(s.a ?? '') === String(x.a)));
+  return same.length === 1 ? same[0] : null;
 }
 
 // What was said in a conversation (logic-sim.js said(): a line, an answer, what a step or an action does, a start or an
@@ -150,7 +161,7 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
     </div>`;
   const $ = (s) => root.querySelector(s);
   let session = null, key = '', vocab = null, names = {}, labels = {}, options = {}, ruleIds = [], note = '';
-  let families = {}, items = {}, usable = {}, sentences = {}, heads = {}, player = '', groups = {}, storyTitles = {};
+  let families = {}, items = {}, usable = {}, sentences = {}, heads = {}, ruleOf = {}, player = '', groups = {}, storyTitles = {};
   let startName = '', derived = new Set();       // the start chosen ('' the map as it starts); the states Phases blocks keep
   let place = () => '';                          // "near a point": the object there (app.js lkPlaceName)
   let zoneName = (n) => n;                       // "in a zone": as the Logic window names it (app.js lkCondNames.zone)
@@ -161,7 +172,7 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
   const words = () => ({ name: nameOf, portLabel: (n, k) => (labels[n] || {})[k] || k.split(':')[1] || '?',
     optionText: (l) => (options[l.src] || [])[+l.option || 0] || '', family: (n) => families[n] || 'other', word: () => '',
     usable: (n) => !!usable[n], itemName: (cls) => items[cls] || String(cls).split('.').pop(), groupName: (id) => groups[id] || '',
-    storyTitle: (key, id) => (storyTitles[key] || {})[id] || String(id) });
+    storyTitle: (key, id) => (storyTitles[key] || {})[id] || String(id), goalText: goalTexts(Object.values(ruleOf)) });
   async function open() {
     const t = await trial();
     if (startName && !startNow()) startName = '';          // deleted in the Play window
@@ -178,8 +189,9 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
     place = t.place || (() => '');
     zoneName = t.zone || ((n) => n);
     // each rule as it says itself now, and by what sets it off (Why not?'s list)
-    sentences = {}; heads = {};
+    sentences = {}; heads = {}; ruleOf = {};
     for (const l of t.rules || []) {
+      ruleOf[l.id] = l;
       try { sentences[l.id] = vocab.sentence(l, words()); heads[l.id] = vocab.whenText(l, words()); } catch { sentences[l.id] = l.label || l.id; }
     }
     const c = t.compiled || {};
@@ -346,7 +358,7 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
     for (const [n, t] of Object.entries(st.timers || {})) rows.push(`<div>${esc(nameOf(n))}: ${t.running ? `${t.paused ? 'paused' : 'running'}, ${secs(t.left)} left` : 'stopped'}</div>`);
     $('.lt-state').innerHTML = rows.join('') || '<p class="hint">Nothing set yet.</p>';
     const lines = session.log(), told = session.said(), from = Math.max(0, lines.length - 300);
-    const said = { vocab, words: words(), sentences, player };
+    const said = { vocab, words: words(), sentences, player, rules: ruleOf };
     // an action on objects tagged alike, then the same action on each of them in the same moment: one line, with their
     // names. What was said in a conversation goes in where it was said (P5).
     const read = [];

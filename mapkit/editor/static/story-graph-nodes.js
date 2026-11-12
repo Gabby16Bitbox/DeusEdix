@@ -41,11 +41,19 @@ export function wayColour(n, i) {
   if (n.outs.length < 2 && n.step.type !== 'choice') return '';
   return ['choice', 'random'].includes(n.step.type) ? WAYS[i % WAYS.length] : YES_NO[i] || WAYS[i % WAYS.length];
 }
+// an answer's own chip: its conditions, a click edits them ('opt:<k>')
+function answerChips(s, port) {
+  const o = s.type === 'choice' && typeof port === 'number' ? s.options?.[port] : null;
+  const n = o?.requires?.length || 0;
+  return n ? [{ text: n === 1 ? 'if 1' : `if ${n}`, value: `opt:${port}`, title: 'Shown only when its conditions match: click to change them' }] : [];
+}
 // a node with rows: each way on is a row (JC's answers always, others when they have more than one)
 export const hasRows = (n) => n.step.type === 'choice' || n.outs.length > 1;
 
 // graph: graphOf's {nodes, start, reachable}. Options: at {node id: [x, y]} (the places moved by hand; the others the
-// canvas lays out), speaker(step) -> {name, colour}, summary {title(step), text(step)}.
+// canvas lays out), speaker(step) -> {name, colour}, summary {title(step), text(step), parts?(step) -> [{text, value?}]: the
+// text in pieces, those with a value clickable (story-graph-view.js edits it where it is)}. A line's speaker is a value
+// ('who'), and an answer with conditions has a chip for them ('opt:<k>').
 // -> {nodes, wires} for graph-canvas.js set()
 export function canvasOf(graph, { at = {}, speaker, summary }) {
   const nodes = [], wires = [];
@@ -69,21 +77,21 @@ export function canvasOf(graph, { at = {}, speaker, summary }) {
     const node = { ...base };
     if (kind === 'line') {
       const who = speaker(s);
-      Object.assign(node, { w: LINE_W, title: who.name, colour: who.colour, thumb: s.who || 'npc',
+      Object.assign(node, { w: LINE_W, title: who.name, titleValue: 'who', colour: who.colour, thumb: s.who || 'npc',
         body: { text: s.text || 'Double-click to write the line', empty: !s.text, lines: 3 } });
       if (s.voice) node.badges = [{ text: 'voice', title: 'Has a recorded voice' }, ...(node.badges || [])];
     } else if (kind === 'choice') node.title = "JC's answers";
     else {
       node.title = kind === 'cond' ? summary.title(s) || 'Condition' : summary.title(s);
-      const text = summary.text(s);
-      if (text) node.body = { text, lines: 2 };
+      const text = summary.text(s), parts = summary.parts ? summary.parts(s) : null;
+      if (text || parts?.length) node.body = { text: parts?.length ? parts.map((p) => p.text).join('') : text, lines: 2, ...(parts?.length ? { parts } : {}) };
     }
     if (hasRows(n)) {
       node.rows = n.outs.map((o, i) => ({
         id: rowId(o.port), text: o.text || '…', colour: wayColour(n, i),
         out: { id: pinOf(o.port), free: o.to === null, title: o.to === null ? 'Goes nowhere yet: drag to a step, or click to add one' : undefined },
-        chips: o.broken ? [{ text: 'broken', tone: 'bad', title: 'It jumps to a label the dialogue does not have' }]
-          : o.to === END ? [{ text: 'end', title: 'The dialogue ends here' }] : undefined,
+        chips: [...answerChips(s, o.port), ...(o.broken ? [{ text: 'broken', tone: 'bad', title: 'It jumps to a label the dialogue does not have' }]
+          : o.to === END ? [{ text: 'end', title: 'The dialogue ends here' }] : [])],
       }));
       n.outs.forEach((o, i) => wire(n.id, pinOf(o.port), o.to, wayColour(n, i)));
     } else if (n.outs.length) {

@@ -20,6 +20,7 @@
 // UCMotion.uc:157-158), the world actor's `motion`, or the animated object itself when the world does not say.
 import { conditionHolds, conditionText, kindOf, yesOf, nearHolds, AUGS } from './conditions.js';
 import { createPlay } from './story-sim.js';
+import { isNanoKey, keyIdError } from './item-options.js';
 import { LOGIC_TAG, parseLogicLine, logicSentence, decodeCondition, blockValueText } from './logic-log.js';
 import { partsText } from './console-lines.js';
 import { fill, gameName } from './logic-vocab.js';
@@ -804,13 +805,23 @@ function newRun(S) {
       case 'allies': return a === '' || b === '' ? fail('noname', '') : allies(a, b, c);
       case 'setprop': if (a === '') return fail('noprop', nameOf(T));
         report(r, 'prop', nameOf(T), a, propText(T, a, b)); return undefined;
-      case 'giveitem': if (a && !game.carries(a)) st.items.push(a); return undefined;
+      case 'giveitem': { const why = giveItem(a, c, field(7)); return why ? fail(why, a) : undefined; }
       case 'takeitem': st.items = st.items.filter((x) => low(x) !== low(a)); return undefined;   // (one of each is all it keeps)
       case 'nextfloor': if (!Object.keys(FLOORS).some((k) => T && isa(T, k))) return fail('cannot', T ? nameOf(T) : '');
         return leadsTo(verb, T, a, [a, b, c]);
       case 'cancel': return cancel(i, a) ? undefined : fail('cannot', '');
       default: return leadsTo(verb, T, a, [a, b, c]);
     }
+  }
+  function giveItem(cls, id, description) {
+    if (isNanoKey(cls)) {
+      const error = keyIdError(id);
+      if (error) return error;
+      id = String(id).trim();
+      st.keyring ||= {};
+      st.keyring[id.toLowerCase()] ??= description || `Key ${id}`;
+    } else if (cls && !game.carries(cls)) st.items.push(cls);
+    return '';
   }
   // An augmentation of the player (UCLink.ChangeAug): give (nothing when had), raise one level, set a level, on, off;
   // given when needed for raise and level ("raise" then stops at its first level). A slot full is the game's alone.
@@ -915,6 +926,7 @@ function newRun(S) {
       for (const [k, v] of Object.entries(p.state.flags)) if (!!st.flags.get(k) !== !!v) st.flags.set(k, !!v);
       st.credits = Math.max(0, int(p.state.credits));
       for (const i of p.state.items) if (!game.carries(i)) st.items.push(i);
+      if (p.state.keyring) st.keyring = { ...p.state.keyring, ...st.keyring };
       if (x.type === 'end') { endTalk(x.why); return; }
       if (x.type === 'line') {                        // (who says it: the owner, the player or another BindName)
         c.shown = { ...x, who: x.who === 'npc' ? c.owner : x.who === 'jc' ? S.player : x.who };
@@ -975,7 +987,7 @@ function newRun(S) {
     else if (v === 'skillpoints') st.skillPoints = Math.max(0, st.skillPoints + typed(a));
     else if (v === 'energy') st.energy = Math.max(0, Math.min(100, st.energy + typed(a)));
     else if (v === 'aug' && a) augDo(a, String(x.b || 'give'), String(x.c ?? '2'));
-    else if (v === 'giveitem' && a && !game.carries(a)) st.items.push(a);
+    else if (v === 'giveitem') giveItem(a, x.keyId, x.keyDescription);
     else if (v === 'takeitem' && a) st.items = st.items.filter((y) => low(y) !== low(a));
     else if (v === 'talk' && a && talkOf(a)) startTalk(a, storyBy);
     else if (v === 'infolink' && a) playInfo(a, storyBy);
@@ -1678,6 +1690,7 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
     return { t: at(run.tick), ...Object.fromEntries(MERGED.map((p) => [p, st[p].plain()])),
       ...Object.fromEntries(LISTS.map((p) => [p, st[p].list()])), items: [...st.items], credits: st.credits, jc: st.jc && [...st.jc],
       health: st.health, energy: st.energy, skillpoints: st.skillPoints, water: st.water, zone: st.zone,
+      ...(st.keyring ? { keyring: { ...st.keyring } } : {}),
       augs: Object.fromEntries([...st.augs].map(([k, x]) => [k, { ...x }])),
       rules: Object.fromEntries(S.rules.map((r, i) => [r, run.rs[i]]).filter(([r]) => !r.also).map(([r, x]) => {
         if (!r.v2) return [r.id, { done: x.done, running: x.running, step: x.step, next: x.running ? at(x.wake) : null }];

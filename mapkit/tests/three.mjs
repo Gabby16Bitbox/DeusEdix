@@ -1,6 +1,7 @@
 // The three.js the tests run with: the 0.160.0 the editor's page loads from its import map
 // (editor/static/index.html), taken from a copy on this PC, never downloaded. The first one found of
 //   DEUSEDIX_THREE_MODULE                         a three.module.js of 0.160.0 (an error if it is not that)
+//   ../editor/static/vendor/three                 the editor's own copy (shipped with it since 12 Nov 2026)
 //   ../../research/rea-blender/three.module.mjs   beside tools/mapkit in a development working copy
 //   three in a node_modules                       npm install --no-save three@0.160.0 in mapkit
 // Without one the tests that need it are skipped, saying why: `test` from here skips every test of a file,
@@ -18,7 +19,8 @@ function places() {
     if (!existsSync(own)) throw new Error(`DEUSEDIX_THREE_MODULE: there is no ${path.resolve(own)}`);
     return [pathToFileURL(path.resolve(own)).href];
   }
-  const list = [new URL('../../research/rea-blender/three.module.mjs', import.meta.url).href];
+  const list = [new URL('../editor/static/vendor/three/build/three.module.js', import.meta.url).href,
+    new URL('../../research/rea-blender/three.module.mjs', import.meta.url).href];
   try { list.push(import.meta.resolve('three')); } catch { /* no three in a node_modules above this folder */ }
   return list.filter((url) => existsSync(fileURLToPath(url)));
 }

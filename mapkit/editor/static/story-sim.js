@@ -3,6 +3,7 @@
 // What the game does outside the conversation (goals, notes, items given, doors and characters moved by actions) is
 // said, not done. Pure: tests/test_story_graph.mjs.
 import { yesOf } from './conditions.js';
+import { isKeyReward, keyIdError } from './item-options.js';
 
 const VALUE = { EP_Credits: 'credits', EP_Health: 'health', EP_SkillPoints: 'skillpoints' };
 const COMPARE = { EC_Less: (a, b) => a < b, EC_LessEqual: (a, b) => a <= b, EC_Equal: (a, b) => a === b,
@@ -81,7 +82,16 @@ export function createPlay(steps, state = {}, { random = Math.random } = {}) {
         }
         case 'credits': st.credits += +s.amount || 0; at++; return { type: 'effect', id: s.id, text: `Credits ${+s.amount >= 0 ? '+' : ''}${+s.amount || 0}` };
         case 'skillpoints': st.skillpoints += +s.amount || 0; at++; return { type: 'effect', id: s.id, text: `Skill points +${+s.amount || 0}` };
-        case 'give': st.items.add(s.item); at++; return { type: 'effect', id: s.id, text: `JC receives ${s.count || 1} × ${s.item || '?'}` };
+        case 'give':
+          if (isKeyReward(s)) {
+            const error = keyIdError(s.keyId);
+            if (error) return (done = { type: 'end', id: s.id, why: error });
+            const id = String(s.keyId).trim(), name = s.keyDescription?.trim() || `Key ${id}`;
+            st.keyring ||= {};
+            st.keyring[id.toLowerCase()] ??= name;
+            at++; return { type: 'effect', id: s.id, text: `Player receives key ${id}: ${name}` };
+          }
+          st.items.add(s.item); at++; return { type: 'effect', id: s.id, text: `Player receives ${s.count || 1} × ${s.item || '?'}` };
         case 'goal': at++; return { type: 'effect', id: s.id, text: `Goal ${s.done ? 'completed' : 'added'}: ${s.text || s.goal || ''}` };
         case 'note': at++; return { type: 'effect', id: s.id, text: `Note: ${s.text || ''}` };
         case 'trigger': at++; return { type: 'effect', id: s.id, text: `Triggers the event ${s.tag || '?'}` };
