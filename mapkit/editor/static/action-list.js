@@ -202,5 +202,6 @@ export function stepsText(rule, actText, words) {
     const pause = x.verb === 'wait' && !x.until;
     const t = isFlow(x) ? flowText(x, words) : actText(x);
     return pause ? t : (timeOf(x) > 0 ? `after ${round(timeOf(x))} s ` : '') + t;
-  }).reduce((out, t) => (!out ? t : out + (out.endsWith(':') ? ' ' : ', ') + t), '');     // "if A:" then its step, no comma
+  }).reduce((out, t) => (!out ? t : out + (out.endsWith(':') || out.endsWith(', then') ? ' ' : ', ') + t), '')     // "if A:" / "then" and its step, no comma
+    .replace(/, then$/, '');                // an End that closes the list: nothing comes "then" (13 Nov 2026, Deep Ops)
 }

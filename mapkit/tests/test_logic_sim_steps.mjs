@@ -72,3 +72,27 @@ test('a loop with no wait stops after 256 steps; one with a wait goes on', () =>
   assert.equal(lines(w).filter((l) => /Tick/.test(l)).length, 5);
   assert.ok(!lines(w).some((l) => /loop/.test(l)));
 });
+
+// (13 Nov 2026, Navarre Test) the player who comes back to a map: "the map starts" ran again before a "back" (UCBoot's
+// bStarted is saved with the map, so the game runs those rules on the first visit only)
+test('a revisit: the rules on "the map starts" do not run again', () => {
+  const start = { cls: 'UCLink', name: 'UCLink_L1', props: { Tag: 'UCL_Start', When: 'start', Rule: '"L1"', bSteps: 'True', 'Act(0)': '"0|message||Hello||"' } };
+  const first = createSession({ actors: [start], outputs: logic.outputs, world, map: 'M' });
+  first.run(1);
+  assert.deepEqual(lines(first), ['0.6 act|L1|message||Hello']);   // (the first look, as the game's)
+  const again = createSession({ actors: [start], outputs: logic.outputs, world, map: 'M', revisit: true });
+  again.run(1);
+  assert.deepEqual(lines(again), []);
+});
+
+// (13 Nov 2026, Edge Lab) a key the player presses: heard by its Tag (UCMutator triggers UCL_Key_K), offered in Try it
+test('a key the player presses runs its rules, and Try it offers it', () => {
+  const key = { cls: 'UCLink', name: 'UCLink_L1', props: { Tag: 'UCL_Key_K', When: 'keypress', Rule: '"L1"', bSteps: 'True', 'Act(0)': '"0|message||Key||"' } };
+  const s = createSession({ actors: [key], outputs: logic.outputs, world, map: 'M' });
+  const h = s.happenings().find((x) => x.output === 'keypress');
+  assert.equal(h && h.thing, 'UCL_Key_K');
+  assert.equal(h.key, 'K');
+  s.fire({ thing: h.thing, output: 'keypress' });
+  s.run(1);
+  assert.deepEqual(lines(s).filter((l) => l.includes('message')), ['0.1 act|L1|message||Key']);
+});

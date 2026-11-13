@@ -172,7 +172,9 @@ function setupOf({ actors, outputs, left, world, map, frame }) {
     if (a.cls === 'UCLink' || a.cls === 'UCRule' || a.cls === 'UCRuleAlso') {
       const when = String(p.When || '');
       rules.push({ index: rules.length, id: t3dString(p.Rule) || a.name, name: a.name, tag: low(p.Tag), when, hears: outputs[when]?.hears || '',
-        gameTag: outputs[when]?.hears === 'gametag' ? t3dString(p.Tag) : '',
+        // a key the player presses is heard by its Tag as a game's event (UCMutator.Mutate "UCKey K" triggers UCL_Key_K;
+        // 13 Nov 2026: Try it had no button for it and logic_try fired nothing)
+        gameTag: ['gametag', 'key'].includes(outputs[when]?.hears) ? t3dString(p.Tag) : '',
         source: t3dString(p.Source), port: t3dString(p.Port), option: int(p.Option), near: p.NearDist === undefined ? 256 : +p.NearDist,
         once: p.bOnce === 'True', label: t3dString(p.Label), conds: slots(p, 'Cond', 8).filter(Boolean),
         steps: p.bSteps === 'True', stepConds: slots(p, 'StepCond', 16),
@@ -1250,7 +1252,7 @@ function newRun(S) {
     const e = S.outputs[h.output];
     if (!e) throw new Error(`No output "${h.output}" in the catalogue`);
     // an event of the game itself (a trigger, the console's causeevent): it triggers what has its Tag, no object needed
-    if (e.hears === 'gametag') { trigger(h.tag || h.thing, '', h.by ?? S.player); return; }
+    if (e.hears === 'gametag' || e.hears === 'key') { trigger(h.tag || h.thing, '', h.by ?? S.player); return; }
     if (e.hears === 'world') { worldHeard(h); return; }      // the world (P9 slice 3): the rules hear it themselves
     if (e.hears === 'start' || !present(h.thing)) return;    // the map starts by itself; what is not there says nothing
     const thing = nameOf(h.thing), by = h.by ?? setOffBy(SET_OFF_BY[e.hears], thing) ?? S.player;
@@ -1398,7 +1400,8 @@ function newRun(S) {
     const r = rules[i], x = rs[i];
     if (st.playing.size) return;
     if (r.every) return lookAtMembers(i);            // UCRule.TickStory: a rule on a set looks at its members
-    if (!x.started) { x.started = true; if (r.hears === 'start') runRule(i, ''); }
+    // (a map come back to, or loaded from a save: its start rules ran on the first visit, UCBoot.bStarted is saved)
+    if (!x.started) { x.started = true; if (r.hears === 'start' && !S.revisit) runRule(i, ''); }
     if (r.hears === 'prop' || r.hears === 'becomes' || r.hears === 'changes') return lookWatch(i);
     if (r.hears !== 'watch') return;
     const now = watching(r);
@@ -1612,8 +1615,9 @@ function makeHold(c, yes, st, chain) {
 //   loopTicks               the loop guard: a rule that fires in every tick for this many stops step() (0: never)
 // It starts played to t = 0. What happens is kept with its tick, so the clock can go back (scrub) and forward again.
 export function createSession({ actors = [], outputs = {}, left = [], world = {}, start = {}, map = 'Map', frame = 0.1,
-  vocab = null, ctx = {}, loopTicks } = {}) {
+  vocab = null, ctx = {}, loopTicks, revisit = false } = {}) {
   const S = setupOf({ actors, outputs, left, world, map, frame });
+  S.revisit = !!revisit;               // the player comes back (or a save is loaded): "the map starts" does not run again
   if (S.rules.length && !Object.keys(outputs).length) throw new Error('A session needs how each output is heard (outputs)');
   const guard = loopTicks ?? Math.round(1 / frame);
   // a script's port as it names it ('output:<Id>', 'input:<Id>'), for the sentences
@@ -1736,7 +1740,7 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
         if (!h.rules.includes(r.id)) h.rules.push(r.id);
         continue;
       }
-      const thing = r.hears === 'gametag' ? r.gameTag : r.source || (r.hears === 'prop' ? S.player : '');
+      const thing = r.hears === 'gametag' || r.hears === 'key' ? r.gameTag : r.source || (r.hears === 'prop' ? S.player : '');
       if (!thing || r.hears === 'start' || r.hears === 'becomes' || r.hears === 'changes') continue;
       if (r.when === 'output' && run.isBlock(r.source)) continue;      // a logic block says its outputs by itself
       const same = (h) => low(h.thing) === low(thing) && h.output === r.when && h.option === r.option && low(h.port) === low(r.port);
@@ -1745,9 +1749,10 @@ export function createSession({ actors = [], outputs = {}, left = [], world = {}
         ...(r.when === 'output' && (S.byName.get(low(thing))?.ports?.outputs || []).some((p) => low(p.id) === low(r.port) && p.carries)
           ? { carries: true } : {}),                 // it comes with a number (P8 slice 5b): Try it asks for it
         ...(r.when === 'signal' ? { signal: String(r.gameTag).replace(/^UCS_/i, '') } : {}),
+        ...(r.when === 'keypress' ? { key: String(r.gameTag).replace(/^UCL_Key_/i, '') } : {}),
         ...(r.when === 'ended' ? { dialogue: String(r.gameTag).replace(/^UCD_/i, '') } : {}),
         ...(r.when === 'heard' ? { infolink: String(r.gameTag).replace(/^UCI_/i, '') } : {}),
-        watched: r.hears === 'watch' || r.hears === 'prop', present: r.hears === 'gametag' || run.present(thing) });
+        watched: r.hears === 'watch' || r.hears === 'prop', present: r.hears === 'gametag' || r.hears === 'key' || run.present(thing) });
       h.rules.push(r.id);
     }
     // a step "Wait until" the Story's end (P5): its end, as the game's event the dialogue / InfoLink sets off

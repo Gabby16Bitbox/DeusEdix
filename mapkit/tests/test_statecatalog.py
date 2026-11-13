@@ -127,6 +127,17 @@ class StateCatalog(unittest.TestCase):
         result = entries(statecatalog.catalog(self.kit)['flags'])
         self.assertIn('Valid', result)
 
+    def test_the_conditions_of_steps_watches_and_otherwise_are_read(self):
+        # 13 Nov 2026, Deep Ops: the roof's "if HaleDead" (a step) was not a read, so the lab said nothing read it
+        link = dict(id='L1', when='becomes', watch=dict(flag='Watched', **{'is': True}),
+                    do=[dict(verb='if', requires=[dict(flag='InIf')]), dict(verb='message', a='x'), dict(verb='end'),
+                        dict(verb='wait', until=dict(flag='Until')), dict(verb='open', target='D', requires=[dict(flag='Own')])],
+                    **{'else': [dict(verb='flag', a='SetInElse', b='1')]})
+        result = entries(statecatalog.collect_edits(dict(links=[link]), '01_Test'))
+        for name in ('Watched', 'InIf', 'Until', 'Own'):
+            self.assertIn(name, result)
+        self.assertIn('SetInElse', result)
+
     def test_new_flag_names_are_not_silently_rewritten(self):
         result = entries(statecatalog.collect_edits(dict(links=[dict(do=[dict(verb='flag', a='Custom State')])]), '01_Test'))
         self.assertIn('Custom State', result)

@@ -256,3 +256,12 @@ test('numbers and keys as app.js reads them (lkWholeOf, lkWhenKey, lkVerbKey)', 
   for (const l of [{ when: 'output' }, { when: 'output', port: 'A' }, { when: 'used' }]) assert.equal(whenKey(l), theirs.lkWhenKey(l));
   for (const x of [{ verb: 'input' }, { verb: 'input', a: 'B' }, { verb: 'on' }]) assert.equal(verbKey(x), theirs.lkVerbKey(x));
 });
+
+// (13 Nov 2026) a Phases block sent to a phase: its phase, not "Phases: Go to the phase 'Chase'"
+test("a step to a phase says where the phases go; another input keeps its port's words", () => {
+  const ctx = { ...world, name: (n) => (n === 'Hunt' ? 'NavarreHunt phases' : world.name(n)),
+    family: (n) => (n === 'Hunt' ? 'phases' : world.family(n)),
+    portLabel: (n, key) => (n === 'Hunt' ? (key === 'input:GoTo_Chase' ? "Go to the phase 'Chase'" : 'Go to the next phase') : world.portLabel(n, key)) };
+  assert.equal(vocab.actText({ verb: 'input', target: 'Hunt', a: 'GoTo_Chase' }, ctx), "move NavarreHunt phases to 'Chase'");
+  assert.equal(vocab.actText({ verb: 'input', target: 'Hunt', a: 'Next' }, ctx), 'NavarreHunt phases: Go to the next phase');
+});

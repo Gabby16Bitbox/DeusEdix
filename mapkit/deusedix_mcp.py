@@ -83,8 +83,9 @@ TOOLS = {
                     schema({'name': {'type': 'string'}, 'loc': VEC, 'yaw': {'type': 'number'},
                             'scale': {'type': 'number'}, 'size': VEC}, ['name'])),
     'set_properties': ('set', 30, 'Set properties of an object as the Inspector does ({"LightBrightness": "200"}); '
-                       'null puts one back to the map\'s own value. Values in Unreal\'s text form. A block takes tex and '
-                       'solid; a drawn piece its settings (as draw: tex, height, thick...).',
+                       'null puts one back to the map\'s own value. Values in Unreal\'s text form. A block takes tex, '
+                       'solid, mover (true: a moving block) and door (a door that slides open its own size in 2 s: up, '
+                       'down, +x, -x, +y, -y; play it from a rule with the verb anim); a drawn piece its settings (as draw: tex, height, thick...).',
                        schema({'name': {'type': 'string'}, 'props': OBJ}, ['name', 'props'])),
     'delete_objects': ('delete', 30, 'Delete objects (Ctrl+Z brings them back). When the editor asks to confirm '
                        '(mission objects, structures), the question is returned: call again with confirm true.',
@@ -116,15 +117,18 @@ TOOLS = {
               '{"tool": a tool\'s name, "args": its arguments}. It stops at the first that fails and says which.',
               schema({'calls': {'type': 'array', 'items': {'type': 'object', 'properties': {'tool': {'type': 'string'},
                       'args': OBJ}, 'required': ['tool']}, 'minItems': 1, 'maxItems': 100}}, ['calls'])),
-    'story_list': ('story_list', 30, 'The dialogues of the open map\'s story: id, title, who owns it, its steps.',
-                   schema()),
+    'story_list': ('story_list', 30, 'The dialogues of the open map\'s story (id, title, who owns it, its '
+                   'steps) and its InfoLinks (id, title, caller, lines).', schema()),
     'story_get': ('story_get', 30, 'One dialogue: its settings, its steps (each with its id) and its graph (what '
-                  'follows each step).', schema({'dialogue': {'type': 'string'}}, ['dialogue'])),
+                  'follows each step). With infolink (an id or a title) instead: that InfoLink and the callers that '
+                  'have a portrait.', schema({'dialogue': {'type': 'string'}, 'infolink': {'type': 'string'}})),
     'story_write': ('story_write', 30, 'Change a dialogue (fields: its settings; steps: the whole list, as story_get '
                     'gives it) or, with owner and no dialogue, make a new one for that character. '
                     'A give step for DeusEx.NanoKey needs keyId (e.g. "2", matching the door KeyIDNeeded) '
-                    'and optional keyDescription. Use credits steps for money, not a plain Credits item. Unsaved until save.',
-                    schema({'dialogue': {'type': 'string'}, 'owner': {'type': 'string'}, 'fields': OBJ,
+                    'and optional keyDescription. Use credits steps for money, not a plain Credits item. With infolink '
+                    '(an id, or "new") instead: an InfoLink\'s fields (title, caller: a bind name with a portrait, name, '
+                    'once, lines: [{text}], do: Story actions, hush). Unsaved until save.',
+                    schema({'dialogue': {'type': 'string'}, 'infolink': {'type': 'string'}, 'owner': {'type': 'string'}, 'fields': OBJ,
                             'steps': {'type': 'array', 'items': OBJ}})),
     'story_play': ('story_play', 30, 'Play-test a dialogue as the game would: state ({flags, credits, health, '
                    'skillpoints, items}) and the answers JC picks in order (choices: their numbers). Returns what is '
@@ -142,7 +146,9 @@ TOOLS = {
     'logic_check': ('logic_check', 30, 'The problems of the open map\'s rules (as the Logic window\'s To check) and whether the '
                     'build takes them.', schema()),
     'logic_try': ('logic_try', 60, 'Play the open map\'s rules in the editor\'s simulator (as Logic > Try it, no game): fire is '
-                  'what happens, in order ({thing, output (a "when" of logic_offer), port, option}); then seconds pass. '
+                  'what happens, in order ({thing, output (a "when" of logic_offer), port, option}; with no thing: {output: '
+                  '"keypress", key}, {output: "signal", signal}, {output: "ended", dialogue}, {output: "heard", infolink}, '
+                  'or a cause of the world: back, loaded, goaldone with goal, noise with noise, appears with what); then seconds pass. '
                   "from: the name of a start to begin from (the project's Play scenarios: their states, the player's "
                   'items, credits and skills); start: states on top of it ({flags: {Name: true}, counters, items, credits, jc: '
                   '[x, y, z] where the player stands, for the condition "near a point"}). '
@@ -169,10 +175,12 @@ TOOLS = {
                       'condition compares with, may be a formula of counters ("Alarms + 1"). '
                       'A later op names what an earlier one made as "$<ref>". summary: what it does, in a few words '
                       '(the user reads it). It is checked as the build checks rules (errors: nothing proposed), and tried in '
-                      'the simulator with fire (default: what sets off its first rule). Returns the sentences, the problems '
+                      'the simulator with fire (default: what sets off its first rule), from the states start and from '
+                      'give (as logic_try: a phase reached on another map, a flag). Returns the sentences, the problems '
                       'it brings and the run.',
                       schema({'ops': {'type': 'array', 'items': OBJ, 'minItems': 1, 'maxItems': 60}, 'summary': {'type': 'string'},
-                              'fire': {'type': 'array', 'items': OBJ}, 'seconds': {'type': 'number'}}, ['ops', 'summary'])),
+                              'fire': {'type': 'array', 'items': OBJ}, 'seconds': {'type': 'number'}, 'start': OBJ,
+                              'from': {'type': 'string'}}, ['ops', 'summary'])),
     'logic_patterns': ('logic_patterns', 60, 'The project\'s patterns of rules (blocks of rules saved to use again, in any '
                        'map): action "list" gives each one (pattern: its id, name, version, places: what it needs to be '
                        'given, each an object of the map, brings: the logic blocks it adds) and those placed in the open '

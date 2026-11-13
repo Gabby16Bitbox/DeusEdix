@@ -351,8 +351,11 @@ const pickHook = { owns: (el) => root.contains(el),
   end: () => { cancelSeatPick = null; root.classList.remove('peek', 'picking'); } };
 function playedFlag(d) { return d.replaces ? `${d.replaces}_Played` : `UCEd${mapCode}_${ident(d.id)}_Played`; }
 function heardFlag(il) { return `UCEd${mapCode}_${ident(il.id)}_Heard`; }
+// titled by the character's name in the game ("Rook's dialogue"; 13 Nov 2026, Deep Ops: "UCEdit3's dialogue")
 function blankDialogue(actorName) {
-  return { id: nextId('d', story.dialogues), title: actorName + '\'s dialogue', owner: actorName, bind: bindOf(actorName), start: 'talk', radius: 200, once: true, requires: [], steps: [{ type: 'line', who: 'npc', text: '' }, { type: 'line', who: 'jc', text: '' }] };
+  let who = actorName;
+  try { const t = talkers().find((a) => a.name === actorName); if (t) who = t.label || t.bind || t.name; } catch { /* its name in the map */ }
+  return { id: nextId('d', story.dialogues), title: who + '\'s dialogue', owner: actorName, bind: bindOf(actorName), start: 'talk', radius: 200, once: true, requires: [], steps: [{ type: 'line', who: 'npc', text: '' }, { type: 'line', who: 'jc', text: '' }] };
 }
 function nextId(prefix, list) { let i = 1; while (list.some((x) => x.id === prefix + i)) i++; return prefix + i; }
 function labelsOf(d) { return (d.steps || []).filter((s) => s.type === 'label' && s.name).map((s) => s.name); }
@@ -1619,6 +1622,18 @@ window.__story = {
     changed();
     if (root.classList.contains('open')) render();
     return d;
+  },
+  // a new InfoLink (unsaved), as + InfoLink makes one; the callers with a portrait in the game: [bind name, name]
+  // (13 Nov 2026, Deep Ops: the assistant could not write an InfoLink at all)
+  callers: () => CALLERS.map((c) => [...c]),
+  async newInfoLink() {
+    if (!(await ensure())) throw Error('Open a map first.');
+    rebase();
+    const il = { id: nextId('i', story.infolinks), title: 'New InfoLink', caller: 'AlexJacobson', name: 'Alex Jacobson', once: true, lines: [{ text: '' }], do: [] };
+    story.infolinks.push(il);
+    changed();
+    if (root.classList.contains('open')) render();
+    return il;
   },
   async openFor(actorName) {
     if (!(await ensure())) return;

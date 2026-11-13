@@ -265,3 +265,24 @@ def brushes(b, mats, name):
 def brush(b, mats, name):
     """The block's brush (the first piece of a hollow one)."""
     return brushes(b, mats, name)[0]
+
+def matched(br, b):
+    """A block made by Close an opening (static/close-opening.js): its faces that lie as the wall round the opening
+    (its front, its back) take that wall's texture laid exactly as there (its TextureU, TextureV and origin, b['match'],
+    in the world), so the patch does not show; moved or resized, it stays laid as the wall. Only while the block has
+    the texture it was made with (b['matchOf']): another texture chosen for it covers every face. A face turned
+    away from the wall's (the block turned) takes the block's own mapping."""
+    ms = b.get('match')
+    if not isinstance(ms, list) or str(b.get('matchOf') or '') != str(b.get('tex') or ''):
+        return br
+    for f in br.faces:
+        for m in ms:
+            try:
+                n, u, v, o = (Vec3(*(float(x) for x in m[k])) for k in ('n', 'u', 'v', 'o'))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if Vec3.of(f.normal).dot(n) > 0.999:
+                f.u, f.v, f.origin = u, v, o
+                f.mat = geom.Mat(str(m.get('tex') or f.mat.tex), flags=int(m.get('flags') or 0))
+                break
+    return br

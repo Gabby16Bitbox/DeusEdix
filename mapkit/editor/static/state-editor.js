@@ -3,6 +3,9 @@ export { fateCode, fateFlag, parseFate, stateLabel, FATE_PREDICATES } from './st
 
 let context = { getCatalog: async () => [], getMaps: async () => [], getPeople: async () => [], getCurrentMap: () => '' };
 let knownMaps = [], knownCatalog = [], activeDialog = null, serial = 0;
+// a name just typed with Enter: the field drawn again after it gives the keys to its Yes/No (13 Nov 2026: they went
+// to the page, and the next keys were the editor's shortcuts)
+let quickDone = 0;
 const CATEGORY_NAMES = { all: 'All', story: 'Story flag', character: 'Character state', dialogue: 'Dialogue / InfoLink', original: 'Original game' };
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -62,7 +65,7 @@ export function mountStateField(host, initialValue, { onChange = () => {}, mode 
         if (!validFlagName(n)) { quick.setAttribute('aria-invalid', 'true'); quick.title = 'Letters, digits and _ (not starting with a digit)'; return; }
         try { commit({ flag: n, is: true }); } catch (e) { quick.title = e.message; quick.setAttribute('aria-invalid', 'true'); }
       };
-      quick.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+      quick.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); quickDone = Date.now(); apply(); } });
       quick.addEventListener('change', apply);
       nameButton.textContent = 'Browse…';
       field.append(quick);
@@ -83,6 +86,13 @@ export function mountStateField(host, initialValue, { onChange = () => {}, mode 
       } else commit({ is: select.value === 'true' });
     });
     field.append(select);
+    if (value.flag && quickDone && Date.now() - quickDone < 1500) {
+      quickDone = 0;
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (select.isConnected && (!a || a === document.body || !a.isConnected || a.matches('.lw-edit'))) select.focus();
+      }, 0);
+    }
     if (mode === 'set' && fate) field.append(el('p', 'state-note', 'Changes the recorded state only. It does not kill, knock out or revive the character.'));
     const details = el('details'), summary = el('summary', '', 'Advanced'); details.open = advancedOpen;
     details.addEventListener('toggle', () => { advancedOpen = details.open; });

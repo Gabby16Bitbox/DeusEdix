@@ -66,7 +66,7 @@ def export(items, holes=()):
             pieces = blocks.brushes(b, geom.Mat(b.get('tex') or 'ClenGreyCncrt_A'), b['name'])
             for i, br in enumerate(pieces):          # a hollow shape: its convex pieces, a brush each
                 name = b['name'] if len(pieces) == 1 else '%s_%d' % (b['name'], i)
-                out.append(_brush_actor(name, geom.rotate_brush(br, centre, b.get('rot')), csg, flags))
+                out.append(_brush_actor(name, blocks.matched(geom.rotate_brush(br, centre, b.get('rot')), b), csg, flags))
         elif kind == 'drawn':
             d = it['drawn']
             built, report = drawn.all_brushes({'drawn': [d], 'boxes': list(holes)})

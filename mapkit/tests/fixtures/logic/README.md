@@ -146,7 +146,7 @@ Always: the names (A4) and the place of inputs (A7). The others where a fixture 
 | `running_before_conditions_no_recheck` | Running is checked before the conditions, which are not checked again | `UCLink.uc:381-384`, `UCLink.uc:387-391`, `UCLink.uc:1925-1944` |
 | `conditions_before_actions` | All the rules on one output check their conditions before any action runs | `UCLink.uc:249-272`, `UCLink.uc:347-369`, `UCLink.uc:1925-1944` |
 | `first_failing_condition_named` | All conditions must hold; the skip names the first that does not | `UCLink.uc:387-391` |
-| `actions_in_delay_order` | Actions run in delay order, delays counted from the start | `links.py:1026`, `UCLink.uc:1949-1953` |
+| `actions_in_delay_order` | Actions run in delay order, delays counted from the start | `links.py:1027`, `UCLink.uc:1949-1953` |
 | `condition_flag` | Condition: a state is Yes or No | `UCEditorStory.uc:996-997`, `UCEditorStory.uc:38-44` |
 | `condition_item` | Condition: JC carries or does not carry an item | `UCEditorStory.uc:998-999`, `UCEditorStory.uc:1240-1248` |
 | `condition_alive` | Condition: a character is alive or not | `UCEditorStory.uc:1000-1001`, `UCEditorStory.uc:1183-1189` |
@@ -163,7 +163,7 @@ Always: the names (A4) and the place of inputs (A7). The others where a fixture 
 | `script_outputs_wait_for_start` | Outputs said while the map loads wait for Started() | `UCScript.uc:62-85`, `UCScript.uc:323-334` |
 | `script_queue_full` | At most 8 outputs wait; the same output again finds its rule running | `UCScript.uc:62-85`, `UCScript.uc:323-334`, `UCLink.uc:381-384` |
 | `script_noinput_and_noscript` | An input the script does not handle, an input on something that is no script | `UCScript.uc:60-63`, `UCLink.uc:976-979` |
-| `deleted_and_disabled` | Deleted and disabled objects take their rules and actions with them | `links.py:989`, `links.py:728-733` |
+| `deleted_and_disabled` | Deleted and disabled objects take their rules and actions with them | `links.py:990`, `links.py:728-733` |
 | `missing_source_hook` | A rule that cannot hook itself says so, when and how depends on its output | `UCLink.uc:154-162`, `UCLink.uc:208-217`, `UCLink.uc:516-522` |
 | `used_and_any_one_event` | Outputs heard on the same event run together | `UCLink.uc:249-272`, `UCLink.uc:201-204` |
 | `enter_leave_share_a_tag` | Walking in and out of one zone | `UCLink.uc:249-272`, `UCLink.uc:348-356` |

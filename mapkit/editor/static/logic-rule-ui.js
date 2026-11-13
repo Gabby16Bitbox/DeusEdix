@@ -12,6 +12,21 @@ import { itemOptionsHtml, itemWarningText, isNanoKey, keyFieldsHtml } from './it
 import { AUGS, FORMULA_TITLE } from './conditions.js';
 import { isFormula } from './logic-numbers.js';
 
+// A goal's name from what the player reads ("Find the NSF shipping records" -> FindNsfShipping), the first one free
+// among `used` (lower case), or '' when the text has no word for it. A new goal is named Goal1, Goal2... until its
+// text is written (13 Nov 2026: every goal of a mission was GoalN, the rules completing them said nothing).
+const GOAL_SKIP = new Set(['a', 'an', 'the', 'to', 'of', 'in', 'on', 'at', 'and', 'or', 'for', 'with', 'from', 'by', 'into', 'your', 'his', 'her', 'their', 'its']);
+export function goalNameFrom(text, used = new Set()) {
+  const words = String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\w\s]/g, ' ').replace(/_/g, ' ').split(/\s+/)
+    .filter((w) => w && !GOAL_SKIP.has(w.toLowerCase()));
+  let base = words.slice(0, 3).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('');
+  base = base.replace(/^\d+/, '').slice(0, 28);
+  if (!base) return '';
+  let name = base, k = 2;
+  while (used.has(name.toLowerCase())) name = base + k++;
+  return name;
+}
+
 // the action rows app.js draws itself (the verbs before P4, and interaction-blocks.js's)
 export const HAND_ROWS = new Set(['key', 'attack', 'hostile', 'goto', 'run', 'explode', 'sound', 'message', 'note', 'goal', 'flag',
   'input', 'floor', 'count', 'fpmoment', 'travel', 'body', 'sit', 'timerstart', 'npcuse', 'effect']);
@@ -121,7 +136,10 @@ export function argRowsHtml(args, x, j, h) {
       out += row(`<label style="width:auto"><input type="checkbox" data-lkargyn="${j}" data-k="${k}" ${String(v) === '0' ? '' : 'checked'}> ${esc(a.label || a.id)}</label>`);
     } else if (a.type === 'place') {
       const p = Array.isArray(x[a.id]) ? x[a.id] : null;
-      out += row(`${label(a)}<span class="hint" style="margin:0;flex:1">${p ? p.map((n) => Math.round(n)).join(', ') : '(click a place)'}</span><button data-lkat="${j}" data-k="${k}" title="Click the floor there">pick</button>`);
+      // named by what is there when something is (h.place: "Path Node 2", "next to Data Cube"), else its numbers
+      const coords = p ? p.map((n) => Math.round(n)).join(', ') : '';
+      const named = p && h.place ? h.place(p) : '';
+      out += row(`${label(a)}<span class="hint" style="margin:0;flex:1"${named ? ` title="${esc(coords)}"` : ''}>${p ? esc(named || coords) : '(click a place)'}</span><button data-lkat="${j}" data-k="${k}" title="Pick a place from a list, or click the floor there">pick</button>`);
     } else if (a.type === 'object') {
       const has = !!x[a.id];
       out += row(`${label(a)}<a href="#" data-lkgo="${esc(x[a.id] || '')}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${has ? '' : ';color:var(--bad)'}" title="Go to it">${esc(has ? h.name(x[a.id]) : a.empty || '(none yet)')}</a><button data-lkobj="${j}" data-k="${k}" title="Click it in the map">${has ? 'change' : 'pick'}</button>`);
@@ -145,6 +163,12 @@ export function argRowsHtml(args, x, j, h) {
     } else if (a.type === 'rule') {
       const rules = h.rules || [];
       out += row(`${label(a)}<select ${at} style="flex:1;min-width:0"><option value="">(choose a rule)</option>${rules.map((r) => `<option value="${esc(r.id)}" ${r.id === v ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}${v && !rules.some((r) => r.id === v) ? `<option selected value="${esc(v)}">${esc(v)} (missing)</option>` : ''}</select>`);
+    } else if (a.type === 'pawnclass' && (!v || PAWN_CLASSES.some((c) => c.toLowerCase() === String(v).toLowerCase()))) {
+      // the game's characters by name ("MJ12 Troop"), another class typed after "Another class…" (13 Nov 2026: the
+      // field showed DeusEx.MJ12Troop)
+      out += row(`${label(a)}<select ${at} style="flex:1;min-width:0" title="${esc(String(v || ''))}">${v ? '' : '<option value="" selected>(choose who)</option>'}`
+        + PAWN_CLASSES.map((c) => `<option value="${esc(c)}" ${c.toLowerCase() === String(v).toLowerCase() ? 'selected' : ''}>${esc(pawnWords(c))}</option>`).join('')
+        + '<option value="@other">Another class (type its Package.Class)…</option></select>');
     } else {                                   // text, line, tag, state, counter, goal, map, pawnclass, song, sound...
       const list = a.type === 'pawnclass' ? `lk-pawns-${j}` : a.type === 'song' && (h.songs || []).length ? `lk-songs-${j}`
         : a.type === 'signal' ? `lk-signals-${j}` : a.type === 'faction' ? 'factionlist' : '';
@@ -269,8 +293,8 @@ export function ruleOptionsHtml(l, h) {
 export function optionsText(l, whenText) {
   const also = (l.also || []).map((c) => whenText(c).replace(/^When /, 'when ')).filter(Boolean);
   const more = [];
-  if (l.again === 'restart') more.push('set off again: from the start');
-  if (l.again === 'each') more.push('set off again: alongside');
+  if (l.again === 'restart') more.push('set off again: starts over');
+  if (l.again === 'each') more.push('set off again: runs alongside');
   if (+l.max > 0) more.push(`at most ${+l.max} time${+l.max === 1 ? '' : 's'}`);
   if (+l.cooldown > 0) more.push(`at least ${+l.cooldown} s apart`);
   if (l.talkBusy === 'wait') more.push('waits while the player talks');

@@ -79,6 +79,13 @@ class Steps(unittest.TestCase):
         self.assertNotIn('bSteps', p)
         self.assertEqual(acts(p), ['0|message||A||', '2|message||B||'])
 
+    def test_an_if_without_steps_is_a_list_of_steps(self):
+        # 13 Nov 2026, Deep Ops: a rule with If / Otherwise / End but no `steps` was built without them (both ran)
+        [p] = compiled([{'verb': 'if', 'requires': [{'flag': 'A', 'is': True}]}, {'verb': 'message', 'a': 'Yes'},
+                        {'verb': 'else'}, {'verb': 'message', 'a': 'No'}, {'verb': 'end'}], steps=False)
+        self.assertEqual(p['bSteps'], 'True')
+        self.assertEqual(acts(p), ['0|check|all|0|1|3', '0|message||Yes||', '0|jump|||4|', '0|message||No||'])
+
     def test_only_checks_and_waits_build_nothing(self):
         self.assertEqual(compiled([{'verb': 'if', 'requires': [{'flag': 'A'}]}, {'verb': 'end'}, {'verb': 'message', 'a': ''}])[0]['bSteps'], 'True')
         self.assertEqual(links.blocks({'links': [dict(id='L1', src='B', when='used', steps=True,

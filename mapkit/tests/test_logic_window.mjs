@@ -232,3 +232,17 @@ test('a Story node opened: a dialogue, an InfoLink or a Story event, by its node
   assert.deepEqual(storyItemOf('dlg:talk:2'), { key: 'dialogues', id: 'talk:2' });
   for (const id of ['obj:Door2', 'rule:L7', 'sig:Alarm', 'world', 'dlg:', '', null, undefined]) assert.equal(storyItemOf(id), null, String(id));
 });
+
+test("Try it says a step's text as the game shows it: a bar a slash, a double quote a single one, a letter the fonts lack '?'", async () => {
+  const { gameText } = await import('../editor/static/logic-try.js');
+  assert.equal(gameText('Survive the lab; don\'t | break "it". ✓ — “x” àè'), "Survive the lab; don't / break 'it'. ? - 'x' àè");
+  assert.equal(gameText('two\r\nlines'), 'two  lines');
+});
+
+test("a 'while' rule's end is said by its rule's sentence now, not the label it was built with", async () => {
+  const { lineText } = await import('../editor/static/logic-try.js');
+  const vocab = vocabulary(catalog);
+  const ctx = { vocab, words: { name: (n) => n }, sentences: { L22: 'While the player is in Zone1: sound Alarm' } };
+  assert.equal(lineText('fire|M|L22_until|Zone1|leave|JCDentonMale0|When the player walks into the zone: sound the alarm (undone)', ctx).text,
+    'While the player is in Zone1: sound Alarm (undone)');
+});

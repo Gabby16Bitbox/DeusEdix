@@ -49,6 +49,11 @@ def _items(value):
     return (item for item in value if isinstance(item, dict)) if isinstance(value, list) else ()
 
 
+def _dicts(value):
+    """A list of dicts, or one dict (a rule's watch, a Wait until's condition), as a list."""
+    return [value] if isinstance(value, dict) else list(_items(value))
+
+
 def collect_story(value, map_name):
     """Return indexed flags from an authored story, leaving all its fields untouched."""
     index = _Index()
@@ -120,7 +125,13 @@ def collect_edits(value, map_name):
     if isinstance(value, dict):
         for link in _items(value.get('links')):
             context = 'Interaction: ' + str(link.get('label') or link.get('id') or link.get('src') or 'Untitled')
-            for condition in _items(link.get('requires')):
+            # its conditions, the one it watches (becomes / changes), and those of its steps: an If, a Wait until, an
+            # action's own check, in its list and in its Otherwise (13 Nov 2026, Deep Ops: the roof's "if HaleDead"
+            # was not counted, so the lab said "Nothing reads the state HaleDead")
+            steps = _dicts(link.get('do')) + _dicts(link.get('else'))
+            conds = _dicts(link.get('requires')) + _dicts(link.get('watch'))
+            conds += [c for step in steps for c in _dicts(step.get('requires')) + _dicts(step.get('until'))]
+            for condition in conds:
                 if conditions.kind(condition) == 'counter':
                     index.add(condition.get('counter'), map_name, context, 'read', type='int')
                 elif conditions.kind(condition) == 'flag':
@@ -128,7 +139,7 @@ def collect_edits(value, map_name):
                 if isinstance(condition, dict):
                     for name in _formula_counters(condition.get('value')):
                         index.add(name, map_name, context, 'read', type='int')
-            for action in _items(link.get('do')):
+            for action in steps:
                 if action.get('verb') == 'flag':
                     index.add(action.get('a'), map_name, context, 'write')
                 elif action.get('verb') == 'count':
@@ -147,9 +158,13 @@ def collect_edits(value, map_name):
                                   label='in the phase "%s"' % phase.strip())
             elif cls == 'UCBCounter':        # its counter: StateName, else the block's own name
                 index.add(counter_name(name, props), map_name, context, 'write', label='the number of the counter', type='int')
-            elif cls == 'UCBAtLeast' and block_flag_name(_text(props.get('StateName'))):
-                index.add(block_flag_name(_text(props.get('StateName'))), map_name, context, 'write',
-                          label='enough of its states hold')
+            elif cls == 'UCBAtLeast':
+                if block_flag_name(_text(props.get('StateName'))):
+                    index.add(block_flag_name(_text(props.get('StateName'))), map_name, context, 'write',
+                              label='enough of its states hold')
+                # the states it counts ("!Name": while No) are read (13 Nov 2026: "Nothing reads the state PowerA")
+                for state in at_least_states(props.get('States')):
+                    index.add(state, map_name, context, 'read')
     return index.result()
 
 
@@ -165,6 +180,16 @@ def _formula_counters(value):
         return formula.names_in(formula.game_number(value))
     except formula.FormulaError:
         return []
+
+
+def at_least_states(value):
+    """The states an At least N block counts (its States: "A, !B, C"), without the "!" of those it counts while No."""
+    out = []
+    for item in _text(value).split(','):
+        name = item.strip().lstrip('!').strip()
+        if name and name.lower() not in (o.lower() for o in out):
+            out.append(name)
+    return out
 
 
 def block_flag_name(text):

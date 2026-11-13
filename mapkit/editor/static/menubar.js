@@ -362,6 +362,7 @@ const MENUS = [
     sep,
     { label: 'Add a block', key: 'block', run: () => press('block') },
     { label: 'Add a hole', run: click('addhole') },
+    { label: 'Close an opening', map: true, run: () => ed()?.startCloseOpening() },
     { label: '2D Shape Editor...', map: true, run: () => ed()?.shapeEditor?.open() },
     { label: 'Draw wall', map: true, run: () => ed()?.startDraw('wall') },
     { label: 'Draw road', map: true, run: () => ed()?.startDraw('road') },

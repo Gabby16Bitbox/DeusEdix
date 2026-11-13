@@ -47,6 +47,33 @@ const OBJECT = 'obj:';
 const PREFIXES = [...Object.values(PIECE_KINDS).map(([prefix]) => prefix), ...STORY_KINDS.map(([, prefix]) => prefix), ...Object.values(GROUP_KINDS)];
 const QUALIFIED = new RegExp(`^(${PREFIXES.map((p) => p.replace(/\W/g, '\\$&')).join('|')})`);
 export const thingId = (name) => (!name ? 'world' : QUALIFIED.test(name) ? name : OBJECT + name);
+// Unreal names ignore letter case and the engine keeps the first spelling it knew (13 Nov 2026: a rule on 'BtnAugs'
+// whose actor the build gave back as 'btnAugs', a name Revision's code already has, was "not in the map any more").
+// A map object is one node whatever spelling names it: the first the page's actors use, else the first a rule uses.
+// The rules keep their own spelling (the game compares names ignoring case). The logic's own items are as they are.
+function spellings(actors) {
+  const first = new Map();
+  const canon = (name) => {
+    if (!name || typeof name !== 'string' || QUALIFIED.test(name)) return name;
+    const low = name.toLowerCase();
+    if (!first.has(low)) first.set(low, name);
+    return first.get(low);
+  };
+  Object.keys(actors).forEach(canon);
+  return canon;
+}
+// the names of a table keyed by object names (edits.deleted, edits.disabled), as the game compares them
+class Caseless extends Set {
+  constructor(names) { super([...names].map((n) => String(n).toLowerCase())); }
+  has(name) { return name != null && super.has(String(name).toLowerCase()); }
+}
+// a table keyed by object names (edits.usable, the logic's words): exact first, then in any letter case
+const ownAnyCase = (table, key) => {
+  if (!table || key == null) return undefined;
+  if (Object.hasOwn(table, key)) return table[key];
+  const low = String(key).toLowerCase(), k = Object.keys(table).find((x) => x.toLowerCase() === low);
+  return k === undefined ? undefined : table[k];
+};
 export const ruleId = (id) => 'rule:' + id;
 export const actId = (rule, act) => `act:${rule}/${act}`;
 // the node key of an item of edits.logic ('blocks', 'B1'), of the Story ('dialogues', 'd1')
@@ -311,13 +338,13 @@ function storyActors(story) {
 }
 
 // What the vocabulary asks of the page (logic-vocab.js ctx), from the plain data
-function contextOf(input, actors) {
-  const edits = input.edits || {}, actor = (n) => own(actors, n);
+function contextOf(input, actors, canon) {
+  const edits = input.edits || {}, actor = (n) => own(actors, n) || own(actors, canon(n));      // in any letter case
   return {
     name: (n) => (!n ? 'nothing' : own(SPECIAL, n) ? SPECIAL[n] : actor(n) ? actor(n).title || n : `${String(n).replace(QUALIFIED, '')} (missing)`),
     family: (n) => (actor(n) && actor(n).family) || 'other',
-    word: (n) => own(own(edits.logic, 'words'), n) || (actor(n) && actor(n).word) || '',
-    usable: (n) => !!own(edits.usable, n),
+    word: (n) => ownAnyCase(own(edits.logic, 'words'), n) || (actor(n) && actor(n).word) || '',
+    usable: (n) => !!ownAnyCase(edits.usable, n),
     optionText: (l) => ((actor(l.src) || {}).options || [])[+l.option || 0] || '',
     portLabel: (n, key) => own(actor(n) && actor(n).labels, key) || key.split(':')[1] || '?',
     itemName: (cls) => own(input.items, cls) || String(cls).split('.').pop(),
@@ -327,6 +354,8 @@ function contextOf(input, actors) {
     // a Phases block (P3): its name in the flags and its phases ({id, text}), null when it is no such block
     phaseSet: (n) => (actor(n) && Array.isArray(actor(n).phases) ? { name: actor(n).stateName || actor(n).title || n, phases: actor(n).phases } : null),
     goalText: goalTexts(edits.links),
+    // where a character is sent, by what stands there (input.placeName, app.js lkPointName): "runs to Path Node 2"
+    placeName: typeof input.placeName === 'function' ? input.placeName : null,
   };
 }
 
@@ -336,10 +365,10 @@ function contextOf(input, actors) {
 // (a rule waiting for a signal (P3): on the signal's hub, sig:<name>, not on the map)
 // (a rule on a dialogue's end or an InfoLink heard (P5): out of that node's Ended / Heard, when the Story has it)
 // (a rule on anyone of a kind or a faction (P9: no src, its group): out of the group's node)
-function causesOf(l, hubs, storyIds) {
+function causesOf(l, hubs, storyIds, canon) {
   return [l, ...list(l.also)].map((c) => ({ src: c.when === 'start' ? '' : c.src || '', key: whenKey(c), cause: c,
     node: c.when === 'signal' && hubOf(hubs, c.signal) ? hubOf(hubs, c.signal) : storySource(c, storyIds)
-      || (c.group && !c.src && c.when !== 'start' ? pieceId('groups', c.group) : thingId(c.when === 'start' ? '' : c.src)),
+      || (c.group && !c.src && c.when !== 'start' ? pieceId('groups', c.group) : thingId(c.when === 'start' ? '' : canon(c.src))),
     pin: 'out:' + whenKey(c) }));
 }
 const STORY_OUT = { ended: ['dialogues', 'dialogue'], heard: ['infolinks', 'infolink'] };
@@ -379,22 +408,22 @@ const SPECIAL = { '@by': 'whoever set it off', '@it': 'the object it happened to
 const STORY_IN = { talk: ['dialogues', 'in:start'], infolink: ['infolinks', 'in:play'] };
 const storyTarget = (x, storyIds) => (own(STORY_IN, x.verb) && x.a && storyIds && storyIds.has(storyId(STORY_IN[x.verb][0], x.a))
   ? storyId(STORY_IN[x.verb][0], x.a) : null);
-function targetOf(rule, x, id, hubs, storyIds) {
+function targetOf(rule, x, id, hubs, storyIds, canon) {
   if (x.verb === 'signal' && hubOf(hubs, x.a)) return hubOf(hubs, x.a);      // sending a signal (P3): into its hub
   if (storyTarget(x, storyIds)) return storyTarget(x, storyIds);
   if (x.area) return `${GROUP_KINDS.area}${rule}/${id}`;
   if (x.targetTag) return GROUP_KINDS.tag + x.targetTag;
   if (x.group) return pieceId('groups', x.group);         // a named group (P3): its own node
-  return x.target && !own(SPECIAL, x.target) ? thingId(x.target) : null;
+  return x.target && !own(SPECIAL, x.target) ? thingId(canon(x.target)) : null;
 }
-function actsOf(l, acts, prefix, hubs, storyIds) {
+function actsOf(l, acts, prefix, hubs, storyIds, canon) {
   const ids = actionIds(acts, prefix);
-  return acts.map((x, j) => ({ x, j, id: ids[j], wire: actId(l.id, ids[j]), node: targetOf(l.id, x, ids[j], hubs, storyIds),
-    pin: storyTarget(x, storyIds) ? STORY_IN[x.verb][1] : targetOf(l.id, x, ids[j], hubs, storyIds) ? 'in:' + verbKey(x) : null }));
+  return acts.map((x, j) => ({ x, j, id: ids[j], wire: actId(l.id, ids[j]), node: targetOf(l.id, x, ids[j], hubs, storyIds, canon),
+    pin: storyTarget(x, storyIds) ? STORY_IN[x.verb][1] : targetOf(l.id, x, ids[j], hubs, storyIds, canon) ? 'in:' + verbKey(x) : null }));
 }
-function ruleEntry(l, hubs, storyIds) {
-  return { l, id: l.id, node: ruleId(l.id), causes: causesOf(l, hubs, storyIds), acts: actsOf(l, list(l.do), 'a', hubs, storyIds),
-    otherwise: actsOf(l, list(l.else), 'e', hubs, storyIds), simple: isSimple(l) };
+function ruleEntry(l, hubs, storyIds, canon) {
+  return { l, id: l.id, node: ruleId(l.id), causes: causesOf(l, hubs, storyIds, canon), acts: actsOf(l, list(l.do), 'a', hubs, storyIds, canon),
+    otherwise: actsOf(l, list(l.else), 'e', hubs, storyIds, canon), simple: isSimple(l) };
 }
 
 // The Story's dialogues, InfoLinks and events as read-only nodes: their states (story-state.js reads them, one item
@@ -473,6 +502,16 @@ function stateIndex(ix) {
       if (kindOf(watch) === 'counter') add(watch.counter, 'int', 'readers', use);
       for (const n of formulaCounters(watch.value)) add(n, 'int', 'readers', use);
     }
+    // the conditions of its steps: an If, a Wait until, an action's own check, in its list and its Otherwise (13 Nov
+    // 2026, Deep Ops: "if RookGaveCode" on the keypad, and still "Nothing reads the state RookGaveCode")
+    for (const x of [...list(r.l.do), ...list(r.l.else)]) {
+      const use = { node: r.node, pin: null, rule: r.id, text: who };
+      for (const c of [...list(x && x.requires), ...(x && x.until && typeof x.until === 'object' ? [x.until] : [])]) {
+        if (kindOf(c) === 'flag') add(c.flag, 'bool', 'readers', use);
+        if (kindOf(c) === 'counter') add(c.counter, 'int', 'readers', use);
+        for (const n of formulaCounters(c && c.value)) add(n, 'int', 'readers', use);
+      }
+    }
     for (const act of [...r.acts, ...r.otherwise]) {
       const use = { node: r.node, pin: act.wire, rule: r.id, text: who };
       if (act.x.verb === 'flag') add(act.x.a, 'bool', 'setters', use);
@@ -483,16 +522,22 @@ function stateIndex(ix) {
   for (const s of ix.story) {
     // (a dialogue's Played and an InfoLink's Heard are set by the game itself: auto)
     const text = ix.ctx.name(s.node);
-    for (const st of s.states) for (const u of st.uses) add(st.flag, st.type, u.kind === 'read' ? 'readers' : 'setters', { node: s.node, pin: null, text, auto: u.kind === 'automatic' });
+    for (const st of s.states) {
+      for (const u of st.uses) add(st.flag, st.type, u.kind === 'read' ? 'readers' : 'setters', { node: s.node, pin: null, text, auto: u.kind === 'automatic' });
+      if (st.label && st.source === 'automatic' && st.uses.length) entry(st.flag, st.type).label ||= st.label;   // "Rook at the docks · Played"
+    }
   }
   // what the logic blocks keep in the flags: set as the map runs (automatic: not "never read" when nothing reads it)
   for (const k of list(ix.input.keeps)) {
-    if (!ix.gone.has(k.block)) add(k.name, k.type === 'int' ? 'int' : 'bool', 'setters', { node: own(ix.actors, k.block) ? k.block : null, pin: null, text: k.text || k.block, auto: true });
+    if (!ix.gone.has(k.block)) add(k.name, k.type === 'int' ? 'int' : 'bool', k.reads ? 'readers' : 'setters', { node: actorOf(ix, k.block) ? ix.canon(k.block) : null, pin: null, text: k.text || k.block, auto: !k.reads });
   }
   for (const st of list(ix.input.external)) {
     const elsewhere = list(st.uses).filter((u) => u.map !== (ix.input.map || ''));
     if (!elsewhere.length && flagCategory(st) !== 'original') continue;
     const e = entry(st.flag || st.name, st.type === 'int' ? 'int' : 'bool');
+    // a dialogue's Played, an InfoLink's Heard by its title, and the map it is on (13 Nov 2026, Deep Ops: the list said
+    // "UCEdc36e_i1_Heard")
+    if (st.label && st.source === 'automatic' && elsewhere.length) e.label ||= `${st.label} (${elsewhere[0].map})`;
     for (const u of elsewhere) e.elsewhere.push({ kind: u.kind === 'read' ? 'read' : 'write', text: `${u.context} (${u.map})` });
     if (!elsewhere.length) e.elsewhere.push({ kind: 'write', text: 'the original game' });
   }
@@ -511,15 +556,17 @@ function stateIndex(ix) {
 export function logicIndex(input) {
   const edits = input.edits || {}, logic = edits.logic || {}, links = list(edits.links).filter((l) => l.id), hubs = signalHubs(links, input.story);
   const actors = { ...hubActors(hubs, input.catalog), ...pieceActors(logic, input.catalog, input.tags, input.sets), ...storyActors(input.story), ...(input.actors || {}) };
-  const storyIds = new Set(Object.keys(storyActors(input.story)));
-  const ix = { input, catalog: input.catalog, vocab: vocabOf(input.catalog), argIds: argIdsOf(input.catalog), edits, logic, actors, ctx: contextOf(input, actors),
-    gone: new Set(Object.keys(edits.deleted || {})), off: new Set(Object.keys(edits.disabled || {}).filter((n) => edits.disabled[n])),
-    hubs, rules: links.map((l) => ruleEntry(l, hubs, storyIds)), story: storyEntries(input) };
+  const storyIds = new Set(Object.keys(storyActors(input.story))), canon = spellings(actors);
+  const ix = { input, catalog: input.catalog, vocab: vocabOf(input.catalog), argIds: argIdsOf(input.catalog), edits, logic, actors, canon, ctx: contextOf(input, actors, canon),
+    gone: new Caseless(Object.keys(edits.deleted || {})), off: new Caseless(Object.keys(edits.disabled || {}).filter((n) => edits.disabled[n])),
+    hubs, rules: links.map((l) => ruleEntry(l, hubs, storyIds, canon)), story: storyEntries(input) };
   ix.states = stateIndex(ix);
   return ix;
 }
+// what the page knows of an object (or an item of the logic): by its name, else in any letter case (spellings above)
+export const actorOf = (ix, name) => own(ix.actors, name) || (ix.canon ? own(ix.actors, ix.canon(name)) : undefined);
 // an object of the map (or an item of the logic) that is there: not deleted, known
-export const present = (ix, name) => !!own(ix.actors, name) && !ix.gone.has(name);
+export const present = (ix, name) => !!actorOf(ix, name) && !ix.gone.has(name);
 
 // ---------------------------------------------------------------- the graph
 // A condition chip: its words, the state or counter it reads and who sets it ({node, text}); amber (unset) when
@@ -607,7 +654,7 @@ const posOf = (ix, id) => own(own(own(ix.logic, 'view'), 'pos'), id) || null;
 function thingNode(ix, id) {
   if (id === 'world') return { id, kind: 'world', name: '', label: 'The map', word: '', family: 'world', pins: { out: [], in: [] }, pos: posOf(ix, id) };
   if (isGroup(id)) return { id, kind: 'group', unnamed: true, name: id, label: '', word: 'group', family: 'group', members: [], pins: { out: [], in: [] }, pos: posOf(ix, id) };
-  const name = id.startsWith(OBJECT) ? id.slice(OBJECT.length) : id, a = own(ix.actors, name) || {};
+  const name = id.startsWith(OBJECT) ? id.slice(OBJECT.length) : id, a = actorOf(ix, name) || {};
   return { id, kind: a.kind || 'thing', name, label: a.label || name, family: a.family || 'other',
     word: a.kind ? (own(ix.catalog.pieces, a.family) || {}).label || a.word || '' : ix.vocab.noun(a.family || 'other', ix.ctx.word(name)) || ix.ctx.word(name),
     missing: !present(ix, name), disabled: ix.off.has(name), at: a.at || null, members: a.members, item: a.item,
@@ -625,12 +672,12 @@ function usePin(node, side, key, label) {
 }
 // a pin's words: an item of the logic's own port words ("all done"), the vocabulary's for the rest
 // (a signal's hub: "it is sent" out, "send it" in)
-const pieceLabel = (ix, key, name, side) => { const a = own(ix.actors, name); return a && a.hub ? a.hub[side] : a && a.ports ? own(a.labels, key) : undefined; };
+const pieceLabel = (ix, key, name, side) => { const a = actorOf(ix, name); return a && a.hub ? a.hub[side] : a && a.ports ? own(a.labels, key) : undefined; };
 const outLabel = (ix, key, name) => pieceLabel(ix, key, name, 'out') || ix.vocab.whenLabel(key, name, ix.ctx);
 const inLabel = (ix, key, name) => pieceLabel(ix, key, name, 'in') || ix.vocab.inputLabel(key, name, ix.ctx);
 // the pins not in use, for "+ Show all": what it offers at the disclosure level (a script's own ports always)
 function allPins(ix, node, level) {
-  const a = own(ix.actors, node.name);
+  const a = actorOf(ix, node.name);
   if (!a || node.kind === 'world') return { out: [], in: [] };
   const shown = (kind, key) => key.includes(':') || ix.vocab.shownAt(kind, key, level);
   return { out: (a.outputs || []).filter((k) => shown('output', k)).map((key) => ({ id: 'out:' + key, key, label: outLabel(ix, key, node.name), used: false })),
@@ -653,10 +700,10 @@ function storyNode(s, ix) {
   const rows = s.acts.map((act) => ({ id: `${s.node}/${act.id}`, act: act.id, index: 0, time: 0, timeText: '',
     text: act.x.verb === 'talk' || act.x.verb === 'play' ? `${act.x.verb === 'talk' ? 'start' : 'play'} ${ix.ctx.name(act.x.target)}`
       : own(ix.catalog.inputs, act.x.verb) ? ix.vocab.actText(act.x, ix.ctx) : act.x.verb,
-    target: act.x.verb === 'signal' ? hubOf(ix.hubs, act.x.a) : act.x.target ? thingId(act.x.target) : null,      // a signal: its hub (P5)
+    target: act.x.verb === 'signal' ? hubOf(ix.hubs, act.x.a) : act.x.target ? thingId(ix.canon(act.x.target)) : null,      // a signal: its hub (P5)
     pin: act.x.target ? 'in:' + act.x.verb : null, key: act.x.verb, badges: [] }));
   return { id: s.node, kind: s.kind, word: own(ix.actors, s.node).word, readOnly: true, title: it.title || it.id, disabled: !!it.disabled, first: first ? first.text || '' : '',
-    owner: it.owner ? thingId(it.owner) : null, caller: it.name || it.caller || '',
+    owner: it.owner ? thingId(ix.canon(it.owner)) : null, caller: it.name || it.caller || '',
     cause: s.kind === 'storyrule' ? storyCause(it.when || {}, ix) : '', once: it.once !== false,
     checks: list(it.requires).map((c, i) => chipOf(c, i, ix)), rows,
     pins: { in: STORY_PINS[s.kind].filter(([id]) => id.startsWith('in:')).map(([id, label]) => ({ id, key: id.slice(3), label, used: true })),
@@ -760,7 +807,7 @@ function gameWires(ix, node, wires) {
     const id = `game:${w.from}>${w.to}:${w.why || ''}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    const from = thingId(w.from), to = thingId(w.to);
+    const from = thingId(ix.canon(w.from)), to = thingId(ix.canon(w.to));
     wires.push({ id, kind: 'wiring', readOnly: true, label: w.why || '', from: { node: from, pin: usePin(node(from), 'out', 'game', 'game wiring') },
       to: { node: to, pin: usePin(node(to), 'in', 'game', 'game wiring') } });
   }

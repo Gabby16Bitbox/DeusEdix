@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { HAND_ROWS, argRowsHtml, argDefaults, causeRowsHtml, causeDefaults, ruleOptionsHtml, optionsText, optionsSet, parseItems, itemsText,
-  WORLD_CAUSES } from '../editor/static/logic-rule-ui.js';
+  WORLD_CAUSES, goalNameFrom } from '../editor/static/logic-rule-ui.js';
 
 const logic = JSON.parse(readFileSync(new URL('../editor/config/logic.json', import.meta.url), 'utf8'));
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -29,8 +29,12 @@ test('the P4 verbs without a hand-made row are drawn from the catalogue', () => 
   const free = logic.free.filter((v) => !HAND_ROWS.has(v) && argsOf(v).length);
   assert.ok(free.includes('credits') && free.includes('spawn') && free.includes('hurtzone'), free.join(' '));
   const spawn = argRowsHtml(argsOf('spawn'), { a: 'DeusEx.MJ12Troop', b: '2', attack: true }, 3, h);
-  assert.match(spawn, /data-lkarg="3" data-k="a" value="DeusEx.MJ12Troop"/);
-  assert.match(spawn, /<datalist id="lk-pawns-3">/);
+  // a class of the list: chosen by its name ("MJ12 Troop"), another one typed (13 Nov 2026)
+  assert.match(spawn, /<select data-lkarg="3" data-k="a"[^>]*><option value="DeusEx.MJ12Troop" selected>MJ12 Troop<\/option>/);
+  assert.match(spawn, /<option value="@other">Another class/);
+  const other = argRowsHtml(argsOf('spawn'), { a: 'MyMod.Ninja', b: '1' }, 3, h);
+  assert.match(other, /data-lkarg="3" data-k="a" value="MyMod.Ninja"/);
+  assert.match(other, /<datalist id="lk-pawns-3">/);
   assert.match(spawn, /data-lkargb="3" data-k="attack" checked/);
   assert.match(spawn, /data-lkat="3" data-k="at"/);
   const fade = argRowsHtml(argsOf('fade'), { a: 'in' }, 0, h);
@@ -85,6 +89,25 @@ test("the rule's options: other causes, again, at most, apart, while the player 
   assert.match(html, /<option value="wait" selected>/);
   const o = optionsText(l, (c) => (c.src ? `When the player uses ${c.src}` : "When the player's health falls low"));
   assert.equal(o.also, " or when the player uses Button2 or when the player's health falls low");
-  assert.deepEqual(o.more, ['set off again: alongside', 'at most 3 times', 'at least 2.5 s apart', 'waits while the player talks']);
+  assert.deepEqual(o.more, ['set off again: runs alongside', 'at most 3 times', 'at least 2.5 s apart', 'waits while the player talks']);
   assert.deepEqual(optionsText({}, () => ''), { also: '', more: [] });
+});
+
+test('a place is named by what stands there, its numbers in its title; no name: the numbers', () => {
+  const x = { verb: 'spawn', at: [-1096, 848, 15] };
+  const args = [{ id: 'at', type: 'place', label: 'where' }];
+  const named = argRowsHtml(args, x, 2, { ...h, place: () => 'Path Node 3' });
+  assert.match(named, />Path Node 3</);
+  assert.match(named, /title="-1096, 848, 15"/);
+  assert.match(argRowsHtml(args, x, 2, h), />-1096, 848, 15</);
+  assert.match(argRowsHtml(args, { verb: 'spawn' }, 2, h), /\(click a place\)/);
+});
+
+test('a goal named from its text: the first words that say something, free among the others', () => {
+  assert.equal(goalNameFrom('Find the NSF shipping records in the warehouse.'), 'FindNsfShipping');
+  assert.equal(goalNameFrom('Survive the MJ12 ambush!'), 'SurviveMj12Ambush');
+  assert.equal(goalNameFrom('Find the NSF shipping records', new Set(['findnsfshipping'])), 'FindNsfShipping2');
+  assert.equal(goalNameFrom('Écoute la radio'), 'EcouteLaRadio');
+  assert.equal(goalNameFrom('42 crates to the dock'), 'CratesDock');
+  assert.equal(goalNameFrom('...'), '');
 });

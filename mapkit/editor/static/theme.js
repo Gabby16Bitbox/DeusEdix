@@ -1,5 +1,6 @@
 // Cosmetic preferences stay in the browser; they never become map edits.
 import './range-fill.js';
+import './select-search.js';
 const themePicker = document.getElementById('uitheme');
 const menus = [...document.querySelectorAll('.tool-menu')];
 

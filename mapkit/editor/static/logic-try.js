@@ -47,10 +47,13 @@ export function lineText(line, ctx = {}) {
   const { vocab, words, sentences = {}, player = '', rules = null } = ctx;
   const name = (n) => (words && words.name ? words.name(n) : n);
   const plain = (parts) => parts.map((p) => (typeof p === 'string' ? p : p.rule ? '' : name(p.name))).join('').replace(/\s+/g, ' ').trim();
-  const s = logicSentence(e, words ? { actor: name, item: words.itemName, storyTitle: words.storyTitle } : {});
+  const s = logicSentence(e, words ? { actor: name, item: words.itemName, storyTitle: words.storyTitle, phaseNames: words.phaseNames } : {});
   const out = { mark: s.mark || '', kind: e.kind, rule: e.rule || '', verb: e.verb || '', target: e.target || '' };
   if (e.kind === 'fire' && vocab) {
-    const said = sentences[e.rule] || e.label || `${name(e.source)} ${e.when}`;
+    // a "while" rule's end (links.py: <id>_until) by its rule's sentence now, not the label it was built with (13 Nov
+    // 2026: "When the player walks into the zone: sound the alarm (undone)" after "While the player is in Collision box")
+    const base = /^(.+)_until$/.exec(e.rule || ''), undone = base && sentences[base[1]] ? `${sentences[base[1]]} (undone)` : '';
+    const said = sentences[e.rule] || undone || e.label || `${name(e.source)} ${e.when}`;
     const other = e.by && e.by.toLowerCase() !== String(player).toLowerCase() && !/jcdenton/i.test(e.by), rule = /^UCLink_(\w+)$/i.exec(e.by || '');
     const by = !other ? '' : /^(UCEd_\w+|UCLink\d+)$/i.test(e.by) ? ' (set off by the Story)' : rule ? ` (set off by rule ${rule[1]})` : ` (set off by ${name(e.by)})`;
     return { ...out, text: capital(said) + by };
@@ -68,13 +71,24 @@ export function lineText(line, ctx = {}) {
     else x.target = e.target || '';
     if (DETAIL_IS_A.has(x.verb) && e.detail) x.a = e.detail;
     const step = stepOf(rules && rules[e.rule], x);
-    try { return { ...out, text: capital(vocab.actText(step ? { ...step, delay: 0 } : x, words)) }; } catch { /* a verb the vocabulary does not know: as the log says it */ }
+    try { return { ...out, text: capital(vocab.actText(step ? { ...shownStep(step), delay: 0 } : x, words)) }; } catch { /* a verb the vocabulary does not know: as the log says it */ }
   }
   return { ...out, text: capital(plain(s.parts)) };
 }
 
 // the step of a rule the game's log line is about: the same verb on the same object (and the same first value when the
 // log has it); null when the rule has none, or several that the line cannot tell apart
+// a step's texts as the game shows them (links.py _text, gametext.plain: no bar, no double quote, Latin-1 only; 13 Nov
+// 2026, Edge Lab: Try it said a new goal with the "|" and the "✓" the game shows as "/" and "?")
+const SHOWN_TEXTS = { goal: ['b'], message: ['a'], note: ['a'] };
+const PLAIN = { '“': '"', '”': '"', '‘': "'", '’': "'", '—': '-', '–': '-', '…': '...' };
+export const gameText = (s) => [...String(s ?? '').replace(/[\r\n]/g, ' ')].map((c) => PLAIN[c] ?? (c.codePointAt(0) > 255 ? '?' : c)).join('')
+  .replace(/"/g, "'").replace(/\|/g, '/');
+function shownStep(step) {
+  const out = { ...step };
+  for (const k of SHOWN_TEXTS[step.verb] || []) if (typeof out[k] === 'string') out[k] = gameText(out[k]);
+  return out;
+}
 function stepOf(rule, x) {
   if (!rule || x.targetTag) return null;
   const same = [...(rule.do || []), ...(rule.else || [])].filter((s) => s && s.verb === x.verb && low(s.target || '') === low(x.target || '')
@@ -161,9 +175,10 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
     </div>`;
   const $ = (s) => root.querySelector(s);
   let session = null, key = '', vocab = null, names = {}, labels = {}, options = {}, ruleIds = [], note = '';
-  let families = {}, items = {}, usable = {}, sentences = {}, heads = {}, ruleOf = {}, player = '', groups = {}, storyTitles = {};
+  let families = {}, items = {}, usable = {}, sentences = {}, heads = {}, ruleOf = {}, player = '', groups = {}, storyTitles = {}, phaseNames = {};
   let startName = '', derived = new Set();       // the start chosen ('' the map as it starts); the states Phases blocks keep
   let place = () => '';                          // "near a point": the object there (app.js lkPlaceName)
+  let placeName = null;                          // where a character is sent ("runs to Path Node 2", app.js lkPointName)
   let zoneName = (n) => n;                       // "in a zone": as the Logic window names it (app.js lkCondNames.zone)
   if (!starts) for (const el of root.querySelectorAll('.lt-start, [data-do=save], [data-do=playwith], .lt-div')) el.remove();
   const startNow = () => (starts && startName ? starts.get(startName) : null);
@@ -172,7 +187,8 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
   const words = () => ({ name: nameOf, portLabel: (n, k) => (labels[n] || {})[k] || k.split(':')[1] || '?',
     optionText: (l) => (options[l.src] || [])[+l.option || 0] || '', family: (n) => families[n] || 'other', word: () => '',
     usable: (n) => !!usable[n], itemName: (cls) => items[cls] || String(cls).split('.').pop(), groupName: (id) => groups[id] || '',
-    storyTitle: (key, id) => (storyTitles[key] || {})[id] || String(id), goalText: goalTexts(Object.values(ruleOf)) });
+    storyTitle: (key, id) => (storyTitles[key] || {})[id] || String(id), goalText: goalTexts(Object.values(ruleOf)), placeName,
+    phaseNames: (root) => phaseNames[String(root || '').toLowerCase()] || null });
   async function open() {
     const t = await trial();
     if (startName && !startNow()) startName = '';          // deleted in the Play window
@@ -186,7 +202,9 @@ export function createLogicTry({ root, trial, status = () => {}, starts = null }
     vocab = vocabulary(t.catalog);
     families = t.families || {}; items = t.items || {}; usable = t.usable || {}; player = t.world?.player || ''; groups = t.groups || {};
     storyTitles = t.storyTitles || {};
+    phaseNames = t.phaseNames || {};
     place = t.place || (() => '');
+    placeName = typeof t.placeName === 'function' ? t.placeName : null;
     zoneName = t.zone || ((n) => n);
     // each rule as it says itself now, and by what sets it off (Why not?'s list)
     sentences = {}; heads = {}; ruleOf = {};

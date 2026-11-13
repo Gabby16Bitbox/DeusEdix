@@ -11,9 +11,9 @@ import { mountConditions, conditionText, conditionProblem, kindOf, CONDITION_KIN
 import { isFormula, valueText as amountText, formulaProblem } from './logic-numbers.js';   // (multi-edit.js has a valueText)
 import { stepsOf, lastTime, setWait, canOtherwise, otherwiseOf, syncOtherwise, newOtherwise, groupSteps, toSteps, addFlow, removeStep,
   moveStep, stepsText, negate } from './action-list.js';
-import { HAND_ROWS, HAND_CAUSES, WORLD_CAUSES, GAME_WORLD, PLAYER_CAUSES, argRowsHtml, argDefaults, causeRowsHtml, causeDefaults, ruleOptionsHtml, optionsText,
+import { HAND_ROWS, HAND_CAUSES, WORLD_CAUSES, GAME_WORLD, PLAYER_CAUSES, goalNameFrom, argRowsHtml, argDefaults, causeRowsHtml, causeDefaults, ruleOptionsHtml, optionsText,
   parseItems, itemsText, signalsOf } from './logic-rule-ui.js';
-import { vocabulary, goalTexts } from './logic-vocab.js';
+import { vocabulary, goalTexts, namesItself } from './logic-vocab.js';
 import { ensureActionIds, logicIndex, actionIds } from './logic-graph-model.js';
 import { logicProblems } from './logic-graph-problems.js';
 import { applyOps, ghostIds, newProblems, mainHappening, simulate, trialWords, BLOCK_CLASSES } from './logic-propose.js';
@@ -97,6 +97,7 @@ import { nextGridStep, dragSnap, surfaceOnGrid, pushMove } from './grid-snap.js'
 import { createViewGrid } from './view-grid.js';
 import { createShapeEditor } from './shape-editor.js';
 import { createMeasure, floatingLabel } from './measure.js';
+import { measureOpening, fillBox, mappingFromNums, mappingFromTriangle, uvAt, LOOK_FLAGS } from './close-opening.js';
 import { stackKeys, createPickCycle, invertPick, createSelectionHistory } from './selection-tools.js';
 import { createSceneVisibility } from './scene-visibility.js';
 import { HIER_FOLDERS, ICON_KINDS, SHOW_KINDS, SHOW_KIND, KIND_STATES, ZONE_CLASSES, classKind, showKindOf, createKindFilter } from './scene-kinds.js';
@@ -3425,6 +3426,7 @@ async function dressBlock(g) {
   if (!look || g.userData.dressTurn !== turn || g.userData.box !== b || b.tex !== tex || g.parent !== proxies || liveBlocks.canFollow(b) || builtBoxes.get(b.name) === boxSig(b)) return;
   g.geometry.dispose();
   g.geometry = blockGeometry(THREE, b, look.tile);
+  matchedUVs(g, b);
   if (!g.userData.dressed) g.userData.plain = g.material;
   delete g.userData.matBase;
   g.material = new THREE.MeshBasicMaterial({ map: look.map, color: 0xd9d9d9, alphaTest: look.masked ? 0.5 : 0,
@@ -3433,6 +3435,26 @@ async function dressBlock(g) {
   setMeshLight(g);
   liveBlocks.sync(proxies.children);
   wake();
+}
+
+// a fill of an opening (Close an opening, blocks.py matched) before its Rebuild: the faces that lie as the wall
+// round it with that wall's texture coordinates (a face with another texture than the block's shows the block's)
+function matchedUVs(g, b) {
+  if (!Array.isArray(b.match) || !b.match.length || (b.matchOf || '') !== (b.tex || '')) return;
+  g.updateMatrixWorld(true);
+  const pos = g.geometry.attributes.position, uv = g.geometry.attributes.uv, c = g.getWorldPosition(new THREE.Vector3());
+  const C = [c.x, c.z, c.y], at = (i) => { const p = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(g.matrixWorld); return [p.x, p.z, p.y]; };
+  for (let i = 0; i + 2 < pos.count; i += 3) {
+    const P = [at(i), at(i + 1), at(i + 2)], e1 = addK(P[1], P[0], -1), e2 = addK(P[2], P[0], -1);
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const l = Math.hypot(...n) || 1, mid = P.reduce((s, p) => addK(s, p, 1 / 3), [0, 0, 0]);
+    n = n.map((x) => x / l);
+    if (n[0] * (mid[0] - C[0]) + n[1] * (mid[1] - C[1]) + n[2] * (mid[2] - C[2]) < 0) n = n.map((x) => -x);
+    const m = b.match.find((x) => Array.isArray(x.n) && x.n[0] * n[0] + x.n[1] * n[1] + x.n[2] * n[2] > 0.999);
+    if (!m || shortTex(m.tex).toLowerCase() !== shortTex(b.tex).toLowerCase()) continue;
+    for (let j = 0; j < 3; j++) { const [u, v] = uvAt(m, P[j]); uv.setXY(i + j, u, -v); }
+  }
+  uv.needsUpdate = true;
 }
 
 // a drawing (Tools > Draw) until a Rebuild, as a block: its faces with their textures as the build will map them
@@ -4011,8 +4033,93 @@ function texturePickClick(e) {
   endTexturePick(name);
 }
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && texturePicking) { e.stopPropagation(); e.preventDefault(); endTexturePick(null); status('Taking a texture cancelled.'); } }, true);
+// Tools > Close an opening (close-opening.js; Gabby, 13 Nov 2026: "we open walls with holes, can we close them,
+// taking the texture around?"): a click inside a doorway, a window or a hole in a floor or ceiling of the map makes a
+// solid block that fills it, its front and back laid as the wall round it (blocks.py matched). Shift+click: another.
+let fillPicking = false;
+function startCloseOpening() {
+  if (!script || mapLoading || gameView?.active) { status('Open a map (and stop Play) to close an opening.', 'warn'); return; }
+  if (waitsForRebuild()) return;
+  cancelPlacing();
+  endTexturePick(null);
+  if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
+  fillPicking = true;
+  canvas.style.cursor = 'crosshair';
+  status('Click inside the opening to close: a doorway, a window, a hole in a floor or a ceiling  (Esc cancels)');
+}
+function endCloseOpening() { if (fillPicking) { fillPicking = false; canvas.style.cursor = ''; } }
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && fillPicking) { e.stopPropagation(); e.preventDefault(); endCloseOpening(); status('Close an opening cancelled.'); } }, true);
+const addK = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];      // a + k b (Close an opening)
+// the nearest surface of the built map facing a ray, in Unreal units: { d, n, p, hit } (close-opening.js casts it)
+function castMap(from, dir, far = Infinity) {
+  const d = T(dir).normalize();
+  ray.set(T(from), d);
+  ray.far = far;
+  try {
+    for (const h of visibleHits(ray.intersectObjects(worldMeshes, false))) {
+      if (!h.face) continue;
+      // the view's triangles turn the other way round (the game's axes, mirrored in three.js: measured 13 Nov 2026
+      // on floors, ceilings, walls and blocks), so a surface faces out of its triangle's back; a model mirrored too
+      const n = h.face.normal.clone().transformDirection(h.object.matrixWorld).negate();
+      if (h.object.matrixWorld.determinant() < 0) n.negate();
+      if (n.dot(d) >= 0) continue;                // its back: the game's surfaces have one side
+      return { d: h.distance, n: [n.x, n.z, n.y], p: [h.point.x, h.point.z, h.point.y], hit: h };
+    }
+    return null;
+  } finally { ray.far = Infinity; }
+}
+// what a face beside the opening gives the fill: its texture (a queued change too), its look flags and its
+// mapping as built (the build's numbers, else from the triangle the view draws)
+function openingFace(h, n) {
+  const hit = h.hit, face = surfaceTools.faceAt(hit);
+  const tex = shortTex((face && (surfaceTools.textureOf(face) || face.tex)) || hit.object.userData.tex || '');
+  if (!tex || tex.toLowerCase() === 'none') return null;
+  let map = face?.map ? mappingFromNums(face.map) : null;
+  if (!map) {
+    const g = hit.object.geometry, pos = g.attributes.position, uv = g.attributes.uv, idx = [hit.face.a, hit.face.b, hit.face.c];
+    const P = idx.map((i) => { const p = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(hit.object.matrixWorld); return [p.x, p.z, p.y]; });
+    const info = mapTex?.[hit.object.userData.tex] || {};
+    if (uv) map = mappingFromTriangle(P, idx.map((i) => [uv.getX(i), uv.getY(i)]), info.w || 128, info.h || 128);
+  }
+  if (!map) return null;
+  const r = (x) => Math.round(x * 1e5) / 1e5;
+  return { n, tex, flags: ((face ? face.flags : hit.object.userData.flags) || 0) & LOOK_FLAGS,
+    o: map.o.map(r), u: map.u.map(r), v: map.v.map(r), w: map.w, h: map.h };
+}
+function closeOpeningClick(e) {
+  const r = mouseRay(e), o = r.ray.origin.clone(), dv = r.ray.direction.clone();
+  const m = measureOpening(castMap, [o.x, o.z, o.y], [dv.x, dv.z, dv.y]);
+  if (!m.ok) { status(m.why + '  (Esc ends)', 'warn'); return; }
+  // a hole the editor cut: closing it is deleting it (or making it smaller)
+  const inside = addK(m.C, m.n, -m.depth / 2);
+  const own = edits.boxes.find((b) => b.hole && !(b.rot || []).some(Boolean) && [0, 1, 2].every((k) => inside[k] > b.lo[k] - 2 && inside[k] < b.hi[k] + 2));
+  if (own) {
+    const p = proxies.children.find((x) => x.userData.box === own);
+    if (p) select(p);
+    endCloseOpening();
+    status(`This opening is the editor's hole ${own.name}: delete it (Del) to close it, or make it smaller (${menuKey('scale')}).`, 'warn');
+    return;
+  }
+  const box = fillBox(m, YAW);
+  const front = m.frontHit && openingFace(m.frontHit, m.n), back = m.backHit && openingFace(m.backHit, m.n.map((x) => -x));
+  pushUndo('Close an opening');
+  const b = { name: nextName('UCEditBox'), label: 'Fill', lo: box.lo, hi: box.hi, tex: front?.tex || back?.tex || lastBlockTex, solid: true };
+  if (box.rot) b.rot = box.rot;
+  const match = [front, back].filter(Boolean);
+  if (match.length) { b.match = match; b.matchOf = b.tex; }
+  edits.boxes.push(b);
+  intoDefaultFolder(['b:' + b.name]);
+  setDirty();
+  select(makeBoxProxy(b));
+  if (!e.shiftKey) endCloseOpening();
+  const size = `${Math.round(m.sides.left + m.sides.right)} x ${Math.round(m.sides.down + m.sides.up)}, ${Math.round(m.depth)} deep`;
+  const missing = !front ? ` No wall face beside it to take the texture from: it has ${b.tex}.`
+    : !back ? " Nothing behind the wall to take the back from: the back has the block's own mapping." : '';
+  log(`Closed an opening ${size}: a block "Fill" that continues ${front ? front.tex : 'the wall'}${back && back.tex !== front?.tex ? ' (behind: ' + back.tex + ')' : ''} as the wall lies. Rebuild to see it as the game will.${missing}`, missing ? 'warn' : 'ok');
+}
 function pick(e) {
   if (texturePicking) return void texturePickClick(e);           // the texture picker's dropper: a click is a texture
+  if (fillPicking) return void closeOpeningClick(e);             // Close an opening: the click is inside the opening
   if (measure?.active) return void measure.click(e);            // Measure: a click is a point
   if (vertexEdit?.active) return void vertexEdit.click(e);      // Edit vertices: a click picks a corner
   if (textureTransfer?.armed) return void textureTransfer.paint(e);
@@ -4894,6 +5001,7 @@ function logicEditOf() {
     return false;
   };
   const edit = {
+    map: () => script || '',                       // the open map (the side panel closes when another one opens)
     // L1, the side panel: a rule's form (as the List draws it), or an object's rules with "+ When it…" ('' the map's)
     async panel(host, { rule = '', name = '' } = {}, again = () => {}) {
       if (rule) {
@@ -4905,6 +5013,7 @@ function logicEditOf() {
         return;
       }
       await logicListView(host, name, null, again);
+      await lkBlockSettings(host, name);
     },
     // what can happen: to an object (its outputs), or in the map, to the player, in the world (name '')
     async whens(name) {
@@ -4936,7 +5045,12 @@ function logicEditOf() {
     },
     // the steps with no object (a state, a goal, a message...), in the List's groups
     free() {
-      return groupSteps(lkFreeVerbs).flatMap(([title, verbs]) => verbs.map((v) => ({ id: 'free:' + v, label: (LK_VERBS[v] || [v])[0], group: title, data: { verb: v } })));
+      const sets = lkPhaseSets().filter((s) => s.phases.length);
+      // the map's phases first (as the List's "Mission phases"), a step on their Phases block
+      const phases = sets.flatMap((s) => s.phases.map((p) => ({ id: `phase:${s.name}:${p.id}`, group: 'Mission phases',
+        label: `Go to the phase '${p.text}'` + (sets.length > 1 ? ` (${s.stateName})` : ''), words: ['phase', s.stateName],
+        data: { target: s.name, verb: 'input:GoTo_' + p.id } })));
+      return phases.concat(groupSteps(lkFreeVerbs).flatMap(([title, verbs]) => verbs.map((v) => ({ id: 'free:' + v, label: (LK_VERBS[v] || [v])[0], group: title, data: { verb: v } }))));
     },
     // "When all of these", "When any of these", "When at least N of these" on objects picked in the graph (12 Nov
     // 2026: the graph had no way to make an All of these block)
@@ -4944,7 +5058,47 @@ function logicEditOf() {
     several(kind, names) { return whenSeveral(kind, names.map((n) => lkActor(n)).filter(Boolean), null); },
     // the map's objects, by the Hierarchy's names
     async objects() {
-      return (await lgObjectsOf()).map((o) => ({ id: 'obj:' + o.name, label: o.label, data: { object: o.name } }));
+      // (an object remembered in the menus' Recent by its map too: 13 Nov 2026, UCEdit1 picked on one map came first on
+      // the next, another object under the same name)
+      return (await lgObjectsOf()).map((o) => ({ id: `obj:${script}:${o.name}`, label: o.label, data: { object: o.name } }));
+    },
+    // the logic blocks of Objects > Logic, and the Timer, to put in the map from the graph (13 Nov 2026: a Phases or
+    // a First of block could only be placed from the Browser, the graph's menu found nothing)
+    blocks() {
+      const items = (palette || []).flatMap((c) => (c.category === 'Logic' ? c.items || [] : (c.items || []).filter((it) => it.cls === 'UCTimer')));
+      return items.map((it, k) => {
+        const m = /^([^(]+?)\s*\((.*)\)\s*$/.exec(it.name || '') || [null, it.name || it.cls, ''];
+        return { id: 'block:' + it.cls + ':' + k, label: `${m[1]} block`, hint: m[2] ? m[2][0].toUpperCase() + m[2].slice(1) : '',
+          words: ['block', 'logic', it.cls, it.cls.replace(/^UCB?/, '')], data: { block: k } };
+      });
+    },
+    // one placed in the map (beside the other blocks, else beside the player's start), selected. -> its name, or null
+    addBlock(k) {
+      const items = (palette || []).flatMap((c) => (c.category === 'Logic' ? c.items || [] : (c.items || []).filter((it) => it.cls === 'UCTimer')));
+      const it = items[k];
+      if (!it || !script || waitsForRebuild()) return null;
+      const actors = allActors().filter((a) => a.loc && !(edits.deleted || {})[a.name]);
+      const blocks = actors.filter((a) => /^(UCB\w+|UCTimer)$/.test(a.cls));
+      const start = actors.find((a) => a.cls === 'PlayerStart');
+      let at;
+      if (blocks.length) { const b = blocks[blocks.length - 1].loc; at = [b[0] + 48, b[1], b[2]]; }
+      else if (start) at = [start.loc[0] + 64, start.loc[1] + 64, start.loc[2]];
+      else at = UE(camera.position);
+      startPlacing(placingOf(it));
+      try { placeWith({ p: T(at), n: new THREE.Vector3(0, 1, 0), hit: T(at), tex: null }, { quiet: true }); }
+      finally { cancelPlacing(); }
+      const name = selected ? (selected.userData.actor || {}).name : '';
+      // a Phases block of a project with one set of mission phases: that set (the phases go on from map to map),
+      // part of the same undo step; the Inspector's Mission phases puts "(this map only)" back
+      let set = null;
+      if (name && it.cls === 'UCBPhases' && missionSets.length === 1) {
+        set = missionSets[0];
+        linkBlock(edits, name, set.id, missionSets);
+        setDirty(); missionSynced();
+      }
+      if (name) status(`Placed ${it.name.replace(/\s*\(.*$/, '')} beside ${blocks.length ? 'the other blocks' : 'the player\'s start'}`
+        + (set ? `, with the mission phases ${set.name} (${set.phases.join(', ')})` : '') + ': its settings are in the Inspector.', 'ok');
+      return name || null;
     },
     // a new rule: on `when` of the object (or of the map), with a first step when given ({target, verb} or {verb}).
     // -> its id, or null
@@ -5225,14 +5379,19 @@ function logicWorld(input, compiled) {
       do: (il.do || []).filter((a) => a && !(a.type === 'infolink' && a.infolink === il.id)) })),
     talks: Object.fromEntries(talking.map((d) => [d.id, { id: d.id, title: d.title || d.id, owner: d.owner || '',
       start: d.start || 'talk', once: d.once !== false, requires: d.requires || [], steps: d.steps || [] }])) };
+  // a deleted object the rules still name: by what it was called (logicInput goneLabels), as the problems say it
+  for (const [n, l] of Object.entries(input.goneLabels || {})) if (!names[n]) names[n] = `${l} (deleted)`;
   return { compiled, world: { player: 'JCDentonMale0', actors, ...(story ? { story } : {}) }, catalog: input.catalog, names, labels, options, families,
     rules: edits.links || [], items: input.items, usable: edits.usable || {}, map: mapName || 'Map',
     groups: Object.fromEntries(lgGroups().map((g) => [g.id, g.name])),
     place: lkPlaceName,                       // "near a point": the object there (Try it's places)
+    placeName: lkPointName,                   // where a character is sent: "runs to Path Node 2" (13 Nov 2026)
     zone: lkCondNames.zone,                   // "in a zone": its name (Try it's player rows, P9)
     // the Story's titles (P5): a dialogue, an InfoLink said by its title in Try it's lines
     storyTitles: Object.fromEntries(['dialogues', 'infolinks'].map((k) => [k, Object.fromEntries(((input.story || {})[k] || [])
       .filter((x) => x && x.id).map((x) => [x.id, x.title || x.id]))])),
+    // each Phases block's phases by its counter (lower case), for "it works only in Extract of DeepOp" (13 Nov 2026)
+    phaseNames: Object.fromEntries(lkPhaseSets().map((s) => [s.stateName.toLowerCase(), s.phases.map((p) => p.text)])),
     key: `${mapName}:${editRevision}` };
 }
 // The Logic window's names for things (logic-window.js): as the Hierarchy calls them (objectLabel: "Keypad", "Officer
@@ -5274,8 +5433,9 @@ async function logicInput() {
   for (const [n, a] of found) {
     const io = lkIo(a), family = io.family;
     actors[n] = { family, cls: a.cls, chain: chainNow[a.cls] || [a.cls], title: friendly[n], label: friendly[n], at: a.loc,
-      outputs: lkEventsOf(a).concat(edits.usable?.[n] ? ['used'] : []),
-      inputs: (edits.motions?.[n] ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(a)),
+      // (by the rule's spelling or the built one: 'BtnAugs' found as 'btnAugs', lkActor)
+      outputs: lkEventsOf(a).concat(edits.usable?.[n] || edits.usable?.[a.name] ? ['used'] : []),
+      inputs: (edits.motions?.[n] || edits.motions?.[a.name] ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(a)),
       labels: io.labels || {}, ...(io.carries ? { carries: io.carries } : {}) };      // outputs with a number (P8 5b)
     if (family === 'computer') actors[n].options = lkOptions(a).map((o) => structShown(new Map(o.pairs).get('Text') || ''));
     if (a.cls === 'UCBPhases') Object.assign(actors[n], lkPhaseSet(a));          // its phases (P3: rules kept to some)
@@ -5305,8 +5465,33 @@ async function logicInput() {
   // the map's Story (P5): its dialogues and InfoLinks are nodes a rule can start or play
   const storyKit = window.__story, story = storyKit ? await storyKit.ensure().then((ok) => (ok ? storyKit.data() : null), () => null) : null;
   if (story) lkStoryFor = script;
-  return { catalog: logicVocab, edits: ed, actors, items, tags, tagFamilies, sets, labelsOf, map: mapName || '', keeps,
+  const external = await lkStateCatalog();
+  // what the deleted objects the rules still name were called (13 Nov 2026: "UCEdit14 is not in the map any more" for
+  // the Gate just deleted): its own name, else its kind as words
+  const goneLabels = {};
+  for (const n of names.filter((x) => !lkActor(x))) {
+    const a = allActors().find((x) => x.name === n);
+    if (!a) { if (lkGoneLabels.has(n)) goneLabels[n] = lkGoneLabels.get(n); continue; }
+    const l = unquote(actorProp(a, 'FamiliarName') || '').trim() || LK_KIND[lkCatOf(a)] || hierLabel(a) || '';
+    if (l) goneLabels[n] = /\s/.test(l) ? l : l.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+  }
+  return { catalog: logicVocab, edits: ed, actors, items, tags, tagFamilies, sets, labelsOf, map: mapName || '', keeps, placeName: lkPointName,
+    goneLabels, ...(external ? { external } : {}),
     ...(story ? { story, storyFlags: storyKit.storyFlags ? storyKit.storyFlags() : undefined } : {}) };
+}
+// The project's states and where its maps use them (/api/state_catalog, statecatalog.py), for the graph's model: a
+// state set on another map of the mission is not "never set" here (13 Nov 2026: the docks' "if NavarreDead" said
+// "Nothing sets the state NavarreDead", which the warehouse sets). Kept a few seconds; a save asks again.
+let lkCatalogNow = { at: 0, flags: null, map: '' };
+async function lkStateCatalog() {
+  const now = Date.now();
+  if (lkCatalogNow.flags && lkCatalogNow.map === script && now - lkCatalogNow.at < 8000) return lkCatalogNow.flags;
+  try {
+    const r = await fetch('/api/state_catalog');
+    const flags = r.ok ? (await r.json()).flags : null;
+    lkCatalogNow = { at: now, flags: Array.isArray(flags) ? flags : null, map: script };
+  } catch { lkCatalogNow = { at: now, flags: null, map: script }; }
+  return lkCatalogNow.flags;
 }
 // The flags a logic block keeps as it runs (statecatalog.collect_edits): a Phases block its number and a state per
 // phase, At least N its state (when named), a Counter its number (its StateName, else its own name: UCBCounter.Root)
@@ -5316,7 +5501,11 @@ function lkKeeps(a) {
     const { stateName, phases } = lkPhaseSet(a);
     return [{ name: stateName, type: 'int' }, ...phases.map((p) => ({ name: `${stateName}_${p.id}`, type: 'bool' }))];
   }
-  if (a.cls === 'UCBAtLeast') return blockFlagName(text('StateName')) ? [{ name: blockFlagName(text('StateName')), type: 'bool' }] : [];
+  if (a.cls === 'UCBAtLeast') {
+    // and the states it counts, read ("!Name": while No; 13 Nov 2026: each said "Nothing reads the state PowerA")
+    const reads = [...new Set(text('States').split(',').map((x) => x.trim().replace(/^!\s*/, '')).filter(Boolean))].map((name) => ({ name, type: 'bool', reads: true }));
+    return [...(blockFlagName(text('StateName')) ? [{ name: blockFlagName(text('StateName')), type: 'bool' }] : []), ...reads];
+  }
   if (a.cls === 'UCBCounter') return [{ name: blockFlagName(text('StateName')) || blockFlagName(a.name), type: 'int' }];
   return [];
 }
@@ -6341,12 +6530,19 @@ function confirmRuleLoss(ps) {
   if (!names.size) return true;
   const hit = lkList().filter((l) => logicNames([l]).some((n) => names.has(n)));
   if (!hit.length) return true;
-  const list = [...names], who = list.slice(0, 3).join(', ') + (list.length > 3 ? ` and ${list.length - 3} more` : '');
+  // by the names the Logic window gives them ("Gate", not "UCEdit14"; 13 Nov 2026)
+  const list = [...names], said = list.slice(0, 3).map((n) => { try { return lkName(n); } catch { return n; } }).join(', ');
+  const who = said.charAt(0).toUpperCase() + said.slice(1) + (list.length > 3 ? ` and ${list.length - 3} more` : '');
   const ids = hit.slice(0, 12).map((l) => l.id).join(', ') + (hit.length > 12 ? ` and ${hit.length - 12} more` : '');
-  return confirm(`${who} ${list.length === 1 ? 'is' : 'are'} used by ${hit.length === 1 ? 'rule' : 'rules'} ${ids}. ` +
+  const yes = confirm(`${who} ${list.length === 1 ? 'is' : 'are'} used by ${hit.length === 1 ? 'rule' : 'rules'} ${ids}. ` +
     `Without ${list.length === 1 ? 'it' : 'them'} ${hit.length === 1 ? 'that rule does' : 'those rules do'} nothing ` +
     '(Window > Logic shows what is missing). Delete anyway?');
+  // what they were called, for the problems the rules have without them (an object added in the editor leaves nothing
+  // in the edits once deleted): logicInput's goneLabels
+  if (yes) for (const n of list) { try { lkGoneLabels.set(n, lkName(n)); } catch { /* named as it is */ } }
+  return yes;
 }
+const lkGoneLabels = new Map();
 function duplicateSelected({offset = 48, prepared = null} = {}) {
   if (!selected || !requireUnlocked()) return false;
   const all = selected === groupPivot ? members() : [selected];
@@ -8676,16 +8872,35 @@ function hierRangeTo(key) {
 // a class as DeusEdix shows it: its runtime classes still carry the "UC" prefix (renamed later)
 // a class as people read it: no package (a script of Tools > Scripts is "Pkg.Name", a project's Pkg a made-up id)
 function clsShown(c) { const s = String(c || '').split('.').pop(); return STANDALONE ? s.replace(/^UC(?=[A-Z])/, '') : s; }
+// a timer's HUD label ('the timer "Jock arrives"'), a counter's state ("the counter LabKills"), unless it has a name of
+// its own (FamiliarName, or one given in the editor): '' otherwise
+function lkKeptName(a) {
+  if (!a || unquote(actorProp(a, 'FamiliarName') || '').trim() || ((edits && edits.editorNames) || {})[a.name]) return '';
+  if (a.cls === 'UCTimer') { const hud = unquote(actorProp(a, 'HUDLabel') || '').trim(); return hud && hud !== 'Time left' ? `the timer "${hud}"` : ''; }   // (the label a new timer has: numbered as before)
+  if (a.cls === 'UCBCounter') { const st = unquote(actorProp(a, 'StateName') || '').trim(); return st && st !== 'None' ? `the counter ${st}` : ''; }
+  return '';
+}
 function hierLabel(a) {
+  // a name given in the editor to an object the game cannot name (a path node: no FamiliarName), edits.editorNames
+  const given = ((edits && edits.editorNames) || {})[a.name];
+  if (given) return given;
   if (a.cls === 'PatrolPoint' && tagOf(a) && tagOf(a) !== 'None') return 'Patrol point ' + tagOf(a);
   if (a.cls === 'UCCutscene') return 'Cutscene ' + (((edits.cutscenes || {})[a.name] || {}).title || '');
   if (a.cls === 'UCMeshDeco') {             // a model of the Models tab: its name, else its mesh
     const own = unquote(actorProp(a, 'ItemName') || ''), mesh = meshOf(a).split('.').pop().replace(/^UCM_/, '');
     return own && own !== 'Object' ? own : mesh || 'Model';
   }
+  { const kept = lkKeptName(a); if (kept) return kept.replace(/^the /, '').replace(/^./, (c) => c.toUpperCase()); }
+  // a Phases block by the name its phases are kept under ("NavarreHunt phases"), the default "Phase" as before
+  if (a.cls === 'UCBPhases') { const n = lkPhaseSet(a).stateName; if (n && n !== 'Phase') return n + ' phases'; }
   const made = /Scripts\.UC([WA])_(\w+)$/.exec(a.cls || '');                    // Tools > Weapons
   if (made) return (made[1] === 'W' ? 'Weapon ' : 'Ammo ') + made[2];
   if (/Scripts\.\w+$/.test(a.cls || '')) return 'Script ' + clsShown(a.cls);      // Tools > Scripts
+  // a map exit by where it goes (13 Nov 2026: "Teleporter 1" and "Teleporter 2" in the rules, which one went where?)
+  if (/^(Teleporter|MapExit)$/.test(clsShown(a.cls || ''))) {
+    const to = unquote(actorProp(a, a.cls === 'MapExit' ? 'DestMap' : 'URL') || '').split('#')[0].split('?')[0].trim();
+    if (to) return 'Exit to ' + to;
+  }
   const own = unquote(actorProp(a, 'FamiliarName') || '');
   const s = own || NAMES[a.cls] || a.label || clsShown(a.cls).replace(/([a-z])([A-Z0-9])/g, '$1 $2');
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -9781,6 +9996,13 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
     setDirty();
     select(makeProxy(Object.assign({ kind: addedKind(placing.cls) }, e2, { light: isLight ? { hue: 32, sat: 160 } : null }), 'added'));
     if (placing.preset && 'URL' in placing.preset) log('Map exit placed: choose where it leads in its Properties (Leads to).', 'ok');
+    // a Phases block of a project with one set of mission phases takes that set, however it is placed (13 Nov 2026,
+    // Deep Ops: only the graph's menu linked it; Objects > Logic and the assistant's place_object left "Start, Middle, End")
+    if (placing.cls === 'UCBPhases' && missionSets.length === 1) {
+      linkBlock(edits, e2.name, missionSets[0].id, missionSets);
+      missionSynced();
+      log(`Phases linked to the mission phases ${missionSets[0].name} (${missionSets[0].phases.join(', ')}): the Inspector's Mission phases sets it to this map only.`, 'ok');
+    }
     // particles of a preset with a colour of its own (data.py PARTICLE_COLOURS: the tear gas, whose texture the game
     // draws almost unseen): that colour at once (a texture of the map's own, as the Particles section's Colour)
     if (placing.colour && isParticleClass(placing.cls)) {
@@ -9821,6 +10043,7 @@ function itemProps(item) {
 }
 $('#addbox').onclick = () => startPlacing({ box: true, size: [128, 128, 16], tex: 'ClenGreyCncrt_A' }, $('#addbox'));
 for (const b of document.querySelectorAll('[data-draw]')) b.onclick = () => startDraw(b.dataset.draw, b);
+$('#addfill').onclick = () => startCloseOpening();
 $('#addhole').onclick = () => {
   startPlacing({ box: true, hole: true, size: [64, 64, 112] }, $('#addhole'));
   status('Click a wall for a doorway (on the floor below), a floor for a pit, a ceiling for an opening (Esc cancels)');
@@ -12773,10 +12996,11 @@ function lkUntilStoryRow(j, u) {
 const lkStoryTitle = (key, id) => { const it = (lkStoryList(key) || []).find((x) => x.id === id); return it ? it.label : String(id || '?'); };
 const lkVocabCtx = () => ({ name: lkName, family: (n) => lkCatOf(lkActor(n)), itemName: lkCondNames.item, names: lkCondNames,
   ruleLabel: (id) => (lkGet(id) ? `rule ${id}` : String(id || '?')), portLabel: lkPortLabel, usable: (n) => !!(edits.usable || {})[n],
-  groupName: (id) => lgGroup(id)?.name || '', storyTitle: lkStoryTitle, goalText: goalTexts(edits.links) });
+  groupName: (id) => lgGroup(id)?.name || '', storyTitle: lkStoryTitle, goalText: goalTexts(edits.links), placeName: lkPointName });
 const lkArgsOf = (verb) => (lkVocab ? lkVocab.args('verb', verb) : []);
 // an action's object that is no object of the map: what set the run off, the object it happened to (UCRule)
-const LK_SPECIAL = { '@by': 'whoever set it off', '@it': 'the object it happened to' };
+// the player as Try it names it (logicWorld's player; 13 Nov 2026, Deep Ops: "by JCDentonMale0")
+const LK_SPECIAL = { '@by': 'whoever set it off', '@it': 'the object it happened to', JCDentonMale0: 'the player' };
 const lkMoreOpen = new Set();                  // the rules whose "More options" are open (drawn again open)
 // a rule made a list of steps (an If, a Wait until): its Otherwise too, its times as Waits (action-list.js toSteps)
 function lkStepsToo(l) { if (!l.steps && !l.elseOf && l.else) { const t = { do: l.else }; toSteps(t); l.else = t.do; } }
@@ -12850,7 +13074,9 @@ function lkPhaseRowHtml(l) {
   const opts = '<option value="">in every phase</option>' + sets.map((s) => `<option value="${escapeHtml(s.name)}" ${ph && ph.set === s.name ? 'selected' : ''}>only in phases of ${escapeHtml(s.label)}</option>`).join('')
     + (ph && ph.set && !set ? `<option value="${escapeHtml(ph.set)}" selected>only in phases of ${escapeHtml(ph.set)} (gone)</option>` : '');
   const ticks = set ? set.phases.map((p) => `<label style="width:auto" title="It works while ${escapeHtml(set.stateName)} is ${escapeHtml(p.text)}"><input type="checkbox" data-lkph="${escapeHtml(p.id)}" ${(ph.in || []).some((x) => String(x).toLowerCase() === p.id.toLowerCase()) ? 'checked' : ''}> ${escapeHtml(p.text)}</label>`).join('') : '';
-  return `<div class="row" style="padding-left:12px;flex-wrap:wrap"><select data-lkphset style="flex:1;min-width:0" title="Out of these phases the rule does nothing, its Otherwise neither">${opts}</select>${ticks}</div>`;
+  // the phases on a line of their own under the choice (13 Nov 2026: beside it in the side panel they squeezed it to "only (")
+  return `<div class="row" style="padding-left:12px;flex-wrap:wrap;row-gap:4px"><select data-lkphset style="flex:1 1 ${set ? '100%' : '0'};min-width:0" title="Out of these phases the rule does nothing, its Otherwise neither">${opts}</select>${ticks}</div>`
+    + (set && !(ph.in || []).length ? `<div class="hint" style="margin:0 0 4px 12px;color:var(--warn)">Tick the phases it works in: with none ticked it never runs.</div>` : '');
 }
 // A Phases block's list ("Arrive, Alarm, Escape"): each phase's text and its name in the game's flags, made as
 // UCBlock.FlagName makes it (anything but an ASCII letter, a digit or _ becomes _, a leading digit gets X_, 60 at most)
@@ -13003,11 +13229,18 @@ function lkElseOf(main) {
 const lkMainOf = (l) => (l && l.elseOf ? lkGet(l.elseOf) : l);
 const lkLive = (l) => { const m = lkMainOf(l); return !!m && lkList().includes(m); };
 function lkNewId() { let n = 1; for (const l of lkList()) n = Math.max(n, (+String(l.id).replace(/\D/g, '') || 0) + 1); return 'L' + n; }
+// exact first, then in any letter case: Unreal names ignore case and the engine keeps the first spelling it knew (13 Nov
+// 2026: a rule on 'BtnAugs' whose actor the build gave back as 'btnAugs', a name Revision's code already has, was "not in
+// the map any more"). The rule keeps its spelling (the game compares names ignoring case); the actor found has the built
+// one, which edits.props / moved / deleted use.
 function lkActor(name) {
   if (!name) return null;
-  const a = allActors().find((x) => x.name === name && !edits.deleted[x.name]);
+  const all = allActors(), low = String(name).toLowerCase();
+  const a = all.find((x) => x.name === name && !edits.deleted[x.name])
+    || all.find((x) => String(x.name).toLowerCase() === low && !edits.deleted[x.name]);
   if (a) return a;
-  const b = (edits.boxes || []).find((x) => x.name === name && x.mover);      // a moving block: a mover in the game
+  const boxes = (edits.boxes || []).filter((x) => x && x.mover);              // a moving block: a mover in the game
+  const b = boxes.find((x) => x.name === name) || boxes.find((x) => String(x.name).toLowerCase() === low);
   if (!b) return null;
   if (!chainNow.DeusExMover) chainOf('DeusExMover');
   return { name: b.name, cls: 'DeusExMover', box: true, loc: [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2) };
@@ -13019,6 +13252,9 @@ function lkName(name) {
   const a = lkActor(name);
   if (!a) return name ? `${name} (missing)` : 'nothing';
   if (a.cls === 'UCCutscene') return `the cutscene "${((edits.cutscenes || {})[name] || {}).title || name}"`;
+  // a timer by what the HUD says, a counter by the state it keeps (13 Nov 2026, Deep Ops: two timers were both "the timer")
+  const kept = lkKeptName(a);
+  if (kept) return kept;
   // its own name (the Inspector's, 12 Nov 2026: FamiliarName, a block's label) says it alone, unless another has it too
   const boxOwn = (b) => String((b && b.label) || '').trim(), actorOwn = (x) => unquote(actorProp(x, 'FamiliarName') || '').trim();
   const own = a.box ? boxOwn((edits.boxes || []).find((b) => b.name === name)) : actorOwn(a), low = own.toLowerCase();
@@ -13029,10 +13265,13 @@ function lkName(name) {
   // when there are several ("the All of these", "moving block 2"; 12 Nov 2026: sentences said "All of these UCEdit10")
   if (!own && /^UCEdit(Box)?\d+$/i.test(name)) {
     const same = a.box ? (edits.boxes || []).filter((b) => b.mover && !boxOwn(b)).map((b) => b.name)
-      : allActors().filter((x) => x.cls === a.cls && !edits.deleted[x.name] && !actorOwn(x)).map((x) => x.name);
+      // among the ones called the same (13 Nov 2026: "Exit to 01_Navarre_Roof 2", the other teleporter an arrival)
+      : allActors().filter((x) => x.cls === a.cls && !edits.deleted[x.name] && !actorOwn(x) && (LK_KIND[lkCatOf(x)] || hierLabel(x)) === l).map((x) => x.name);
     const k = same.sort((x, y) => x.localeCompare(y, 'en', { numeric: true })).indexOf(name);
-    if (same.length > 1 && k >= 0) return `${l} ${k + 1}`;
-    return /^[a-z]/.test(l) ? 'the ' + l : l;
+    // a class name as words, as the Logic window's lists say it ("UNATCO Troop"; 13 Nov 2026: sentences said "UNATCOTroop")
+    const said = /\s/.test(l) ? l : l.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+    if (same.length > 1 && k >= 0) return `${said} ${k + 1}`;
+    return /^[a-z]/.test(said) ? 'the ' + said : said;
   }
   if (l.toLowerCase().endsWith(' ' + name.toLowerCase())) return l;                 // "Patrol point PP1", not "... PP1 PP1"
   return name.toLowerCase().startsWith(l.toLowerCase()) ? name : `${l} ${name}`;      // "Light4", not "Light Light4"
@@ -13099,22 +13338,28 @@ function lkActText1(x) {
     case 'stand': return `${t} stands still`;
     case 'wander': return `${t} wanders about`;
     case 'follow': return `${t} follows the player`;
-    case 'goto': return `${t} walks to a place`;
-    case 'run': return `${t} runs to a place`;
+    // where, when it is a thing of the map ("runs to Path Node 2"; 13 Nov 2026: every run read "to a place")
+    case 'goto': return `${t} walks to ${(x.at && typeof lkPointName === 'function' && lkPointName(x.at)) || 'a place'}`;
+    case 'run': return `${t} runs to ${(x.at && typeof lkPointName === 'function' && lkPointName(x.at)) || 'a place'}`;
     case 'leave': return `${t} leaves`;
     case 'appear': return `${t} comes back`;
     case 'lighton': return `turn on ${t}`;
     case 'lightoff': return `turn off ${t}`;
     case 'lighttoggle': return `turn ${t} on or off`;
     // (as logic-vocab.js verbt: "switch on Vault alarm", "play Siren1", "sound the alarm: Alarm1")
-    case 'on': return lkCatOf(lkActor(x.target)) === 'script' ? `set off ${t}` : ((v) => (/\bit$/.test(v) ? v.replace(/\bit$/, t) : /^(switch|turn) (on|off)$/.test(v) ? `${v} ${t}` : `${v}: ${t}`))(lkVerbLabel('on', lkCatOf(lkActor(x.target))).toLowerCase());
-    case 'input': return `${t}: ${lkPortLabel(x.target, lkVerbKey(x))}${x.b ? ' (' + String(x.b).replace(/;/g, ', ') + ')' : ''}`;
+    case 'on': return lkCatOf(lkActor(x.target)) === 'script' ? `set off ${t}` : ((v) => (/\bit$/.test(v) ? v.replace(/\bit$/, t) : /^(switch|turn) (on|off)$/.test(v) ? `${v} ${t}` : namesItself(v, t) ? v.replace(/\bthe \w+$/, t) : `${v}: ${t}`))(lkVerbLabel('on', lkCatOf(lkActor(x.target))).toLowerCase());
+    case 'input': {
+      // a Phases block sent to a phase: "move NavarreHunt phases to 'Chase'" (as logic-vocab.js phaseto)
+      const port = lkPortLabel(x.target, lkVerbKey(x));
+      if (/^GoTo_/.test(x.a || '') && lkCatOf(lkActor(x.target)) === 'phases') return `move ${t} to '${(/'(.*)'$/.exec(port) || [])[1] || String(x.a).slice(5)}'`;
+      return `${t}: ${port}${x.b ? ' (' + String(x.b).replace(/;/g, ', ') + ')' : ''}`;
+    }
     case 'floor': return `${t} goes to floor ${Math.max(0, lkWholeOf(x.a, 0))}`;
     case 'count': { if (isFormula(String(x.b ?? ''))) {      // a formula of counters (P9 slice 5): as it was written
         return x.c === 'set' ? `set the counter ${x.a || '?'} to ${amountText(x.b)}` : `add ${amountText(x.b)} to the counter ${x.a || '?'}`; }
       const n = lkWholeOf(x.b, 1);
       return x.c === 'set' ? `set the counter ${x.a || '?'} to ${n}` : `${n < 0 ? 'take' : 'add'} ${Math.abs(n)} ${n < 0 ? 'from' : 'to'} the counter ${x.a || '?'}`; }
-    case 'off': return ((v) => (/\bit$/.test(v) ? v.replace(/\bit$/, t) : /^(switch|turn) (on|off)$/.test(v) ? `${v} ${t}` : `${v}: ${t}`))(lkVerbLabel('off', lkCatOf(lkActor(x.target))).toLowerCase());
+    case 'off': return ((v) => (/\bit$/.test(v) ? v.replace(/\bit$/, t) : /^(switch|turn) (on|off)$/.test(v) ? `${v} ${t}` : namesItself(v, t) ? v.replace(/\bthe \w+$/, t) : `${v}: ${t}`))(lkVerbLabel('off', lkCatOf(lkActor(x.target))).toLowerCase());
     case 'hide': return `${t} vanishes`;
     case 'show': return `${t} appears again`;
     case 'explode': return `an explosion at ${t}`;
@@ -13240,7 +13485,9 @@ function lkDefaults(x, src) {
   if (x.verb === 'explode') { x.a = x.a || '50'; x.b = x.b || '256'; }
   if (x.verb === 'sound') { x.b = x.b || '1'; x.c = x.c ?? (x.target ? '1024' : '0'); }
   // a new Walk / Run to a place goes on the walkable area (rules "when the map starts" have no source: no place yet)
-  if ((x.verb === 'goto' || x.verb === 'run') && !x.at) { if (src) x.at = lkWhere(src.name); if (x.nav === undefined) x.nav = true; }
+  // (to the rule's object, never to where the one sent already stands: 13 Nov 2026 "Anna Navarre walks to Anna
+  // Navarre"; no place yet: the step asks for one)
+  if ((x.verb === 'goto' || x.verb === 'run') && !x.at) { if (src && src.name !== x.target) x.at = lkWhere(src.name); if (x.nav === undefined) x.nav = true; }
   // a new goal: the first free name (a step completing Goal1 is not a new goal: "Goal3" came after Goal1, 12 Nov 2026)
   if (x.verb === 'goal' && !x.a) {
     const used = new Set(lkList().flatMap((l) => [...(l.do || []), ...(l.else || [])]).filter((y) => y && y.verb === 'goal' && y.a).map((y) => String(y.a).toLowerCase()));
@@ -13251,7 +13498,7 @@ function lkDefaults(x, src) {
   if (x.verb === 'flag' && x.b === undefined) x.b = '1';
   if (x.verb === 'count' && x.b === undefined) x.b = '1';
   blockDefaults(x);
-  if (!HAND_ROWS.has(x.verb)) argDefaults(x, lkArgsOf(x.verb), () => (src ? lkWhere(src.name) : null));
+  if (!HAND_ROWS.has(x.verb)) argDefaults(x, lkArgsOf(x.verb), () => (src && src.name !== x.target ? lkWhere(src.name) : null));
 }
 // Every rule's sentence made again when a map opens, once its classes are known (as openLogic waits): a sentence
 // saved before 25 Oct 2026 could say "only if X" for a state that must be No, or another number than the game
@@ -13303,10 +13550,11 @@ function lkStartPick(opts) {
   const from = document.activeElement;
   if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
   cancelPlacing();
+  opts.back = lkFieldKey(from);
   lkPicking = opts;
   canvas.style.cursor = 'crosshair';
   status(opts.hint + '  (Esc cancels)');
-  if (!opts.point && !lkPickStory) lkPickList(opts, from);
+  if (!lkPickStory) lkPickList(opts, from);
   return () => { if (lkPicking === opts) lkEndPick(); };
 }
 // An object picked from the Logic window, or with the 3D view covered (a panel maximized): the map's objects in a
@@ -13322,6 +13570,9 @@ async function lkPickList(opts, from) {
   for (const b of edits.boxes || []) if (b && b.mover && b.name && !all.some((a) => a.name === b.name)) { const m = lkActor(b.name); if (m) all.push(m); }
   await Promise.all([...new Set(all.map((a) => a.cls))].map((cls) => chainOf(cls)));
   if (lkPicking !== opts) return;
+  // a place (Walk / Run to, Move there at once...): where something of the map stands, the path nodes and starts first
+  // (13 Nov 2026: a place could only be clicked on the floor, so the path node put there for it was of no use)
+  if (opts.point) return lkPlaceList(opts, from, logic, all);
   // only what a rule can use: path nodes, player starts and the like have nothing to do or to say
   const usable = all.filter((a) => { const io = lkIo(a); return (io.inputs.length || io.outputs.length) && !lkNavOnly(a); });
   const labels = logicLabels(usable.map((a) => a.name));
@@ -13342,6 +13593,56 @@ function lkEndPick() {
   if (lkPickBox) { const b = lkPickBox; lkPickBox = null; b.close(); }
   if (lkPickStory) { lkPickStory = false; lkStoryHook.end(); }
 }
+// where a step goes: the object it was picked from (lkPlaceList, a path node too) when one still stands there, else
+// the object nearest it (lkPlaceName)
+// the things a place can be picked from, and their names (numbered among themselves, as the list shows them)
+function lkPlacesOf(all) {
+  const places = all.filter((a) => !edits.deleted[a.name] && !String(a.name).startsWith('UCLink_') && Array.isArray(a.loc)
+    && !/^(Light|Spotlight|TriggerLight|UCBlock|UCB[A-Z])/.test(String(a.cls).split('.').pop()));
+  return { places, labels: logicLabels(places.map((a) => a.name)) };
+}
+function lkPointName(at) {
+  if (!Array.isArray(at)) return '';
+  const { places, labels } = lkPlacesOf(allActors());
+  const a = places.find((o) => Math.hypot(o.loc[0] - at[0], o.loc[1] - at[1], o.loc[2] - at[2]) < 2);
+  return a ? labels[a.name] || '' : lkPlaceName(at);
+}
+function lkPlaceList(opts, from, logic, all) {
+  const { places, labels } = lkPlacesOf(all);
+  const nav = (a) => lkNavOnly(a);
+  const items = places.map((a) => ({ id: a.name, label: labels[a.name] || a.name, group: nav(a) ? 'Places' : 'Next to an object',
+    hint: `${a.loc.map((v) => Math.round(v)).join(', ')}`, words: [a.name, a.cls], data: { at: a.loc.slice(0, 3).map((v) => Math.round(v * 10) / 10) } }))
+    .sort((x, y) => (x.group === y.group ? x.label.localeCompare(y.label, undefined, { numeric: true }) : x.group === 'Places' ? -1 : 1));
+  if (!items.length) return;
+  const host = logic || document.body, hr = host.getBoundingClientRect(), fr = from && from.getBoundingClientRect ? from.getBoundingClientRect() : null;
+  const at = fr && fr.width ? [fr.left - hr.left, fr.bottom - hr.top + 2] : [Math.max(8, hr.width / 2 - 145), 40];
+  let escaped = false;
+  lkPickBox?.close();
+  const box = lkPickBox = openQuickAdd({ host, at, items, groups: ['Places', 'Next to an object'], title: 'Where? (or click the floor in the 3D view)',
+    placeholder: 'Search the places', recent: 'deusedix.logicPlace',
+    onPick: (it) => { if (lkPickBox === box) lkPickBox = null; if (lkPicking === opts) lkPicked(null, it.data.at); },
+    onClose: () => { if (lkPickBox === box) lkPickBox = null; if (escaped && lkPicking === opts) { lkEndPick(); status('Nothing picked.'); } } });
+  box.el.addEventListener('keydown', (e) => { if (e.key === 'Escape') escaped = true; }, true);
+}
+// the field a pick was asked from, to give it the keys back once the form is drawn again (13 Nov 2026: after a place
+// picked from the list the keys were on the page, Tab and Enter went nowhere): its rule and its data- attributes
+function lkFieldKey(el) {
+  if (!el || el === document.body || !el.dataset || !Object.keys(el.dataset).length) return null;
+  const rule = el.closest && el.closest('.lk-rule');
+  const attr = (k) => 'data-' + k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+  const sel = el.tagName.toLowerCase() + Object.entries(el.dataset).map(([k, v]) => `[${attr(k)}="${CSS.escape(v)}"]`).join('');
+  return { el, sel: rule && rule.dataset.lk ? `.lk-rule[data-lk="${CSS.escape(rule.dataset.lk)}"] ${sel}` : sel };
+}
+function lkFieldBack(back) {
+  if (!back) return;
+  setTimeout(() => {
+    const now = document.activeElement;
+    if (now && now !== document.body) return;                // a new step's field has them (lkFocusNew), or another
+    let el = back.el && back.el.isConnected ? back.el : null;
+    if (!el) { try { el = document.querySelector(back.sel); } catch { el = null; } }
+    if (el && el.getClientRects().length) el.focus({ preventScroll: true });
+  }, 60);
+}
 async function lkPicked(actor, point) {
   const pk = lkPicking;
   if (!pk) return;
@@ -13349,6 +13650,7 @@ async function lkPicked(actor, point) {
     if (!point) { status('Click a floor (Esc cancels).', 'warn'); return; }
     lkEndPick();
     pk.done(null, point);
+    lkFieldBack(pk.back);
     return;
   }
   if (!actor || !actor.name) { status('Click an object of the map, or one in the Hierarchy (Esc cancels).', 'warn'); return; }
@@ -13358,6 +13660,7 @@ async function lkPicked(actor, point) {
   if (ok !== true) { status(ok || 'Not this one: click another object.', 'warn'); return; }
   lkEndPick();
   pk.done(actor, null);
+  lkFieldBack(pk.back);
 }
 
 // ---- the Story's Logic actions (P5, story.js {type: 'act', act}): drawn and edited by the rules' own rows (lkActHtml,
@@ -13529,13 +13832,45 @@ const lkWaitNext = new Map();          // a rule's id -> the seconds of the Wait
 const lkMoveTools = (j) => `<button data-lkup="${j}" title="Move this step up">↑</button><button data-lkdown="${j}" title="Move this step down">↓</button>`;
 const lkStepTools = (j) => lkMoveTools(j) + `<button data-lkrm="${j}" title="Remove this step">✕</button>`;
 // the steps one can add (action-list.js groupSteps), Flow last: Wait, Wait until, If, If ... otherwise
-function lkAddOptions(first) {
+// l: the rule; its own object comes first ("Anna Navarre does something…": a character runs off, a door closes again;
+// before 13 Nov 2026 the List refused it as a target while the graph took it)
+function lkAddOptions(first, l) {
+  const own = l && l.src ? lkActor(l.src) : null;
+  const self = own && lkInputsOf(own).length ? `<option value="@self">${escapeHtml(lkName(l.src))} does something…</option>` : '';
   return `<option value="">${escapeHtml(first)}</option>
-    <optgroup label="An object"><option value="@pick">Make an object do something (click it)…</option><option value="@area">Objects within a radius…</option><option value="@tag">Objects with a tag…</option><option value="@group">A group…</option></optgroup>
+    <optgroup label="An object">${self}<option value="@pick">Make an object do something (click it)…</option><option value="@area">Objects within a radius…</option><option value="@tag">Objects with a tag…</option><option value="@group">A group…</option></optgroup>
+    ${lkPhaseAddOptions()}
     ${groupSteps(lkFreeVerbs).map(([title, verbs]) => `<optgroup label="${escapeHtml(title)}">${verbs.map((v) => `<option value="${v}">${escapeHtml((LK_VERBS[v] || [v])[0])}</option>`).join('')}</optgroup>`).join('')}
     <optgroup label="Flow"><option value="@wait">Wait…</option><option value="@until">Wait until…</option><option value="@if">If…</option><option value="@ifelse">If… otherwise…</option></optgroup>`;
 }
+// The map's phases as steps of their own ("Go to the phase 'Chase'"): before 13 Nov 2026 a phase was changed only
+// through "Make an object do something" and a click on the Phases block, and a search for "phase" found nothing
+function lkPhaseAddOptions() {
+  const sets = lkPhaseSets().filter((s) => s.phases.length);
+  if (!sets.length) return '';
+  return `<optgroup label="Mission phases">${sets.flatMap((s) => s.phases.map((p) => `<option value="@phase:${escapeHtml(s.name)}:${escapeHtml(p.id)}">Go to the phase '${escapeHtml(p.text)}'${sets.length > 1 ? ` (${escapeHtml(s.stateName)})` : ''}</option>`)).join('')}</optgroup>`;
+}
+// a step just added: its first field has the keys once its form is drawn (lkFocusNew), so its text is typed at once
+// (13 Nov 2026: after "A message on the screen" the keys stayed on the page, the next ones were the editor's)
+let lkNewStep = null;
+function lkFocusNew(box) {
+  const n = lkNewStep;
+  if (!n) return;
+  if (Date.now() - n.at > 3000) { lkNewStep = null; return; }
+  const l = lkGet(n.rule), j = l ? (l.do || []).indexOf(n.x) : -1;
+  const card = j < 0 ? null : [...box.querySelectorAll('.lk-rule')].find((e) => e.dataset.lk === l.id);
+  const step = card && card.querySelector(`select[data-lkv="${j}"]`)?.closest('.lk-act');
+  if (!step) return;
+  lkNewStep = null;
+  const a = document.activeElement;
+  if (a && !box.contains(a) && (a.isContentEditable || /^(INPUT|TEXTAREA)$/.test(a.tagName))) return;   // typing elsewhere
+  // the first text it takes (a message, a goal, a state's name...), else what it does
+  const f = [...step.querySelectorAll('input[type=text], input:not([type]), textarea')].find((i) => !i.disabled && i.getClientRects().length)
+    || step.querySelector('select[data-lkv]');
+  setTimeout(() => { if (f && f.isConnected) { f.focus({ preventScroll: false }); if (f.tagName === 'INPUT') f.select(); } }, 0);
+}
 function lkAppend(l, x, at) {
+  if (l && l.id) lkNewStep = { rule: l.id, x, at: Date.now() };
   if (l.steps) {                             // a list of steps: where asked (the end), after the Wait added before it
     const list = (l.do ||= []);
     x.delay = lkWaitNext.get(l.id) || 0;
@@ -13624,7 +13959,7 @@ function lkRuleHtml(l, inPanel, branch = false) {
       continue;
     }
     if (step.kind === 'else' || step.kind === 'end') {      // a step added here goes at the end of the part it closes
-      h += `<div class="row lk-addhere" style="margin-left:${(step.depth + 1) * 14}px"><select data-lkadd data-at="${step.j}" style="flex:1;min-width:0">${lkAddOptions('+ Add a step here...')}</select></div>`;
+      h += `<div class="row lk-addhere" style="margin-left:${(step.depth + 1) * 14}px"><select data-lkadd data-at="${step.j}" style="flex:1;min-width:0">${lkAddOptions('+ Add a step here...', l)}</select></div>`;
       h += step.kind === 'else'
         ? `<div class="lk-step lk-else2"${pad}><div class="row"><span class="lk-n"></span><b>Otherwise</b><span class="hint" style="margin:0;flex:1">when it does not hold</span>${lkStepTools(step.j)}</div></div>`
         : `<div class="lk-step lk-end"${pad}><div class="row"><span class="lk-n"></span><span class="hint" style="margin:0">End of the If</span></div></div>`;
@@ -13648,7 +13983,7 @@ function lkRuleHtml(l, inPanel, branch = false) {
   }
   const pending = lkWaitNext.get(l.id);
   if (pending !== undefined) h += `<div class="lk-step lk-wait"><div class="row"><span class="lk-n">${++n}</span><b>Wait</b><input type="number" data-lkwaitnext value="${pending}" min="0" step="0.5" style="width:56px" aria-label="Seconds"><span class="hint" style="margin:0">s, then the next step</span></div></div>`;
-  h += `<div class="row"><select data-lkadd style="flex:1;min-width:0">${lkAddOptions('+ Add a step...')}</select></div>`;
+  h += `<div class="row"><select data-lkadd style="flex:1;min-width:0">${lkAddOptions('+ Add a step...', l)}</select></div>`;
   // "If not": the steps when the check fails (action-list.js: a second rule with the opposite condition)
   if (!branch && (canOtherwise(l) || otherwiseOf(l, lkList()) || (l.requires || []).length || l.else)) {
     h += `<div class="row lk-else"><b>If not</b><select data-lkelse style="flex:1;min-width:0"><option value="stop">stop here</option>`
@@ -13711,7 +14046,7 @@ function lkActHtml(l, step, num, pad) {
   const row = (inner) => `<div class="row" style="padding-left:38px">${inner}</div>`;
   if (x.verb === 'key') h += row(`<label style="width:auto">called</label>${arg('a', 'Key to the vault')}`);
   if (x.verb === 'attack' || x.verb === 'hostile') h += row(`<label style="width:auto" title="Their friends do not join in (nor defend them when the player fights back)"><input type="checkbox" data-lkalone="${j}" ${x.a === 'alone' ? 'checked' : ''}> alone (their faction stays out of it)</label>`);
-  if (x.verb === 'goto' || x.verb === 'run') h += row(`<span class="hint" style="margin:0;flex:1">to ${x.at ? x.at.map((v) => Math.round(v)).join(', ') : '?'}</span><button data-lkat="${j}" title="Click the floor where they go">pick</button>`)
+  if (x.verb === 'goto' || x.verb === 'run') h += row(`<span class="hint" style="margin:0;flex:1">to ${x.at ? escapeHtml(lkPointName(x.at) || x.at.map((v) => Math.round(v)).join(', ')) : '?'}</span><button data-lkat="${j}" title="Pick a place from a list, or click the floor where they go">pick</button>`)
     + row(`<label style="width:auto" title="The way a man would walk, on the walkable area (View > Walkable area), without path nodes; it goes into the map at Rebuild. Off: on the AI paths, as the game's characters go"><input type="checkbox" data-lknav="${j}" ${x.nav ? 'checked' : ''}> on the walkable area</label>`);
   if (x.verb === 'explode') h += row(`<label style="width:auto">damage</label><input type="number" data-lkarg="${j}" data-k="a" value="${+x.a || 0}" min="0" style="width:60px"><label style="width:auto">radius</label><input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 256}" min="16" step="16" style="width:64px">`);
   if (x.verb === 'sound') {
@@ -13752,7 +14087,7 @@ function lkActHtml(l, step, num, pad) {
     : `<input type="number" data-lkarg="${j}" data-k="b" value="${lkWholeOf(x.b, 1)}" step="1" style="width:60px"><button type="button" data-lkfx="${j}" title="${escapeHtml(FORMULA_TITLE)}">ƒx</button>`}`);
   h += blockRowsHtml(x, j, escapeHtml, lkName, { point: tcat === 'effectpoint' });
   if (x.verb === 'allies' && !factionData) loadFactions().catch(() => {});      // the faction fields' list (P9 slice 4)
-  if (!HAND_ROWS.has(x.verb) && lkArgsOf(x.verb).length) h += argRowsHtml(lkArgsOf(x.verb), x, j, { esc: escapeHtml, name: lkName,
+  if (!HAND_ROWS.has(x.verb) && lkArgsOf(x.verb).length) h += argRowsHtml(lkArgsOf(x.verb), x, j, { esc: escapeHtml, name: lkName, place: lkPointName,
     props: lkSafeProps(tcat), items: propItems || [], signals: signalsOf(lkList(), lkStory()), dialogues: lkStoryList('dialogues'), infolinks: lkStoryList('infolinks'), rules: lkList().filter((r) => r !== lkMainOf(l) && !r.otherwiseOf).map((r) => ({ id: r.id, label: `${r.id}: ${r.label || lkSentence(r)}`.slice(0, 90) })) });
   if (x.verb === 'body') h += bodyRowsHtml(x, j);
   if (x.verb === 'fpmoment') {             // a moment of Tools > First-person moments (fp-moments.js)
@@ -13961,7 +14296,18 @@ function lkWire(box, redraw) {
         ch(() => { edits.links = lkList().filter((x) => x !== other); });
       }
     };
-    for (const inp of q('[data-lkarg]')) inp.onchange = () => ch(() => {
+    for (const inp of q('[data-lkarg]')) inp.onchange = () => {
+      // "Another class…" of Send reinforcements' list: a field to type it in, in the list's place
+      if (inp.tagName === 'SELECT' && inp.value === '@other') {
+        const t = document.createElement('input');
+        t.type = 'text'; t.placeholder = 'Package.Class, e.g. DeusEx.MJ12Troop'; t.style.cssText = 'flex:1;min-width:0';
+        Object.assign(t.dataset, inp.dataset);
+        t.onchange = () => { const v = t.value.trim(); if (v) ch(() => { l.do[+t.dataset.lkarg][t.dataset.k] = v; }); };
+        inp.replaceWith(t);
+        t.focus();
+        return;
+      }
+      ch(() => {
       const x = l.do[+inp.dataset.lkarg], k = inp.dataset.k;
       let v = inp.value.trim();                // the numbers as the game will take them (cleared: 0)
       if (isFormula(v) && inp.type === 'text' && (lkArgsOf(x.verb).find((a) => a.id === k) || {}).formula) { x[k] = v; return; }   // a formula (P9 slice 5)
@@ -13969,7 +14315,16 @@ function lkWire(box, redraw) {
       else if (x.verb === 'floor' && k === 'a') v = String(Math.max(0, lkWholeOf(v, 0)));
       else if (inp.type === 'number' && v !== '' && !HAND_ROWS.has(x.verb)) v = String(+v || 0);
       x[k] = v;
-    });
+      // a new goal still called GoalN takes a name from its text, when no other step names it yet
+      if (x.verb === 'goal' && k === 'b' && v && x.c !== 'done' && /^Goal\d+$/.test(x.a || '')) {
+        const steps = lkList().flatMap((r) => [...(r.do || []), ...(r.else || [])]).filter((y) => y && y !== x && y.verb === 'goal' && y.a);
+        if (!steps.some((y) => String(y.a).toLowerCase() === x.a.toLowerCase())) {
+          const name = goalNameFrom(v, new Set(steps.map((y) => String(y.a).toLowerCase())));
+          if (name) x.a = name;
+        }
+      }
+      });
+    };
     for (const b of q('[data-lkfx]')) b.onclick = () => formulaField(b);      // the amount becomes a formula (P9 slice 5)
     for (const host of q('[data-lkstate]')) {
       const x = l.do[+host.dataset.lkstate];
@@ -13979,7 +14334,18 @@ function lkWire(box, redraw) {
     }
     for (const c of q('[data-lkalone]')) c.onchange = () => ch(() => { act(c).a = c.checked ? 'alone' : ''; });
     for (const c of q('[data-lknav]')) c.onchange = () => ch(() => { act(c).nav = c.checked; });
-    for (const c of q('[data-lkdone]')) c.onchange = () => ch(() => { act(c).c = c.checked ? 'done' : ''; });
+    // ticked on a goal with no text of its own: it completes the oldest goal the map's rules give and none completes
+    // yet (13 Nov 2026: completing "Find the records" meant typing its name FindEvidence over the Goal2 offered)
+    for (const c of q('[data-lkdone]')) c.onchange = () => ch(() => {
+      const x = act(c);
+      x.c = c.checked ? 'done' : '';
+      if (!c.checked || String(x.b || '').trim()) return;
+      const steps = (edits.links || []).flatMap((r) => [...(r.do || []), ...(r.else || [])]).filter((s) => s && s.verb === 'goal' && s.a);
+      if (steps.some((s) => s !== x && s.a === x.a)) return;           // already one of the map's goals
+      const done = new Set(steps.filter((s) => s !== x && s.c === 'done').map((s) => s.a));
+      const open = steps.find((s) => s !== x && s.c !== 'done' && !done.has(s.a));
+      if (open) x.a = open.a;
+    });
     for (const c of q('[data-lkhead]')) c.onchange = () => ch(() => { const x = act(c); x.c = c.checked ? '0' : '1024'; if (!c.checked && !x.target && l.src) x.target = l.src; });
     for (const b of q('[data-lkplay]')) b.onclick = () => playSound(act(b).a, b);
     for (const b of q('[data-lksnd]')) b.onclick = () => { const x = act(b); pickSound(x.a || '', (name) => { if (name) ch(() => { x.a = name; }); }); };
@@ -13987,7 +14353,6 @@ function lkWire(box, redraw) {
     for (const b of q('[data-lkp]')) b.onclick = () => {
       const x = act(b);
       lkStartPick({ hint: x.verb === 'sound' ? 'Click the object the sound comes from' : `Click the object to ${lkVerbLabel(x.verb, '').toLowerCase()}`,
-        accept: (o, chain) => (o.name === l.src && x.verb !== 'sound' ? 'That is the object of the rule itself: click another one.' : true),
         done: (o) => ch(() => { x.target = o.name; if (x.verb !== 'sound' && !lkInputsOf(o).includes(lkVerbKey(x))) { lkApplyVerb(x, lkDefaultOf(o)); lkDefaults(x, src); } }) });
     };
     for (const b of q('[data-lkseat]')) b.onclick = () => {
@@ -14077,9 +14442,14 @@ function lkWire(box, redraw) {
         if (await lkAreaReady() && lkLive(l) && document.body.contains(el)) ch(() => lkAppend(l, lkNewArea(src), at));
         return;
       }
+      if (v === '@self') { const o = lkActor(l.src); if (o) ch(() => { lkAppend(l, lkNewAct(o, src), at); }); return; }
+      if (v.startsWith('@phase:')) {
+        const [, set, id] = v.split(':');
+        ch(() => { const x = { verb: '', target: set, delay: 0 }; lkApplyVerb(x, 'input:GoTo_' + id); lkAppend(l, x, at); });
+        return;
+      }
       if (v === '@pick') {
         lkStartPick({ hint: 'Click the object the rule acts on (a door, a character, a light...)',
-          accept: (o) => (o.name === l.src ? 'That is the object of the rule itself: click another one.' : true),
           done: (o) => ch(() => { lkAppend(l, lkNewAct(o, src), at); }) });
         return;
       }
@@ -14093,6 +14463,7 @@ function lkWire(box, redraw) {
       if (v === 'travel' && !allMapNames) api('/api/newmap_info').then((i) => { allMapNames = i.maps; lkRefresh(redraw); }).catch(() => {});
     };
   }
+  lkFocusNew(box);
 }
 
 // asTarget: the selected object is what gets set off (a script just placed): the click picks what sets it off
@@ -14813,6 +15184,10 @@ function logicOpNames(ops) {
 // or a block is to be placed), asked for before a model is read
 async function logicWarm(names, classes = []) {
   if (!logicVocab) logicVocab = await api('/api/logic_vocab');
+  // the sentences' words too (LK_WHEN, LK_VERBS from config/logic.json): before the Logic window had been opened, a
+  // proposal said "When nothing triggers its event: signal" (13 Nov 2026, Edge Lab)
+  lkVocabLoad();
+  if (lkVocabAsked) await lkVocabAsked;
   const cls = new Set([...names, ...logicNames(edits.links || [])].map(lkActor).filter(Boolean).map((a) => a.cls).concat(classes));
   if (classes.length || (edits.links || []).some((l) => [...(l.do || []), ...(l.else || [])].some((x) => x && x.targetTag)))
     for (const a of allActors()) cls.add(a.cls);
@@ -14899,14 +15274,18 @@ async function logicOffer({ object = '' } = {}) {
 // from: a named start (a Play scenario, logic-starts.js), what `start` gives on top of it
 async function logicTry({ fire = [], seconds = 5, start = {}, from = '' } = {}) {
   await logicWarm(fire.map((f) => f && f.thing).filter((n) => typeof n === 'string'));
+  return simulate(await logicTrial(), fire, seconds, logicStartOf(start, from));
+}
+// the states a run begins with: a named start (a Play scenario), what `start` gives on top of it
+function logicStartOf(start = {}, from = '') {
   let base = {};
   if (from) {
     const s = logicStarts.get(String(from));
     if (!s) throw new Error(`There is no start "${from}": the starts are ${logicStarts.list().map((x) => `"${x.name}"`).join(', ') || 'none yet'} (the Play scenarios).`);
     base = startOf(s);
   }
-  const merged = { ...base, ...start, flags: { ...(base.flags || {}), ...(start.flags || {}) } };
-  return simulate(await logicTrial(), fire, seconds, merged);
+  start = start && typeof start === 'object' ? start : {};
+  return { ...base, ...start, flags: { ...(base.flags || {}), ...(start.flags || {}) } };
 }
 // "Why didn't it run?" (P2, the Whyline idea), and the last Play's logic log read in words. What the last Play was,
 // as notes: none yet, another map, the game still running, the map rebuilt or changed since.
@@ -15033,8 +15412,11 @@ async function logicProposeOf(ops, base) {
 }
 // The assistant's proposal: checked, tried in the simulator, then shown in the Logic window to be accepted or not. A
 // new one replaces the one waiting. Nothing in the map changes here.
-async function logicPropose({ ops, summary = '', fire, seconds = 5 } = {}) {
+// start/from: the states the run begins with, as logic_try's (13 Nov 2026: a rule kept to a phase of another map
+// could only be tried in the first phase)
+async function logicPropose({ ops, summary = '', fire, seconds = 5, start = {}, from = '' } = {}) {
   if (!mapName) throw new Error('No map is open.');
+  const begin = logicStartOf(start, from);
   if (buildJob) throw new Error('A Rebuild is running: wait for it to end.');
   const { p, compiled, errors } = await logicProposeOf(ops, edits);
   if (errors.length) return { proposed: false, errors };
@@ -15047,7 +15429,7 @@ async function logicPropose({ ops, summary = '', fire, seconds = 5 } = {}) {
   });
   const after = logicProblems(logicIndex(input));
   const happening = fire ? (Array.isArray(fire) ? fire : [fire]) : [mainHappening(p)].filter(Boolean);
-  const run = happening.length ? simulate(trial, happening, seconds) : null;
+  const run = happening.length ? simulate(trial, happening, seconds, begin) : null;
   if (logicProposalNow()) logicProposal.state = 'replaced';
   const removed = p.removed.map((id) => { const l = lkGet(id); return { id, sentence: l ? lkSentence(l) : id }; });
   const said = String(summary || '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -15096,6 +15478,12 @@ async function logicDecide(how) {
     return;
   }
   if (buildJob) { status('A Rebuild is running: accept it when it ends.', 'warn'); return; }
+  // the classes of the objects the map's rules name, known before the sentences are written (13 Nov 2026: a "killed"
+  // rule accepted right after a reload was kept as "When Anna Navarre triggers its event", its class not yet read)
+  const words = (JSON.stringify(q.ops).match(/"[A-Za-z_][\w]*"/g) || []).map((s) => s.slice(1, -1));
+  const named = words.flatMap((w) => { const l = lkGet(w); return l ? [l.src, ...[...(l.do || []), ...(l.else || [])].map((x) => x && x.target)] : [w]; });
+  await Promise.all([...new Set(named.map((n) => n && lkActor(n)?.cls).filter(Boolean))].map((cls) => chainOf(cls)));
+  if (logicProposalNow() !== q) return;
   const { p, errors } = await logicProposeOf(q.ops, edits);
   if (errors.length) { status(`The proposal no longer fits the map: ${errors[0]}`, 'warn'); return; }
   if (logicProposalNow() !== q) return;
@@ -15836,6 +16224,11 @@ function inspectorPrimaryActions(p) {
 // the object's own name at the top of the Inspector (12 Nov 2026): a character or an object takes it as FamiliarName
 // (what the game shows too), a block as its label; empty gives its usual name back. The Hierarchy, the rules'
 // sentences and the Logic graph use it ("Lever A" instead of "Switch 1 2")
+// whether the game knows the object by a name of its own (its class has FamiliarName); unknown yet: as before
+function actorNamesItself(a) {
+  const fields = propSchema[a.cls];
+  return !Array.isArray(fields) || fields.some((f) => f.prop === 'FamiliarName');
+}
 function nameField(v, tip) {
   return `<input type="text" id="objname" class="inspector-name" value="${escapeHtml(v)}" maxlength="60" spellcheck="false" aria-label="Name" title="${escapeHtml(tip)}">`;
 }
@@ -15847,7 +16240,15 @@ function wireNameField(p) {
   f.onchange = () => {
     const v = f.value.trim().replace(/"/g, "'");
     if (v === was) return;
-    if (d.actor) {
+    if (d.actor && !actorNamesItself(d.actor)) {
+      // a class with no FamiliarName (a path node, a trigger...): a name for the editor only, kept in the edits
+      // (13 Nov 2026: "Path Node 1/2/3" in the rules, and no way to call one "Helipad")
+      if (!requireUnlocked(p)) { f.value = was; return; }
+      pushUndo(v ? `Name ${v}` : 'Name of an object');
+      edits.editorNames ||= {};
+      if (v) edits.editorNames[d.actor.name] = v; else delete edits.editorNames[d.actor.name];
+      setDirty();
+    } else if (d.actor) {
       if (!v) unsetProp(d.actor, 'FamiliarName'); else setProp(d.actor, 'FamiliarName', `"${v}"`);
     } else if (d.box) {
       if (!requireUnlocked(p)) { f.value = was; return; }
@@ -16347,8 +16748,8 @@ function refreshProps(list) {
   wake();
 }
 // properties set on several objects, one Ctrl+Z: changes [[key, its text for each object]]; lights show their colour
-function setPropsAll(list, changes) {
-  if (!requireUnlocked(groupPivot)) return false;
+function setPropsAll(list, changes, lockOf = groupPivot) {
+  if (!requireUnlocked(lockOf)) return false;
   pushUndo(stepOf(`${changes.map(([key]) => propertyName(key)).join(', ')} of`, list));
   for (const [key, texts] of changes) list.forEach((p, i) => putProp(p.userData.actor, key, texts[i]));
   setDirty();
@@ -16380,6 +16781,27 @@ function propRows(list, prop, of) {
       return setPropsAll(list, [['LightHue', hs.map(([hue]) => String(hue))], ['LightSaturation', hs.map(([, sat]) => String(sat))]]);
     } };
   return [colour, { ...row, label: 'Hue', title: 'Hue, 0-255 (the colour picker sets it with the saturation)' }];
+}
+// A timer's or a logic block's own settings at the top of its side panel in the Logic graph, as the Inspector's rows
+// (13 Nov 2026: a Timer placed from the graph had its 30 seconds changed only in the Inspector). Phases keeps its own
+// section in the Inspector (the mission's phases).
+const LK_SETTINGS = /^(UCTimer|UCBAllOf|UCBGate|UCBSwitch|UCBAtLeast|UCBFirstOf|UCBCounter)$/;
+async function lkBlockSettings(host, name) {
+  const p = proxyOf(name), a = p && p.userData.actor;
+  if (!a || !LK_SETTINGS.test(a.cls)) return;
+  await classFields(a.cls);
+  if (!host.isConnected) return;
+  const fields = (propSchema[a.cls] || []).filter((f) => f.declared === a.cls && propRow(f.kind));
+  if (!fields.length) return;
+  const rows = fields.flatMap((f) => propRows([p], f.prop, 1)).map((r) => ({ ...r, id: 'lkb' + r.prop,
+    apply: (values) => setPropsAll([p], [[r.prop, values.map((v) => propText(fieldOf(a, r.prop).kind, v))]], p) }));
+  const m = multiRows(multiApi, rows);
+  const box = document.createElement('div');
+  box.className = 'lk-blockset';
+  box.style.cssText = 'margin:0 0 10px';
+  box.innerHTML = `<div class="hint" style="margin:2px 0 4px">Its settings (also in the Inspector)</div>${m.html}`;
+  host.prepend(box);
+  m.wire(box);
 }
 // the rest of the Inspector of several objects, once their classes' Properties are known (renderProps's for one)
 async function renderMulti(ms) {
@@ -16903,6 +17325,7 @@ function showDetails(live, view = null) {
       <div class="row"><label>Width</label>${num('sx', b.hi[0] - b.lo[0])}</div><div class="row"><label>Depth</label>${num('sy', b.hi[1] - b.lo[1])}</div><div class="row"><label>Height</label>${num('sz', b.hi[2] - b.lo[2])}</div>
       </div></details>${inspectorSectionStart('block', 'Block settings', true)}
       <div class="row"><label>Texture</label><input id="btex" list="texlist" value="${b.tex}"></div>
+      ${Array.isArray(b.match) && b.match.length ? `<div class="hint">${b.matchOf === b.tex ? 'Fills an opening: its front' + (b.match.length > 1 ? ' and back continue the walls' : ' continues the wall') + ' round it, the texture laid as there (turned, it takes its own).' : 'Fills an opening, with a texture of its own now: give it ' + escapeHtml(b.matchOf || '') + ' again to continue the wall.'}</div>` : ''}
       ${b.water || b.portal || b.mover || b.sign ? '' : `<div class="row"><label>Shape</label><select id="bshape" style="flex:1;min-width:0" title="A wedge is a ramp, high at its +X side: turn it with E. Resize a round one with R: an elliptic cylinder, an egg, a low dome">${BLOCK_SHAPES.map(([k, l]) => `<option value="${k}" ${k === blockShape(b) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
       ${blockPoints(b) ? `<div class="row"><button id="bverts" title="Move the block's corners one by one (V), as UnrealEd's vertex editing: it stays a convex shape">Edit vertices</button>${b.verts ? '<button id="bvreset" title="Its own box and shape again, the corners as they were">Reset corners</button>' : ''}</div>` : ''}
       ${ROUND_SHAPES.includes(blockShape(b)) && !b.verts ? (() => { const o = blockOptions(b), s = blockShape(b); return `
@@ -16960,7 +17383,7 @@ function showDetails(live, view = null) {
   } else {
     const a = d.actor;
     const st = d.source === 'map' && structures[actorStruct[a.name]];
-    html += `<div class="inspector-object-heading">${nameField(hierLabel(a), 'The name of the object: in the Hierarchy, the rules and the Logic graph, and what the player reads when pointing at it in the game')}${inspectorPrimaryActions(p)}</div><div class="hint inspector-object-meta" style="margin:2px 0">${escapeHtml(a.name)} · ${escapeHtml(clsShown(a.cls))}${a.tag && a.tag !== a.name ? ' · tag ' + escapeHtml(a.tag) : ''}</div>
+    html += `<div class="inspector-object-heading">${nameField(hierLabel(a), actorNamesItself(a) ? 'The name of the object: in the Hierarchy, the rules and the Logic graph, and what the player reads when pointing at it in the game' : 'The name of the object in the editor: the Hierarchy, the rules and the Logic graph (the game has no name for it)')}${inspectorPrimaryActions(p)}</div><div class="hint inspector-object-meta" style="margin:2px 0">${escapeHtml(a.name)} · ${escapeHtml(clsShown(a.cls))}${a.tag && a.tag !== a.name ? ' · tag ' + escapeHtml(a.tag) : ''}</div>
       ${inspectorSectionStart('transform', 'Transform', true)}${positionRows(c)}
       <div class="row"><label>Rotation °</label>${num('pyaw', Math.round(radToYaw(p.rotation.y) * 360 / YAW))}</div>`;
     if (isEffectPoint(a) || d.tilt || canTilt(p)) html += `<div class="row"><label title="Up and down: 90 points its front straight up, -90 straight down">Pitch °</label>${num('ppitch', Math.round((d.tilt || 0) * 360 / YAW))}</div>`;
@@ -17581,7 +18004,7 @@ function mapTextures() {
 const fpMoments = createFpMoments({ api, edits: () => edits, status, pickSound, playSound: (name) => playSound(name), escapeHtml,
   change: (label, fn) => { pushUndo(label); fn(edits); setDirty(); },
   weapons: () => (palette.find((c) => c.category === 'Weapons')?.items || []).map((it) => ({ cls: it.cls, label: `${itemLabel(it)} · ${it.cls}` })),
-  loadModel: (mesh) => window.__studio.loadModel(mesh) });
+  loadModel: (mesh) => window.__studio.loadModel(mesh), fov: () => gameFov.fov });
 window.__fpmoments = fpMoments;
 const texturePicker = createTexturePicker({ api, menu: openMenu, findInMap: (name) => findInMap(searchToken('tex', name, true)), getMapTextures: mapTextures, storage: safeStorage,
   favourites: favouriteShelf(favourites, 'textures'), pickFromView: startTexturePick });
@@ -17801,7 +18224,8 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
     pushUndo(`Player character ${character.name}`); edits.level = applyMapPlayer(edits.level || {}, id); setDirty(); rebuildProxies(); showDetails();
     log(`Player character: ${character.name}. Save and Rebuild to apply. Inventory and progress stay shared.`, 'ok');
   },
-  startDraw: (kind) => startDraw(kind),         // Map > Draw wall / road / floor / roof
+  startDraw: (kind) => startDraw(kind),
+  startCloseOpening: () => startCloseOpening(),   // Tools > Close an opening         // Map > Draw wall / road / floor / roof
   openSky: () => skyTool.open(),                // Map > Sky & time of day
   openMissionPhases: () => openMissionPhasesWindow(),   // Map > Mission phases
   toggleClassicRules: () => toggleClassicRules(),       // Map > Classic rules

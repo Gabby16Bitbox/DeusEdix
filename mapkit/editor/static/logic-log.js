@@ -134,6 +134,14 @@ const STORY_MISSING = { talk: "the map's Story has no such dialogue, or its char
 const HOOKS = { missing: 'is not in the map: the rule never runs', noslot: 'has no free slot left for this rule (4 untrigger events in use)',
   target: 'uses its event as a list of targets, or never sends it: a rule cannot start from it this way' };
 
+// a rule kept to some phases (its gate "<counter>|<numbers>", UCLink.PhaseGate) by their names: "it works only in
+// Extract of DeepOp, not the phase now" (13 Nov 2026, Deep Ops: "only in some phases" said neither); '' unknown
+function phaseOnly(gate, names) {
+  const [root, list = ''] = String(gate || '').split('|'), all = names.phaseNames ? names.phaseNames(root) : null;
+  if (!root || !all) return '';
+  const said = list.split(',').map((k) => all[+k - 1]).filter(Boolean);
+  return said.length ? `it works only in ${said.join(' or ')} of ${root}, not in the phase now` : '';
+}
 // who set a rule off: an object; the map's Story (its class UCEd_<map>: a signal, a dialogue's end...); another rule
 // (its UCLink_<id>: a signal it sent)
 function byParts(by) {
@@ -152,7 +160,7 @@ export function logicSentence(e, names = {}) {
   const lead = /^story:/i.test(e.rule || '') ? 'The Story: ' : '  ';
   switch (e.kind) {
     case 'fire': return { mark: '▶', parts: [...rule, e.label || `${e.source} ${e.when}`, ...byParts(e.by)] };
-    case 'skip': return { mark: '⏸', parts: [...rule, 'did not run: ', e.why === 'cond'
+    case 'skip': return { mark: '⏸', parts: [...rule, 'did not run: ', e.why === 'phase' && phaseOnly(e.detail, names) ? phaseOnly(e.detail, names) : e.why === 'cond'
       ? 'only if ' + (decodeCondition(e.detail) ? conditionText(decodeCondition(e.detail), names) : e.detail) + ' — and that does not hold'
       : SKIPS[e.why] || e.why] };
     case 'else': return { mark: '↪', parts: [...rule, 'its Otherwise', ...byParts(e.by)] };
@@ -173,8 +181,9 @@ export function logicSentence(e, names = {}) {
     case 'noinput': return { mark: '✗', parts: [{ name: e.script }, ' has no input ', e.name, ': add it to its Input() switch'] };
     case 'check': {                                   // an If of a list of steps
       const c = e.result === 'fail' && e.detail ? decodeCondition(e.detail) : null;
-      return { mark: '◇', parts: [...rule, e.result === 'pass' ? 'the If holds: its steps' : `the If does not hold`
-        + `${c ? ` (${conditionText(c, names)})` : ''}: its Otherwise, or on after it`] };
+      return { mark: '◇', parts: [...rule, e.result === 'pass' ? 'the If holds: its steps'
+        // the condition it needed, not as if it were so (13 Nov 2026: "the If does not hold (RookGaveCode is Yes)")
+        : `the If${c ? ` (${conditionText(c, names)})` : ''} does not hold: its Otherwise, or on after it`] };
     }
     case 'until': return { mark: '⏱', parts: [...rule, ...(e.result === 'timeout' ? ['the wait ran out: on with the next step']
       : storyEnd(e.who, names) || (e.who ? [{ name: e.who }, ' has arrived: on'] : ['what it waited for is so: on']))] };

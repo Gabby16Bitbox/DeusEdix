@@ -304,7 +304,12 @@
 #logic .lw-edit:focus { outline:none; }            /* it takes the keys back when its form is drawn again */
 
 /* the side panel beside the graph when the window has room (logic-graph-edit.js dock) */
-#logic .lw-main.with-edit .lw-graph { right:calc(min(360px, 100% - 16px) + 16px); }
+#logic .lw-main.with-edit .lw-graph { right:calc(clamp(280px, 42%, 360px) + 16px); }
+/* docked, the panel narrows with the window (down to 280 px) and the graph keeps the rest; a narrow window has it
+   below the graph (logic-graph-edit.js dock; 13 Nov 2026: a window under 720 px had the panel over the whole graph) */
+#logic .lw-main.with-edit .lw-edit { width:clamp(280px, 42%, 360px); }
+#logic .lw-main.with-edit-below .lw-graph { bottom:calc(56% + 16px); }
+#logic .lw-main.with-edit-below .lw-edit { top:auto; left:8px; right:8px; width:auto; height:56%; }
 #logic .lw-empty { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); z-index:2; max-width:min(420px, 80%);
   text-align:center; color:var(--dim); font-size:13px; line-height:1.5; pointer-events:none; }
 #logic .lw-empty[hidden] { display:none; }

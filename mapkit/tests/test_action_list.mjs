@@ -113,3 +113,13 @@ test('Wait until and a Wait of its own; the steps in words, in their order', () 
   assert.equal(stepsText(l, (x) => `${x.verb} ${x.target || x.a}`, words),
     'goto Guard2, wait until the guard arrives (at most 20 s), wait 1 s, message Here');
 });
+
+test('a list of steps in words: "then" with its step, no "then" at the end (13 Nov 2026, Deep Ops)', () => {
+  const act = (x) => x.verb + (x.a ? ' ' + x.a : '');
+  const words = { cond: (c) => `${c.flag} is Yes` };
+  const r = { steps: true, do: [{ verb: 'if', requires: [{ flag: 'A' }] }, { verb: 'message', a: 'x' }, { verb: 'else' }, { verb: 'message', a: 'y' },
+    { verb: 'end' }, { verb: 'message', a: 'z' }] };
+  assert.equal(stepsText(r, act, words), 'if A is Yes: message x, otherwise: message y, then message z');
+  r.do.pop();
+  assert.equal(stepsText(r, act, words), 'if A is Yes: message x, otherwise: message y');
+});

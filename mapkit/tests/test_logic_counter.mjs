@@ -110,3 +110,10 @@ test('Counter: a "while" on its goal says from when it gets there until it goes 
   assert.match(vocab.whenText({ ...l, while: false }, ctx), /^When Kills says "it gets to its goal"$/);
   assert.match(vocab.whenText({ ...l, port: 'Changed' }, ctx), /^When /, 'nothing ends it: a plain When');
 });
+
+test('a rule kept to some phases says which (13 Nov 2026, Deep Ops: "only in some phases")', () => {
+  const said = (names) => logicSentence({ kind: 'skip', why: 'phase', detail: 'DeepOp|3,4', rule: 'L4' }, names).parts
+    .filter((p) => typeof p === 'string').join('').trim();
+  assert.equal(said({ phaseNames: () => ['Infiltrate', 'Alarm', 'Extract', 'Done'] }), 'did not run: it works only in Extract or Done of DeepOp, not in the phase now');
+  assert.equal(said({}), 'did not run: it works only in some phases, and this is not one of them');
+});

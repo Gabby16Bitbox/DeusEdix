@@ -22,6 +22,7 @@ import { nodeSize, boundsOf } from './graph-geometry.js';
 const OBJECT = 'obj:';
 const RECENT = 'deusedix.logicQuickAdd';
 const ON_OBJECT = 'An object of the map';
+const BLOCK_GROUP = 'A new logic block';
 // rules on several objects at once (app.js whenSeveral): [label, hint, other words]
 const SEVERAL_GROUP = 'Several objects';
 const SEVERAL = {
@@ -114,9 +115,9 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   // then instead of fitting the graph again (recent())
   let touched = 0;
   const touch = () => { touched = Date.now(); };
-  const READS = new Set(['whens', 'inputs', 'free', 'objects', 'panel', 'value', 'undoCount', 'copy']);
+  const READS = new Set(['whens', 'inputs', 'free', 'objects', 'blocks', 'panel', 'value', 'undoCount', 'copy']);
   const edit = new Proxy(given, { get: (t, k) => (typeof t[k] === 'function' && !READS.has(k) ? (...a) => { touch(); return t[k](...a); } : t[k]) });
-  let menuEl = null, quick = null, vbox = null, shownNow = { nodes: [], wires: [] }, pending = null;
+  let menuEl = null, quick = null, vbox = null, shownNow = { nodes: [], wires: [] }, pending = null, pendingObj = null;
   // the side panel (L1): the rule or the object selected, its form as the List's
   const panel = document.createElement('aside');
   panel.className = 'lw-edit';
@@ -130,22 +131,66 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   const body = panel.querySelector('.lw-editb');
   for (const type of ['change', 'click', 'input']) body.addEventListener(type, touch, true);
   let target = null, hiddenFor = '', drawnSig = '';
+  let held = null, drawing = 0;        // showPanel: the field that had the keys, which drawing is the last
+  // the map the panel's target belongs to: another map opened closes it (13 Nov 2026: Rule L2 of the warehouse stayed
+  // open on the docks and showed the docks' own L2, another rule under the same id)
+  let mapOf = null;
+  const mapNow = () => (typeof given.map === 'function' ? given.map() : '');
+  function sameMap() {
+    const m = mapNow();
+    if (mapOf === null || m === mapOf) { mapOf = m; return true; }
+    mapOf = m; target = null; hiddenFor = ''; drawnSig = ''; pending = null; pendingObj = null; hide();
+    return false;
+  }
   panel.querySelector('.lw-editx').addEventListener('click', () => { hiddenFor = targetKey(target); hide(); });
   panel.querySelector('.lw-editlist').addEventListener('click', () => { if (target) commands.list?.(target.name ?? '', target.rule || null); });
   // typed here, not the editor's keys nor the graph's (Esc closes the panel)
   panel.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !e.target.closest('select')) { hiddenFor = targetKey(target); hide(); canvas().focus(); }
+    else if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) tabOut(e);
     e.stopPropagation();
   });
+  // Tab out of a field: its change draws the form again at once, the field it left is gone and the browser lost its
+  // place, so the keys went to the page and the next key was the editor's (13 Nov 2026). The next field is known
+  // before the change and has the keys after it (the same one, or the one at its place in the form drawn again).
+  const FOCUSABLE = 'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const focusables = () => [...body.querySelectorAll(FOCUSABLE)].filter((el) => el.getClientRects().length);
+  function tabOut(e) {
+    const list = focusables(), at = list.indexOf(e.target);
+    if (at < 0) return;
+    const index = at + (e.shiftKey ? -1 : 1), to = list[index];
+    if (!to) return;                     // out of the panel: the browser's own Tab
+    e.preventDefault();
+    const key = focusKey(to);
+    const pick = (el) => { if (el.tagName === 'INPUT' && /^(text|search|number|)$/.test(el.type || '')) el.select?.(); };   // as the browser's Tab
+    to.focus({ preventScroll: false });  // the change of the field left fires here
+    if (document.activeElement === to) pick(to);
+    const again = () => {
+      const now = document.activeElement;
+      if (now && now !== document.body && now !== panel && panel.contains(now)) return;
+      if (now && now !== document.body && now !== panel) return;   // the keys went somewhere on purpose
+      let el = null;
+      try { el = key ? body.querySelector(key) : null; } catch { el = null; }
+      el = el || focusables()[index];
+      if (!el) return;
+      el.focus({ preventScroll: false });
+      pick(el);
+    };
+    setTimeout(again, 0);
+    setTimeout(again, 150);              // the form is drawn again after the rule is saved (edit.panel is async)
+  }
   const targetKey = (t) => (t ? (t.rule ? 'rule:' + t.rule : 'obj:' + t.name) : '');
   function hide() { panel.hidden = true; drawnSig = ''; dock(false); }
   // beside the graph, not over it, when the window has room: the graph narrows and what is selected stays in sight
   // (12 Nov 2026: the panel covered the cards on the right); a narrow window keeps it over the graph
+  // (13 Nov 2026) a narrow window that is tall enough has it below the graph, the forms at a width they read at
   function dock(on) {
-    const room = on && main.clientWidth >= 720;
-    if (main.classList.contains('with-edit') === room) return;
-    main.classList.toggle('with-edit', room);
-    if (room) setTimeout(() => { const s = canvas().selection(); if ((s.nodes || []).length) canvas().reveal?.(s.nodes); }, 260);
+    const mode = !on ? '' : main.clientWidth >= 640 ? 'side' : main.clientHeight >= 520 ? 'below' : '';
+    const now = main.classList.contains('with-edit') ? 'side' : main.classList.contains('with-edit-below') ? 'below' : '';
+    if (mode === now) return;
+    main.classList.toggle('with-edit', mode === 'side');
+    main.classList.toggle('with-edit-below', mode === 'below');
+    if (mode) setTimeout(() => { const s = canvas().selection(); if ((s.nodes || []).length) canvas().reveal?.(s.nodes); }, 260);
   }
   const nodes = () => graph().nodes || [];
   const ready = () => { const why = busy(); if (why) status(why, 'warn'); return !why; };
@@ -161,6 +206,7 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     return JSON.stringify([targetKey(t), mine, own]);
   }
   async function showPanel(force = false) {
+    sameMap();
     if (!target || hiddenFor === targetKey(target)) { hide(); return; }
     const sig = sigOf(target);
     const n = target.rule ? nodes().find((x) => x.kind === 'rule' && x.rule === target.rule) : null;
@@ -172,17 +218,39 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     drawnSig = sig;
     panel.hidden = false;
     dock(true);
-    const was = panel.contains(document.activeElement) ? document.activeElement : null;
+    // two drawings can overlap (the rule's own change, then the graph's): the field that had the keys when the first
+    // began is kept for the last one, which alone gives them back (13 Nov 2026: the second found no field with the
+    // keys and gave them to the panel, so the next Tab left the form and the goal's name typed after it was lost)
+    const cur = document.activeElement;
+    if (cur && cur !== panel && body.contains(cur)) held = { el: cur, at: Date.now() };
+    const was = held && Date.now() - held.at < 1500 ? held.el : panel.contains(cur) ? cur : null;
+    const gen = ++drawing;
     const keep = was ? body.scrollTop : 0, again = was && focusKey(was);
     await edit.panel(body, target.rule ? { rule: target.rule } : { name: target.name }, () => { drawnSig = ''; showPanel(true); });
+    if (gen !== drawing) return;                 // a later drawing gives the keys back
+    held = null;
     body.scrollTop = keep;
     // the form drawn again took the field that had the keys: the same field (or the panel) has them again, or the
-    // next key went to the editor (12 Nov 2026: Tab out of a message, then Esc, put the maximized layout back)
-    const free = !document.activeElement || document.activeElement === document.body;
-    if (was && !panel.contains(document.activeElement)) {
+    // next key went to the editor (12 Nov 2026: Tab out of a message, then Esc, put the maximized layout back).
+    // What was being typed in it and not yet taken (no change yet) goes on in the new field (13 Nov 2026: the rule
+    // saved after a slow change was drawn again while the next field was typed in, and its text was lost).
+    const now = document.activeElement, typing = was && !was.isConnected && /^(INPUT|TEXTAREA)$/.test(was.tagName)
+      && !/^(checkbox|radio|button|range|color|file)$/.test(was.type) && was.value !== was.defaultValue
+      ? { value: was.value, start: was.selectionStart, end: was.selectionEnd } : null;
+    const free = !now || now === document.body;
+    if (was && (free || now === panel)) {        // not when the keys went elsewhere on purpose (a click in the 3D view)
       let el = null;
       try { el = again ? body.querySelector(again) : null; } catch { el = null; }
       (el || panel).focus({ preventScroll: true });
+      if (el && typing && el.value !== typing.value) {
+        el.value = typing.value;
+        try { el.setSelectionRange(typing.start, typing.end); } catch { /* a number field */ }
+        // the browser fires change only for what was typed in this field: the value carried over is taken when it
+        // loses the keys, as if typed here
+        let took = false;
+        el.addEventListener('change', () => { took = true; }, { once: true });
+        el.addEventListener('blur', () => { if (!took && el.value !== el.defaultValue) el.dispatchEvent(new Event('change', { bubbles: true })); }, { once: true });
+      }
     } else if (!was && free && Date.now() - lostAt < 1500 && !panel.hidden) panel.focus({ preventScroll: true });
   }
   // a field as a selector by its tag and its data- attributes (the List's forms name their fields so)
@@ -190,7 +258,11 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     const data = Object.entries(el.dataset || {});
     if (!data.length) return '';
     const attr = (k) => 'data-' + k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
-    return el.tagName.toLowerCase() + data.map(([k, v]) => `[${attr(k)}="${CSS.escape(v)}"]`).join('');
+    // within its rule's card: a rule's "If not" has fields of the same marks (13 Nov 2026: Tab out of the If not's
+    // message went to the rule's own "+ Add a step" above it)
+    const card = el.closest('.lk-rule[data-lk]');
+    const within = card && card !== el ? `.lk-rule[data-lk="${CSS.escape(card.dataset.lk)}"] ` : '';
+    return within + el.tagName.toLowerCase() + data.map(([k, v]) => `[${attr(k)}="${CSS.escape(v)}"]`).join('');
   }
   // the selection changed: a rule (a card, a simple rule's wire, a wire of a rule), else one object, else nothing
   function selected(sel) {
@@ -224,6 +296,15 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   }
   document.addEventListener('pointerdown', (e) => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); }, true);
   host.addEventListener('keydown', (e) => { if (e.key === 'Escape' && menuEl) { closeMenu(); canvas().focus(); e.stopPropagation(); } }, true);
+  // the menus' lists made ready when the mouse comes on the graph, before its right-click (13 Nov 2026: the first menu
+  // of a map opened about a second late, its objects' classes asked for then); once per map
+  let warmFor = null;
+  host.addEventListener('pointerenter', () => {
+    const m = mapNow();
+    if (warmFor === m) return;
+    warmFor = m;
+    Promise.resolve().then(() => Promise.all([edit.objects(), edit.whens('')])).catch(() => { warmFor = null; });
+  });
   function quickAdd(screen, title, items, onPick, { lead = [], placeholder = 'Search' } = {}) {
     closeMenu();
     const groups = [...new Set(items.map((it) => it.group).filter(Boolean))];
@@ -237,7 +318,7 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   async function actPicker(screen, title, done) {
     const objects = (await edit.objects()).map((o) => ({ ...o, group: ON_OBJECT, hint: 'Then what it does' }));
     quickAdd(screen, title, [...edit.free(), ...objects], async (d, it) => {
-      if (d.verb) return done({ verb: d.verb });
+      if (d.verb) return done(d.target ? { target: d.target, verb: d.verb } : { verb: d.verb });   // a phase: its block
       if (d.object) return inputPicker(screen, `What does ${it.label} do?`, d.object, done);
     }, { placeholder: 'Search what it does, or an object' });
   }
@@ -277,7 +358,14 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
       ...Object.entries(SEVERAL).map(([kind, [label, hint, words]]) => ({ id: 'several:' + kind, label: label + '…', group: SEVERAL_GROUP, hint, words, data: { several: kind } })),
     ];
     const whens = await edit.whens('');
-    quickAdd(at.screen, 'Add a rule', [...extra, ...whens, ...objects], (d, it) => {
+    const blocks = (edit.blocks ? edit.blocks() : []).map((b) => ({ ...b, group: BLOCK_GROUP }));
+    quickAdd(at.screen, 'Add a rule', [...extra, ...whens, ...objects, ...blocks], (d, it) => {
+      if (d.block !== undefined) {
+        if (!ready()) return;
+        const name = edit.addBlock(d.block);
+        if (name) { pendingObj = name; pendingTries = 0; target = { name, label: it.label }; hiddenFor = ''; drawnSig = ''; }
+        return;
+      }
       if (d.note) return noteAt(at);
       if (d.frame) return frameSelection();
       if (d.paste) return paste();
@@ -451,10 +539,35 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     if (!p) return;
     if (p.kind === 'time') return delayBox(p.rule, p.act, at);
     if (p.kind === 'add') return actPicker(at.screen, 'Add a step', (a) => edit.addAct(p.rule, a));
+    if (focusInPanel(p)) return;                 // the rule is open beside the graph: its field there, no box over it
     const key = p.kind === 'when' ? 'when' : p.kind === 'if' ? 'if:' + p.check : 'act:' + p.act;
     const title = p.kind === 'when' ? 'What sets it off' : p.kind === 'if' ? 'Only if' : 'The step';
     const again = (el) => edit.value(el, p.rule, key, () => again(el));
     openBox(at, title, again, { more: () => { target = { rule: p.rule }; hiddenFor = ''; drawnSig = ''; showPanel(true); } });
+  }
+  // a value of a rule whose form the side panel shows: that field gets the keys, in sight (13 Nov 2026: a click on a
+  // card's row opened a small box over the panel, the same field twice). -> false when the panel has no such field
+  function focusInPanel(p) {
+    if (panel.hidden) return false;
+    const card = body.querySelector(`.lk-rule[data-lk="${CSS.escape(p.rule)}"]`);
+    if (!card) return false;
+    let el = null;
+    if (p.kind === 'when') el = card.querySelector('select[data-lkw]');
+    else if (p.kind === 'if') {
+      const row = card.querySelector(`[data-ci="${p.check}"]`);
+      el = row && row.querySelector('input:not([type=checkbox]), select, button');
+    } else if (p.kind === 'act') {
+      const l = ((edits() || {}).links || []).find((x) => x.id === p.rule);
+      const j = l ? (l.do || []).findIndex((x) => x && x.id === p.act) : -1;
+      const step = j < 0 ? null : card.querySelector(`select[data-lkv="${j}"]`)?.closest('.lk-act');
+      el = step && (step.querySelector('input:not([type=checkbox]):not([type=hidden]), textarea') || step.querySelector('select'));
+    }
+    if (!el || el.offsetParent === null) return false;
+    el.scrollIntoView({ block: 'nearest' });
+    el.focus({ preventScroll: true });
+    // the caret at the end, the text kept (a key typed at once does not replace the whole message)
+    if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|)$/.test(el.type || ''))) { const n = el.value.length; try { el.setSelectionRange(n, n); } catch { /* no caret */ } }
+    return true;
   }
   // a small box under the value (graph-value-edit.js): Esc gives back what changed in it (the undo steps it made),
   // or done(cancelled) for a box of the graph's own (a note, a frame's title)
@@ -631,6 +744,11 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
         }
       }
       if (pendingFrame) { const id = pendingFrame; pendingFrame = null; requestAnimationFrame(() => canvas().select({ frames: [id] })); }
+      if (pendingObj) {                            // a block just placed: its node selected and in sight
+        const id = OBJECT + pendingObj;
+        if (shownNow.nodes.some((n) => n.id === id)) { pendingObj = null; requestAnimationFrame(() => { canvas().select({ nodes: [id] }); canvas().reveal([id]); }); }
+        else if (pendingTries++ === 0) commands.whole?.(); else pendingObj = null;
+      }
       showPanel();
     },
     hide() { target = null; hide(); closeMenu(); vbox?.close(); },

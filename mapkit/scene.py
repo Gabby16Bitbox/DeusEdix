@@ -562,7 +562,7 @@ class Scene:
                     self.sub(turn(br, True))
                 continue
             for br in _blocks.brushes(b, mat, b.get('name', 'EditBox')):     # a hollow one: its convex pieces
-                br = turn(br)
+                br = _blocks.matched(turn(br), b)  # a fill of an opening: laid as the wall round it
                 br.preview_box = b['name']
                 self.preview_boxes[b['name']] = copy.deepcopy(b)
                 self.add(br, semisolid=not b.get('solid', False))
@@ -748,6 +748,20 @@ class Scene:
                 self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
             report += _links.report(edits)
             self.link_edits = edits
+            # the first-person moments its rules play (13 Nov 2026: only the original maps' build had them, so a new
+            # map's rule played nothing): UCViewMoment actors (editor/fpmoments.py), their sounds' packages loaded
+            import fpmoments as _fpmoments
+            import prefabs as _prefabs
+            for package in _fpmoments.packages(edits):
+                try:
+                    for cmd in _prefabs.package_commands([package]):
+                        if cmd not in self.extra_obj:
+                            self.extra_obj.append(cmd)
+                except ValueError as exc:
+                    report.append('  First-person moment: %s' % exc)
+            for a in _fpmoments.blocks(edits):
+                self.actor(a['cls'], tuple(a['loc']), name=a['name'], rot=(0, 0, 0), **a['props'])
+            report += _fpmoments.report(edits)
         if settings.STANDALONE and isinstance(edits.get('logic'), dict) and (edits['logic'].get('watch') or edits['logic'].get('start')):
             # the map's logic hub (editor/links.py hub): UCLogicHub0, states watched while playing, start values (P5)
             import sys as _sys

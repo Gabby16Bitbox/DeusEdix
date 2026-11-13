@@ -64,6 +64,7 @@ KEEP = {
     'paths': 'whether a Rebuild makes the AI paths again',
     'nests': 'folders', 'unnest': 'structures taken apart', 'order': "the Hierarchy's order",
     'defaultFolder': 'the folder new objects go in',
+    'editorNames': 'the names given in the editor to the objects that keep no name of their own (path nodes)',
 }
 # ... and what it leaves out: the old map's story and logic, which name its characters, flags and conversations, and
 # what the editor makes again

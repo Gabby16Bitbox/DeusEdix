@@ -190,13 +190,13 @@
       "many": "{t} wander about", "level": "basic", "games": ["revision", "vanilla"], "kw": ["roam", "walk"]},
     "follow": {"target": true, "label": "Follow the player", "acts": "character", "say": "{t} follows the player",
       "many": "{t} follow the player", "level": "basic", "games": ["revision", "vanilla"], "kw": ["escort", "come"]},
-    "goto": {"target": true, "label": "Walk to a place", "acts": "character", "say": "{t} walks to a place",
-      "many": "{t} walk to a place",
+    "goto": {"target": true, "label": "Walk to a place", "acts": "character", "say": "{t} walks to {where}",
+      "many": "{t} walk to {where}",
       "args": [{"id": "at", "type": "place", "label": "to"},
         {"id": "nav", "type": "bool", "label": "on the walkable area", "default": true}], "level": "basic",
       "games": ["revision", "vanilla"], "kw": ["walk", "move", "go"]},
-    "run": {"target": true, "label": "Run to a place", "acts": "character", "say": "{t} runs to a place",
-      "many": "{t} run to a place",
+    "run": {"target": true, "label": "Run to a place", "acts": "character", "say": "{t} runs to {where}",
+      "many": "{t} run to {where}",
       "args": [{"id": "at", "type": "place", "label": "to"},
         {"id": "nav", "type": "bool", "label": "on the walkable area", "default": true}], "level": "basic",
       "games": ["revision", "vanilla"], "kw": ["run", "move", "go", "flee"]},
@@ -292,7 +292,8 @@
       "inverse": "timerresume", "level": "more", "games": ["revision", "vanilla"], "kw": ["hold", "freeze"]},
     "timerresume": {"target": true, "label": "Resume the timer", "acts": "timer", "say": "resume {t}",
       "inverse": "timerpause", "level": "more", "games": ["revision", "vanilla"], "kw": ["continue", "unpause"]},
-    "input": {"target": true, "label": "An input of the script", "acts": "script", "say": "{t}: {port}[ ({b})]",
+    "input": {"target": true, "label": "An input of the script", "acts": "script",
+      "say": [{"if": {"phaseto": true}, "say": "move {t} to '{phaseto}'"}, {"say": "{t}: {port}[ ({b})]"}],
       "args": [{"id": "a", "type": "port", "label": "input"}, {"id": "b", "type": "args", "label": "its values"}],
       "level": "advanced", "games": ["revision", "vanilla"], "kw": ["script", "port", "call"]},
     "floor": {"target": true, "label": "Go to a floor", "acts": "elevator", "say": "{t} goes to floor {a}",
@@ -694,7 +695,7 @@
   "about_graph": "Read by the Logic window (static/logic-graph-model.js). setsOff: the outputs an action makes its object say again at once, every time (no time passes: a timer stopped, a cutscene started, a script answering an input; 'output' is any output a script declares), so that rules setting each other off with no delay are found before Play. pieces: the logic's own nodes (edits.logic): each kind's inputs ('in', the verb input's port) and outputs ('out', the output's port) as a script's, 'many' making one per input or output of the item ({n}, its number) or per phase of its list ({name}), and what its live value shows. story: the Story's word for a rule's verb, where they differ (a Story action drawn as a rule's).",
   "setsOff": {
     "timerstop": ["stopped"], "cutplay": ["cutstart"], "cutstop": ["cutdone"],
-    "input": ["output"], "on": ["output"], "off": ["output"]
+    "input": ["output"], "on": ["output"], "off": ["output"], "signal": ["signal"]
   },
   "pieces": {
     "allof": {"label": "All of", "noun": "block", "level": "more", "kw": ["and", "all", "every", "both"],

@@ -206,7 +206,8 @@ def act_string(a):
         fields += ['tag',target_tag]
     result = '|'.join(fields)
     if len(result) > 900:
-        raise ValueError('Interaction text is too long for the engine; shorten this action')
+        raise ValueError('its text is too long for the engine (%d characters with the rest of the step, at most 900): '
+                         'shorten it' % len(result))
     return result
 
 
@@ -641,8 +642,8 @@ MAX_STEP_CONDITIONS = 16                   # UCLink.StepCond[16]
 
 
 def is_steps(link):
-    """A rule that is a list of steps (the editor's lists: If / Otherwise / End, Wait until): run in its order."""
-    return bool(link.get('steps'))
+    """A rule that is a list of steps (the editor's lists: If / Otherwise / End, Wait until): run in its order; one with an If or a Wait among its actions too (13 Nov 2026, Deep Ops: without `steps` they were dropped, both branches ran)"""
+    return bool(link.get('steps')) or any(isinstance(a, dict) and a.get('verb') in FLOW for a in link.get('do') or [])
 
 
 # "Wait until" the Story (P5): the until's type -> the Tag's prefix (story.end_tag, heard_tag) and the id's key
@@ -1041,7 +1042,10 @@ def blocks(edits):
             if isinstance(a, list):                 # a step of the list: check, goto, until, wait
                 props['Act(%d)' % i] = _quoted('|'.join(a))
                 continue
-            props['Act(%d)' % i] = _quoted(act_string(_group_blocks(rule, i, a, out)))
+            try:
+                props['Act(%d)' % i] = _quoted(act_string(_group_blocks(rule, i, a, out)))
+            except ValueError as exc:            # which rule and step (13 Nov 2026: "shorten this action", none said which)
+                raise ValueError('Rule %s, step %d: %s' % (rule, i + 1, exc)) from exc
         cls = 'UCLink'
         if v2:                                  # the Logic runtime v2: a UCRule, a UCRuleAlso for each other cause
             cls = 'UCRule'

@@ -320,6 +320,27 @@ export function mountConditions(host, list, ctx) {
   if (add) add.onchange = () => {
     const kind = add.value;
     add.value = '';
-    if (kind) ctx.change(() => { list.push(newCondition(kind, kind === 'near' && ctx.point ? ctx.point('camera') : null)); });
+    if (!kind) return;
+    newRow = { n: list.length + 1, at: Date.now() };
+    ctx.change(() => { list.push(newCondition(kind, kind === 'near' && ctx.point ? ctx.point('camera') : null)); });
   };
+  focusNewRow(host, list);
+}
+// a condition just added: its first field has the keys once it is drawn, so the state's name is typed at once
+// (13 Nov 2026: after "+ Only if... > A state" the keys stayed on the adder and the name field had to be clicked)
+let newRow = null;
+function focusNewRow(host, list) {
+  const r = newRow;
+  if (!r || Date.now() - r.at > 3000 || list.length !== r.n) return;
+  const row = host.querySelector(`[data-ci="${r.n - 1}"]`);
+  if (!row) return;
+  newRow = null;
+  const give = () => {
+    const a = document.activeElement;
+    const free = !a || a === document.body || !a.isConnected || a.matches('[data-cadd], .lw-edit');
+    if (!free) return;                         // the keys went somewhere on purpose
+    const f = row.querySelector('input:not([type=checkbox]):not([type=hidden]), select');
+    if (f && f.offsetParent !== null) { f.focus({ preventScroll: false }); if (f.tagName === 'INPUT') f.select?.(); }
+  };
+  setTimeout(give, 0);
 }

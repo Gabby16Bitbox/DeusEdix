@@ -4,7 +4,8 @@ animations, moves in the view, with its sounds and a shake, when an Interaction 
 edits['fpmoments'] = {name: {'weapon': its class ('' any), 'mesh': its first-person model,
                              'clips': [{'seq', 'from', 'to' (frames of the sequence: to past from plays it backwards),
                                         'frames' (how many the sequence has), 'secs'}],
-                             'offsets': [{'t', 'x', 'y', 'z'}]   (added to the weapon's PlayerViewOffset),
+                             'offsets': [{'t', 'x', 'y', 'z', 'ease'}]   (added to the weapon's PlayerViewOffset;
+                                         ease: the way to the key, laid as straight steps: game_offsets),
                              'sounds': [{'t', 'sound' (Package.Group.Name)}],
                              'shake': {'t', 'secs', 'roll', 'vert'},
                              'viewMesh': a copy of its model with imported animations ('' none)}}
@@ -17,6 +18,8 @@ SEQ = re.compile(r'^[A-Za-z_]\w{0,62}$')
 CLASS = re.compile(r'^[A-Za-z_]\w{0,62}$')
 OBJ = re.compile(r'^[A-Za-z_]\w*(\.[A-Za-z_]\w*){1,2}$')
 CLIPS, OFFSETS, SOUNDS = 16, 16, 8
+EASES = ('smooth', 'in', 'out')
+STEPS_MAX = 4
 
 
 def _num(v, default=0.0, lo=-1e6, hi=1e6):
@@ -25,6 +28,41 @@ def _num(v, default=0.0, lo=-1e6, hi=1e6):
     except (TypeError, ValueError):
         return default
     return min(hi, max(lo, f)) if f == f else default
+
+
+def ease(kind, u):
+    """A way's shape (static/fp-moment.js ease): u (0..1 of the time) -> how far along."""
+    u = min(1.0, max(0.0, u))
+    if kind == 'smooth':
+        return u * u * (3 - 2 * u)
+    if kind == 'in':
+        return u * u
+    if kind == 'out':
+        return 1 - (1 - u) * (1 - u)
+    return u
+
+
+def game_offsets(offsets):
+    """The keys as the game has them (static/fp-moment.js gameOffsets, the same numbers): UCViewMoment goes straight
+    from key to key, so a way eased to a key (13 Nov 2026) is laid as straight steps before it, the game's 16 keys
+    shared out among the eased ways (at most STEPS_MAX each). A key with no ease goes straight."""
+    keys = sorted((o for o in offsets or [] if isinstance(o, dict)), key=lambda o: _num(o.get('t')))[:OFFSETS]
+    kind = lambda o: o.get('ease') if o.get('ease') in EASES else 'linear'
+    eased = sum(1 for o in keys if kind(o) != 'linear')
+    steps = min(STEPS_MAX, (OFFSETS - len(keys)) // eased) if eased else 0
+    out, prev = [], dict(t=0.0, x=0.0, y=0.0, z=0.0)
+    r = lambda x: round(x * 1e6) / 1e6
+    for o in keys:
+        k = {c: _num(o.get(c)) for c in 'txyz'}
+        if kind(o) != 'linear' and steps > 0 and k['t'] - prev['t'] > 0.02:
+            for j in range(1, steps + 1):
+                u = j / (steps + 1)
+                f = ease(kind(o), u)
+                out.append(dict(t=r(prev['t'] + (k['t'] - prev['t']) * u),
+                                **{c: r(prev[c] + (k[c] - prev[c]) * f) for c in 'xyz'}))
+        out.append(k)
+        prev = k
+    return out
 
 
 def used(edits):
@@ -51,7 +89,7 @@ def props_of(name, m):
         p['SeqTo(%d)' % i] = '%.6f' % (_num(c.get('to'), n - 1, 0, n) / n)
         p['SeqTime(%d)' % i] = '%.6f' % _num(c.get('secs'), 1, 0.01, 600)
     p['NumSeq'] = str(len(clips))
-    offsets = sorted((o for o in m.get('offsets') or [] if isinstance(o, dict)), key=lambda o: _num(o.get('t')))[:OFFSETS]
+    offsets = game_offsets(m.get('offsets'))[:OFFSETS]
     for i, o in enumerate(offsets):
         p['OffT(%d)' % i] = '%.6f' % _num(o.get('t'), 0, 0, 600)
         p['OffV(%d)' % i] = '(X=%.6f,Y=%.6f,Z=%.6f)' % tuple(_num(o.get(k), 0, -200, 200) for k in 'xyz')

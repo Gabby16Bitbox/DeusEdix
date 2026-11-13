@@ -34,8 +34,10 @@ import { lineText, saidLine } from './logic-try.js';
 import { boxesOf, makeBox, BOX } from './logic-boxes.js';
 import { nextInstanceId, versionKey, fillSlots } from './logic-patterns.js';
 import { WORLD_CAUSES, GAME_WORLD } from './logic-rule-ui.js';
+import { canOtherwise, syncOtherwise } from './action-list.js';
 
-export const BLOCK_CLASSES = ['UCBAllOf', 'UCBGate', 'UCBSwitch', 'UCBPhases', 'UCBAtLeast', 'UCBFirstOf', 'UCBCounter'];
+// (the Timer too: 13 Nov 2026, the graph's menu placed one and a proposal could not)
+export const BLOCK_CLASSES = ['UCBAllOf', 'UCBGate', 'UCBSwitch', 'UCBPhases', 'UCBAtLeast', 'UCBFirstOf', 'UCBCounter', 'UCTimer'];
 export const OPS = ['add_rule', 'update_rule', 'delete_rule', 'connect', 'add_block', 'make_group', 'set_phase', 'place_pattern', 'make_box'];
 const FLOW = new Set(['if', 'else', 'end', 'wait']);
 // causes that belong to the map, not to an object (no src): the Logic window's "The map" list (P9 slice 3: the
@@ -107,6 +109,13 @@ export function applyOps(edits, ops, ctx) {
     if (FLOW.has(x.verb)) return;
     const v = (ctx.verbs || {})[x.verb];
     if (!v) throw new Error(`${where}: "${x.verb}" is not a step the game knows`);
+    // a choice only of its choices (13 Nov 2026, Deep Ops: a goal with c "failed" was taken as a new goal with no text)
+    for (const arg of v.args || []) {
+      const val = x[arg.id];
+      if (arg.type !== 'choice' || !Array.isArray(arg.choices) || val === undefined || val === null || val === '') continue;
+      const ok = arg.choices.map((c) => String(Array.isArray(c) ? c[0] : c));
+      if (!ok.includes(String(val))) throw new Error(`${where}: "${x.verb}" ${arg.id} (${arg.label}) is one of ${ok.map((c) => `"${c}"`).join(', ')}, not "${val}"`);
+    }
     if (x.group) {
       const g = groupOf(x.group);
       if (!g) throw new Error(`${where}: there is no group "${x.group}"`);
@@ -130,6 +139,9 @@ export function applyOps(edits, ops, ctx) {
     (l.else || []).forEach((x, i) => checkStep(x, `${where}, otherwise ${i + 1}`));
     for (const x of [...l.do, ...(l.else || [])]) if (typeof x.delay !== 'number') x.delay = +x.delay || 0;
     if (typeof l.once !== 'boolean') l.once = false;
+    // an If, an Otherwise, an End or a Wait among its steps: a list of steps, in its order (13 Nov 2026, Deep Ops: one
+    // proposed without `steps` was built without its If, so both branches ran, and read "if, ..., else, ..., end")
+    if (!l.steps && l.do.some((x) => FLOW.has(x.verb))) l.steps = true;
     if (!Array.isArray(l.at)) l.at = ctx.where ? ctx.where(l.src) : [0, 0, 0];
   }
   const ruleOf = (id) => {
@@ -175,6 +187,14 @@ export function applyOps(edits, ops, ctx) {
         delete l.label;
         try { checkRule(l, where); } catch (e) { Object.keys(l).forEach((key) => delete l[key]); Object.assign(l, before); throw e; }
         if (!added.includes(l.id)) changed.add(l.id);
+        // its "If not" follows it (its cause, its phases, the opposite condition), as the List keeps it (app.js
+        // lkSyncOtherwise; 13 Nov 2026: a rule kept to the phase Over was tried with its If not running in Meet)
+        const v2 = l.match === 'any' || l.again || +l.max > 0 || +l.cooldown > 0 || l.talkBusy;
+        if (!l.otherwiseOf && !v2 && canOtherwise(l)) for (const other of next.links.filter((x) => x.otherwiseOf === l.id)) {
+          syncOtherwise(l, other);
+          delete other.label;
+          if (!added.includes(other.id)) changed.add(other.id);
+        }
       } else if (o.op === 'delete_rule') {
         const l = ruleOf(o.id);
         const gone = new Set([l.id, ...next.links.filter((x) => x.otherwiseOf === l.id).map((x) => x.id)]);
@@ -292,12 +312,15 @@ export function newProblems(before, after) {
 // things by the Hierarchy's names, ports and options by their labels, groups by their names
 export function trialWords(t) {
   const names = t.names || {}, labels = t.labels || {}, options = t.options || {};
-  return { name: (n) => names[n] || n, portLabel: (n, k) => (labels[n] || {})[k] || k.split(':')[1] || '?',
+  // the player by its part, not its actor name (13 Nov 2026, Deep Ops: "its Otherwise (by JCDentonMale0)")
+  return { name: (n) => names[n] || (n && n === (t.world || {}).player ? 'the player' : n), portLabel: (n, k) => (labels[n] || {})[k] || k.split(':')[1] || '?',
     optionText: (l) => (options[l.src] || [])[+l.option || 0] || '', family: (n) => (t.families || {})[n] || 'other', word: () => '',
     usable: (n) => !!(t.usable || {})[n], itemName: (cls) => (t.items || {})[cls] || String(cls).split('.').pop(),
     groupName: (id) => (t.groups || {})[id] || '',
+    phaseNames: (root) => (t.phaseNames || {})[String(root || '').toLowerCase()] || null,
     // a dialogue, an InfoLink by its title (P5; app.js logicWorld storyTitles)
-    storyTitle: (key, id) => ((t.storyTitles || {})[key] || {})[id] || String(id), goalText: goalTexts(t.rules) };
+    storyTitle: (key, id) => ((t.storyTitles || {})[key] || {})[id] || String(id), goalText: goalTexts(t.rules),
+    placeName: typeof t.placeName === 'function' ? t.placeName : null };           // runs to Path Node 2
 }
 
 // The happening a proposal is tried with when the assistant gives none: what sets off its first new rule
@@ -316,12 +339,31 @@ export function mainHappening(p) {
 // A dialogue that starts plays through (P5: Try it plays the Story's conversations), each choice taking the first
 // answer offered; its lines are in what happened.
 // -> {happened: [{t, text}], state: {flags, counters, ...}} or {error}
+// A happening as the assistant writes it, as the simulator takes it: the things of the game heard by their Tag (a key the
+// player presses, a signal, a dialogue's or an InfoLink's end, a game's event) named by what they are, the world's own
+// causes with no thing (13 Nov 2026, Edge Lab: "keypress", "signal" and "back" could not be tried, a thing was needed).
+// -> null when it names nothing
+export function happeningOf(f, outputs = {}) {
+  if (!f || typeof f !== 'object' || !f.output) return null;
+  const output = String(f.output), hears = (outputs[output] || {}).hears;
+  const BY_TAG = { keypress: ['key', 'UCL_Key_'], signal: ['signal', 'UCS_'], ended: ['dialogue', 'UCD_'], heard: ['infolink', 'UCI_'], gametag: ['gameTag', ''] };
+  let thing = f.thing ? String(f.thing) : '';
+  const tag = BY_TAG[output];
+  if (!thing && tag && f[tag[0]]) thing = tag[1] + String(f[tag[0]]);
+  if (!thing && hears !== 'world') return null;
+  const world = {};
+  if (hears === 'world') for (const k of ['goal', 'noise', 'what']) if (f[k] !== undefined) world[k] = String(f[k]);
+  return { thing, output, port: f.port, option: f.option, ...world };
+}
 export function simulate(t, fires = [], seconds = 5, start = {}) {
   const c = t.compiled || {};
   if (c.error) return { error: `The rules cannot be built: ${c.error}` };
   const vocab = vocabulary(t.catalog), words = trialWords(t);
+  // a run that begins with the player coming back (or a saved game loaded): the map's start rules ran on the first visit
+  // (13 Nov 2026: "back" on the docks said Navarre's welcome again)
+  const revisit = ['back', 'loaded'].includes(fires[0] && fires[0].output);
   const session = createSession({ actors: c.actors || [], outputs: c.outputs || t.catalog.outputs, left: c.left || [], world: t.world,
-    map: t.map || 'Map', vocab, ctx: words, start });
+    map: t.map || 'Map', vocab, ctx: words, start, revisit });
   const sentences = {}, rules = {};
   for (const l of t.rules || []) { rules[l.id] = l; try { sentences[l.id] = vocab.sentence(l, words); } catch { sentences[l.id] = l.label || l.id; } }
   const stops = [];
@@ -335,9 +377,11 @@ export function simulate(t, fires = [], seconds = 5, start = {}) {
       session.say(shown?.type === 'choice' ? (shown.options.find((o) => o.shown) || { k: -1 }).k : -1);
     }
   };
-  for (const f of fires) {
-    if (!f || !f.thing || !f.output) return { error: 'Each happening is {thing, output, port?, option?}.' };
-    session.fire({ thing: f.thing, output: f.output, port: f.port, option: f.option });
+  const outputs = c.outputs || t.catalog.outputs || {};
+  for (const f0 of fires) {
+    const f = happeningOf(f0, outputs);
+    if (!f) return { error: 'Each happening is {thing, output, port?, option?}; with no thing: {output: "keypress", key}, {output: "signal", signal}, {output: "ended", dialogue}, {output: "heard", infolink}, {output: "gametag", gameTag}, or a cause of the world (back, loaded, goaldone with goal, noise with noise, appears with what).' };
+    session.fire(f);
     talkThrough();
     const r = session.step(1);
     if (r && r.stopped) stops.push(r.stopped.text);

@@ -146,7 +146,9 @@ test('a proposal tried in the simulator says what happens', () => {
 
 test('the blocks it may place are the simulator\'s', () => {
   const sim = readFileSync(new URL('editor/static/logic-sim.js', kit), 'utf8');
-  for (const cls of BLOCK_CLASSES) assert.match(sim, new RegExp(`\\['${cls}', '`));
+  // (the Timer is no block there: the simulator plays it as the game's UCTimer, with its verbs timerstart...)
+  for (const cls of BLOCK_CLASSES.filter((c) => c !== 'UCTimer')) assert.match(sim, new RegExp(`\\['${cls}', '`));
+  assert.match(sim, /timerstart: 'UCTimer'/);
 });
 
 // P8 slice 7: a pattern of the project placed, rules and blocks put in a block of their own
@@ -202,4 +204,51 @@ test('the world\'s happenings and formulas in a proposal', () => {
   assert.deepEqual(p.edits.links.find((l) => l.when === 'loaded').do[0].b, 'Loads + 1');
   const also = applyOps(edits(), [{ op: 'update_rule', id: 'L1', set: { also: [{ src: '', when: 'noise' }] } }], ctx);
   assert.match(also.errors.join('\n'), /"noise" cannot be an "Or when\.\.\."/);
+});
+
+test('a rule changed: its "If not" follows its phases and cause (13 Nov 2026: it ran out of the rule\'s phase)', () => {
+  const base = { links: [
+    { id: 'L1', src: '', when: 'back', once: false, at: [0, 0, 0], requires: [{ flag: 'Dead', is: true }], do: [{ id: 'a1', verb: 'lighton', target: 'Lamp1', delay: 0 }] },
+    { id: 'L2', src: '', when: 'back', once: false, at: [0, 0, 0], otherwiseOf: 'L1', requires: [{ flag: 'Dead', is: false }], do: [{ id: 'a1', verb: 'lightoff', target: 'Lamp1', delay: 0 }] },
+  ], added: [], logic: { groups: [] } };
+  const p = applyOps(base, [{ op: 'update_rule', id: 'L1', set: { phase: { set: 'Phases1', in: ['Over'] }, once: true } }], ctx);
+  assert.deepEqual(p.errors, []);
+  const other = p.edits.links.find((x) => x.id === 'L2');
+  assert.deepEqual(other.phase, { set: 'Phases1', in: ['Over'] });
+  assert.equal(other.once, true);
+  assert.deepEqual(other.requires, [{ flag: 'Dead', is: false }]);
+  assert.deepEqual(other.do[0].verb, 'lightoff');      // its own steps kept
+  assert.ok(p.changed.includes('L2'));
+});
+
+// (13 Nov 2026, Edge Lab) what the assistant fires with no thing: a key, a signal, a dialogue's end, the world's causes
+test('happenings with no thing: by their Tag, or the world\'s own', async () => {
+  const { happeningOf } = await import('../editor/static/logic-propose.js');
+  const outs = JSON.parse((await import('node:fs')).readFileSync(new URL('../editor/config/logic.json', import.meta.url), 'utf8')).outputs;
+  assert.deepEqual(happeningOf({ output: 'keypress', key: 'K' }, outs), { thing: 'UCL_Key_K', output: 'keypress', port: undefined, option: undefined });
+  assert.equal(happeningOf({ output: 'signal', signal: 'Ping' }, outs).thing, 'UCS_Ping');
+  assert.equal(happeningOf({ output: 'ended', dialogue: 'Intro' }, outs).thing, 'UCD_Intro');
+  assert.deepEqual(happeningOf({ output: 'goaldone', goal: 'Survive' }, outs), { thing: '', output: 'goaldone', port: undefined, option: undefined, goal: 'Survive' });
+  assert.equal(happeningOf({ output: 'back' }, outs).thing, '');
+  assert.equal(happeningOf({ output: 'used' }, outs), null, 'an object\'s output needs its object');
+  assert.equal(happeningOf({ thing: 'Button1', output: 'used' }, outs).thing, 'Button1');
+});
+
+test('a rule proposed with an If and no steps is made a list of steps (13 Nov 2026, Deep Ops)', () => {
+  const p = applyOps(edits(), [{ op: 'add_rule', rule: { src: 'Button1', when: 'used', do: [
+    { verb: 'if', requires: [{ flag: 'A', is: true }] }, { verb: 'open', target: 'Door1' }, { verb: 'else' },
+    { verb: 'lighton', target: 'Lamp1' }, { verb: 'end' }] } }], ctx);
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.edits.links.find((x) => x.id === p.added[0]).steps, true);
+  const plain = applyOps(edits(), [{ op: 'add_rule', rule: { src: 'Button1', when: 'used', do: [{ verb: 'open', target: 'Door1' }] } }], ctx);
+  assert.equal(plain.edits.links.find((x) => x.id === plain.added[0]).steps, undefined);
+});
+
+test('a step\'s choice only of its choices (13 Nov 2026, Deep Ops: a goal "failed")', () => {
+  const v = { ...logic.inputs };
+  const c2 = { ...ctx, verbs: v };
+  const p = applyOps(edits(), [{ op: 'add_rule', rule: { src: 'Button1', when: 'used', do: [{ verb: 'goal', a: 'G', c: 'failed' }] } }], c2);
+  assert.match(p.errors.join('\n'), /"goal" c \(completed\) is one of "", "done", not "failed"/);
+  const ok = applyOps(edits(), [{ op: 'add_rule', rule: { src: 'Button1', when: 'used', do: [{ verb: 'goal', a: 'G', c: 'done' }] } }], c2);
+  assert.deepEqual(ok.errors, []);
 });

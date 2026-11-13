@@ -122,6 +122,11 @@ const OUTPUT_WORDS = {
 };
 // a named group's name as the page knows it (ctx.groupName), else its id
 const groupName = (id, ctx) => (ctx.groupName && ctx.groupName(id)) || String(id);
+// words ending "the <noun>" ("sound the alarm") and an object whose name has that noun ("Vault alarm", "the alarm")
+export const namesItself = (words, name) => {
+  const noun = /\bthe (\w+)$/.exec(String(words));
+  return !!noun && String(name).toLowerCase().split(/\W+/).includes(noun[1].toLowerCase());
+};
 const VERB_WORDS = {
   // the object it acts on; objects with a scripting tag are many (its 'many' sentence)
   // a named group (P3: x.group) is many too
@@ -131,6 +136,16 @@ const VERB_WORDS = {
   // its label, as the object's family words it: "play it", "sound the alarm"
   verb: (x, ctx, vocab) => vocab.verbLabel(x.verb, ctx.family(x.target), wordOf(ctx, x.target)).toLowerCase(),
   port: (x, ctx) => PORT(ctx, x.target, verbKey(x)),
+  // the phase a Phases block is sent to, as its list writes it ("Chase"), '' for any other input (13 Nov 2026: steps
+  // said "Phases: Go to the phase 'Chase'"; now "move NavarreHunt phases to 'Chase'")
+  phaseto: (x, ctx) => {
+    if (x.verb !== 'input' || !/^GoTo_/.test(x.a || '') || ctx.family(x.target) !== 'phases') return '';
+    const m = /'(.*)'$/.exec(PORT(ctx, x.target, verbKey(x)) || '');
+    return m ? m[1] : String(x.a).slice(5);
+  },
+  // where it is sent, by what stands there ("Path Node 2", ctx.placeName), else "a place" (13 Nov 2026: the graph's
+  // cards said "runs to a place" for every run)
+  where: (x, ctx) => (Array.isArray(x.at) && ctx.placeName && ctx.placeName(x.at)) || 'a place',
   // a character's fate in words ("Guard1 · Was killed"), '' for any other state
   fate: (x) => (parseFate(x.a) ? stateLabel({ flag: x.a, is: x.b !== '0' }) : ''),
   // the verb and its object as one phrase: "switch on Vault alarm", "play Siren1" (a family's "Play it"); "sound the
@@ -139,6 +154,8 @@ const VERB_WORDS = {
     const v = VERB_WORDS.verb(x, ctx, vocab), t = VERB_WORDS.t(x, ctx, vocab);
     if (/\bit$/.test(v)) return v.replace(/\bit$/, t);
     if (/^(switch|turn) (on|off)$/.test(v)) return `${v} ${t}`;
+    // an object named for what the words say already: "sound Vault alarm", not "sound the alarm: Vault alarm" (13 Nov 2026)
+    if (namesItself(v, t)) return v.replace(/\bthe \w+$/, t);
     return `${v}: ${t}`;
   },
   // a goal by what the player reads, from the step that gave it (ctx.goalText), else by its name (12 Nov 2026: 'the

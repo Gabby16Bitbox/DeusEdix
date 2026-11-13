@@ -220,5 +220,15 @@ class Stories(unittest.TestCase):
                         story.write_all(current=current)
 
 
+class TooLong(unittest.TestCase):
+    def test_a_text_too_long_for_the_engine_names_its_rule_and_step(self):
+        # 13 Nov 2026, Edge Lab: "Interaction text is too long for the engine; shorten this action", none said which
+        edits = dict(links=[rule(id='L34', do=[dict(verb='message', a='ok'), dict(verb='message', a='Lorem ipsum. ' * 80)])])
+        with self.assertRaises(ValueError) as caught:
+            links.blocks(edits)
+        self.assertRegex(str(caught.exception), r'^Rule L34, step 2: its text is too long for the engine \(\d+ characters')
+        links.blocks(dict(links=[rule(id='L34', do=[dict(verb='message', a='Lorem ipsum. ' * 60)])]))     # 780: fine
+
+
 if __name__ == '__main__':
     unittest.main()

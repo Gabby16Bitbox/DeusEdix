@@ -6,8 +6,15 @@ import { verbKey } from './logic-vocab.js';
 import { conditionProblem, kindOf, CONDITION_KINDS, MAX_CONDITIONS } from './conditions.js';
 import { negate, FLOW } from './action-list.js';
 import { usesValue } from './logic-numbers.js';
-import { laterFields, present, thingId, ruleId, pieceId, PIECE_KINDS, storyId, signalHub, isSetGroup, SET_WHENS } from './logic-graph-model.js';
+import { laterFields, present, actorOf, thingId, ruleId, pieceId, PIECE_KINDS, storyId, signalHub, isSetGroup, SET_WHENS } from './logic-graph-model.js';
 
+// an object that is gone by the name the rules gave it, its name in the map after it ("Gate (UCEdit14)"; 13 Nov 2026:
+// "UCEdit14 is not in the map any more" for the Gate just deleted)
+const goneName = (ix, n) => {
+  let said = String(own((ix.input && ix.input.goneLabels) || {}, n) || '');
+  try { if (!said && actorOf(ix, n) && ix.ctx && ix.ctx.name) said = String(ix.ctx.name(n) || ''); } catch { said = ''; }
+  return said && said.toLowerCase() !== String(n).toLowerCase() && !said.includes(String(n)) ? `${said.charAt(0).toUpperCase()}${said.slice(1)} (${n})` : String(n);
+};
 const own = (table, key) => (table && Object.hasOwn(table, key) ? table[key] : undefined);
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
 const words = (items) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
@@ -17,6 +24,8 @@ export const MAX_ACTS = 24;                    // a rule's actions (links.py MAX
 export const FIXES = { lock: 'Lock it', set: 'Make something set it', remove: 'Remove the rule', removeAction: 'Remove the action' };
 // an action that names nothing (links.py builds it with none, the game says noname: logic-log.js)
 const NO_NAME = { count: 'The counter has no name.', flag: 'No state chosen.', goal: 'The goal has no name.' };
+// typographic punctuation the build makes plain (gametext.py PLAIN): shown, as its plain form
+const PLAIN = { '“': '"', '”': '"', '‘': "'", '’': "'", '—': '-', '–': '-', '…': '...' };
 // the actions that open a door (a door opened by logic should be locked, at the start or by a rule's lock)
 const OPENS = new Set(['open', 'toggle', 'unlock']);
 // What the game does with a verb on an object whose family does not offer it (UCLink.DoAct). A verb that needs no
@@ -44,7 +53,38 @@ export function logicProblems(ix, { game = '' } = {}) {
   cycleProblems(ix, add);
   pieceProblems(ix, add);
   signalProblems(ix, add);
+  phaseSetProblems(ix, add);
   return out;
+}
+
+// A Phases block keeps its phase in the game's flags by number (UCBPhases: <StateName> 1, 2, 3...), so another map's
+// Phases block (or the project's mission phases) of the same name with other phases reads that number as another
+// phase: "End" there is "Escape" here, and the states of each phase disagree (13 Nov 2026, Edge Lab). The project's
+// state catalog (input.external) says which phases each map's block has.
+function phaseSetProblems(ix, add) {
+  const here = String(ix.input.map || '');
+  for (const [name, a] of Object.entries(ix.actors || {})) {
+    if (!a || a.cls !== 'UCBPhases' || !a.stateName || !Array.isArray(a.phases) || ix.gone.has(name)) continue;
+    const root = String(a.stateName).toLowerCase(), mine = new Set(a.phases.map((p) => String(p.id).toLowerCase()));
+    const theirs = new Map();                     // where -> its phases this block lacks
+    for (const st of list(ix.input.external)) {
+      const flag = String(st.flag || st.name || '');
+      if (!flag.toLowerCase().startsWith(root + '_') || !/^in the (mission )?phase "/.test(String(st.label || ''))) continue;
+      const phase = flag.slice(root.length + 1);
+      for (const u of list(st.uses)) {
+        if (u.kind !== 'write' || u.map === here || !/^(Logic block|Mission phases)/.test(String(u.context || ''))) continue;
+        const where = u.map === '*' ? 'the mission phases' : u.map;
+        if (!theirs.has(where)) theirs.set(where, new Set());
+        if (!mine.has(phase.toLowerCase())) theirs.get(where).add(phase);
+      }
+    }
+    for (const [where, lack] of theirs) {
+      if (!lack.size) continue;
+      add('warn', 'phase-set-differs', `${ix.ctx.name(name)} shares ${a.stateName} with ${where === 'the mission phases' ? where : `a Phases block of ${where}`}, `
+        + `which has other phases (${words([...lack])}): the game keeps the phase by its number, so the same number means another phase on each map. `
+        + 'Give them the same phases, or link them to one set of Mission phases.', { node: thingId(name) });
+    }
+  }
 }
 // the problems of each node and wire, for their badges
 export function problemsByNode(problems) {
@@ -76,8 +116,8 @@ function ruleProblems(ix, r, add, game) {
   }
   for (const c of r.causes) {
     if (!c.src) continue;
-    const a = own(ix.actors, c.src);
-    if (!present(ix, c.src)) { add('error', 'no-source', `${c.src} is not in the map any more: the rule never runs.`, { ...at, fix: 'remove' }); continue; }
+    const a = actorOf(ix, c.src);
+    if (!present(ix, c.src)) { add('error', 'no-source', `${goneName(ix, c.src)} is not in the map any more: the rule never runs.`, { ...at, fix: 'remove' }); continue; }
     if (ix.off.has(c.src)) { add('info', 'source-disabled', `${ix.ctx.name(c.src)} is disabled in the game: the rule is not built.`, at); return; }
     if (Array.isArray(a.outputs) && !a.outputs.includes(c.key)) {
       const same = onTrigger(ix, c.key) && a.outputs.find((key) => onTrigger(ix, key));
@@ -108,8 +148,8 @@ function valueProblems(ix, r, reqs, add, at) {
   const numbers = (act) => list((own(ix.catalog.inputs, act.x.verb) || {}).args).filter((a) => a.formula).map((a) => act.x[a.id]);
   const uses = reqs.some((c) => usesValue(c.value)) || [...r.acts, ...r.otherwise].some((act) => numbers(act).some(usesValue));
   if (!uses) return;
-  const known = r.causes.every((c) => !c.src || Array.isArray((own(ix.actors, c.src) || {}).outputs));
-  const carries = r.causes.some((c) => c.src && String(c.key).startsWith('output:') && ((own(ix.actors, c.src) || {}).carries || []).includes(c.key));
+  const known = r.causes.every((c) => !c.src || Array.isArray((actorOf(ix, c.src) || {}).outputs));
+  const carries = r.causes.some((c) => c.src && String(c.key).startsWith('output:') && ((actorOf(ix, c.src) || {}).carries || []).includes(c.key));
   if (known && !carries) add('warn', 'value-unset', 'It uses Value, the number an output of a script comes with, but nothing that starts it comes with a number: Value is 0 there.', at);
 }
 // a dialogue or an InfoLink of the map's Story (P5) that a rule waits for, starts or plays: one is chosen, and the Story
@@ -186,8 +226,8 @@ function actionProblems(ix, r, act, add, game) {
   const verb = own(ix.catalog.inputs, x.verb);
   if (!verb) { add('error', 'unknown-verb', `"${x.verb}" is not an action the game classes know.`, at); return; }
   if (x.target && !x.area && !x.targetTag && x.target !== '@by' && x.target !== '@it') {     // (what set it off: no object)
-    const a = own(ix.actors, x.target);
-    if (!present(ix, x.target)) add('error', 'no-target', `${x.target} is not in the map any more.`, { ...at, fix: 'removeAction' });
+    const a = actorOf(ix, x.target);
+    if (!present(ix, x.target)) add('error', 'no-target', `${goneName(ix, x.target)} is not in the map any more.`, { ...at, fix: 'removeAction' });
     else if (ix.off.has(x.target)) add('warn', 'target-disabled', `${ix.ctx.name(x.target)} is disabled in the game: this action does nothing.`, at);
     else if (Array.isArray(a.inputs) && !a.inputs.includes(verbKey(x)) && verb.target && !ANY_ACTOR.has(x.verb)) {
       if (TRIGGERS.has(x.verb)) add('warn', 'may-ignore', `${ix.ctx.name(x.target)} may ignore "${ix.vocab.verbLabel(x.verb)}": the game only passes it a trigger, and its class decides.`, at);
@@ -214,8 +254,15 @@ function actionProblems(ix, r, act, add, game) {
     else if (isSetGroup(g) && ix.vocab.acts(x.verb) !== 'character') add('warn', 'set-not-character', `The group "${g.name || g.id}" holds characters only: "${ix.vocab.verbLabel(x.verb)}" reaches none of them.`, at);
   }
   if (own(NO_NAME, x.verb) && !String(x.a || '').trim()) add('error', 'no-name', NO_NAME[x.verb], at);
+  // a text the player reads: empty, it shows nothing; a letter the game's fonts lack (Latin-1 only, links.py _text and
+  // gametext.plain) shows as "?" (13 Nov 2026, Edge Lab: an empty message and a "✓" built without a word)
+  if (x.verb === 'message' && !String(x.a ?? '').trim()) add('warn', 'empty-text', 'The message is empty: the player sees nothing.', at);
+  const texts = list(own(own(own(ix.catalog || {}, 'inputs') || {}, x.verb) || {}, 'args')).filter((g) => g.type === 'line' || g.type === 'text');
+  const unshown = [...new Set(texts.flatMap((g) => [...String(x[g.id] ?? '')].filter((c) => !own(PLAIN, c) && c.codePointAt(0) > 255)))];
+  if (unshown.length) add('warn', 'not-in-font', `The game's fonts have no ${words(unshown.slice(0, 6).map((c) => `"${c}"`))}: `
+    + `${unshown.length > 1 ? 'they show' : 'it shows'} as "?".`, at);
   if (x.verb === 'sit') {
-    const seat = own(ix.actors, x.a);
+    const seat = actorOf(ix, x.a);
     if (!x.a || !present(ix, x.a)) add('error', 'no-seat', 'Choose a chair that is in the map.', at);
     else if (ix.off.has(x.a)) add('warn', 'seat-disabled', 'The chosen chair is disabled in the game.', at);
     else if (Array.isArray(seat.chain) && !seat.chain.includes('Seat')) add('error', 'not-seat', 'Choose a game seat from Objects; geometry alone has no seat points.', at);
@@ -253,11 +300,12 @@ function doorProblems(ix, add) {
   const opened = new Map(), locked = new Set();
   const acts = [...ix.rules.flatMap((r) => [...r.acts, ...r.otherwise].map((act) => [r.id, act.x])), ...ix.story.flatMap((s) => s.acts.map((act) => [s.node, act.x]))];
   for (const [by, x] of acts) {
-    if (x.verb === 'lock') locked.add(x.target);
-    if (OPENS.has(x.verb) && x.target) (opened.get(x.target) || opened.set(x.target, []).get(x.target)).push(by);
+    const t = ix.canon ? ix.canon(x.target) : x.target;      // one door whatever spelling names it (Unreal ignores case)
+    if (x.verb === 'lock') locked.add(t);
+    if (OPENS.has(x.verb) && t) (opened.get(t) || opened.set(t, []).get(t)).push(by);
   }
   for (const [name, by] of opened) {
-    const a = own(ix.actors, name);
+    const a = actorOf(ix, name);
     if (!a || a.family !== 'door' || a.locked !== false || a.frobbable === false || locked.has(name)) continue;
     add('warn', 'not-locked', `${ix.ctx.name(name)} opens by logic (${words([...new Set(by)])}) but is not locked: the player can open it by hand.`, { node: thingId(name), fix: 'lock' });
   }

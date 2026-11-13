@@ -257,3 +257,79 @@ test('the problems of each node and wire, for their badges', () => {
   assert.deepEqual([...by.keys()], ['rule:L1', 'act:L1/a1', 'rule:L2']);
   assert.deepEqual(by.get('act:L1/a1').map((p) => p.code), ['no-target']);
 });
+
+// (13 Nov 2026, Edge Lab) two rules that send each other's signal at once go round for ever in the game too; a delay or
+// a "once" breaks it
+test('signals that set each other off with no delay: a loop; a delay or once breaks it', () => {
+  const ping = (over = {}, delay = 0) => [
+    { id: 'L1', src: '', when: 'signal', signal: 'Ping', do: [{ verb: 'message', a: 'Ping' }, { verb: 'signal', a: 'Pong', delay }], ...over },
+    { id: 'L2', src: '', when: 'signal', signal: 'Pong', do: [{ verb: 'signal', a: 'Ping' }] }];
+  const loop = (links) => brief(problems(world(links)).filter((p) => p.code === 'zero-delay-cycle'));
+  assert.deepEqual(loop(ping()), [
+    'warn zero-delay-cycle rule:L1: L1 and L2 set each other off with no delay: they run again every tick, for ever.',
+    'warn zero-delay-cycle rule:L2: L1 and L2 set each other off with no delay: they run again every tick, for ever.']);
+  assert.deepEqual(loop(ping({}, 1)), []);
+  assert.deepEqual(loop(ping({ once: true })), []);
+});
+
+// the states an "At least N" block counts are read (13 Nov 2026: "Nothing reads the state PowerA")
+test('the states an At least N block counts are read; those it keeps are set', () => {
+  const links = [{ id: 'L1', src: '', when: 'start', do: [{ verb: 'flag', a: 'PowerA', b: '1' }, { verb: 'flag', a: 'PowerB', b: '1' }] }];
+  const keeps = [{ name: 'PowerA', type: 'bool', reads: true, block: 'B1' }, { name: 'Enough', type: 'bool', block: 'B1' }];
+  const said = brief(problems(world(links, { keeps }))).filter((p) => p.includes('never-read'));
+  assert.deepEqual(said, ['info never-read rule:L1 act:L1/a2: Nothing reads the state PowerB.']);
+});
+
+test("a Phases block of the same name as another map's with other phases: warned (the number means another phase there)", () => {
+  const phases = (list) => list.map((text) => ({ text, id: text }));
+  const actors = { ...ACTORS, Ph: { family: 'logic', cls: 'UCBPhases', chain: ['UCBPhases'], title: 'Phases', label: 'Phases', outputs: [], inputs: [],
+    stateName: 'LabPhase', phases: phases(['Start', 'Middle', 'Escape']) } };
+  const ext = (map, list, context = 'Logic block: UCEdit18') => list.map((p) => ({ flag: `LabPhase_${p}`, type: 'bool', label: `in the phase "${p}"`,
+    uses: [{ map, context, kind: 'write' }] }));
+  const differs = (external) => brief(problems(world([], { actors, external }))).filter((p) => p.includes('phase-set-differs'));
+  assert.deepEqual(differs(ext('01_Lab', ['Start', 'Middle', 'End'])), ['warn phase-set-differs obj:Ph: Phases shares LabPhase with a Phases '
+    + 'block of 01_Lab, which has other phases (End): the game keeps the phase by its number, so the same number means another phase on '
+    + 'each map. Give them the same phases, or link them to one set of Mission phases.']);
+  assert.deepEqual(differs(ext('01_Lab', ['start', 'Middle', 'Escape'])), [], 'the same phases (any case)');
+  assert.deepEqual(differs(ext('01_Test', ['Start', 'Middle', 'End'])), [], 'this map\'s own saved block');
+  assert.deepEqual(differs(ext('*', ['Start', 'Alarm'], 'Mission phases: Hunt')).length, 1, 'mission phases of the same name');
+  assert.deepEqual(differs([{ flag: 'LabPhase_End', label: '', uses: [{ map: '01_Lab', context: 'Interaction: When ...', kind: 'write' }] }]), [],
+    'a rule setting a state of that name is not a Phases block');
+});
+
+test('a text the player reads: empty, or with letters the game\'s fonts lack (shown as "?"); typographic punctuation is fine', () => {
+  const said = (acts) => brief(problems(world([rule({}, acts)]))).filter((p) => /empty-text|not-in-font/.test(p));
+  assert.deepEqual(said([{ verb: 'message', a: '  ' }]), ['warn empty-text rule:L1/a1: The message is empty: the player sees nothing.']);
+  assert.deepEqual(said([{ verb: 'message', a: 'Done ✓ — “ok” àèìòù' }]), ['warn not-in-font rule:L1/a1: The game\'s fonts have no "✓": it shows as "?".']);
+  assert.deepEqual(said([{ verb: 'goal', a: 'G', b: 'Найти ключ' }]).length, 1, 'a goal\'s text');
+  assert.deepEqual(said([{ verb: 'message', a: 'Plain "quotes" | bars' }]), []);
+});
+
+test('an object deleted that the rules still name: by what it was called, its name in the map after it', () => {
+  const gone = (more) => brief(problems(world([rule({ id: 'L1', src: 'Gone1' }, [{ verb: 'open', target: 'Gone1' }])], more))).filter((p) => /any more/.test(p));
+  assert.deepEqual(gone({ goneLabels: { Gone1: 'Gate' } }), ['error no-source rule:L1: Gate (Gone1) is not in the map any more: the rule never runs.',
+    'error no-target rule:L1/a1: Gate (Gone1) is not in the map any more.']);
+  assert.deepEqual(gone({}), ['error no-source rule:L1: Gone1 is not in the map any more: the rule never runs.',
+    'error no-target rule:L1/a1: Gone1 is not in the map any more.']);
+});
+
+// an If, a Wait until and an action's own check among the steps read their states (13 Nov 2026, Deep Ops: "if
+// RookGaveCode" on the keypad, and "Nothing reads the state RookGaveCode")
+test('the conditions of the steps are reads', () => {
+  const links = [{ id: 'L1', src: '', when: 'start', steps: true, do: [{ verb: 'flag', a: 'A', b: '1' }, { verb: 'flag', a: 'B', b: '1' },
+    { verb: 'flag', a: 'C', b: '1' }, { verb: 'if', requires: [{ flag: 'A', is: true }] }, { verb: 'message', a: 'x' }, { verb: 'end' },
+    { verb: 'wait', until: { flag: 'B', is: true } }, { verb: 'message', a: 'y', requires: [{ flag: 'C' }] }] }];
+  assert.deepEqual(brief(problems(world(links))).filter((p) => p.includes('never-read')), []);
+});
+
+// a dialogue's Played and an InfoLink's Heard (another map's too) by their titles (13 Nov 2026, Deep Ops: the States
+// list said "UCEdc36e_i1_Heard")
+test('the game\'s own Played and Heard states have their titles as labels', () => {
+  const external = [{ flag: 'UCEdc36e_i1_Heard', source: 'automatic', type: 'bool', label: 'Jock inbound · Heard',
+    uses: [{ map: '02_Deep_Roof', context: 'InfoLink: Jock inbound', kind: 'automatic' }] },
+  { flag: 'HaleDead', source: 'project', type: 'bool', uses: [{ map: '02_Deep_Lab', context: 'Interaction: L4', kind: 'write' }] }];
+  const ix = logicIndex(world([], { external, map: '02_Deep_Docks' }));
+  const st = [...ix.states.values()];
+  assert.equal(st.find((s) => s.name === 'UCEdc36e_i1_Heard').label, 'Jock inbound · Heard (02_Deep_Roof)');
+  assert.equal(st.find((s) => s.name === 'HaleDead').label, undefined);
+});

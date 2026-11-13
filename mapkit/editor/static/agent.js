@@ -100,6 +100,8 @@ const OPS = {
     const ed = E(), k = K();
     if (!k) throw new Error('The editor is still starting.');
     if (ed.building) throw new Error(REBUILDING);
+    // the map list comes a moment after the page (13 Nov 2026: the first open_map after a reload said "No map")
+    for (let t = 0; t < 40 && !k.mapList().length; t++) await sleep(250);
     const want = String(script).toLowerCase(), found = k.mapList().find((m) => m.script === script)
       || k.mapList().find((m) => [m.script, m.name, m.map].some((x) => String(x ?? '').toLowerCase() === want));
     if (!found) throw new Error(`No map "${script}" in this project (list_maps gives them).`);
@@ -297,8 +299,11 @@ const OPS = {
   undo({ steps = 1 }) { const k = needEditable(); let n = 0; while (n < steps && k.undoStep()) n++; return { undone: n, left: k.undoDepth }; },
   redo({ steps = 1 }) { const k = needEditable(); let n = 0; while (n < steps && k.redoStep()) n++; return { redone: n, left: k.redoDepth }; },
   async save() {
-    const k = needEditable(), saved = await k.save();
-    return { saved, dirty: E().dirty, storyDirty: !!window.__story?.dirty, messages: messages(4) };
+    // only what the save wrote (13 Nov 2026, Edge Lab: the newest four rows said "Map exit placed: choose where it
+    // leads" again on each save, written when the exit was placed)
+    const k = needEditable(), before = document.getElementById('log')?.children.length || 0, saved = await k.save();
+    const after = document.getElementById('log')?.children.length || 0;
+    return { saved, dirty: E().dirty, storyDirty: !!window.__story?.dirty, messages: messages(Math.max(0, after - before)) };
   },
   async rebuild({ mode = 'auto' }) {
     needEditable();
@@ -320,9 +325,12 @@ const OPS = {
   async story_list() {
     const s = await story();
     return { dialogues: s.dialogues.map((d) => ({ id: d.id, title: d.title, owner: d.owner, start: d.start, once: d.once, steps: (d.steps || []).length })),
-      events: (s.events || []).length, infolinks: (s.infolinks || []).length, unsaved: !!window.__story.dirty };
+      events: (s.events || []).length,
+      infolinks: (s.infolinks || []).map((il) => ({ id: il.id, title: il.title, caller: il.caller, lines: (il.lines || []).length })),
+      unsaved: !!window.__story.dirty };
   },
-  async story_get({ dialogue }) {
+  async story_get({ dialogue, infolink }) {
+    if (infolink) return { infolink: JSON.parse(JSON.stringify(infoLinkOf(await story(), infolink))), callers: window.__story.callers() };
     const d = dialogueOf(await story(), dialogue);
     d.steps = d.steps || [];
     ensureIds(d.steps);                  // as the Graph view does: ids are not a change
@@ -331,14 +339,24 @@ const OPS = {
       graph: { start: g.start, nodes: g.nodes.map((n) => ({ id: n.id, type: n.step.type, outs: n.outs.map((o) => Object.assign({ port: o.port, to: o.to }, o.text ? { text: o.text } : {}, o.broken ? { broken: true } : {})) })),
         unreachable: g.nodes.filter((n) => !g.reachable.has(n.id)).map((n) => n.id) } };
   },
-  async story_write({ dialogue, owner, fields, steps }) {
+  async story_write({ dialogue, owner, fields, steps, infolink }) {
     await story();
-    if (!dialogue) {
-      if (!owner) throw new Error('Give the dialogue to change, or the owner (a character\'s name) of a new one.');
-      dialogue = (await window.__story.newDialogue(owner)).id;
-    }
-    if (steps && (!Array.isArray(steps) || steps.some((s) => !s || typeof s.type !== 'string')))
+    if (infolink) return writeInfoLink(infolink, fields || {});
+    if (!dialogue && !owner) throw new Error('Give the dialogue to change, or the owner (a character\'s name) of a new one.');
+    if (steps &&(!Array.isArray(steps) || steps.some((s) => !s || typeof s.type !== 'string')))
       throw new Error('steps: the whole list of steps, each with its type (as story_get gives them).');
+    // a dialogue's, a step's and an answer's conditions are states only: the game's conversations check flags
+    // (story.py checks them so at the build; 13 Nov 2026, Deep Ops: an answer kept to "credits >= 200" was taken here,
+    // then never shown by story_play, with no word why)
+    const notStates = (reqs, where) => (Array.isArray(reqs) ? reqs : []).filter((c) => c && typeof c === 'object' && ((c.type && c.type !== 'flag') || !c.flag))
+      .map((c) => `${where}: ${c.type || 'a condition with no state'}`);
+    const wrong = [...notStates(fields && fields.requires, 'the dialogue'),
+      ...(steps || []).flatMap((s, i) => [...notStates(s.requires, `step ${i + 1}`),
+        ...(s.options || []).flatMap((o, k) => notStates(o && o.requires, `step ${i + 1}, answer ${k + 1}`))])];
+    if (wrong.length) throw new Error(`A dialogue's conditions are states only (the game's conversations check flags): ${wrong.join('; ')}. `
+      + 'For the player\'s credits, health or skill points use a checkvalue step (valueType EP_Credits..., condition, amount, goto); '
+      + 'for an item a checkitem step; or a rule (Logic) that sets a state.');
+    if (!dialogue) dialogue = (await window.__story.newDialogue(owner)).id;     // after the checks: a refused write makes none
     await window.__story.edit((s) => {
       const d = dialogueOf(s, dialogue);
       for (const [key, v] of Object.entries(fields || {})) {
@@ -376,7 +394,7 @@ const OPS = {
   async logic_offer({ object = '' }) { return L().offer({ object }); },
   async logic_check() { return L().check(); },
   async logic_try({ fire = [], seconds = 5, start = {}, from = '' }) { return L().tryRun({ fire, seconds, start, from }); },
-  async logic_propose({ ops, summary = '', fire, seconds = 5 }) { needEditable(); return L().propose({ ops, summary, fire, seconds }); },
+  async logic_propose({ ops, summary = '', fire, seconds = 5, start, from }) { needEditable(); return L().propose({ ops, summary, fire, seconds, start, from }); },
   logic_proposal() { return L().status(); },
   async logic_why({ rule = '', object = '' }) { return L().why({ rule, object }); },
   async logic_log({ rule = '', last = 200, raw = false }) { return L().log({ rule, last, raw }); },
@@ -400,15 +418,58 @@ function answering(args, start) {
   try { pending = Promise.resolve(start()); } catch (e) { pending = Promise.reject(e); } finally { [window.confirm, window.alert, window.prompt] = saved; }
   return { pending, asked };
 }
+// an InfoLink of the map's Story by its id or its title
+function infoLinkOf(s, key) {
+  const il = (s.infolinks || []).find((x) => x.id === key) || (s.infolinks || []).find((x) => x.title === key);
+  if (!il) throw new Error(`No InfoLink "${key}" in this map (story_list gives them; infolink "new" makes one).`);
+  return il;
+}
+// an InfoLink written (infolink "new": a new one): title, caller (a bind name of story_get's callers, its name follows;
+// or any name with name), once, lines [{text}], do (the Story's actions when it plays), hush (false: talking goes on)
+async function writeInfoLink(key, fields) {
+  const callers = window.__story.callers(), FIELDS = ['title', 'caller', 'name', 'once', 'lines', 'do', 'hush', 'style'];
+  const unknown = Object.keys(fields).filter((k) => !FIELDS.includes(k));
+  if (unknown.length) throw new Error(`Not fields of an InfoLink: ${unknown.join(', ')} (it has: ${FIELDS.join(', ')}).`);
+  if ('lines' in fields && (!Array.isArray(fields.lines) || !fields.lines.length || fields.lines.some((l) => !l || typeof l.text !== 'string')))
+    throw new Error('lines: a list of {text}, what the caller says (one line each).');
+  if ('do' in fields && (!Array.isArray(fields.do) || fields.do.some((a) => !a || typeof a.type !== 'string')))
+    throw new Error("do: a list of the Story's actions, each with its type (as a dialogue's do steps).");
+  const known = fields.caller && callers.find(([b]) => b.toLowerCase() === String(fields.caller).toLowerCase());
+  if (fields.caller && !known && !fields.name)
+    throw new Error(`"${fields.caller}" has no portrait in the game: one of ${callers.map(([b]) => b).join(', ')}, or give its name too (a caller with no portrait).`);
+  if (key === 'new') key = (await window.__story.newInfoLink()).id;
+  else infoLinkOf(await story(), key);
+  await window.__story.edit((s) => {
+    const il = infoLinkOf(s, key);
+    for (const [k, v] of Object.entries(fields)) { if (v === null && k !== 'caller') delete il[k]; else if (v !== null) il[k] = JSON.parse(JSON.stringify(v)); }
+    if (known) { il.caller = known[0]; if (!fields.name) il.name = known[1]; }
+  });
+  return { infolink: JSON.parse(JSON.stringify(infoLinkOf(await story(), key))) };
+}
 // a block's or a drawn piece's fields, as their panels set them (their size: move_object; null: back to the default)
 function setPiece(k, name, props) {
   const ed = E(), b = (ed.edits.boxes || []).find((x) => x.name === name), d = (ed.edits.drawn || []).find((x) => x.name === name);
   if (!b && !d) throw new Error(`${name}: nothing of that name in the map (find_objects gives the names).`);
-  const allowed = b ? ['tex', 'solid'] : [...Object.keys(DRAW_DEFAULTS[d.kind] || {}), 'closed'];
+  // a block also takes mover (a moving block, as the Inspector's Kind) and door (the Inspector's Quick door: how it
+  // slides open, its own size in 2 s; 13 Nov 2026, Deep Ops: the assistant could not make a door at all)
+  const allowed = b ? ['tex', 'solid', 'mover', 'door'] : [...Object.keys(DRAW_DEFAULTS[d.kind] || {}), 'closed'];
   const unknown = Object.keys(props).filter((key) => !allowed.includes(key));
   if (unknown.length) throw new Error(`Not fields of ${name}: ${unknown.join(', ')} (it has: ${allowed.join(', ')}${b ? '; its size and place: move_object' : ''}).`);
+  const SLIDES = ['up', 'down', '+x', '-x', '+y', '-y'];
+  if (b && props.door != null && !SLIDES.includes(props.door)) throw new Error(`door is how it slides open: ${SLIDES.join(', ')}.`);
+  if (b && (b.hole || b.water || b.portal) && (props.mover || props.door)) throw new Error(`${name}: holes, water and portals cannot move; a solid or detail block can.`);
   k.pushUndo(`Assistant: change ${name}`);
-  for (const [key, v] of Object.entries(props)) { if (v === null) delete (b || d)[key]; else (b || d)[key] = v; }
+  for (const [key, v] of Object.entries(props)) {
+    if (b && key === 'door') {
+      if (v === null) { if (ed.edits.motions) delete ed.edits.motions[name]; continue; }
+      const size = [0, 1, 2].map((i) => b.hi[i] - b.lo[i]);
+      const off = { up: [0, 0, size[2]], down: [0, 0, -size[2]], '+x': [size[0], 0, 0], '-x': [-size[0], 0, 0], '+y': [0, size[1], 0], '-y': [0, -size[1], 0] }[v];
+      b.mover = true; b.solid = true; delete b.sky;
+      (ed.edits.motions ||= {})[name] = { pos: [{ t: 0, v: [0, 0, 0], e: 1 }, { t: 2, v: off, e: 1 }], rot: [], scale: [], mode: 'once', autoplay: false };
+    } else if (b && key === 'mover') {
+      if (v) { b.mover = true; b.solid = true; delete b.sky; } else { delete b.mover; if (ed.edits.motions) delete ed.edits.motions[name]; }
+    } else if (v === null) delete (b || d)[key]; else (b || d)[key] = v;
+  }
   k.setDirty(); k.rebuildProxies();
   const p = proxyNamed(name);
   if (p) k.select(p);

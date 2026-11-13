@@ -70,6 +70,7 @@ import { editorIcon } from './editor-icons.js';
 import { liveCommand, liveBook, liveOf, liveRead, ruleLive, liveAny, liveBarHtml, liveAnswered, pausedAnswer } from './logic-live.js';
 import { boxesOf, boxedRules, boxedView, boxPath, selectionMembers, makeBox, unpackBox, renameBox, renamePort, rulesInside, boxOfRule, BOX, PORT } from './logic-boxes.js';
 import { patternOf, patternWords, instanceBoxes } from './logic-patterns.js';
+import { keepFocus, keepTab } from './form-focus.js';
 
 const OBJECT = 'obj:';
 const css = document.createElement('link');
@@ -292,9 +293,10 @@ export function indexOf(ix, whole, problems, { values = null, fresh = null } = {
       : '\nClick the pin to watch it while playing';
     return row;
   };
-  const states = [...ix.states.values()].map((s) => live({ key: 'state:' + s.name, text: s.name, note: s.type === 'int' ? '#' : '',
+  // (a dialogue's Played, an InfoLink's Heard: by its title, its flag in the tooltip; 13 Nov 2026, Deep Ops)
+  const states = [...ix.states.values()].map((s) => live({ key: 'state:' + s.name, text: s.label || s.name, note: s.type === 'int' ? '#' : '',
     tone: !s.setters.length && !s.elsewhere.some((u) => u.kind === 'write') ? 'warn' : undefined,
-    title: `${s.type === 'int' ? 'Counter' : 'State'} ${s.name}\nSet by: ${[...new Set(s.setters.map((u) => u.rule || u.text))].filter(Boolean).join(', ') || 'nothing on this map'}`
+    title: `${s.type === 'int' ? 'Counter' : 'State'} ${s.name}${s.label ? ` (${s.label})` : ''}\nSet by: ${[...new Set(s.setters.map((u) => u.rule || u.text))].filter(Boolean).join(', ') || 'nothing on this map'}`
       + `\nRead by: ${[...new Set(s.readers.map((u) => u.rule || u.text))].filter(Boolean).join(', ') || 'nothing on this map'}` }, s.name));
   // watched ones no rule of this map uses (the Story's, the map's own scripts'): still in the list, with their pin
   const known = new Set([...ix.states.values()].map((s) => s.name.toLowerCase()));
@@ -1333,8 +1335,16 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
           renderSide(); $('.lw-crumb').hidden = true;
           const mine = (l) => (focusName ? l.src === focusName : !l.src);
           const rules = (ix.edits.links || []).filter((l) => mine(l) || (l.otherwiseOf && (ix.edits.links || []).some((m) => m.id === l.otherwiseOf && mine(m))));
-          const sig = JSON.stringify([focusName, rules]);
-          if (sig !== listSig && listView) { listSig = sig; const rule = listRule; listRule = null; await listView($('.lw-list'), focusName, rule); }
+          const sig = JSON.stringify([focusName, rules, ix.edits.editorNames || null]);   // a name given in the Inspector: drawn again
+          if (sig !== listSig && listView) {
+            listSig = sig; const rule = listRule; listRule = null;
+            // the field that had the keys has them again in the List drawn again (13 Nov 2026: a change, then Tab or
+            // the next key, went to the editor), and Tab goes on to the next field across the drawing
+            const host = $('.lw-list'), back = keepFocus(host);
+            keepTab(host);
+            await listView(host, focusName, rule);
+            back();
+          }
           return;
         }
         if (view === 'read') { $('.lw-read').innerHTML = readHtml(readView(ix)); renderSide(); $('.lw-crumb').hidden = true; return; }
