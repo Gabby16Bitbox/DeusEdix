@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { logicIndex } from '../editor/static/logic-graph-model.js';
 import { logicProblems, problemsByNode, FIXES } from '../editor/static/logic-graph-problems.js';
-import { catalog, featureLab, world, fixtureWorld, ACTORS } from './logic_graph_world.mjs';
+import { catalog, featureLab, world, fixtureWorld, ACTORS, actorOf } from './logic_graph_world.mjs';
 
 const problems = (input, options) => logicProblems(logicIndex(input), options);
 const brief = (ps) => ps.map((p) => `${p.level} ${p.code} ${p.node}${p.act ? '/' + p.act : ''}${p.pin ? ' ' + p.pin : ''}: ${p.text}`);
@@ -332,4 +332,41 @@ test('the game\'s own Played and Heard states have their titles as labels', () =
   const st = [...ix.states.values()];
   assert.equal(st.find((s) => s.name === 'UCEdc36e_i1_Heard').label, 'Jock inbound · Heard (02_Deep_Roof)');
   assert.equal(st.find((s) => s.name === 'HaleDead').label, undefined);
+});
+
+// 14 Nov 2026, zone animations (backup/20261114_anim_zones): "when its animation has finished" on an animation that
+// loops never ran, and a body animation with none chosen, or one the character's model lacks, played nothing in the game
+test('an animation that goes round never finishes; a body animation not chosen, or not in the model', () => {
+  const actors = { ...ACTORS, Fan: actorOf('object', { title: 'Fan' }, { animated: true }), Lid: actorOf('object', { title: 'Lid' }, { animated: true }),
+    Pinger: actorOf('object', { title: 'Pinger' }, { animated: true }),
+    Guard1: { ...ACTORS.Guard1, anims: ['Still', 'PushButton', 'GestureBoth'] }, Nurse: actorOf('character', { title: 'Nurse' }) };
+  const motions = { Fan: { mode: 'loop' }, lid: { mode: 'once' }, Pinger: { mode: 'pingpong' } };
+  const said = (l) => ({ id: l, verb: 'message', a: 'x' });
+  const ps = brief(problems(world([
+    rule({ id: 'L1', src: 'Fan', when: 'animdone' }, [said('a1')]),
+    rule({ id: 'L2', src: 'Lid', when: 'animdone' }, [said('a1')]),                // its motion's name in another case: once
+    rule({ id: 'L3', src: 'Pinger', when: 'animdone' }, [said('a1')]),
+    rule({ id: 'L4', src: 'Zone1', when: 'enter' }, [{ verb: 'body', target: 'Guard1', a: '', c: 'once x1' }]),
+    rule({ id: 'L5', src: 'Zone1', when: 'enter' }, [{ verb: 'body', target: 'Guard1', a: 'Dance', c: 'loop x1' }]),
+    rule({ id: 'L6', src: 'Zone1', when: 'enter' }, [{ verb: 'body', target: 'guard1', a: 'pushbutton', c: 'once x1' }]),
+    rule({ id: 'L7', src: 'Zone1', when: 'enter' }, [{ verb: 'body', target: 'Guard1', a: 'Wave', c: 'once own x1' }]),
+    rule({ id: 'L8', src: 'Zone1', when: 'enter' }, [{ verb: 'body', target: 'Nurse', a: 'Dance', c: 'once x1' }]),
+    rule({ id: 'L9', src: 'Zone1', when: 'enter' }, [{ verb: 'animturn', target: 'Fan' }]),
+  ], { actors, edits: { motions } })).filter((p) => !/never-read|never-set/.test(p)));
+  assert.deepEqual(ps, [
+    'warn never-finishes rule:L1: The animation of Fan loops: it never finishes, so the rule never runs. Make it play once (Animation panel), or start the rule from what stops it.',
+    'warn never-finishes rule:L3: The animation of Pinger goes back and forth: it never finishes, so the rule never runs. Make it play once (Animation panel), or start the rule from what stops it.',
+    'error no-animation rule:L4/a1: No animation chosen: the character Guard1 does nothing.',
+    'error no-such-anim rule:L5/a1: the character Guard1 has no animation Dance (its model is another one): it does nothing. Choose one of its own.']);
+});
+
+test('a character sent along the AI paths in a map with no path nodes: a warning (14 Nov 2026, it did not move)', () => {
+  const go = (verb, nav) => [rule({ id: 'L1' }, [{ verb, target: 'Guard1', at: [0, 900, 48], delay: 0, ...(nav ? { nav } : {}) }])];
+  const paths = (links, pathNodes) => brief(problems(world(links, pathNodes === undefined ? {} : { pathNodes }))).filter((p) => p.includes('no-paths'));
+  assert.equal(paths(go('goto'), 0).length, 1);
+  assert.match(paths(go('goto'), 0)[0], /no path nodes: the character will not move\. Tick "on the walkable area", or add path nodes \(Map > Fill AI paths\)\./);
+  assert.match(paths(go('run'), 1)[0], /only one path node/);
+  assert.deepEqual(paths(go('goto', true), 0), []);         // on the walkable area: no paths needed
+  assert.deepEqual(paths(go('goto'), 12), []);              // paths there
+  assert.deepEqual(paths(go('goto')), []);                  // not counted (an older page): nothing said
 });

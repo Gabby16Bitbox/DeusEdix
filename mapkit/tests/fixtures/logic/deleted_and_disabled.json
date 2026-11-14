@@ -3,7 +3,7 @@
   "title": "Deleted and disabled objects take their rules and actions with them",
   "behaviour": "A rule whose object is deleted or disabled is not built; an action on a deleted object is left out, and a rule left with no action is not built either. Nothing listens to what is not in the map.",
   "derivedFrom": [
-    {"file": "links.py", "lines": [990, 990], "has": "if not valid(link) or link.get('src') in deleted:"},
+    {"file": "links.py", "lines": [1000, 1000], "has": "if not valid(link) or link.get('src') in deleted:"},
     {"file": "links.py", "lines": [728, 733], "has": "and not (a.get('target') and a['target'] in deleted)"}
   ],
   "assumes": [],

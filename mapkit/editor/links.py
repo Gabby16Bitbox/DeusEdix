@@ -895,8 +895,10 @@ def until_of(c):
     return dict(c, when=until) if until else None
 
 
-def undo_of(a):
-    """The action that undoes one ('' verb: none): its inverse verb on the same object, a state set back."""
+def undo_of(a, loops=()):
+    """The action that undoes one ('' verb: none): its inverse verb on the same object, a state set back. loops: the
+    names (lower case) of the objects whose animation goes round (loop, back and forth): played backwards it would go
+    round the other way for ever (14 Nov 2026, a fan "while the player is in the zone"), so it is stopped."""
     if not isinstance(a, dict) or a.get('verb') in FLOW:
         return None
     rest = {k: v for k, v in a.items() if k not in ('requires', 'match', 'delay', 'id')}
@@ -907,21 +909,29 @@ def undo_of(a):
             return None
         return dict(rest, b='1' if str(a.get('b', '1')) == '0' else '0', delay=0)
     inverse = logic_catalog.inverse_of(a.get('verb'))
+    if a.get('verb') in ('anim', 'animback') and str(a.get('target') or '').lower() in loops:
+        inverse = 'animstop'
     return dict(rest, verb=inverse, delay=0) if inverse else None
+
+
+def looping(edits):
+    """The names (lower case) of the objects whose animation goes round: its mode loop or back and forth (motions.py)."""
+    return {str(n).lower() for n, m in ((edits or {}).get('motions') or {}).items()
+            if isinstance(m, dict) and m.get('mode') in ('loop', 'pingpong')}
 
 
 FATE = re.compile(r'^UCFate[0-9a-f]{6}_\w+_(Dead|KO|Down)$', re.I)       # static/state-model.js FATE_RE
 WHILE_KEYS = ('src', 'group', 'once', 'at') + ('when', 'port', 'option', 'near', 'key', 'signal', 'dialogue', 'infolink', 'watch', 'gameTag')
 
 
-def while_end(link):
+def while_end(link, loops=()):
     """The rule that undoes a 'while' rule when it stops: its paired cause (and its other causes' pairs), what the rule
     still has to do stopped (cancel, when it waits), its actions undone in the opposite order, at once, with no checks;
     None when nothing can end it or nothing can be undone."""
     cause = until_of({k: link[k] for k in WHILE_KEYS if k in link})
     if cause is None:
         return None
-    undo = [u for u in (undo_of(a) for a in reversed(list(link.get('do') or []))) if u]
+    undo = [u for u in (undo_of(a, loops) for a in reversed(list(link.get('do') or []))) if u]
     if not undo:
         return None
     if link.get('steps') or any(_secs(a.get('delay'), 0) > 0 for a in link.get('do') or [] if isinstance(a, dict)):
@@ -939,9 +949,9 @@ def expand_while(edits):
     """The rules with their 'while' written out (P3): each one that holds while gets a second rule, `<id>_until`,
     that undoes it (while_end); a 'while' on a condition also runs at the map's start when the condition already holds
     (bWatchStart), and so does its end, so what it sets is right from the start."""
-    out, changed = [], False
+    out, changed, loops = [], False, looping(edits)
     for link in edits.get('links') or []:
-        end = while_end(link) if isinstance(link, dict) and link.get('while') and valid(link) else None
+        end = while_end(link, loops) if isinstance(link, dict) and link.get('while') and valid(link) else None
         if end is None:
             out.append(link)
             continue

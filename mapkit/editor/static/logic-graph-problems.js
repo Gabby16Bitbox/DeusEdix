@@ -42,6 +42,15 @@ const NOT_ON_TRIGGER = new Set(['closed', 'leave', 'destroyed']);
 // left alone or queued (UCCutscene.Play), so a loop of plays goes round only with a stop in it
 const NEEDS_STOP = { cutplay: 'cutstop' };
 
+// an object's animation of the Animation panel (edits.motions, by its name in any letter case), and what a mode that
+// goes round does
+function motionOf(ix, name) {
+  const all = (ix.edits && ix.edits.motions) || {}, key = String(name || '').toLowerCase();
+  const k = Object.keys(all).find((n) => n.toLowerCase() === key);
+  return k && all[k] && typeof all[k] === 'object' ? all[k] : null;
+}
+const LOOPS = { loop: 'loops', pingpong: 'goes back and forth' };
+
 // Every problem of the map's logic: [{level, code, text, node, rule?, act?, pin?, wire?, fix?}]. ix: logicIndex;
 // game: the project's game ('revision', 'vanilla': logic.json games), to name what it cannot run.
 export function logicProblems(ix, { game = '' } = {}) {
@@ -125,6 +134,9 @@ function ruleProblems(ix, r, add, game) {
       else add('error', 'cannot-output', cannotSay(ix, c, a), at);
     }
     if (game && !ix.vocab.worksIn('output', c.cause.when, game)) add('error', 'not-in-game', `"${ix.vocab.outputLabel(c.cause.when)}" does not work in this game.`, at);
+    // an animation that goes round never finishes (UCMotion.Finished: only a "once" one, and Stop does not finish it)
+    const m = c.cause.when === 'animdone' ? motionOf(ix, c.src) : null;
+    if (m && LOOPS[m.mode]) add('warn', 'never-finishes', `The animation of ${ix.ctx.name(c.src)} ${LOOPS[m.mode]}: it never finishes, so the rule never runs. Make it play once (Animation panel), or start the rule from what stops it.`, at);
   }
   storyProblems(ix, r, add, at);
   if (!r.acts.length) add('warn', 'nothing-yet', 'It does nothing yet.', at);
@@ -244,6 +256,11 @@ function actionProblems(ix, r, act, add, game) {
     add('warn', 'tag-empty', `No object on this map has the scripting tag "${x.targetTag}": this action reaches nothing.`
       + `${here.length ? said + here.join(', ') + '.' : ''} (An object's tag is its Scripting tag in the Inspector.)`, at);
   }
+  // a character sent along the AI paths in a map with no path nodes does not move (ScriptedPawn GoingTo finds no way;
+  // 14 Nov 2026, 02_Walk_Layer). input.pathNodes: how many the map has, given when a rule does this
+  if ((x.verb === 'goto' || x.verb === 'run') && !x.nav && typeof ix.input.pathNodes === 'number' && ix.input.pathNodes < 2)
+    add('warn', 'no-paths', `"${ix.vocab.verbLabel(x.verb)}" goes along the AI paths, but this map has ${ix.input.pathNodes ? 'only one path node' : 'no path nodes'}: `
+      + 'the character will not move. Tick "on the walkable area", or add path nodes (Map > Fill AI paths).', at);
   // (logic.json inputs[verb].target: the action needs an object; without one the game does nothing: fail cannot)
   if (verb.target && !x.target && !x.area && !x.targetTag && !x.group) add('error', 'no-object', `"${ix.vocab.verbLabel(x.verb)}" has no object.`, at);
   // a named group (P3, edits.logic.groups): one that is gone, or has nothing in the map, reaches nothing
@@ -254,6 +271,15 @@ function actionProblems(ix, r, act, add, game) {
     else if (isSetGroup(g) && ix.vocab.acts(x.verb) !== 'character') add('warn', 'set-not-character', `The group "${g.name || g.id}" holds characters only: "${ix.vocab.verbLabel(x.verb)}" reaches none of them.`, at);
   }
   if (own(NO_NAME, x.verb) && !String(x.a || '').trim()) add('error', 'no-name', NO_NAME[x.verb], at);
+  // a body animation: one chosen, and one the character's model has (UCAnimSet.PlayBody plays nothing else; the page
+  // gives the model's animations as actors[name].anims). An Animation Studio one ("own") is put on its model first.
+  if (x.verb === 'body' && x.target && present(ix, x.target)) {
+    const who = actorOf(ix, x.target), anim = String(x.a || '').trim(), own_ = String(x.c || '').split(' ').includes('own');
+    if (!anim || anim === '?') add('error', 'no-animation', `No animation chosen: ${ix.ctx.name(x.target)} does nothing.`, at);
+    else if (Array.isArray(who.anims) && !own_ && !who.anims.some((n) => n.toLowerCase() === anim.toLowerCase())) {
+      add('error', 'no-such-anim', `${ix.ctx.name(x.target)} has no animation ${anim} (its model is another one): it does nothing. Choose one of its own.`, at);
+    }
+  }
   // a text the player reads: empty, it shows nothing; a letter the game's fonts lack (Latin-1 only, links.py _text and
   // gametext.plain) shows as "?" (13 Nov 2026, Edge Lab: an empty message and a "✓" built without a word)
   if (x.verb === 'message' && !String(x.a ?? '').trim()) add('warn', 'empty-text', 'The message is empty: the player sees nothing.', at);

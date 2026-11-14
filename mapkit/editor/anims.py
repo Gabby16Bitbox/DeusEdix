@@ -176,6 +176,7 @@ def for_class(cls, log=print):
 # baked/<model>/<name>.bin + .json the animation as the model's frames (made by the Studio), packed by
 # pack() into settings.ANIMS_PACKAGE: a copy of each model with its animations added.
 STUDIO = kit.PROJECT / 'tools' / 'mapkit' / 'anims'
+WALK_GROUP = 'UCWalk'       # a body animation over the walk or the run (static/walk-layer.js): packed, never shown
 
 
 def _name_ok(name):
@@ -446,12 +447,17 @@ def bake_save(mesh, name, frames, rate, data, group='UCAnim', props=None):
 
 
 def baked_for(mesh):
-    """The Studio's animations baked on a model: [{name, frames, rate, url}]."""
+    """The Studio's animations baked on a model: [{name, frames, rate, url}]. Not the walking mixes of the body
+    animations (group UCWalk, static/walk-layer.js): they are only for the game."""
     folder = STUDIO / 'baked' / mesh
     out = []
     for f in sorted(folder.glob('*.json')) if folder.exists() else []:
+        if f.name.endswith('.props.json'):
+            continue
         m = json.loads(f.read_text(encoding='utf-8'))
         b = f.with_suffix('.bin')
+        if m.get('group') == WALK_GROUP:
+            continue
         if b.exists():
             out.append(dict(m, url='/anims/baked/%s/%s.bin?v=%d' % (mesh, m['name'], b.stat().st_mtime_ns)))
     return out

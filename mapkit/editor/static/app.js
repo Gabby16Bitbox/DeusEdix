@@ -5039,7 +5039,7 @@ function logicEditOf() {
       if (!a) return [];
       await chainOf(a.cls);
       const cat = lkCatOf(a), animated = (edits.motions || {})[name] || cat === 'door';
-      const anims = animated ? ['anim', 'animback', 'animstop'] : [];       // a door: Open first, its animation after
+      const anims = animated ? ANIM_VERBS : [];       // a door: Open first, its animation after
       const verbs = [...new Set(cat === 'door' ? lkInputsOf(a).concat(anims) : anims.concat(lkInputsOf(a)))];
       return verbs.map((v) => ({ id: 'do:' + v, label: v.startsWith('input:') ? lkPortLabel(name, v) : lkVerbLabel(v, cat), data: { target: name, verb: v } }));
     },
@@ -5404,7 +5404,10 @@ function logicLabels(names) {
     const q = proxyOf(n) || proxies.children.find((c) => c.userData.box && c.userData.box.name === n), a = lkActor(n);
     // a class name as words: "UNATCO Troop", "MJ12 Troop" (the Hierarchy's label is the class when nothing names it)
     const l = (q ? objectLabel(q)[0] : a ? hierLabel(a) : '') || n;
-    base.set(n, /\s/.test(l) ? l : l.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2'));
+    // a name given in the Hierarchy (F2: edits.editorNames) as it was typed (14 Nov 2026: "ZoneDance" shown as
+    // "Zone Dance" in the graph, "ZoneDance" in the rule's own sentence)
+    const given = String(((edits && edits.editorNames) || {})[n] || '').trim();
+    base.set(n, given || /\s/.test(l) ? l : l.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2'));
   }
   const count = {}, seen = {}, out = {};
   for (const l of base.values()) count[l] = (count[l] || 0) + 1;
@@ -5435,11 +5438,19 @@ async function logicInput() {
     actors[n] = { family, cls: a.cls, chain: chainNow[a.cls] || [a.cls], title: friendly[n], label: friendly[n], at: a.loc,
       // (by the rule's spelling or the built one: 'BtnAugs' found as 'btnAugs', lkActor)
       outputs: lkEventsOf(a).concat(edits.usable?.[n] || edits.usable?.[a.name] ? ['used'] : []),
-      inputs: (edits.motions?.[n] || edits.motions?.[a.name] ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(a)),
+      inputs: (edits.motions?.[n] || edits.motions?.[a.name] ? ANIM_VERBS : []).concat(lkInputsOf(a)),
       labels: io.labels || {}, ...(io.carries ? { carries: io.carries } : {}) };      // outputs with a number (P8 5b)
     if (family === 'computer') actors[n].options = lkOptions(a).map((o) => structShown(new Map(o.pairs).get('Text') || ''));
     if (a.cls === 'UCBPhases') Object.assign(actors[n], lkPhaseSet(a));          // its phases (P3: rules kept to some)
   }
+  // the animations of the characters a rule plays a body animation on (14 Nov 2026: one its model lacks, say Dance
+  // given to a man, played nothing in the game and nothing said so; logic-graph-problems.js 'no-such-anim')
+  const bodied = new Set(links.flatMap((l) => [...(l.do || []), ...(l.else || [])]).filter((x) => x && x.verb === 'body' && x.target).map((x) => x.target));
+  await Promise.all([...bodied].map(async (n) => {
+    const a = actors[n] ? lkActor(n) : null;
+    const info = a ? await animsOf(a.cls, meshOf(a)) : null;
+    if (info) actors[n].anims = info.seqs.filter((sq) => !sq.custom).map((sq) => sq.name);
+  }));
   const items = Object.fromEntries((propItems || []).map((i) => [i.cls, i.name]));
   // the map's scripting tags (tag -> names, as UCObjectTag.Of gives them) when a rule acts on objects tagged alike
   let tags, tagFamilies;
@@ -5455,6 +5466,11 @@ async function logicInput() {
       if (!(tagFamilies[t] ||= []).includes(f)) tagFamilies[t].push(f);
     }
   }
+  // the map's path nodes when a rule sends a character along the AI paths (14 Nov 2026: in a map with none, "Walk to"
+  // without the walkable area moved nobody; logic-graph-problems.js 'no-paths')
+  let pathNodes;
+  if (links.some((l) => [...(l.do || []), ...(l.else || [])].some((x) => x && (x.verb === 'goto' || x.verb === 'run') && !x.nav)))
+    pathNodes = allActors().filter((a) => !edits.deleted[a.name] && NAV_CLASSES.test(a.cls)).length;
   // the objects a tag action reaches are named the same way (Try it shows them)
   const used = new Set(links.flatMap((l) => [...(l.do || []), ...(l.else || [])]).filter((x) => x && x.targetTag)
     .map((x) => String(x.targetTag).toLowerCase()));
@@ -5476,7 +5492,7 @@ async function logicInput() {
     if (l) goneLabels[n] = /\s/.test(l) ? l : l.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
   }
   return { catalog: logicVocab, edits: ed, actors, items, tags, tagFamilies, sets, labelsOf, map: mapName || '', keeps, placeName: lkPointName,
-    goneLabels, ...(external ? { external } : {}),
+    goneLabels, ...(pathNodes !== undefined ? { pathNodes } : {}), ...(external ? { external } : {}),
     ...(story ? { story, storyFlags: storyKit.storyFlags ? storyKit.storyFlags() : undefined } : {}) };
 }
 // The project's states and where its maps use them (/api/state_catalog, statecatalog.py), for the graph's model: a
@@ -6214,8 +6230,44 @@ function bodyRowsHtml(x, j) {
     + row(`<select data-lkbmode="${j}" title="How many times">${BODY_MODES.map(([k, l]) => `<option value="${k}" ${k === o.mode ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`
       + (o.mode === 'time' ? `<input type="number" data-lkarg="${j}" data-k="b" value="${+x.b || 0}" min="0" step="0.5" style="width:56px"><span class="hint" style="margin:0">s</span>` : ''))
     + row(`<label style="width:auto">speed</label><input type="number" data-lkbrate="${j}" value="${o.rate}" min="0.05" max="10" step="0.1" style="width:56px">`
-      + `<label style="width:auto" title="Off: it stands still while it plays (a patrol or a walk goes on afterwards)"><input type="checkbox" data-lkbwalk="${j}" ${o.walk ? 'checked' : ''}> may keep walking</label>`)
+      + `<label style="width:auto" title="Off: it stands still while it plays (a patrol or a walk goes on afterwards). On: it goes on walking; when the animation leaves the legs still, they walk or run under it"><input type="checkbox" data-lkbwalk="${j}" ${o.walk ? 'checked' : ''}> may keep walking</label>`)
+    + (o.walk && x.a ? row(`<span class="hint" style="margin:0" data-lkbwalkinfo="${j}">${escapeHtml(walkInfoText(x) || 'Looking at its legs...')}</span>`) : '')
     + (o.mode === 'loop' ? row('<span class="hint" style="margin:0">until "Stop its body animation"</span>') : '');
+}
+// "may keep walking" (static/walk-layer.js, Studio walkLayers): the mixes of a body animation over the walk and the
+// run, made once per character class and animation; walkJobs the jobs, walkDone what they found
+const walkJobs = new Map(), walkDone = new Map();
+const walkKey = (cls, x) => `${cls}|${bodyHow(x.c).own ? 'own:' : ''}${x.a}`;
+function walkLayersOf(cls, x) {
+  const key = walkKey(cls, x);
+  if (!walkJobs.has(key)) {
+    if (!window.__studio?.walkLayers) return Promise.reject(new Error('the Animation Studio is not loaded'));
+    walkJobs.set(key, window.__studio.walkLayers(cls, x.a, bodyHow(x.c).own, (t) => t && status(t))
+      .then((r) => { walkDone.set(key, r); return r; }, (e) => { walkJobs.delete(key); throw e; }));
+  }
+  return walkJobs.get(key);
+}
+function walkInfoText(x) {
+  const a = lkActor(x.target), r = a && walkDone.get(walkKey(a.cls, x));
+  if (!r) return '';
+  const rows = r.models.filter((m) => !m.missing);
+  if (!rows.length) return `${x.a}: this character's model has no such animation.`;
+  if (rows.every((m) => m.free)) return `${x.a} leaves the legs still: while it walks or runs, its legs walk or run under the animation.`;
+  const m = rows.find((y) => !y.free);
+  return `${x.a} moves the legs (${m.turn > 18 ? `up to ${m.turn}°` : m.drop > 10 ? 'the hips low' : 'the hips bob'}): while it moves, it walks with the animation's own legs.`;
+}
+// before a Rebuild: the mixes of every body animation that may keep walking (a new one: a few seconds once)
+async function walkLayersIfNeeded() {
+  const todo = new Map();
+  for (const l of lkList()) for (const x of [...(l.do || []), ...(l.else || [])]) {
+    if (!x || x.verb !== 'body' || !x.a || !bodyHow(x.c).walk) continue;
+    const a = lkActor(x.target);
+    if (a) todo.set(walkKey(a.cls, x), [a.cls, x]);
+  }
+  for (const [cls, x] of todo.values()) {
+    try { await walkLayersOf(cls, x); }
+    catch (e) { log(`The walking legs under ${x.a} (${x.target}) could not be made: ${e.message}`, 'warn'); }
+  }
 }
 // the Effect point section of its Properties: the preview (editor only) and the rules that use it
 function fxPointSection(a, redraw) {
@@ -7309,7 +7361,7 @@ function replacementPlan(p, item, has, story) {
   // what the rules, the Story and the editor's data ask of it, against what the new class is (its catalogue io)
   const now = { ...e, kind: e.kind || addedKind(item.cls) }, chain = chainNow[item.cls] || [item.cls];
   const outputs = lkEventsOf(now).concat(edits.usable?.[a.name] ? ['used'] : []);
-  const inputs = lkInputsOf(now).concat(edits.motions?.[a.name] ? ['anim', 'animback', 'animstop'] : []);
+  const inputs = lkInputsOf(now).concat(edits.motions?.[a.name] ? ANIM_VERBS : []);
   const fits = { output: (u) => outputs.includes(lkWhenKey(u.rule)), input: (u) => u.action.verb === 'sound' || inputs.includes(lkVerbKey(u.action)),
     character, talker: character || chain.includes('DeusExDecoration'), door: chain.some((c) => /Mover$/.test(c)),
     computer: chain.includes('Computers'), text: (propSchema[item.cls] || []).some((f) => f.kind === 'text'),
@@ -13178,6 +13230,9 @@ const LK_WHEN = {
   output: 'it says...',
 };
 Object.assign(LK_WHEN, BLOCK_WHEN);
+// what an object with an animation (Animation panel: edits.motions) or a door can be made to do with it (14 Nov 2026: Play
+// it forwards or back, in turn was in the vocabulary and the game, but never offered)
+const ANIM_VERBS = ['anim', 'animback', 'animstop', 'animturn'];
 // what a rule can do: [label, kind of object it acts on ('' none)]
 const LK_VERBS = {
   open: ['Open', 'door'], close: ['Close', 'door'], toggle: ['Open or close', 'door'], lock: ['Lock', 'door'],
@@ -13255,6 +13310,10 @@ function lkName(name) {
   // a timer by what the HUD says, a counter by the state it keeps (13 Nov 2026, Deep Ops: two timers were both "the timer")
   const kept = lkKeptName(a);
   if (kept) return kept;
+  // the name given in the Hierarchy (F2: edits.editorNames) says it alone, unless another has it too (14 Nov 2026: "play
+  // the animation of door LiftBlock" for the moving block named LiftBlock)
+  const given = String(((edits && edits.editorNames) || {})[name] || '').trim();
+  if (given && !Object.entries(edits.editorNames).some(([k, v]) => k !== name && !edits.deleted[k] && String(v || '').trim().toLowerCase() === given.toLowerCase())) return given;
   // its own name (the Inspector's, 12 Nov 2026: FamiliarName, a block's label) says it alone, unless another has it too
   const boxOwn = (b) => String((b && b.label) || '').trim(), actorOwn = (x) => unquote(actorProp(x, 'FamiliarName') || '').trim();
   const own = a.box ? boxOwn((edits.boxes || []).find((b) => b.name === name)) : actorOwn(a), low = own.toLowerCase();
@@ -14020,7 +14079,7 @@ function lkActHtml(l, step, num, pad) {
   const animated = x.target && ((edits.motions || {})[x.target] || tcat === 'door');
   const special = !!LK_SPECIAL[x.target];
   const verbs0 = x.area ? AREA_VERBS[x.area.kind] : x.targetTag || x.group !== undefined ? TAG_VERBS : special ? Object.keys(LK_VERBS).filter((v) => ['any', 'character'].includes(LK_VERBS[v][1]))
-    : x.target ? [...new Set((animated ? ['anim', 'animback', 'animstop'] : []).concat(lkInputsOf(t)))] : lkFreeVerbs;
+    : x.target ? [...new Set((animated ? ANIM_VERBS : []).concat(lkInputsOf(t)))] : lkFreeVerbs;
   const verbs = l.carrier ? verbs0.filter((v) => !LK_STORY_NO.has(v)) : verbs0;
   const vlist = verbs.includes(vcur) ? verbs : [vcur].concat(verbs);
   const verbLabel = (v) => (v.startsWith('input:') ? lkPortLabel(x.target, v) : lkVerbLabel(v, tcat));
@@ -14406,6 +14465,13 @@ function lkWire(box, redraw) {
     for (const sel of q('[data-lkbmode]')) sel.onchange = () => ch(() => { const x = act(sel); x.c = bodyHowText({ ...bodyHow(x.c), mode: sel.value }); if (sel.value === 'time' && !(+x.b > 0)) x.b = '5'; });
     for (const inp of q('[data-lkbrate]')) inp.onchange = () => ch(() => { const x = act(inp); x.c = bodyHowText({ ...bodyHow(x.c), rate: +inp.value || 1 }); });
     for (const c of q('[data-lkbwalk]')) c.onchange = () => ch(() => { const x = act(c); x.c = bodyHowText({ ...bodyHow(x.c), walk: c.checked }); });
+    // what the legs do under it: found (and the mixes made) once, then the line says it
+    for (const el of q('[data-lkbwalkinfo]')) {
+      const x = act(el), a = lkActor(x.target);
+      if (!a || walkDone.has(walkKey(a.cls, x))) continue;
+      walkLayersOf(a.cls, x).then(() => { if (document.body.contains(el)) el.textContent = walkInfoText(x); },
+        (e) => { if (document.body.contains(el)) el.textContent = `Its legs could not be looked at: ${e.message}`; });
+    }
     for (const b of q('[data-lkbodyplay]')) b.onclick = () => {
       const x = act(b), g = proxyOf(x.target);
       if (g && x.a) void startPreview(g, g.userData.actor.cls, x.a, bodyHow(x.c).rate);
@@ -15199,7 +15265,7 @@ function logicProposeCtx() {
   return {
     exists: (n) => !!lkActor(n),
     outputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? outs(a) : null; },
-    inputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? lkInputsOf(a).concat(edits.motions?.[n] ? ['anim', 'animback', 'animstop'] : []) : null; },
+    inputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? lkInputsOf(a).concat(edits.motions?.[n] ? ANIM_VERBS : []) : null; },
     blockIo: (cls) => (ioNow[cls] ? { outputs: ioNow[cls].outputs, inputs: ioNow[cls].inputs } : null),
     verbs: logicVocab.inputs, outputs: logicVocab.outputs, free: logicVocab.free,
     where: (n) => (n && lkActor(n) ? lkWhere(n) : [0, 0, 0]),
@@ -15268,7 +15334,7 @@ async function logicOffer({ object = '' } = {}) {
     ...(props.length ? { safeProps: props.map(([name, label]) => ({ name, label })) } : {}),
     outputs: lkEventsOf(a).concat(edits.usable?.[object] ? ['used'] : []).map(out).map((d) => ({ ...d, label: label(d.when, d),
       ...((io.carries || []).includes(d.when) ? { carries: true } : {}) })),      // comes with a number: Value (P8 slice 5b)
-    inputs: lkInputsOf(a).concat(edits.motions?.[object] ? ['anim', 'animback', 'animstop'] : []).map(inp).map((d) => ({ ...d, label: label(d.verb, d) })),
+    inputs: lkInputsOf(a).concat(edits.motions?.[object] ? ANIM_VERBS : []).map(inp).map((d) => ({ ...d, label: label(d.verb, d) })),
     free };
 }
 // from: a named start (a Play scenario, logic-starts.js), what `start` gives on top of it
@@ -15513,6 +15579,9 @@ async function logicDecide(how) {
 async function logicListView(host, name, rule, again = null) {
   const redraw = () => { if (again) again(); else logicWindow?.redrawList(); if (selected && selected.userData.actor) renderProps(selected); };
   const head = (title, sub) => `<div class="lw-listhead"><b>${escapeHtml(title)}</b>${sub ? `<span>${escapeHtml(sub)}</span>` : ''}</div>`;
+  // the catalogue's words first: drawn before them, the cards' menus said "animturn", "fillcrate", "setprop"
+  lkVocabLoad();
+  if (lkVocabAsked) await lkVocabAsked;
   if (!name) {
     const own = lkList().filter((l) => !l.src && !l.otherwiseOf);
     host.innerHTML = head('The map', 'what happens when the map starts, when the player presses a key, when something changes in the world')
@@ -17801,6 +17870,8 @@ async function rebuildMap(mode = 'auto') {
     if (!saved) { log(`${job.map}: the changes could not be saved, so nothing was built.`, 'bad'); status('rebuild failed: see Messages', 'bad'); return; }
     pageStage(job, 'navmesh');
     await navBakeIfNeeded();
+    if (gone()) return;
+    await walkLayersIfNeeded();             // the walking legs under the body animations (walk-layer.js)
     if (gone()) return;
     pageStage(job, null);
     job.edits = JSON.stringify(edits);       // what the build has, its walkable area too: a change meanwhile goes back

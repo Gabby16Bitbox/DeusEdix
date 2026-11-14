@@ -51,7 +51,7 @@ function page(srv) {
     $: () => ({ after() {} }),
     document: { documentElement: { classList: { toggle: (k, on) => (on ? classes.add(k) : classes.delete(k)) } } },
     status: (text, cls) => calls.push(['status', text, cls]), log: (lines, cls) => calls.push(['log', lines, cls]), logRows: (r) => rows.push(...r),
-    save: async () => { calls.push('save'); return true; }, navBakeIfNeeded: async () => calls.push('navmesh'),
+    save: async () => { calls.push('save'); return true; }, navBakeIfNeeded: async () => calls.push('navmesh'), walkLayersIfNeeded: async () => {},
     loadScene: async () => calls.push('loadScene'), navCheckAfterBuild: async () => calls.push('navcheck'),
     cancelPlacing: () => calls.push('cancelPlacing'), applyObjectVisibility() {}, buildHierarchy() {}, showDetails() {}, select() {},
     rebuildProxies: () => calls.push('rebuildProxies'), recordStep: () => calls.push('step'), historyChanged() {}, undoHistory: {},

@@ -14,7 +14,7 @@ const family = (id) => catalog.families.find((f) => f.id === id);
 export function actorOf(familyId, extra = {}, { ports = null, animated = false } = {}) {
   const f = family(familyId);
   const outputs = [...(ports ? ports.outputs.map((p) => 'output:' + p.id) : []), ...f.outputs, ...(animated ? ['animdone'] : [])];
-  const inputs = [...(animated ? ['anim', 'animback', 'animstop'] : []), ...(ports ? ports.inputs.map((p) => 'input:' + p.id) : []), ...f.inputs];
+  const inputs = [...(animated ? ['anim', 'animback', 'animstop', 'animturn'] : []), ...(ports ? ports.inputs.map((p) => 'input:' + p.id) : []), ...f.inputs];
   const labels = ports ? Object.fromEntries([...ports.outputs.map((p) => ['output:' + p.id, p.label]), ...ports.inputs.map((p) => ['input:' + p.id, p.label])]) : {};
   return { family: familyId, outputs, inputs, labels, ...extra };
 }

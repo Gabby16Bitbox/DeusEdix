@@ -19,6 +19,11 @@
 //   standing still meanwhile unless it may keep walking; at its end the AI's own again, and the rules "when its
 //   body animation has finished" are told (the UCLink whose Tag is UCL_<character>_Body). An animation of the
 //   Animation Studio ("own") takes the character's model with the Studio's animations first (bOwnModel).
+//   Standing still, it is kept where it began (the AI's walk pushed it on a little each frame).
+//   May it keep walking (Gabby, 14 Nov 2026): when the animation leaves the legs still, the editor has mixed it
+//   over the walk and the run in the copy of the model (static/walk-layer.js: A_W<n>, A_R<n>, n the times A is
+//   repeated in the mix); while the character moves it plays the mix, at the same place in A, so its legs walk
+//   or run under the animation instead of sliding along. At the end, moving, its walk or run again at once.
 //=============================================================================
 class UCAnimSet extends Info;
 
@@ -50,8 +55,17 @@ var bool   bBodyLoop;
 var float  BodyLeft;               // seconds it still loops (0: once, or until stopped)
 var bool   bBodyTimed;
 var bool   bBodyStill;             // it stands still while it plays
-var float  BodyFrame, BodyLast;    // where it was in its animation, and its last frame
+var float  BodyFrame, BodyLast;    // where it was in its animation, and its last frame (as parts of the animation)
 var string BodyTag;                // the rules told at its end (UCL_<character>_Body)
+var vector BodyHome;               // where it stands still
+// the mixes over the walk and the run (None: the model has none), the times the animation is in each, and in the
+// sequence playing now; the model they were looked for in; a name read from a text (SetPropertyText)
+var name   BodyWalk, BodyRun, LayerTry;
+var int    WalkTimes, RunTimes, PlayTimes;
+var Mesh   LayerMesh;
+var bool   bMoving;
+// the sequences of the body animation that ended: moving on with one of them, it gets its walk or run back
+var name   EndedAnim, EndedWalk, EndedRun;
 
 function PostBeginPlay()
 {
@@ -219,6 +233,20 @@ function PlayBody(name A, float secs, string opts, string doneTag)
     BodyTag = doneTag;
     BodyFrame = 0;
     BodyLast = 1;
+    BodyHome = Who.Location;
+    PlayTimes = 1;
+    bMoving = False;
+    EndedAnim = '';
+    EndedWalk = '';
+    EndedRun = '';
+    BodyWalk = '';
+    BodyRun = '';
+    LayerMesh = None;
+    if (!bBodyStill)
+    {
+        bOwnModel = True;          // the mixes are in the copy of its model
+        OwnModel();
+    }
     if (bBodyLoop)
         Who.LoopAnim(A, BodyRate, 0.2);
     else
@@ -238,8 +266,15 @@ function EndBody(bool bTell)
     local string t;
 
     t = BodyTag;
+    if (Who != None)
+        Log("UCAnimSet -" @ Who.Name @ "ends" @ BodyAnim @ "in" @ Who.AnimSequence @ Who.AnimFrame @ Who.bAnimFinished @ BodyFrame @ BodyLast);
+    EndedAnim = BodyAnim;
+    EndedWalk = BodyWalk;
+    EndedRun = BodyRun;
     BodyAnim = '';
     BodyTag = "";
+    if (Who != None && !Who.bDeleteMe && Who.Health > 0)
+        Mend();
     if (!bTell || t == "")
         return;
     foreach AllActors(class'Actor', A)
@@ -247,8 +282,87 @@ function EndBody(bool bTell)
             A.Trigger(Self, Who);
 }
 
+// the mixes of the body animation over the walk and the run in the model it has now (made by the editor when the
+// animation leaves the legs still: A_W1..A_W4, A_R1..A_R4)
+function Layers()
+{
+    local int i;
+
+    LayerMesh = Who.Mesh;
+    BodyWalk = '';
+    BodyRun = '';
+    WalkTimes = 0;
+    RunTimes = 0;
+    for (i = 1; i <= 4; i++)
+    {
+        SetPropertyText("LayerTry", string(BodyAnim) $ "_W" $ i);
+        if (BodyWalk == '' && Who.HasAnim(LayerTry))
+        {
+            BodyWalk = LayerTry;
+            WalkTimes = i;
+        }
+        SetPropertyText("LayerTry", string(BodyAnim) $ "_R" $ i);
+        if (BodyRun == '' && Who.HasAnim(LayerTry))
+        {
+            BodyRun = LayerTry;
+            RunTimes = i;
+        }
+    }
+    if (BodyWalk != '' || BodyRun != '')
+        Log("UCAnimSet -" @ Who.Name @ "walks under" @ BodyAnim @ "with" @ BodyWalk @ BodyRun);
+}
+
+function bool Moving()
+{
+    local float Speed;
+
+    Speed = VSize(Who.Velocity * vect(1, 1, 0));
+    if (bMoving)
+        bMoving = Speed > 8;
+    else
+        bMoving = Speed > 20;
+    return bMoving;
+}
+
+// the character's own pace for its walk or run (ScriptedPawn.walkAnimMult, runAnimMult; 0 is 1, as LoopAnimPivot has it)
+function float PaceOf(float Mult)
+{
+    if (Mult <= 0)
+        return 1.0;
+    return FClamp(Mult, 0.1, 10.0);
+}
+
+function bool Ours(name S)
+{
+    return S != '' && (S == BodyAnim || S == BodyWalk || S == BodyRun);
+}
+
+// moving on with a sequence of the body animation that ended: its walk or its run (the AI plays them only when it
+// starts to move, so the character slid along in the animation's last frame)
+function Mend()
+{
+    local name S;
+
+    S = Who.AnimSequence;
+    if (!(S == EndedAnim || S == EndedWalk || S == EndedRun))
+        EndedAnim = '';            // the AI has played its own since: nothing to mend
+    if (EndedAnim == '' || !Moving())
+        return;
+    EndedAnim = '';
+    EndedWalk = '';
+    EndedRun = '';
+    if (Who.bIsWalking)
+        Who.PlayWalking();
+    else
+        Who.PlayRunning();
+}
+
 function BodyTick(float DeltaTime)
 {
+    local name Want;
+    local float Rate;
+    local int Times;
+
     if (Who == None || Who.bDeleteMe || Who.Health <= 0)
     {
         EndBody(False);
@@ -258,6 +372,9 @@ function BodyTick(float DeltaTime)
     {
         Who.Acceleration = vect(0, 0, 0);
         Who.Velocity = Who.Velocity * vect(0, 0, 1);
+        // kept where it began: the AI's moves still pushed it on a little each frame (about 4 units a second)
+        if (VSize((Who.Location - BodyHome) * vect(1, 1, 0)) > 2)
+            Who.SetLocation(BodyHome * vect(1, 1, 0) + Who.Location * vect(0, 0, 1));
     }
     if (bBodyTimed)
     {
@@ -268,25 +385,55 @@ function BodyTick(float DeltaTime)
             return;
         }
     }
-    if (Who.AnimSequence != BodyAnim)
+    // what it plays: the animation, or moving its mix over the run or the walk
+    if (Who.Mesh != LayerMesh)
+        Layers();
+    Want = BodyAnim;
+    Times = 1;
+    Rate = BodyRate;
+    if (!bBodyStill && Moving())
     {
-        // the AI played something else: when it came at the end of ours, ours is over; else ours again, where it was
-        if (!bBodyLoop && BodyFrame >= BodyLast - 0.02)
+        if (BodyRun != '' && (!Who.bIsWalking || BodyWalk == ''))
+        {
+            Want = BodyRun;
+            Times = RunTimes;
+            Rate = BodyRate * PaceOf(Who.runAnimMult);
+        }
+        else if (BodyWalk != '')
+        {
+            Want = BodyWalk;
+            Times = WalkTimes;
+            Rate = BodyRate * PaceOf(Who.walkAnimMult);
+        }
+    }
+    if (Who.AnimSequence != Want)
+    {
+        // the AI played something else: when it came at the end of ours, ours is over; else ours again, where it
+        // was in the animation (in a mix: in its first time)
+        if (!Ours(Who.AnimSequence) && !bBodyLoop && BodyFrame >= BodyLast - 0.02)
         {
             EndBody(True);
             return;
         }
+        if (Ours(Who.AnimSequence))
+            Log("UCAnimSet -" @ Who.Name @ "from" @ Who.AnimSequence @ "to" @ Want @ "at" @ BodyFrame);
         if (bBodyLoop)
-            Who.LoopAnim(BodyAnim, BodyRate, 0.1);
+            Who.LoopAnim(Want, Rate, 0.1);
         else
-            Who.PlayAnim(BodyAnim, BodyRate, 0.1);
-        Who.AnimFrame = BodyFrame;
+            Who.PlayAnim(Want, Rate, 0.1);
+        Who.AnimFrame = BodyFrame / Times;
+        PlayTimes = Times;
         return;
     }
+    // where it is in the animation (a mix has it PlayTimes times: once, the first; looped, any)
     if (Who.AnimFrame >= 0)
-        BodyFrame = Who.AnimFrame;
-    BodyLast = Who.AnimLast;
-    if (!bBodyLoop && Who.bAnimFinished)
+    {
+        BodyFrame = Who.AnimFrame * PlayTimes;
+        if (bBodyLoop)
+            BodyFrame -= int(BodyFrame);
+    }
+    BodyLast = 1.0 - PlayTimes * (1.0 - Who.AnimLast);
+    if (!bBodyLoop && (Who.bAnimFinished || (PlayTimes > 1 && BodyFrame >= BodyLast)))
         EndBody(True);
 }
 
@@ -302,7 +449,11 @@ function Tick(float DeltaTime)
         if (BodyAnim != '')
             BodyTick(DeltaTime);
         else
+        {
+            if (EndedAnim != '')
+                Mend();
             Apply(Who);
+        }
         Hold();
     }
     else if (PawnName == '' || PawnName == 'None')

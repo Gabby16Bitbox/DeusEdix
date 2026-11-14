@@ -3,7 +3,7 @@
   "title": "Actions run in delay order, delays counted from the start",
   "behaviour": "The editor sorts the actions by delay (equal delays keep their order) and the rule waits from one to the next: each delay counts from the moment the rule started, not from the action before.",
   "derivedFrom": [
-    {"file": "links.py", "lines": [1027, 1027], "has": "acts.sort(key=lambda a: float(a.get('delay') or 0))"},
+    {"file": "links.py", "lines": [1037, 1037], "has": "acts.sort(key=lambda a: float(a.get('delay') or 0))"},
     {"file": "UCLink.uc", "lines": [1949, 1953], "has": "Delay = float(Field(Act[Step], 0));"}
   ],
   "assumes": [],

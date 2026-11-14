@@ -211,7 +211,8 @@ function causeTitle(c, graph) {
   if (at && at.test(text)) {
     // only true phrasal verbs: "is in it" and "a wrong code is typed on it" keep their order ("typed it on")
     return capital(text.replace(at, 'it').replace(/\b(picks?|picked|turns?|turned|switch(?:es)?|switched|sets?|blows?|blew|puts?|takes?|took|gives?|gave) (up|on|off|in|out|down) it\b/, '$1 it $2')
-      .replace(/\bit gets where they were sent\b/, 'it gets where it was sent'));
+      .replace(/\bit gets where they were sent\b/, 'it gets where it was sent')
+      .replace(/\bthe (animation|body animation) of it\b/, 'its $1'));       // (14 Nov 2026: "When the animation of it has finished")
   }
   if (/^(while|from when) /i.test(text)) return capital(text);   // a "while" (P3): its lasting state, never the short "When ..."
   return capital('When ' + strip(c.short || c.text).replace(/^when /i, ''));

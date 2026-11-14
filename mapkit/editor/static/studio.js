@@ -26,6 +26,7 @@ import { createPropPreview, renderPropPanel, bakeProps } from './studio-props.js
 import { createStudioNavigation } from './studio-navigation.js';
 import { attachToolWindow } from './tool-window.js';
 import { attachNumberScrub } from './number-scrub.js';
+import { legsOf, layerFrames, layerPlan, layerName, layerNameOk, findSeq, LAYERS } from './walk-layer.js';
 import { GRIP_SIDES, gripChannel, gripSide, gripKeys, gripAt, setGripKey, removeGripKey, moveGripKey, trimGrip, gripShapes, gripRest } from './studio-grip.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -2571,6 +2572,46 @@ async function ensure(cls, name, log = () => {}) {
   if (!packed.ok) throw new Error((packed.lines || ['Animation package build failed.']).slice(-6).join(' '));
   return true;
 }
+// "may keep walking" of a body animation (walk-layer.js): on each model of a character class, whether the animation
+// leaves the legs still, and if so its mixes over Walk and Run, baked (group UCWalk) and packed. A game sequence is
+// mixed once; one of the Studio's ("own") again each time, as it may have changed.
+// {models: [{mesh, free, turn, drop, bob, made: [names]} | {mesh, missing: true}], baked: how many were baked now}
+async function walkLayers(cls, name, own = false, log = () => {}) {
+  const { models } = await api('/api/studio_models?cls=' + encodeURIComponent(cls));
+  const list = await api('/api/studio');
+  const kit = { THREE, BI, poseFromFrame, framePos };
+  const out = [];
+  let baked = 0;
+  for (const mesh of models) {
+    const m = mesh === ST.mesh && ST.m ? ST.m : await loadModel(mesh);
+    const a = m.seqs.find((s) => s.name.toLowerCase() === String(name).toLowerCase() && !!s.custom === !!own);
+    if (!a) { out.push({ mesh, missing: true }); continue; }
+    const rig = mesh === ST.mesh && ST.rigCurrent ? ST.rigCurrent : await rigFor(mesh, m);
+    const row = { mesh, ...legsOf(kit, rig, m, a), made: [] };
+    out.push(row);
+    if (!row.free) continue;
+    for (const [walk, letter] of LAYERS) {
+      const l = findSeq(m, walk);
+      if (!l || l.custom) continue;
+      const plan = layerPlan(a, l), nm = layerName(a.name, letter, plan.repeats);
+      if (!layerNameOk(nm)) continue;
+      row.made.push(nm);
+      if (!own && (list.baked[mesh] || []).includes(nm)) continue;
+      log(`mixing ${a.name} over ${walk} on ${mesh.split('.').pop()}...`);
+      const { data } = layerFrames(kit, rig, m, a, l);
+      const raw = new Int16Array(data.length);
+      for (let f = 0; f < plan.frames; f++) toRaw(m.info, data.subarray(f * m.FV * 3, (f + 1) * m.FV * 3), raw, f * m.FV * 3);
+      await api('/api/studio_bake', { mesh, name: nm, frames: plan.frames, rate: plan.rate, group: 'UCWalk', data: b64(raw), props: [] });
+      baked++;
+    }
+  }
+  if (baked) {
+    log('packing the models for the game...');
+    const packed = await api('/api/studio_pack', {});
+    if (!packed.ok) throw new Error((packed.lines || ['Animation package build failed.']).slice(-6).join(' '));
+  }
+  return { models: out, baked };
+}
 function help() {
   alert(`Animation Studio
 
@@ -2610,7 +2651,7 @@ Graph follows the selected bone or IK controller. IK offers Position, Rotation a
 An animation works on every human character: the Studio bakes it on the models of the characters that use it.`);
 }
 
-window.__studio = { open, close, ensure, store, rigFor, RIG_VERSION, retarget, autoRig, loadModel, poseAt, editAnim, get state() { return ST; },
+window.__studio = { open, close, ensure, walkLayers, store, rigFor, RIG_VERSION, retarget, autoRig, loadModel, poseAt, editAnim, get state() { return ST; },
   // for tests and videos: the skeleton's own functions, to make poses and keys from a script
   kit: { THREE, BONES, BI, PARENT, worldOf, poseFromFrame, restPose, keyOf, setPose, setFrame, afterEdit, newAnim, showAnim, framePos,
     selectBone, renderPanel, drawKeys, togglePlay, stopPlay, save, legacyPoseAt, curvesFromMotion, rotationValues,

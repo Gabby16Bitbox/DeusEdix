@@ -105,5 +105,27 @@ class While(unittest.TestCase):
         self.assertEqual(b['UCRuleAlso_W7_until_1']['Main'], '"UCLink_W7_until"')
 
 
+class LoopingAnimations(unittest.TestCase):
+    """14 Nov 2026 (backup/20261114_anim_zones): "while the player is in the zone: play the animation of the fan", the
+    fan's animation a loop: on the way out it was played backwards, so it went round the other way for ever."""
+
+    def test_an_animation_that_goes_round_is_stopped(self):
+        loops = links.looping({'motions': {'Fan': {'mode': 'loop'}, 'Pinger': {'mode': 'pingpong'}, 'Lid': {'mode': 'once'},
+                                           'Odd': 'x'}})
+        self.assertEqual(loops, {'fan', 'pinger'})
+        self.assertEqual(links.undo_of({'verb': 'anim', 'target': 'FAN'}, loops)['verb'], 'animstop')
+        self.assertEqual(links.undo_of({'verb': 'animback', 'target': 'Pinger'}, loops)['verb'], 'animstop')
+        self.assertEqual(links.undo_of({'verb': 'anim', 'target': 'Lid'}, loops)['verb'], 'animback')
+        self.assertEqual(links.undo_of({'verb': 'anim', 'target': 'Fan'})['verb'], 'animback', 'no motions given: as before')
+
+    def test_the_built_end_stops_it(self):
+        edits = {'links': [dict(id='W8', src='Zone1', when='enter', **{'while': True},
+                                do=[{'verb': 'anim', 'target': 'Fan'}, {'verb': 'anim', 'target': 'Lid'}])],
+                 'motions': {'Fan': {'mode': 'loop', 'rot': [{'t': 0, 'v': [0, 0, 0]}, {'t': 4, 'v': [0, 65536, 0]}]},
+                             'Lid': {'mode': 'once', 'pos': [{'t': 0, 'v': [0, 0, 0]}, {'t': 1, 'v': [0, 0, 32]}]}}}
+        end = [l for l in links.expand_while(edits)['links'] if l['id'] == 'W8_until'][0]
+        self.assertEqual([(a['verb'], a['target']) for a in end['do']], [('animback', 'Lid'), ('animstop', 'Fan')])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -224,11 +224,28 @@ function float MoverClock()
 	return float(M.PrevKeyNum) + (float(M.KeyNum) - float(M.PrevKeyNum)) * FClamp(M.PhysAlpha, 0, 1);
 }
 
-// a mover: through its own keys (its state's Open: / Close: code when it has one, so it plays its sounds)
+// a mover: through its own keys (its state's Open: / Close: code when it has one, so it plays its sounds). Asked the
+// other way while it moves (a lift sent back as JC walks out of its zone half way up), it turns back from where it is
+// (Mover.InterpolateTo reverses smoothly to the key it came from); before, it went on to the end and stayed there.
 function MoverGo(bool bBack)
 {
 	if (M.bInterpolating)
+	{
+		bWasMoving = True;
+		if (bBack == (M.KeyNum < M.PrevKeyNum))  // already going that way
+			return;
+		M.MoveTime = FMax(0.05, Seg[Min(M.KeyNum, M.PrevKeyNum)]);
+		if (DoorState())
+		{
+			if (bBack)
+				M.GotoState(M.InitialState, 'Close');
+			else
+				M.GotoState(M.InitialState, 'Open');
+		}
+		else
+			M.InterpolateTo(M.PrevKeyNum, M.MoveTime);
 		return;
+	}
 	if (!bBack && M.KeyNum < M.NumKeys - 1)
 	{
 		M.MoveTime = FMax(0.05, Seg[M.KeyNum]);
