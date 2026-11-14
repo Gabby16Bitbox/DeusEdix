@@ -2835,6 +2835,9 @@ function menuFor(spec, surface = null) {
     if (a?.cls === 'UCCutscene') items.push({ label: 'Edit cutscene…', off: locked, run: use(() => window.__cutscene?.open(a.name)) });
     else if (a || (d?.box && !d.box.hole && !d.box.water && !d.box.portal))
       items.push({ label: 'Animate movement…', off: locked, run: use(() => openAnim(o)) });
+    // a door, a window, a sign put on a wall: a hole as big as it through the wall (openWallFor)
+    if (o && (a || isStruct(o) || (d?.box && !d.box.hole && !d.box.water && !d.box.portal)) && d?.kind !== 'light' && d?.kind !== 'logic')
+      items.push({ label: 'Open the wall for it', off: locked, run: use(() => openWallFor(o)) });
     if (d?.kind === 'light') items.push({ label: 'Light settings…', run: () => focusInspector(spec, '[data-inspector-section="Light"]') });
     if (a && (propSchema[a.cls] || []).some(f => f.kind === 'text'))
       items.push({ label: 'Edit text…', run: () => focusInspector(spec, '.game-document') });
@@ -4138,6 +4141,88 @@ function openingFace(h, n) {
   const r = (x) => Math.round(x * 1e5) / 1e5;
   return { n, tex, flags: ((face ? face.flags : hit.object.userData.flags) || 0) & LOOK_FLAGS,
     o: map.o.map(r), u: map.u.map(r), v: map.v.map(r), w: map.w, h: map.h };
+}
+// Right click > Open the wall for it (Gabby, 14 Nov 2026: "an object put on a wall, a door, makes a gap as big as
+// itself, so you can go through it"): a hole as wide and as high as the object, through the wall it stands against
+// or in. The wall is found along x and along y through the object's middle: the solid of the map nearest to it (the
+// map's faces met going in and coming out of it, the object's own left out). Rebuild opens it; the hole then hides.
+function objectBoxUE(o) {
+  const bb = new THREE.Box3();
+  o.updateMatrixWorld(true);
+  o.traverse((m) => {
+    if (!m.isMesh || m.isSprite || !m.geometry || m.material?.visible === false) return;
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    bb.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+  });
+  return bb.isEmpty() ? null : { lo: [bb.min.x, bb.min.z, bb.min.y], hi: [bb.max.x, bb.max.z, bb.max.y] };
+}
+// the solid stretches of the map along a line (Unreal units), as [from, to] along it: in at a face that faces the
+// line, out at one that faces away (the view's normals turned round, as castMap); skip(mesh): the object's own
+function wallStretches(from, dir, far, skip) {
+  const d = T(dir).normalize();
+  ray.set(T(from), d);
+  ray.far = far;
+  let hits;
+  try { hits = visibleHits(ray.intersectObjects(worldMeshes, false)).filter((h) => h.face && !skip(h.object)); }
+  finally { ray.far = Infinity; }
+  const out = [];
+  let open = null;
+  for (const h of hits) {
+    const n = h.face.normal.clone().transformDirection(h.object.matrixWorld).negate();
+    if (h.object.matrixWorld.determinant() < 0) n.negate();
+    if (n.dot(d) < 0) { if (!open) open = { from: h.distance, hit: { hit: h }, n: [n.x, n.z, n.y] }; }
+    else if (open) { out.push({ ...open, to: h.distance }); open = null; }
+    else if (!out.length) out.push({ from: 0, to: h.distance, hit: null, n: null });      // the line starts in it
+  }
+  if (open) out.push({ ...open, to: Infinity });                     // nothing behind it: the void
+  return out;
+}
+function openWallFor(o) {
+  if (!script || mapLoading || gameView?.active) { status('Open a map (and stop Play) to open a wall.', 'warn'); return; }
+  const B = objectBoxUE(o), d = o.userData, a = d.actor;
+  if (!B) { status('This object has no size in the 3D view to open the wall for.', 'warn'); return; }
+  const own = new Set([o]);
+  const stName = a && actorStruct[a.name];
+  if (stName && structures[stName]) own.add(structures[stName].obj);       // a piece's door: its frame too
+  const skip = (m) => { for (let x = m; x; x = x.parent) if (own.has(x)) return true; return false; };
+  const c = [0, 1, 2].map((k) => (B.lo[k] + B.hi[k]) / 2);
+  c[2] = Math.min(c[2], B.lo[2] + 48);                                    // low in it: under a lintel, over a sill
+  const REACH = 1024;
+  let best = null;
+  for (const k of [0, 1]) {
+    const dir = [0, 0, 0]; dir[k] = 1;
+    const from = c.slice(); from[k] -= REACH;
+    for (const iv of wallStretches(from, dir, 2 * REACH, skip)) {
+      const lo = from[k] + iv.from, hi = from[k] + iv.to;
+      const gap = Math.max(0, lo - B.hi[k], B.lo[k] - hi);
+      if (gap > 48) continue;
+      const thin = B.hi[k] - B.lo[k];
+      if (!best || gap < best.gap - 1 || (Math.abs(gap - best.gap) <= 1 && thin < best.thin)) best = { k, lo, hi, gap, thin, iv };
+    }
+  }
+  if (!best) { status('No wall at this object: put it against a wall (or in it), then open the wall for it.', 'warn'); return; }
+  const { k } = best, w = 1 - k, sn = (v) => Math.round(v * 10) / 10;
+  const deep = Number.isFinite(best.hi) && best.hi - best.lo <= REACH;
+  // through the wall and 8 beyond each face; into a wall with nothing behind it, 64 into it (as + Hole)
+  let kLo, kHi;
+  if (deep) { kLo = best.lo - 8; kHi = best.hi + 8; }
+  else if (B.hi[k] <= best.lo + 1) { kLo = best.lo - 8; kHi = best.lo + 56; }
+  else { kLo = Math.max(best.lo, B.lo[k]) - 8; kHi = Math.max(best.lo, B.lo[k]) + 56; }
+  const lo = [0, 0, 0], hi = [0, 0, 0];
+  lo[k] = sn(kLo); hi[k] = sn(kHi);
+  lo[w] = sn(B.lo[w]); hi[w] = sn(B.hi[w]);
+  lo[2] = sn(B.lo[2]); hi[2] = sn(B.hi[2]);
+  const face = best.iv.hit && openingFace(best.iv.hit, best.iv.n);
+  const who = a ? objName(a.name) : d.box ? (d.box.label || 'Block') : (structures[d.name]?.label || 'the piece');
+  pushUndo('Open the wall for it');
+  const b = { name: nextName('UCEditBox'), label: `Opening · ${who}`, lo, hi, tex: face?.tex || 'ClenGreyCncrt_A', solid: true, hole: true };
+  edits.boxes.push(b);
+  intoDefaultFolder(['b:' + b.name]);
+  setDirty();
+  select(makeBoxProxy(b));
+  const size = `${Math.round(hi[w] - lo[w])} x ${Math.round(hi[2] - lo[2])}`;
+  log(deep ? `The wall opens for ${who}: a hole ${size} through it (${Math.round(best.hi - best.lo)} thick). Rebuild to cut it; then the hole hides (select it in the Hierarchy to change it).`
+    : `A hole ${size} for ${who}, 64 into the wall: nothing is behind this wall within ${REACH} units. Rebuild to cut it.`, deep ? 'ok' : 'warn');
 }
 // the editor's own hole an opening measured is (a block of edits.boxes), or null
 function ownHoleOf(m) {
@@ -18570,6 +18655,7 @@ window.__editor = { standForIdle, scene, camera, cam, world, proxies, wake, rend
     log(`Player character: ${character.name}. Save and Rebuild to apply. Inventory and progress stay shared.`, 'ok');
   },
   startDraw: (kind) => startDraw(kind),
+  openWallFor: (o) => openWallFor(o),           // right click > Open the wall for it (a proxy or a structure's obj)
   startCloseOpening: () => startCloseOpening(),   // Tools > Close an opening         // Map > Draw wall / road / floor / roof
   openSky: () => skyTool.open(),                // Map > Sky & time of day
   openMissionPhases: () => openMissionPhasesWindow(),   // Map > Mission phases

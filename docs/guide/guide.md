@@ -1497,6 +1497,12 @@ Click to place it, Shift+click to fill more, `Esc` to stop. Its faces take the t
 round the opening, laid as the wall is, so the patch does not show. To close a hole you made in the
 editor, delete the hole instead.
 
+**Opening the wall for an object**: put a door, a window or a sign flat against a wall (or in it), then
+right click it > **Open the wall for it**. A hole as wide and as high as the object goes through the
+wall it stands on, its sides in the wall's texture; **Rebuild** opens the wall, and you can walk
+through. On an outer wall, with nothing behind it, the hole is 64 deep and the status says so. Turn a
+door flat against the wall first: across it, the hole would be as narrow as the door is thick.
+
 **Build order**: blocks are built in their order, as UnrealEd builds its brushes. A hole cuts the
 solid blocks built before it; a solid block built after a hole fills it again. A block's panel shows
 its place (*Build order*) with **To first** and **To last** (also Edit > **Order: to first / to
