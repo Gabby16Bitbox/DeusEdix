@@ -63,10 +63,12 @@ def export(items, holes=()):
             centre = [(b['lo'][k] + b['hi'][k]) / 2 for k in range(3)]
             csg = 'CSG_Subtract' if b.get('hole') else 'CSG_Add'
             flags = 0 if b.get('hole') or b.get('solid') else PF_SEMISOLID
-            pieces = blocks.brushes(b, geom.Mat(b.get('tex') or 'ClenGreyCncrt_A'), b['name'])
+            mat = geom.Mat(b.get('tex') or 'ClenGreyCncrt_A')
+            pieces = blocks.brushes(b, blocks.hole_mats(b, mat) if b.get('hole') else mat, b['name'])
             for i, br in enumerate(pieces):          # a hollow shape: its convex pieces, a brush each
                 name = b['name'] if len(pieces) == 1 else '%s_%d' % (b['name'], i)
-                out.append(_brush_actor(name, blocks.matched(geom.rotate_brush(br, centre, b.get('rot')), b), csg, flags))
+                br = geom.rotate_brush(br, centre, b.get('rot'))
+                out.append(_brush_actor(name, blocks.hole_floor(br, b) if b.get('hole') else blocks.matched(br, b), csg, flags))
         elif kind == 'drawn':
             d = it['drawn']
             built, report = drawn.all_brushes({'drawn': [d], 'boxes': list(holes)})

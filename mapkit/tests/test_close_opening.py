@@ -62,6 +62,49 @@ class Matched(unittest.TestCase):
         self.assertIn('Texture=Brick_C', text)
         src = (KIT / 'scene.py').read_text(encoding='utf-8')
         self.assertIn('_blocks.matched(turn(br), b)', src)
+        # the Rebuild's quick path (editor/dxmaps.py) lays them too
+        self.assertIn('block_shapes.matched(brush, b)', (KIT / 'editor' / 'dxmaps.py').read_text(encoding='utf-8'))
+
+
+FLOOR = dict(tex='Tile_A', flags=0, u=[1, 0, 0], v=[0, 1, 0], o=[0, 0, 0])
+
+
+def hole(**kw):
+    return dict(dict(name='UCEditBox5', lo=[512, 199, 0], hi=[528, 265, 112], tex='Stucco_B', solid=True, hole=True), **kw)
+
+
+class HoleFloor(unittest.TestCase):
+    """A hole's floor (14 Nov 2026, Gabby: the bottom of a hole continues the floor near it, or another texture,
+    or the hole all of one)."""
+    def polys(self, b):
+        br = blocks.brushes(b, blocks.hole_mats(b, geom.Mat(b['tex'])), b['name'])[0]
+        return polys(blocks.hole_floor(br, b).t3d())
+
+    def bottom(self, ps):
+        return [p for p in ps if axis(p['body'], 'Normal')[2] == -1][0]
+
+    def test_around_lays_the_bottom_as_the_floor(self):
+        ps = self.polys(hole(floor='around', floorLook=FLOOR))
+        b = self.bottom(ps)
+        self.assertEqual(b['tex'], 'Tile_A')
+        self.assertEqual(axis(b['body'], 'TextureU'), [1, 0, 0])
+        self.assertTrue(all(p['tex'] == 'Stucco_B' for p in ps if p is not b))
+
+    def test_same_or_turned_keeps_one_texture(self):
+        for b in (hole(), hole(floor='same', floorLook=FLOOR), hole(floor='around', floorLook=FLOOR, rot=[0, 4096, 0])):
+            self.assertTrue(all(p['tex'] == 'Stucco_B' for p in self.polys(b)))
+
+    def test_a_chosen_floor_texture(self):
+        ps = self.polys(hole(floor={'tex': 'Brick_C'}))
+        self.assertEqual(self.bottom(ps)['tex'], 'Brick_C')
+        self.assertEqual(sum(p['tex'] == 'Brick_C' for p in ps), 1)
+
+    def test_every_build_path_uses_it(self):
+        import t3d_clipboard
+        text = t3d_clipboard.export([{'kind': 'box', 'box': hole(floor='around', floorLook=FLOOR)}], [])['text']
+        self.assertIn('Texture=Tile_A', text)
+        self.assertIn('_blocks.hole_floor(turn(br, True), b)', (KIT / 'scene.py').read_text(encoding='utf-8'))
+        self.assertIn('block_shapes.hole_floor(brush, b)', (KIT / 'editor' / 'dxmaps.py').read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':

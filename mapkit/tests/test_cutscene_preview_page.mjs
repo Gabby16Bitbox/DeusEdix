@@ -17,6 +17,11 @@ const body = (name) => {                     // a function of one line, or up to
   assert.ok(at >= 0, name);
   return first.trimEnd().endsWith('}') ? first : source.slice(at, source.indexOf('\n}', at) + 2);
 };
+const constLine = (name) => {                // a const of one line (const isFill = ...), as a var of the context
+  const at = source.indexOf(`const ${name} = `);
+  assert.ok(at >= 0, name);
+  return source.slice(at, source.indexOf('\n', at)).replace(/^const /, 'var ');
+};
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const vec = (x, y, z) => ({ x, y, z, copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }, setScalar(s) { this.x = this.y = this.z = s; } });
 const MOTION = ['animComp', 'animCloses', 'animSlope', 'animValue', 'sampleTrack', 'animLinear', 'moverGlide', 'moverKeys', 'moverPose',
@@ -58,7 +63,8 @@ function page() {
     // a hole the Rebuild has cut (holeTucked): as the last build has it
     builtBoxes: new Map(), boxSig: (b) => JSON.stringify([b.lo, b.hi]), groupPivot: { userData: {} }, selectionLocked: () => false, selectionHidden: () => false,
   });
-  vm.runInContext([...MOTION, 'keyValue', 'previewTarget', 'walkWay', 'builtValue', 'lampType', 'lampSkin', 'lampKind', 'setLampsOff', 'holeTucked', 'applyObjectVisibility'].map(body).join('\n'), c);
+  vm.runInContext([...MOTION, 'keyValue', 'previewTarget', 'walkWay', 'builtValue', 'lampType', 'lampSkin', 'lampKind', 'setLampsOff', 'holeTucked', 'applyObjectVisibility'].map(body).join('\n')
+    + '\n' + constLine('isFill'), c);
   return { c, door, lift, lamp, guard, crate, block };
 }
 
@@ -210,4 +216,20 @@ test('a hole the Rebuild has cut is hidden, shown while selected, and shown agai
   box.hi = [64, 64, 128];                              // made taller: shown until the next Rebuild
   c.applyObjectVisibility();
   assert.equal(hole.visible, true);
+});
+
+test('a Fill block the Rebuild has built is hidden as a hole is; a solid block is not', () => {
+  const { c } = page();
+  const fill = { name: 'UCEditBox8', solid: true, fill: true, lo: [0, 0, 0], hi: [16, 64, 112] };
+  const wall = { name: 'UCEditBox7', solid: true, lo: [0, 0, 0], hi: [16, 256, 256] };
+  const pf = { position: vec(0, 0, 0), scale: vec(16, 112, 64), userData: { box: fill, kind: 'box' } };
+  const pw = { position: vec(0, 0, 0), scale: vec(16, 256, 256), userData: { box: wall, kind: 'box' } };
+  c.proxies.children.push(pf, pw);
+  c.builtBoxes.set(fill.name, c.boxSig(fill));
+  c.builtBoxes.set(wall.name, c.boxSig(wall));
+  c.applyObjectVisibility();
+  assert.deepEqual([pf.visible, pf.userData.tucked, pw.visible], [false, true, true]);
+  fill.solid = false;                                  // made a detail block: no Fill block any more
+  c.applyObjectVisibility();
+  assert.equal(pf.visible, true);
 });

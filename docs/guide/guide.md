@@ -1490,12 +1490,21 @@ stairwell through a drawn floor.
 After **Rebuild** the hole's box is hidden: the 3D view shows the opening, and a click in it reaches
 the floor beyond. Select the hole in the Hierarchy (under *Blocks*) to see it and change it again; once
 moved or resized, it shows until the next Rebuild.
+The **Floor** of a hole (its panel) is the face at its bottom: the floor of a doorway or of a pit. A new hole
+*continues the floor around it*: the texture of the floor next to it, with the same scale and alignment, looked
+for again at every Rebuild. *Same as its sides* makes the whole hole of its own texture; *Another texture*
+gives its floor one of your choice.
 
 **Filling an opening**: **Fill** in the bottom bar (or Tools > **Fill an opening**). Move the mouse
-over a doorway, a window or a hole in a floor or a ceiling: a green block shows what will fill it.
-Click to place it, Shift+click to fill more, `Esc` to stop. Its faces take the texture of the wall
-round the opening, laid as the wall is, so the patch does not show. To close a hole you made in the
-editor, delete the hole instead.
+over a doorway, a window or a hole in a floor or a ceiling, a hole you made in the editor too: a green
+block shows what will fill it. Click to place it, Shift+click to fill more, `Esc` to stop. Click a wall
+or a floor where nothing is measured and a Fill block goes there, to move and resize over the gap. A Fill
+block is green as a hole is red, and it hides after **Rebuild**, which closes the gap. Each of its faces
+continues the surface next to it that faces the same way, laid as there: the wall on the wall's sides, the
+floor where it patches a floor. Its **Texture** in the panel is the one most used around it, looked for
+again at every Rebuild; choose another texture to keep that one (the box *texture of what is around it*
+goes back to the automatic one). It closes the holes built before it (*Build order*); to have the wall as
+it was, delete the hole instead.
 
 **Opening the wall for an object**: put a door, a window or a sign flat against a wall (or in it), then
 right click it > **Open the wall for it**. A hole as wide and as high as the object goes through the
@@ -1951,6 +1960,10 @@ What a block holds shows in the Console while Play runs (*All1: 2 of 3 done*, *S
   * **Try it** starts from it too. **Ctrl+Z** undoes it; *not set* takes it away.
 - **To check** warns about what would not work: an object that is gone, a condition nothing sets, a scripting tag
   that no object has (it names the tags of that kind the map has: the template lights' tag is *white*, not *Light*).
+- **An object you deleted** stays in the list, in red, while rules still name it. Select it and press **Delete**, or
+  right click it > **Remove it from the rules**: the rules only it set off go, the steps on it go, and a rule set off
+  by other things too only loses it (**Ctrl+Z** brings it all back). The same works on its red node in the Graph,
+  and on a line of **To check** about it (that rule, or that step, only).
 
 ### Safe edits
 

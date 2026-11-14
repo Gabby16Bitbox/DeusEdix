@@ -71,7 +71,8 @@ test('placing from the browser: an object, a block, a prefab, a hole; the hole\'
   assert.deepEqual([c.edits.prefabs.at(-1).prefab, c.edits.prefabs.at(-1).line, c.edits.prefabs.at(-1).version], ['usr_22222222222222222222222222222222', 'usr_11111111111111111111111111111111', 2],
     'a prefab of the library: the copy is linked to it, at its newest version');
   c.edits.prefabs.pop(); c.warned.pop();
-  Object.assign(c, { placing: { box: true, hole: true, size: [1, 1, 1] }, holeBox: () => ({ name: 'UCEditBox9', lo: [0, 0, 0], hi: [64, 64, 112], tex: 'Tex', hole: true }) });
+  Object.assign(c, { placing: { box: true, hole: true, size: [1, 1, 1] }, holeBox: () => ({ name: 'UCEditBox9', lo: [0, 0, 0], hi: [64, 64, 112], tex: 'Tex', hole: true }),
+    holeFloorAuto: () => false });                   // (its floor: the floor round it, none here)
   c.placeWith(r);
   assert.deepEqual(c.warned.at(-1), [['UCEditBox9'], 'Placed']);
   assert.match(c.logged.at(-1)[0], /resize it with J or in the panel/);

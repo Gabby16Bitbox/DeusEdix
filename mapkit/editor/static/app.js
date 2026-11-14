@@ -1753,7 +1753,7 @@ let builtScale = {};                     // scale of each object in the map as l
 const builtOf = (p) => (p.userData.source === 'map' ? (builtScale[p.userData.actor.name] || 1) : 1);    // an object's, by its proxy
 let builtBoxes = new Map();              // the blocks as the map shown was built: name -> their shape and place
 let builtDrawn = new Map();              // the drawings as the map shown was built (with the holes that cut them)
-const boxSig = (b) => JSON.stringify([b.lo, b.hi, b.rot || null, b.tex || '', blockShape(b), !!b.solid, !!b.hole, b.verts || null]);
+const boxSig = (b) => JSON.stringify([b.lo, b.hi, b.rot || null, b.tex || '', blockShape(b), !!b.solid, !!b.hole, b.verts || null, ...(b.hole && b.floor ? [b.floor] : [])]);
 const blockLooks = new Map();            // a block's texture before a Rebuild: map|texture -> {map, tile, masked}
 let lastPlacingMove = null;              // the pointer's last move while placing (R re-turns the ghost there)
 let lastBlockTex = 'flatconcrete_a';    // the texture of the next block made with the Hierarchy's +
@@ -2157,7 +2157,7 @@ function structureInMap(st) { return !poseOf(st).deleted && !st.dissolved; }
 // the Hierarchy, Blocks) it shows again; moved or resized, it shows until the next Rebuild.
 function holeTucked(p) {
   const b = p.userData.box;
-  if (!b || !b.hole || builtBoxes.get(b.name) !== boxSig(b)) return false;
+  if (!b || !(b.hole || isFill(b)) || builtBoxes.get(b.name) !== boxSig(b)) return false;      // (a Fill block too: its wall shows)
   return !(selected === p || (selected === groupPivot && (groupPivot.userData.members || []).includes(p)));
 }
 function applyObjectVisibility() {
@@ -3378,8 +3378,9 @@ function makeProxy(a, source) {
 function makeBoxProxy(b) {
   const size = [b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]];
   const geo = blockGeometry(THREE, b);     // a cube, a wedge or a cylinder (block-shapes.js)
-  const col = b.mover ? 0x5ad1ff : b.water ? 0x3a8cff : b.portal ? 0xc58cff : b.hole ? 0xff5a5a : KIND_COLOR.box;
-  const g = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: b.portal ? 0.35 : b.water ? 0.12 : b.hole ? 0.18 : 0.25, depthWrite: false }));
+  const fill = isFill(b);                  // a Fill block: green, as a hole is red
+  const col = b.mover ? 0x5ad1ff : b.water ? 0x3a8cff : b.portal ? 0xc58cff : b.hole ? 0xff5a5a : fill ? 0x4cd964 : KIND_COLOR.box;
+  const g = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: b.portal ? 0.35 : b.water ? 0.12 : b.hole || fill ? 0.18 : 0.25, depthWrite: false }));
   if (b.water) {                            // the surface of the water
     const below = b.water.below ?? 16, rel = 0.5 - below / Math.max(1, size[2]);
     const surf = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: { dirty: 0x5d6a3a, toxic: 0x5be04a, burning: 0xff7a1a }[b.water.kind] || 0x3a8cff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
@@ -3387,10 +3388,10 @@ function makeBoxProxy(b) {
     surf.position.y = rel;
     g.add(surf);
   }
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), b.hole ? new THREE.LineDashedMaterial({ color: 0xff8080, dashSize: 0.06, gapSize: 0.04 })
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), b.hole || fill ? new THREE.LineDashedMaterial({ color: fill ? 0x7ee89a : 0xff8080, dashSize: 0.06, gapSize: 0.04 })
     : new THREE.LineBasicMaterial({ color: 0xe8edf5 }));
-  if (b.hole) edges.computeLineDistances();      // a hole: what it cuts away shows after the rebuild
-  edges.visible = !!(b.hole || b.water || b.portal); // ordinary blocks use the selection outline, not coplanar lines
+  if (b.hole || fill) edges.computeLineDistances();      // a hole: what it cuts away shows after the rebuild (a Fill: what it closes)
+  edges.visible = !!(b.hole || fill || b.water || b.portal); // ordinary blocks use the selection outline, not coplanar lines
   g.add(edges);
   g.scale.set(size[0], size[2], size[1]);
   g.position.copy(T([(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, (b.lo[2] + b.hi[2]) / 2]));
@@ -3430,7 +3431,7 @@ async function dressBlock(g) {
   if (!b) return;
   const baked = liveBlocks.canFollow(b) || builtBoxes.get(b.name) === boxSig(b);
   g.material.colorWrite = !baked;
-  if (b.hole || b.water || b.portal || b.mover || b.sign || !b.tex || baked) {
+  if (b.hole || isFill(b) || b.water || b.portal || b.mover || b.sign || !b.tex || baked) {
     if (g.userData.dressed) { g.material = g.userData.plain; delete g.userData.matBase; g.userData.dressed = false; }
     g.material.colorWrite = !baked;
     liveBlocks.sync(proxies.children);
@@ -3960,6 +3961,7 @@ textureTransfer = createTextureTransfer({ canvas,
       if (!requireUnlocked(p)) throw new Error('Unlock this block first.');
       pushUndo(`Apply texture ${shortTex(texture.ref)}`);
       b.tex = lastBlockTex = shortTex(texture.ref);
+      delete b.texAuto;                      // a Fill block keeps the texture chosen for it
       setDirty();
       dressBlock(p);
       if (selected === p) showDetails();
@@ -4070,17 +4072,21 @@ function fillHoverNow() {
   const r = mouseRay(fillHoverEvent), o = r.ray.origin, dv = r.ray.direction;
   const m = measureOpening(castMap, [o.x, o.z, o.y], [dv.x, dv.z, dv.y]);
   const own = m.ok && ownHoleOf(m);
-  fillGhost.visible = !!m.ok && !own;
-  let say;
-  if (own) say = `This opening is the editor's hole ${own.name}: click to select it, then delete it (Del) to close it.  (Esc ends)`;
-  else if (m.ok) {
-    const box = fillBox(m, YAW);
+  // the block it would put: the opening measured, the editor's own hole as it is, else one where the pointer is
+  const box = m.ok ? fillBox(m, YAW) : fillFree(fillHoverEvent);       // (the editor's hole: the opening it cut, flush)
+  fillGhost.visible = !!box;
+  if (box) {
     fillGhost.scale.set(box.hi[0] - box.lo[0], box.hi[2] - box.lo[2], box.hi[1] - box.lo[1]);
     fillGhost.position.copy(T([(box.lo[0] + box.hi[0]) / 2, (box.lo[1] + box.hi[1]) / 2, (box.lo[2] + box.hi[2]) / 2]));
     fillGhost.quaternion.copy(rotations.quat(box.rot || undefined));     // (null for a wall on the axes)
-    say = `Click to fill this opening: ${Math.round(m.sides.left + m.sides.right)} x ${Math.round(m.sides.down + m.sides.up)}, ${Math.round(m.depth)} deep  (Shift+click: fill another, Esc ends)`;
-  } else say = m.why + '  (Esc ends)';
-  if (say !== fillHoverWhy) { fillHoverWhy = say; status(say, m.ok && !own ? '' : 'warn'); }
+  }
+  const size = (b) => [0, 1, 2].map((k) => Math.round(b.hi[k] - b.lo[k])).join(' x ');
+  let say;
+  if (own) say = `Click to fill the editor's hole ${own.label || own.name} (${size(box)}): Rebuild closes it with what is around it  (Shift+click: another, Esc ends)`;
+  else if (m.ok) say = `Click to fill this opening: ${Math.round(m.sides.left + m.sides.right)} x ${Math.round(m.sides.down + m.sides.up)}, ${Math.round(m.depth)} deep  (Shift+click: fill another, Esc ends)`;
+  else if (box) say = `Click to put a Fill block here (${size(box)}), then move and resize it over the gap: Rebuild closes it with what is around it  (Esc ends)`;
+  else say = 'Move over a wall, a floor or an opening  (Esc ends)';
+  if (say !== fillHoverWhy) { fillHoverWhy = say; status(say, box ? '' : 'warn'); }
   wake();
 }
 function startCloseOpening() {
@@ -4093,7 +4099,7 @@ function startCloseOpening() {
   fillHoverWhy = '';
   $('#addfill')?.classList.add('active');
   canvas.style.cursor = 'crosshair';
-  status('Move over the opening to fill: a doorway, a window, a hole in a floor or a ceiling; the block shows, click to place it  (Esc cancels)');
+  status('Move over the opening to fill (a doorway, a window, a hole), or click where a Fill block goes: it is green, and Rebuild closes the gap with what is around it  (Esc cancels)');
 }
 function endCloseOpening() {
   if (!fillPicking) return;
@@ -4215,7 +4221,8 @@ function openWallFor(o) {
   const face = best.iv.hit && openingFace(best.iv.hit, best.iv.n);
   const who = a ? objName(a.name) : d.box ? (d.box.label || 'Block') : (structures[d.name]?.label || 'the piece');
   pushUndo('Open the wall for it');
-  const b = { name: nextName('UCEditBox'), label: `Opening · ${who}`, lo, hi, tex: face?.tex || 'ClenGreyCncrt_A', solid: true, hole: true };
+  const b = { name: nextName('UCEditBox'), label: `Opening · ${who}`, lo, hi, tex: face?.tex || 'ClenGreyCncrt_A', solid: true, hole: true, floor: 'around' };
+  holeFloorAuto(b);
   edits.boxes.push(b);
   intoDefaultFolder(['b:' + b.name]);
   setDirty();
@@ -4223,6 +4230,138 @@ function openWallFor(o) {
   const size = `${Math.round(hi[w] - lo[w])} x ${Math.round(hi[2] - lo[2])}`;
   log(deep ? `The wall opens for ${who}: a hole ${size} through it (${Math.round(best.hi - best.lo)} thick). Rebuild to cut it; then the hole hides (select it in the Hierarchy to change it).`
     : `A hole ${size} for ${who}, 64 into the wall: nothing is behind this wall within ${REACH} units. Rebuild to cut it.`, deep ? 'ok' : 'warn');
+}
+// A Fill block (14 Nov 2026, Gabby: "a box where you put it, green instead of red: Rebuild closes the gap with the
+// material most used there; or choose its texture in the Inspector beforehand"): a solid block (b.fill) shown green
+// as a hole is red, hidden once built; b.texAuto while its texture is the one around it, looked for again at every
+// Rebuild (fillAutoAll). isFill: still one (its Kind not changed in the Inspector).
+const isFill = (b) => !!(b && b.fill && b.solid && !b.hole && !b.mover && !b.water && !b.portal);
+// a hole's floor (b.floor): 'around' (the floor round it), 'tex' (another texture, b.floor.tex), else 'same' (a hole
+// made before 14 Nov 2026 has none: all of its own texture, as it was built)
+const holeFloorOf = (b) => (b.floor === 'around' ? 'around' : b.floor && typeof b.floor === 'object' && b.floor.tex ? 'tex' : 'same');
+// a Fill block where the pointer is on a wall, a floor or a ceiling (as + Hole makes one there), or null
+function fillFree(e) {
+  const r = mouseRay(e), h = visibleHits(r.intersectObjects(worldMeshes, false))[0];
+  if (!h || !h.face) return null;
+  const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+  if (n.dot(r.ray.direction) > 0) n.negate();                 // the side the camera sees
+  const face = surfaceTools.faceAt(h);
+  const tex = shortTex((face && (surfaceTools.textureOf(face) || face.tex)) || h.object.userData.tex || '') || lastBlockTex;
+  const b = holeBox({ hit: h.point, n, tex });
+  return { lo: b.lo, hi: b.hi, tex: b.tex };
+}
+// The map's built faces round a block (within `grow` units of it, [x, y, z]; the faces inside it, its own once built
+// and an opening's sides, left out), by texture and direction: {area: tex -> area, best: tex|direction -> the biggest
+// one {a, hit, n, tex}, sum: tex|direction -> area}. keep(n, A, B, C): only those (n its direction as the game's, A B C in the view's units).
+function facesAround(b, grow, keep = () => true) {
+  const zone = new THREE.Box3().setFromPoints([T(b.lo.map((x, k) => x - grow[k])), T(b.hi.map((x, k) => x + grow[k]))]);
+  const inner = new THREE.Box3().setFromPoints([T(b.lo.map((x) => x - 1)), T(b.hi.map((x) => x + 1))]);
+  const area = new Map(), best = new Map(), sum = new Map();
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), mb = new THREE.Box3();
+  for (const m of worldMeshes) {
+    if (!m.visible || !m.geometry?.attributes?.position) continue;
+    const g = m.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    if (!mb.copy(g.boundingBox).applyMatrix4(m.matrixWorld).intersectsBox(zone)) continue;
+    const pos = g.attributes.position, idx = g.index, count = (idx ? idx.count : pos.count) / 3;
+    for (let f = 0; f < count; f++) {
+      const ia = idx ? idx.getX(3 * f) : 3 * f, ib = idx ? idx.getX(3 * f + 1) : 3 * f + 1, ic = idx ? idx.getX(3 * f + 2) : 3 * f + 2;
+      A.fromBufferAttribute(pos, ia).applyMatrix4(m.matrixWorld);
+      B.fromBufferAttribute(pos, ib).applyMatrix4(m.matrixWorld);
+      C.fromBufferAttribute(pos, ic).applyMatrix4(m.matrixWorld);
+      if (inner.containsPoint(A) && inner.containsPoint(B) && inner.containsPoint(C)) continue;
+      // its direction as the game's (the view's triangles are mirrored: castMap)
+      const nv = new THREE.Vector3().crossVectors(B.clone().sub(A), C.clone().sub(A)).normalize().negate();
+      const n = [nv.x, nv.z, nv.y].map((x) => Math.round(x * 1e4) / 1e4);
+      if (!keep(n, A, B, C)) continue;
+      const a = clippedArea([A, B, C], zone);
+      if (a < 1) continue;
+      const hit = { object: m, faceIndex: f, face: { a: ia, b: ib, c: ic }, point: A.clone() };
+      const face = surfaceTools.faceAt(hit);
+      const tex = shortTex((face && (surfaceTools.textureOf(face) || face.tex)) || m.userData.tex || '');
+      if (!tex || tex.toLowerCase() === 'none') continue;
+      area.set(tex, (area.get(tex) || 0) + a);
+      const key = tex + '|' + n.map((x) => x.toFixed(2)).join(',');
+      sum.set(key, (sum.get(key) || 0) + a);
+      if (!best.has(key) || best.get(key).a < a) best.set(key, { a, hit, n, tex });
+    }
+  }
+  return { area, best, sum };
+}
+const mostOf = (area) => [...area].sort((x, y) => y[1] - x[1])[0][0];
+// A Fill block's look: the texture most used round it (within 32 units, by area), and each of its faces laid as the
+// surface round it that faces the same way, in that surface's own texture (b.match: a wall's front and back continue
+// the wall, a floor's patch the floor, when the floor is not the walls'; 14 Nov 2026, TZ: "what about the scaling,
+// alignment, and if the floor is different to the walls?"). {tex, match} or null
+function fillLook(b) {
+  const { area, best, sum } = facesAround(b, [32, 32, 32]);
+  if (!area.size) return null;
+  const tex = mostOf(area);
+  // each direction: the texture most used that way (by area), and its biggest face there
+  const ways = new Map();                          // direction -> {key, a}
+  for (const [key, a] of sum) {
+    const way = key.slice(key.indexOf('|') + 1);
+    if (!ways.has(way) || ways.get(way).a < a) ways.set(way, { key, a });
+  }
+  const match = [...ways.values()].sort((x, y) => y.a - x.a).slice(0, 6)
+    .map(({ key }) => best.get(key)).map((f) => openingFace({ hit: f.hit }, f.n)).filter(Boolean);
+  return { tex, match };
+}
+// A hole's floor (14 Nov 2026, Gabby: "the bottom of the hole continues the floor near it; you can change it, or make
+// the hole all of one material"): the floor round it, facing up, from its bottom to 8 under its top (a doorway's floor
+// on both sides, a pit's floor round it), the texture most used and its biggest face laid as there:
+// {tex, n, u, v, o, w, h, flags} or null
+function holeFloorLook(b) {
+  const { area, best } = facesAround(b, [32, 32, 8], (n, A, B, C) => n[2] > 0.99 && Math.max(A.y, B.y, C.y) <= b.hi[2] - 8 + 0.5);
+  if (!area.size) return null;
+  const tex = mostOf(area);
+  const f = [...best.values()].filter((x) => x.tex === tex).sort((x, y) => y.a - x.a)[0];
+  return f ? openingFace({ hit: f.hit }, [0, 0, -1]) : null;
+}
+// a hole whose floor is the floor round it (b.floor 'around'): that floor looked for again -> whether it changed
+function holeFloorAuto(b) {
+  if (!b || !b.hole || b.water || b.floor !== 'around') return false;
+  const was = JSON.stringify(b.floorLook || null);
+  const l = holeFloorLook(b);
+  if (l) b.floorLook = l; else delete b.floorLook;
+  return JSON.stringify(b.floorLook || null) !== was;
+}
+// a triangle's area inside a box (three.js units), clipped by its six planes
+function clippedArea(tri, box) {
+  let poly = tri.map((v) => v.clone());
+  for (const k of ['x', 'y', 'z']) {
+    for (const [lim, keep] of [[box.min[k], (v) => v[k] >= box.min[k]], [box.max[k], (v) => v[k] <= box.max[k]]]) {
+      const out = [];
+      for (let i = 0; i < poly.length; i++) {
+        const p = poly[i], q = poly[(i + 1) % poly.length], pin = keep(p), qin = keep(q);
+        if (pin) out.push(p);
+        if (pin !== qin) out.push(p.clone().lerp(q, (lim - p[k]) / (q[k] - p[k])));
+      }
+      poly = out;
+      if (poly.length < 3) return 0;
+    }
+  }
+  const s = new THREE.Vector3();
+  for (let i = 1; i < poly.length - 1; i++) s.add(new THREE.Vector3().crossVectors(poly[i].clone().sub(poly[0]), poly[i + 1].clone().sub(poly[0])));
+  return s.length() / 2;
+}
+// a Fill block's texture made the one around it again (b.texAuto): -> whether it changed
+function fillAuto(b) {
+  if (!isFill(b) || !b.texAuto) return false;
+  const l = fillLook(b);
+  if (!l) return false;
+  const was = JSON.stringify([b.tex, b.match || null]);
+  b.tex = l.tex;
+  if (l.match.length) { b.match = l.match; b.matchOf = l.tex; } else { delete b.match; delete b.matchOf; }
+  return JSON.stringify([b.tex, b.match || null]) !== was;
+}
+// before a Rebuild: every Fill block that takes what is around it, and every hole whose floor is the floor round it,
+// looked at again (the map may have changed there)
+function fillAutoAll() {
+  let n = 0;
+  for (const b of edits.boxes || []) if (fillAuto(b) || holeFloorAuto(b)) n++;
+  if (n) setDirty();
+  return n;
 }
 // the editor's own hole an opening measured is (a block of edits.boxes), or null
 function ownHoleOf(m) {
@@ -4232,20 +4371,28 @@ function ownHoleOf(m) {
 function closeOpeningClick(e) {
   const r = mouseRay(e), o = r.ray.origin.clone(), dv = r.ray.direction.clone();
   const m = measureOpening(castMap, [o.x, o.z, o.y], [dv.x, dv.z, dv.y]);
-  if (!m.ok) { status(m.why + '  (Esc ends)', 'warn'); return; }
-  // a hole the editor cut: closing it is deleting it (or making it smaller)
-  const own = ownHoleOf(m);
-  if (own) {
-    const p = proxies.children.find((x) => x.userData.box === own);
-    if (p) select(p);
-    endCloseOpening();
-    status(`This opening is the editor's hole ${own.name}: delete it (Del) to close it, or make it smaller (${menuKey('scale')}).`, 'warn');
+  // nowhere measured: a Fill block where the pointer is, to move and resize over the gap. The editor's own hole is
+  // measured as any opening (14 Nov 2026, Gabby: Fill did nothing there): the block fills what it cut, built after it
+  const free = !m.ok ? fillFree(e) : null;
+  if (!m.ok && !free) { status(m.why + '  (Esc ends)', 'warn'); return; }
+  if (free) {
+    pushUndo('Fill an opening');
+    const b = { name: nextName('UCEditBox'), label: 'Fill', lo: free.lo.slice(), hi: free.hi.slice(), tex: free.tex || lastBlockTex, solid: true, fill: true, texAuto: true };
+    edits.boxes.push(b);
+    intoDefaultFolder(['b:' + b.name]);
+    fillAuto(b);
+    setDirty();
+    select(makeBoxProxy(b));
+    if (!e.shiftKey) endCloseOpening();
+    else { fillGhost.visible = false; fillHoverWhy = ''; }
+    log(`A Fill block: move and resize it over the gap (${menuKey('scale')}). Rebuild closes it with the texture most used around it (now ${b.tex}), or the one you choose in the Inspector.`, 'ok');
     return;
   }
+  const own = ownHoleOf(m);
   const box = fillBox(m, YAW);
   const front = m.frontHit && openingFace(m.frontHit, m.n), back = m.backHit && openingFace(m.backHit, m.n.map((x) => -x));
   pushUndo('Fill an opening');
-  const b = { name: nextName('UCEditBox'), label: 'Fill', lo: box.lo, hi: box.hi, tex: front?.tex || back?.tex || lastBlockTex, solid: true };
+  const b = { name: nextName('UCEditBox'), label: 'Fill', lo: box.lo, hi: box.hi, tex: front?.tex || back?.tex || lastBlockTex, solid: true, fill: true, texAuto: true };
   if (box.rot) b.rot = box.rot;
   const match = [front, back].filter(Boolean);
   if (match.length) { b.match = match; b.matchOf = b.tex; }
@@ -4258,7 +4405,8 @@ function closeOpeningClick(e) {
   const size = `${Math.round(m.sides.left + m.sides.right)} x ${Math.round(m.sides.down + m.sides.up)}, ${Math.round(m.depth)} deep`;
   const missing = !front ? ` No wall face beside it to take the texture from: it has ${b.tex}.`
     : !back ? " Nothing behind the wall to take the back from: the back has the block's own mapping." : '';
-  log(`Closed an opening ${size}: a block "Fill" that continues ${front ? front.tex : 'the wall'}${back && back.tex !== front?.tex ? ' (behind: ' + back.tex + ')' : ''} as the wall lies. Rebuild to see it as the game will.${missing}`, missing ? 'warn' : 'ok');
+  log(`Closed an opening ${size}: a block "Fill" that continues ${front ? front.tex : 'the wall'}${back && back.tex !== front?.tex ? ' (behind: ' + back.tex + ')' : ''} as the wall lies. Rebuild to see it as the game will.${missing}`
+    + (own ? ` The hole ${own.label || own.name} stays in the map, built before it: delete the hole instead to have the wall as it was.` : ''), missing ? 'warn' : 'ok');
 }
 function pick(e) {
   if (texturePicking) return void texturePickClick(e);           // the texture picker's dropper: a click is a texture
@@ -5370,6 +5518,51 @@ function logicEditOf() {
       lkChange(null, () => { edits.links = lkList().filter((x) => !gone.has(x.id) && !gone.has(x.otherwiseOf)); }, props,
         n > 1 ? `Delete ${n} interactions` : 'Delete an interaction');
       return n;
+    },
+    // an object deleted from the map that the rules still name, taken out of them (14 Nov 2026, Gabby: its red rows in
+    // the Logic window stayed after the object was gone): a rule only it set off goes (with its "If not" rule), a rule
+    // set off by others too loses it, the steps on it go; one undo step. rule: that rule only. who: its name as shown.
+    // -> {rules, causes, steps, kept} (kept: rules it is the first cause of, with others after it: left alone), or why not
+    forget(name, rule = '', who = '') {
+      who = who || name;
+      if (!name) return 'Nothing to remove.';
+      if (lkActor(name)) return `${who} is in the map: delete it in the 3D view or the Hierarchy.`;
+      const key = String(name).toLowerCase(), is = (n) => typeof n === 'string' && n.toLowerCase() === key;
+      const all = lkList().filter((l) => !rule || l.id === rule || l.otherwiseOf === rule);
+      const drop = new Set(), kept = [];
+      let causes = 0;
+      for (const l of all) {
+        if (l.otherwiseOf) continue;                    // its causes are its rule's
+        const also = l.also || [], others = also.filter((c) => !is(c && c.src));
+        if (!is(l.src)) causes += also.length - others.length;
+        else if (others.length) kept.push(l.id);
+        else drop.add(l.id);
+      }
+      const stays = (l) => !drop.has(l.id) && !drop.has(l.otherwiseOf);
+      const steps = all.filter(stays).reduce((s, l) => s + ['do', 'else'].reduce((t, k) => t + (l[k] || []).filter((x) => x && is(x.target)).length, 0), 0);
+      if (!drop.size && !causes && !steps) {
+        return kept.length ? `${who} is the first thing that sets off rule ${kept.join(', ')}, with others after it: open the rule and change what sets it off.`
+          : `No rule ${rule ? 'here ' : ''}names ${who} as what sets it off or what it acts on.`;
+      }
+      lkChange(null, () => {
+        const changed = new Set();
+        for (const l of all) {
+          if (!stays(l)) continue;
+          if (!l.otherwiseOf && !is(l.src) && (l.also || []).some((c) => is(c && c.src))) {
+            l.also = l.also.filter((c) => !is(c && c.src));
+            if (!l.also.length) delete l.also;
+            changed.add(l);
+          }
+          for (const k of ['do', 'else']) {
+            if (!(l[k] || []).some((x) => x && is(x.target))) continue;
+            l[k] = l[k].filter((x) => !(x && is(x.target)));
+            changed.add(l.otherwiseOf ? lkGet(l.otherwiseOf) || l : l);
+          }
+        }
+        if (drop.size) edits.links = lkList().filter(stays);
+        for (const l of changed) if (lkList().includes(l)) { delete l.by; l.label = lkSentence(l); lkSyncOtherwise(l); }
+      }, props, `Remove ${who} from the rules`);
+      return { rules: drop.size, causes, steps, kept: kept.length };
     },
     // rules copied with their "If not" rules: {rules} (kept by the window, pasted in this map or another one)
     copy(ids) {
@@ -10269,6 +10462,7 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
       : `Zone portal ${Math.round(Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1]))} x ${Math.round(b.hi[2] - b.lo[2])}: put one in every doorway of the room, then a Zone (Objects > Zones) inside it.`, 'ok');
   } else if (placing.hole) {
     const b = holeBox(r);
+    holeFloorAuto(b);                       // its floor: the floor round it, laid as there
     edits.boxes.push(b);
     intoDefaultFolder(['b:' + b.name]);
     setDirty();
@@ -10892,7 +11086,7 @@ $('#addportal').onclick = () => {
 // opening in a ceiling. Its sides take the texture of the surface clicked.
 function holeBox(r) {
   const h = UE(r.hit), n = UE(r.n), tex = String(r.tex || 'ClenGreyCncrt_A').split('.').pop();
-  const b = { name: nextName('UCEditBox'), lo: [0, 0, 0], hi: [0, 0, 0], tex, solid: true, hole: true };
+  const b = { name: nextName('UCEditBox'), lo: [0, 0, 0], hi: [0, 0, 0], tex, solid: true, hole: true, floor: 'around' };
   const sn = (v) => (snap ? Math.round(v / 8) * 8 : r1(v));
   if (Math.abs(n[2]) < 0.6) {               // a wall: 64 wide, 112 high, from 8 in front of it to 56 inside
     const k = Math.abs(n[0]) >= Math.abs(n[1]) ? 0 : 1, a = 1 - k, s = n[k] > 0 ? 1 : -1;
@@ -17753,6 +17947,8 @@ function showDetails(live, view = null) {
       <div class="row"><label>Width</label>${num('sx', b.hi[0] - b.lo[0])}</div><div class="row"><label>Depth</label>${num('sy', b.hi[1] - b.lo[1])}</div><div class="row"><label>Height</label>${num('sz', b.hi[2] - b.lo[2])}</div>
       </div></details>${inspectorSectionStart('block', 'Block settings', true)}
       <div class="row"><label>Texture</label><input id="btex" list="texlist" value="${b.tex}"></div>
+      ${isFill(b) ? `<div class="row"><label style="width:auto" title="At every Rebuild it takes the texture most used by the walls, floors and ceilings round it, laid as there. Choose a texture to keep that one instead"><input type="checkbox" id="bauto" ${b.texAuto ? 'checked' : ''}> texture of what is around it</label></div>
+      <div class="hint" style="margin:0 0 4px">A Fill block (green): Rebuild closes the gap it covers${b.texAuto ? ', with the texture most used round it' : ''}, then it hides; select it in the Hierarchy to change it. It closes the holes built before it (Build order).</div>` : ''}
       ${Array.isArray(b.match) && b.match.length ? `<div class="hint">${b.matchOf === b.tex ? 'Fills an opening: its front' + (b.match.length > 1 ? ' and back continue the walls' : ' continues the wall') + ' round it, the texture laid as there (turned, it takes its own).' : 'Fills an opening, with a texture of its own now: give it ' + escapeHtml(b.matchOf || '') + ' again to continue the wall.'}</div>` : ''}
       ${b.water || b.portal || b.mover || b.sign ? '' : `<div class="row"><label>Shape</label><select id="bshape" style="flex:1;min-width:0" title="A wedge is a ramp, high at its +X side: turn it with E. Resize a round one with R: an elliptic cylinder, an egg, a low dome">${BLOCK_SHAPES.map(([k, l]) => `<option value="${k}" ${k === blockShape(b) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
       ${blockPoints(b) ? `<div class="row"><button id="bverts" title="Move the block's corners one by one (V), as UnrealEd's vertex editing: it stays a convex shape">Edit vertices</button>${b.verts ? '<button id="bvreset" title="Its own box and shape again, the corners as they were">Reset corners</button>' : ''}</div>` : ''}
@@ -17775,6 +17971,12 @@ function showDetails(live, view = null) {
       ${b.portal ? '<div class="hint" style="margin:0 0 4px">An invisible sheet that separates two zones (a doorway, a corridor). Close a room with portals in all its openings, then put a Zone of Objects &gt; Zones inside it: its light, fog, sound, damage and gravity are only there. Messages say after Rebuild if a zone leaks.</div>' : ''}
       ${b.hole && !b.water ? `<div class="row"><label style="width:auto" title="Its top shows the sky (the map gets a sky box if it has none)"><input type="checkbox" id="bsky" ${b.sky ? 'checked' : ''}> open to the sky</label>
         ${b.sky ? `<select id="bskyp" style="flex:1;min-width:0" title="The sky of the map (when it has no sky of its own); Map > Sky &amp; time of day makes one of yours">${(edits.level || {}).skyLook ? `<option value="mine" ${(edits.level || {}).sky === 'mine' ? 'selected' : ''}>Your sky (Map &gt; Sky &amp; time of day)</option>` : ''}${Object.entries(SKIES).map(([k, l]) => `<option value="${k}" ${k === ((edits.level || {}).sky || 'hongkong') ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>` : ''}
+      ${b.hole && !b.water ? (() => { const f = holeFloorOf(b); return `<div class="row"><label title="The face at the bottom of the hole: the floor of a doorway, of a pit">Floor</label><select id="bfloor" style="flex:1;min-width:0">
+        <option value="around" ${f === 'around' ? 'selected' : ''} title="The texture of the floor round it, laid as there (scale and alignment): looked for again at every Rebuild">Continues the floor around it</option>
+        <option value="same" ${f === 'same' ? 'selected' : ''} title="The whole hole of its own texture">Same as its sides</option>
+        <option value="tex" ${f === 'tex' ? 'selected' : ''}>Another texture</option></select></div>
+        ${f === 'tex' ? `<div class="row"><label>Floor tex.</label><input id="bfloortex" list="texlist" value="${escapeHtml(b.floor.tex)}"></div>` : ''}
+        ${f === 'around' ? `<div class="hint" style="margin:0 0 4px">${b.floorLook ? `Its floor: ${escapeHtml(b.floorLook.tex)}, as the floor round it.` : 'No floor round it yet (Rebuild looks again): its floor has its own texture.'}</div>` : ''}`; })() : ''}
       ${b.hole ? '<div class="hint" style="margin:0 0 4px">A hole cuts the walls, floors and ceilings it touches at Rebuild: those of the map, the solid blocks built before it (Build order) and what is drawn (Tools &gt; Draw); detail blocks stay whole, as in UnrealEd. Its sides take its texture. To make a room, a hole the size of the room next to an existing one, then a doorway between them.</div>' : ''}
       ${b.hole && Math.min(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1]) >= 160 && b.hi[2] - b.lo[2] >= 128 ? '<div class="row"><button id="blight" title="A new room is dark: a light in the middle, under its ceiling, as wide as the room">Light it</button><span class="hint" style="margin:0">a room made by a hole is dark until it has a light</span></div>' : ''}
       <datalist id="texlist">${texList.map((t) => `<option value="${t}">`).join('')}</datalist></div></details>`;
@@ -17868,8 +18070,14 @@ function showDetails(live, view = null) {
       b.lo = [cx - sx / 2, cy - sy / 2, cz - sz / 2]; b.hi = [cx + sx / 2, cy + sy / 2, cz + sz / 2];
       b.rot = ['bpitch','byaw','broll'].map(id => Math.round((+$('#'+id).value || 0)*YAW/360));
       p.quaternion.copy(rotations.quat(b.rot));
-      b.tex = $('#btex').value.trim() || b.tex;
+      const texNow = $('#btex').value.trim() || b.tex, chose = texNow !== b.tex;
+      b.tex = texNow;
       lastBlockTex = b.tex;
+      // a Fill block: a texture chosen is kept; "what is around it" looks again
+      let around = false;
+      if (chose) delete b.texAuto;
+      else if ($('#bauto')) { if (!$('#bauto').checked) delete b.texAuto; else if (!b.texAuto) { b.texAuto = true; around = true; fillAuto(b); } }
+      if (around) setTimeout(() => { if (selected === p) showDetails(); });
       const wasShape = blockShape(b), wasRound = JSON.stringify(blockOptions(b));
       if ($('#bshape')) b.shape = $('#bshape').value;
       // a round block's own settings (UnrealEd's builders): kept only when not the defaults
@@ -17883,6 +18091,18 @@ function showDetails(live, view = null) {
       const kind = $('#bkind').value, wasKind = boxKind(b), wasHole = !!b.hole;
       b.solid = kind !== 'detail';
       if (kind === 'mover') { b.mover = true; b.solid = true; } else delete b.mover;
+      if (kind !== 'solid' && b.fill) { delete b.fill; delete b.texAuto; }      // no Fill block any more
+      // a hole's floor: the floor round it, its own texture, another one
+      if ($('#bfloor') && kind === 'hole') {
+        const want = $('#bfloor').value, was = JSON.stringify(b.floor || null);
+        if (want === 'around') { b.floor = 'around'; if (was !== JSON.stringify('around')) holeFloorAuto(b); }
+        else if (want === 'same') { b.floor = 'same'; delete b.floorLook; }
+        else {
+          const t = ($('#bfloortex') && $('#bfloortex').value.trim()) || (b.floorLook && b.floorLook.tex) || b.tex;
+          b.floor = { tex: t }; delete b.floorLook;
+        }
+        if (JSON.stringify(b.floor) !== was) setTimeout(() => { if (selected === p) showDetails(); });
+      }
       if (kind === 'mover') {
         delete b.water; delete b.portal; delete b.hole; delete b.sky;
       } else if (kind === 'water') {
@@ -17915,7 +18135,7 @@ function showDetails(live, view = null) {
   };
   for (const i of el.querySelectorAll('input:not(.sg)')) i.addEventListener('change', apply);
   // a block's menus apply at once too (Kind, Liquid, Sky were only read when a number changed)
-  for (const id of ['#bshape', '#bkind', '#bliquid', '#bskyp']) if ($(id)) $(id).addEventListener('change', apply);
+  for (const id of ['#bshape', '#bkind', '#bliquid', '#bskyp', '#bfloor']) if ($(id)) $(id).addEventListener('change', apply);
   if ($('#bverts')) $('#bverts').onclick = () => vertexEdit?.enter(p);
   if ($('#bfirst')) $('#bfirst').onclick = () => orderBlocks(true);
   if ($('#blast')) $('#blast').onclick = () => orderBlocks(false);
@@ -18217,6 +18437,7 @@ async function rebuildMap(mode = 'auto') {
   if (!script || gameView?.active || waitsForRebuild('another Rebuild waits')) return;
   const failing = rebuildRefusal();
   if (failing && !confirm(`${failing}\n\nRebuild anyway?`)) { status(failing, 'warn'); return; }
+  fillAutoAll();                          // the Fill blocks take what is around them now
   const rebuildingScript = script, now = performance.now();
   const job = { map: mapName, mode, page: [], at: now, stage: null, stageAt: now, edits: JSON.stringify(edits), token: null,
     server: null, heard: now, cancelling: false };

@@ -266,6 +266,36 @@ def brush(b, mats, name):
     """The block's brush (the first piece of a hollow one)."""
     return brushes(b, mats, name)[0]
 
+def hole_mats(b, mat):
+    """A hole's faces: its texture (mat); its floor, the face at its bottom, another one chosen for it
+    (b['floor'] = {'tex': ...}, the editor's Inspector)."""
+    f = b.get('floor')
+    tex = f.get('tex') if isinstance(f, dict) else None
+    if isinstance(tex, str) and tex.replace('.', '').replace('_', '').replace('-', '').isalnum():
+        floor = geom.Mat(tex)
+        floor.lit_guard = getattr(mat, 'lit_guard', False)
+        return {'-z': floor, 'all': mat}
+    return mat
+
+
+def hole_floor(br, b):
+    """A hole whose floor continues the floor round it (b['floor'] == 'around'; b['floorLook'], put by the editor:
+    that floor's texture and its TextureU, TextureV and origin in the world, 14 Nov 2026): its bottom face, the floor
+    of a doorway or of a pit, laid as that floor, so the patch does not show. A turned hole keeps its own texture."""
+    look = b.get('floorLook')
+    if b.get('floor') != 'around' or not isinstance(look, dict) or any(b.get('rot') or ()):
+        return br
+    try:
+        u, v, o = (Vec3(*(float(x) for x in look[k])) for k in ('u', 'v', 'o'))
+    except (KeyError, TypeError, ValueError):
+        return br
+    for f in br.faces:
+        if Vec3.of(f.normal).z < -0.999:          # the brush's bottom: the floor it leaves in the map
+            f.u, f.v, f.origin = u, v, o
+            f.mat = geom.Mat(str(look.get('tex') or f.mat.tex), flags=int(look.get('flags') or 0))
+    return br
+
+
 def matched(br, b):
     """A block made by Close an opening (static/close-opening.js): its faces that lie as the wall round the opening
     (its front, its back) take that wall's texture laid exactly as there (its TextureU, TextureV and origin, b['match'],

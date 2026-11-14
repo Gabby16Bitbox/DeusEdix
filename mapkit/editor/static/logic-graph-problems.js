@@ -53,7 +53,8 @@ function motionOf(ix, name) {
 }
 const LOOPS = { loop: 'loops', pingpong: 'goes back and forth' };
 
-// Every problem of the map's logic: [{level, code, text, node, rule?, act?, pin?, wire?, fix?}]. ix: logicIndex;
+// Every problem of the map's logic: [{level, code, text, node, rule?, act?, pin?, wire?, fix?, gone?}] (gone: the name of
+// the object no longer in the map, for its fix: the Logic window's Del and right click). ix: logicIndex;
 // game: the project's game ('revision', 'vanilla': logic.json games), to name what it cannot run.
 export function logicProblems(ix, { game = '' } = {}) {
   const out = [];
@@ -128,7 +129,7 @@ function ruleProblems(ix, r, add, game) {
   for (const c of r.causes) {
     if (!c.src) continue;
     const a = actorOf(ix, c.src);
-    if (!present(ix, c.src)) { add('error', 'no-source', `${goneName(ix, c.src)} is not in the map any more: the rule never runs.`, { ...at, fix: 'remove' }); continue; }
+    if (!present(ix, c.src)) { add('error', 'no-source', `${goneName(ix, c.src)} is not in the map any more: the rule never runs.`, { ...at, fix: 'remove', gone: c.src }); continue; }
     if (ix.off.has(c.src)) { add('info', 'source-disabled', `${ix.ctx.name(c.src)} is disabled in the game: the rule is not built.`, at); return; }
     if (Array.isArray(a.outputs) && !a.outputs.includes(c.key)) {
       const same = onTrigger(ix, c.key) && a.outputs.find((key) => onTrigger(ix, key));
@@ -241,7 +242,7 @@ function actionProblems(ix, r, act, add, game) {
   if (!verb) { add('error', 'unknown-verb', `"${x.verb}" is not an action the game classes know.`, at); return; }
   if (x.target && !x.area && !x.targetTag && x.target !== '@by' && x.target !== '@it') {     // (what set it off: no object)
     const a = actorOf(ix, x.target);
-    if (!present(ix, x.target)) add('error', 'no-target', `${goneName(ix, x.target)} is not in the map any more.`, { ...at, fix: 'removeAction' });
+    if (!present(ix, x.target)) add('error', 'no-target', `${goneName(ix, x.target)} is not in the map any more.`, { ...at, fix: 'removeAction', gone: x.target });
     else if (ix.off.has(x.target)) add('warn', 'target-disabled', `${ix.ctx.name(x.target)} is disabled in the game: this action does nothing.`, at);
     else if (Array.isArray(a.inputs) && !a.inputs.includes(verbKey(x)) && verb.target && !ANY_ACTOR.has(x.verb)) {
       if (TRIGGERS.has(x.verb)) add('warn', 'may-ignore', `${ix.ctx.name(x.target)} may ignore "${ix.vocab.verbLabel(x.verb)}": the game only passes it a trigger, and its class decides.`, at);

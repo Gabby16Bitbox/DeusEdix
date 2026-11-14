@@ -52,6 +52,7 @@ function page(srv) {
     document: { documentElement: { classList: { toggle: (k, on) => (on ? classes.add(k) : classes.delete(k)) } } },
     status: (text, cls) => calls.push(['status', text, cls]), log: (lines, cls) => calls.push(['log', lines, cls]), logRows: (r) => rows.push(...r),
     save: async () => { calls.push('save'); return true; }, navBakeIfNeeded: async () => calls.push('navmesh'), walkLayersIfNeeded: async () => {},
+    fillAutoAll: () => calls.push('fill blocks'),     // the Fill blocks and the holes' floors take what is around them
     loadScene: async () => calls.push('loadScene'), navCheckAfterBuild: async () => calls.push('navcheck'),
     cancelPlacing: () => calls.push('cancelPlacing'), applyObjectVisibility() {}, buildHierarchy() {}, showDetails() {}, select() {},
     rebuildProxies: () => calls.push('rebuildProxies'), recordStep: () => calls.push('step'), historyChanged() {}, undoHistory: {},
@@ -77,7 +78,7 @@ test('a Rebuild: saved, its walkable area, the job started and followed to its e
   assert.ok(!classes.has('map-building'));
   assert.deepEqual(plain(srv.calls[0]), ['/api/build_start?script=dx%3A01_Lab', { mode: 'full' }]);
   assert.equal(srv.calls.filter((x) => x[0] === '/api/build_status').length, 4);
-  assert.deepEqual(calls.filter((x) => typeof x === 'string'), ['slip ends', 'cancelPlacing', 'save', 'navmesh', 'loadScene', 'navcheck']);
+  assert.deepEqual(calls.filter((x) => typeof x === 'string'), ['slip ends', 'fill blocks', 'cancelPlacing', 'save', 'navmesh', 'loadScene', 'navcheck']);
   assert.ok(chip.shown.some((v) => v.stage === 'lights' && /last time 0:40/.test(v.time)));
   assert.ok(chip.hidden >= 1);
   assert.match(rows[0].text, /^Build report · 01_Lab: Full rebuild in 0:12/);

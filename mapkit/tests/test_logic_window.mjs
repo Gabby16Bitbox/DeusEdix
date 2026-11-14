@@ -95,6 +95,28 @@ test('the index: the objects (how many rules each starts), the states and counte
   assert.ok(sections[2].rows.every((r) => r.tone === 'bad' || r.tone === 'warn'));
 });
 
+test('the index: an object no longer in the map, and the problems about it, can be removed from the rules (Del, right click)', () => {
+  const { ix, problems } = drawn(world([
+    { id: 'L1', src: 'Gone', when: 'used', do: [{ id: 'a1', verb: 'open', target: 'Button1' }] },
+    { id: 'L2', src: 'Button1', when: 'used', do: [{ id: 'a1', verb: 'open', target: 'Gone' }] },
+  ]));
+  const sections = indexOf(ix, logicGraph(ix), problems);
+  const gone = sections[0].rows.find((r) => r.key === 'thing:obj:Gone');
+  assert.equal(gone.gone, 'Gone');
+  assert.match(gone.title, /Del or right click/);
+  assert.equal(sections[0].rows.find((r) => r.key === 'thing:obj:Button1').gone, undefined);
+  const check = sections.find((s) => s.id === 'check').rows.filter((r) => r.gone);
+  assert.deepEqual(check.map((r) => [r.gone, r.fix, r.rule, r.act]).sort(), [['Gone', 'remove', 'L1', undefined], ['Gone', 'removeAction', 'L2', 'a1']]);
+});
+
+test('what removing an object from the rules did, as the status says it', async () => {
+  const { forgotSaid } = await import('../editor/static/logic-graph-edit.js');
+  assert.deepEqual(forgotSaid({ rules: 1, causes: 0, steps: 2, kept: 0 }, 'Door'), ['Door is out of the rules: 1 rule and 2 steps removed (Ctrl+Z brings them back).', 'ok']);
+  assert.deepEqual(forgotSaid({ rules: 0, causes: 1, steps: 0, kept: 1 }, 'Crate')[1], 'warn');
+  assert.match(forgotSaid({ rules: 0, causes: 1, steps: 0, kept: 1 }, 'Crate')[0], /^Crate is out of the rules: 1 cause removed .*One rule it sets off with others after it stay/);
+  assert.deepEqual(forgotSaid('No rule names it.', 'X'), ['No rule names it.', 'warn']);
+});
+
 test('the index: a group of a kind that starts rules is one of the objects (P9); "the object it happened to" is no missing object', () => {
   const groups = [{ id: 'G1', name: 'Troopers', members: [], filter: { kind: 'UNATCOTroop' } }];
   const { ix, problems } = drawn(world([{ id: 'L1', src: '', group: 'G1', when: 'hurt', do: [{ id: 'a1', verb: 'stand', target: '@it' }] }],

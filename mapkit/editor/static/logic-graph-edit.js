@@ -40,6 +40,15 @@ let clipboard = null;                  // rules copied (app.js copy: {rules}), k
 
 // ---------------------------------------------------------------- pure parts (tests/test_logic_graph_edit.mjs)
 // the map object a node stands for ('' the map itself), or null (a rule, a block, the Story...)
+// what edit.forget did, for the status line: [text, level] (r: {rules, causes, steps, kept}, or why not)
+export function forgotSaid(r, who) {
+  if (typeof r === 'string') return [r, 'warn'];
+  const n = (k, one, many) => (k ? `${k} ${k === 1 ? one : many}` : '');
+  const what = [n(r.rules, 'rule', 'rules'), n(r.causes, 'cause', 'causes'), n(r.steps, 'step', 'steps')].filter(Boolean);
+  const list = what.length < 2 ? what.join('') : `${what.slice(0, -1).join(', ')} and ${what[what.length - 1]}`;
+  const kept = r.kept ? ` ${r.kept === 1 ? 'One rule' : r.kept + ' rules'} it sets off with others after it stay: change what sets ${r.kept === 1 ? 'it' : 'them'} off.` : '';
+  return [`${who} is out of the rules: ${list} removed (Ctrl+Z brings them back).${kept}`, r.kept ? 'warn' : 'ok'];
+}
 export const nameOf = (id) => (String(id).startsWith(OBJECT) ? String(id).slice(OBJECT.length) : id === 'world' ? '' : null);
 // a thing's pins: what happens ("out:used"), what it can do ("in:open"); the header's ("out", "in"): none
 export const whenOfPin = (pin) => (/^out:./.test(pin || '') ? pin.slice(4) : '');
@@ -409,6 +418,14 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   // on a map object (or the map): a rule on what happens to it, its rules at the side, the 3D view, Why not?
   function objectMenu(id, at) {
     const name = nameOf(id), sel = canvas().selection();
+    // one no longer in the map: only taking it out of the rules makes sense
+    if (nodes().some((n) => n.id === id && n.missing)) {
+      menuAt(at.screen, [['side', 'Its rules at the side'], '-', ['forget', 'Remove it from the rules', 'Del: the rules only it set off go, the steps on it go (Ctrl+Z brings them back)']], (what) => {
+        if (what === 'side') { target = { name, label: name }; hiddenFor = ''; drawnSig = ''; showPanel(true); }
+        else if (what === 'forget' && ready()) forget(id);
+      });
+      return;
+    }
     const picked = [...new Set((sel.nodes || []).map(nameOf).filter(Boolean))];
     const items = [['when', name ? 'When it…' : 'When…', 'A new rule on what happens to it'],
       ...(name ? [['by', 'Another object makes it…', 'What it does (open, close...), then what sets it off: a switch, a button... picked in the list or the 3D view']] : []),
@@ -715,11 +732,21 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     if (!ready()) return;
     const rules = rulesOf(sel, nodes()), acts = actsOf(sel).filter((a) => !rules.includes(a.rule));
     const things = (sel.nodes || []).filter((id) => nameOf(id));
+    // an object no longer in the map (red, "not in the map"): taken out of the rules that still name it
+    const gone = things.filter((id) => nodes().some((n) => n.id === id && n.missing));
     if (rules.length) edit.remove(rules);
     for (const a of acts) edit.removeAct(a.rule, a.act);
     removeLayout({ notes: sel.notes || [], frames: sel.frames || [] });
+    for (const id of gone) forget(id);
+    if (gone.length) return;
     if (!rules.length && !acts.length && !(sel.notes || []).length && !(sel.frames || []).length && things.length)
       status('The graph deletes rules, steps, notes and frames: delete map objects in the 3D view or the Hierarchy.', 'warn');
+  }
+  // an object no longer in the map, out of the rules that name it (edit.forget: one undo step); its words in the status
+  function forget(id) {
+    const n = nodes().find((x) => x.id === id);
+    const r = edit.forget ? edit.forget(nameOf(id), '', n ? n.label || n.name : '') : 'This editor cannot do that.';
+    status(...forgotSaid(r, n ? n.label || n.name : nameOf(id)));
   }
   // the canvas's commands this editor does (true: done)
   function command(name, d) {

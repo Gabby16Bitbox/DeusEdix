@@ -48,7 +48,7 @@ test('block Y edits change native height without changing depth or extents', () 
   // the block's turn (pitch, yaw, roll) is applied to its preview too
   Object.assign(context, {YAW: 65536, p: {quaternion: {copy() {}}}, rotations: {quat: () => ({})}});
   const start = source.indexOf("const b = d.box, cx = +$('#px').value");
-  vm.runInContext(source.slice(start,source.indexOf("b.tex =",start)),context);
+  vm.runInContext(source.slice(start,source.indexOf("const texNow =",start)),context);   // (up to its texture: a Fill block's own rules follow)
   assert.deepEqual(Array.from(context.d.box.lo),[84,168,277]);
   assert.deepEqual(Array.from(context.d.box.hi),[116,232,373]);
 });

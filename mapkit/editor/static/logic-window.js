@@ -60,7 +60,7 @@ import { logicIndex, logicGraph, scopeOf, thingId, present, PIECE_KINDS, STORY_K
 import { readView } from './logic-graph-read.js';
 import { logicProblems, problemsByNode } from './logic-graph-problems.js';
 import { createGraphCanvas } from './graph-canvas.js';
-import { createGraphEdit } from './logic-graph-edit.js';
+import { createGraphEdit, forgotSaid } from './logic-graph-edit.js';
 import { pickButton } from './object-pick.js';
 import { createLogicTry } from './logic-try.js';
 import { phasesPage, phasesHtml } from './logic-phases-page.js';
@@ -271,8 +271,9 @@ export function indexOf(ix, whole, problems, { values = null, fresh = null } = {
   const things = whole.nodes.filter((n) => n.kind === 'thing' || n.kind === 'world' || (n.kind === 'group' && !n.unnamed && starts.get(n.id)));
   const label = (n) => (n.kind === 'world' ? 'The map' : n.label || n.name);
   const objects = things.map((n) => ({ key: 'thing:' + n.id, text: label(n), sort: (n.kind === 'world' ? '0' : '1') + label(n).toLowerCase(),
-    note: starts.get(n.id) ? `${starts.get(n.id)}` : '', tone: n.missing ? 'bad' : undefined,
-    title: n.missing ? `${label(n)} is not in the map` : `${label(n)}${n.word ? ' · ' + n.word : ''}${n.name && !/^UCPf\w+?[AB]\d+$/.test(n.name) ? ' (' + n.name + ')' : ''}`
+    note: starts.get(n.id) ? `${starts.get(n.id)}` : '', tone: n.missing ? 'bad' : undefined, ...(n.missing ? { gone: n.name } : {}),
+    title: n.missing ? `${label(n)} is not in the map
+Del or right click: remove it from the rules` : `${label(n)}${n.word ? ' · ' + n.word : ''}${n.name && !/^UCPf\w+?[AB]\d+$/.test(n.name) ? ' (' + n.name + ')' : ''}`
       + (starts.get(n.id) ? `\nStarts ${starts.get(n.id)} rule${starts.get(n.id) === 1 ? '' : 's'}` : '') }))
     .sort((a, b) => a.sort.localeCompare(b.sort));
   // a watched one: its pin, and what the game said it holds (the note), changed a moment ago (its age)
@@ -308,8 +309,11 @@ export function indexOf(ix, whole, problems, { values = null, fresh = null } = {
     states.push(live({ key: 'state:' + name, text: name, note: '', title: `${name}\nNo rule of this map sets or reads it` }, name));
   }
   states.sort((a, b) => (b.pin.on - a.pin.on) || a.text.localeCompare(b.text));      // the watched ones first
+  // (one about an object no longer in the map: Del or right click removes it from the rule, 14 Nov 2026)
   const check = problems.filter((p) => p.level !== 'info').map((p, i) => ({ key: 'problem:' + i, node: p.node, rule: p.rule,
-    text: p.text, tone: p.level === 'error' ? 'bad' : 'warn', title: p.text }));
+    text: p.text, tone: p.level === 'error' ? 'bad' : 'warn', ...(p.gone ? { gone: p.gone, fix: p.fix, act: p.act } : {}),
+    title: p.text + (p.gone ? `
+Del or right click: ${p.fix === 'removeAction' ? 'remove the step' : 'remove it from the rule'}` : '') }));
   // the signals (P3): how many rules send each and wait for it
   const signals = whole.nodes.filter((n) => n.kind === 'signal' && (ix.actors[n.name] || {}).hub).map((n) => {
     const sends = ix.rules.filter((r) => [...r.acts, ...r.otherwise].some((a) => a.node === n.id && a.x.verb === 'signal')).length;
@@ -535,7 +539,16 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
   // problem its rule
   $('.lw-side').addEventListener('keydown', (ev) => {
     const f = ev.target.closest('.lw-watchadd');
-    if (!f) return;
+    if (!f) {
+      // Del on a row: an object no longer in the map (or a problem about one) out of the rules; never the editor's
+      // Del, which deletes what the 3D view has selected
+      const b = ev.target.closest('[data-key]');
+      if (b && (ev.key === 'Delete' || ev.key === 'Backspace') && !ev.ctrlKey && !ev.altKey) {
+        ev.preventDefault(); ev.stopPropagation();
+        sideRemove(index.flatMap((s) => s.rows).find((r) => r.key === b.dataset.key));
+      }
+      return;
+    }
     ev.stopPropagation();                         // typed here, not the editor's keys
     if (ev.key === 'Escape') { f.value = ''; f.blur(); return; }
     if (ev.key !== 'Enter') return;
@@ -548,6 +561,49 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
     if (now.length >= WATCH_MAX) { status(`At most ${WATCH_MAX} states and counters can be watched on a map.`, 'warn'); return; }
     f.value = '';
     if (watch) watch(name, true);
+  });
+  // what a row of the index can take out of the rules (an object no longer in the map, a problem about one)
+  function sideRemove(row) {
+    if (!row) return;
+    if (!row.gone) {
+      status(row.key.startsWith('thing:') ? 'Delete map objects in the 3D view or the Hierarchy: Del here removes only the red ones, no longer in the map, from the rules.'
+        : 'Del removes only what is no longer in the map from the rules: open this one to change it.', 'warn');
+      return;
+    }
+    if (!edit || !edit.forget) { status('The rules cannot be changed here.', 'warn'); return; }
+    const who = row.key.startsWith('thing:') ? row.text : row.gone;
+    let r;
+    if (row.fix === 'removeAction' && row.rule && row.act) r = edit.removeAct(row.rule, row.act) ? { rules: 0, causes: 0, steps: 1, kept: 0 } : 'That step is not in the map any more.';
+    else r = edit.forget(row.gone, row.key.startsWith('problem:') ? row.rule || '' : '', who);
+    status(...forgotSaid(r, who));
+    if (typeof r !== 'string' && focusName && focusName.toLowerCase() === String(row.gone).toLowerCase()) { focusName = ''; scope = 'map'; tabs(); }
+    soon();
+  }
+  let sideMenuEl = null;
+  const sideMenuClose = () => { sideMenuEl?.remove(); sideMenuEl = null; };
+  document.addEventListener('pointerdown', (e) => { if (sideMenuEl && !sideMenuEl.contains(e.target)) sideMenuClose(); }, true);
+  $('.lw-side').addEventListener('contextmenu', (ev) => {
+    const b = ev.target.closest('[data-key]');
+    const row = b && index.flatMap((s) => s.rows).find((r) => r.key === b.dataset.key);
+    if (!row || !row.gone) return;
+    ev.preventDefault();
+    sideMenuClose();
+    const label = row.fix === 'removeAction' ? 'Remove the step' : row.key.startsWith('problem:') ? 'Remove it from this rule' : 'Remove it from the rules';
+    sideMenuEl = document.createElement('div');
+    sideMenuEl.className = 'lw-menu';
+    sideMenuEl.setAttribute('role', 'menu');
+    sideMenuEl.innerHTML = `<button type="button" role="menuitem" data-pick="show">${row.key.startsWith('problem:') ? 'Show the rule' : 'Show its rules'}</button><hr>`
+      + `<button type="button" role="menuitem" data-pick="forget" title="Del: the rules only it set off go, the steps on it go (Ctrl+Z brings them back)">${esc(label)}</button>`;
+    root.appendChild(sideMenuEl);
+    const box = root.getBoundingClientRect();
+    sideMenuEl.style.left = Math.max(4, Math.min(box.width - sideMenuEl.offsetWidth - 6, ev.clientX - box.left)) + 'px';
+    sideMenuEl.style.top = Math.max(4, Math.min(box.height - sideMenuEl.offsetHeight - 6, ev.clientY - box.top)) + 'px';
+    sideMenuEl.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); sideMenuClose(); b.focus(); } });
+    sideMenuEl.querySelectorAll('[data-pick]').forEach((m) => m.addEventListener('click', () => {
+      const what = m.dataset.pick; sideMenuClose();
+      if (what === 'show') b.click(); else sideRemove(row);
+    }));
+    sideMenuEl.querySelector('button').focus();
   });
   $('.lw-side').addEventListener('click', (ev) => {
     if (ev.target.closest('.lw-watchadd')) return;
@@ -1301,7 +1357,10 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
     // drawn again while a name is being typed in the field: the field keeps it, and the caret
     const typing = document.activeElement && document.activeElement.classList.contains('lw-watchadd') && root.contains(document.activeElement)
       ? { value: document.activeElement.value, at: document.activeElement.selectionStart } : null;
+    // the row that had the keys keeps them (a click on it draws the list again: Del then reaches it, not the editor)
+    const had = !typing && document.activeElement && root.contains(document.activeElement) ? document.activeElement.closest('.lw-side [data-key]')?.dataset.key : '';
     $('.lw-side').innerHTML = html; sideDrawn = html;
+    if (had) [...$('.lw-side').querySelectorAll('[data-key]')].find((x) => x.dataset.key === had)?.focus({ preventScroll: true });
     const field = typing && $('.lw-side .lw-watchadd');
     if (field) { field.value = typing.value; field.focus(); field.setSelectionRange(typing.at, typing.at); }
   }

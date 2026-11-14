@@ -797,9 +797,13 @@ def build(map_name, log=print, options=None, watch=None):
             lines.append('  EDIT %s %s' % ('water' if b.get('water') else 'zone portal', b.get('name')))
             continue
         mats = zones.hole_mats(b) if b.get('hole') and b.get('sky') else textures.sign_mats(b, edits)
+        if b.get('hole') and not b.get('sky'):
+            mats = block_shapes.hole_mats(b, mats)          # its floor: another texture chosen for it
         # a cube, a wedge, a cylinder, a cone, a sphere, a dome; a hollow one: its convex pieces
         for j, brush in enumerate(block_shapes.brushes(b, mats, 'EditBox%d' % i)):
             brush = geom.rotate_brush(brush, [(lo[k]+hi[k])/2 for k in range(3)], b.get('rot'), bool(b.get('hole')))
+            # a hole's floor laid as the floor round it; a Fill block's faces as the walls and floors round it
+            brush = block_shapes.hole_floor(brush, b) if b.get('hole') else block_shapes.matched(brush, b)
             if not b.get('hole'):
                 preview.add(b, brush)
             f = 'box%d.t3d' % i if j == 0 else 'box%d_p%d.t3d' % (i, j)

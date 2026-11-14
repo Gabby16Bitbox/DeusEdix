@@ -558,8 +558,8 @@ class Scene:
                 mat = _textures.sign_mats(b, edits)
             import blocks as _blocks               # its shape: a cube, a wedge, a cylinder, a cone, a sphere, a dome
             if b.get('hole'):                      # a hole: cuts through what the map has (doorways, pits, rooms)
-                for br in _blocks.brushes(b, _zones.hole_mats(b) if b.get('sky') else mat, b.get('name', 'EditBox')):
-                    self.sub(turn(br, True))
+                for br in _blocks.brushes(b, _zones.hole_mats(b) if b.get('sky') else _blocks.hole_mats(b, mat), b.get('name', 'EditBox')):
+                    self.sub(_blocks.hole_floor(turn(br, True), b))     # its floor laid as the floor round it
                 continue
             for br in _blocks.brushes(b, mat, b.get('name', 'EditBox')):     # a hollow one: its convex pieces
                 br = _blocks.matched(turn(br), b)  # a fill of an opening: laid as the wall round it
