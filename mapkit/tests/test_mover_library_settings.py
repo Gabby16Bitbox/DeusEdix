@@ -96,6 +96,21 @@ class MoverLibrarySettingsTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaisesRegex(ValueError,'Key ID'):
                 prefabs.place(dict(_prefab=self.prefab(),pid='key',moverSettings={'keyId':value}))
 
+    def test_lock_picking_and_damage(self):
+        # 14 Nov 2026 (Gabby): a door from Objects > Movers had no lockpicking or damage options
+        pf = self.prefab()
+        d = moving_pieces.description(pf)
+        self.assertEqual((d['pickable'], d['lockStrength'], d['breakable'], d['doorStrength'], d['minDamage']), (False, 0.2, False, 0.25, 10))
+        raw = prefabs.place(dict(_prefab=pf, pid='lp', moverSettings=dict(pickable=True, lockStrength=0.75, breakable=True,
+                                                                          doorStrength=0.5, minDamage=25)))[0][0]
+        p = next(t3d.actors(raw))['props']
+        self.assertEqual((p['bPickable'], p['lockStrength'], p['bBreakable'], p['doorStrength'], p['minDamageThreshold']),
+                         ('True', '0.750000', 'True', '0.500000', '25'))
+        for bad in ({'pickable': 'True'}, {'lockStrength': 1.5}, {'doorStrength': -0.1}, {'lockStrength': True},
+                    {'doorStrength': float('nan')}, {'minDamage': 5000}, {'breakable': 1}):
+            with self.subTest(settings=bad), self.assertRaises(ValueError):
+                prefabs.place(dict(_prefab=pf, pid='lp', moverSettings=bad))
+
 
 if __name__ == '__main__':
     unittest.main()

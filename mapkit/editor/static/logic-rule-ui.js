@@ -10,6 +10,7 @@ import { itemOptionsHtml, itemWarningText, isNanoKey, keyFieldsHtml } from './it
 // "Package.Class:weight;...".
 
 import { AUGS, FORMULA_TITLE } from './conditions.js';
+import { pickButton } from './object-pick.js';
 import { isFormula } from './logic-numbers.js';
 
 // A goal's name from what the player reads ("Find the NSF shipping records" -> FindNsfShipping), the first one free
@@ -236,7 +237,9 @@ export function causeRowsHtml(entry, c, ci, h) {
       : a.type === 'signal'
         ? row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="text" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" placeholder="Alarm" list="lk-wsignals-${ci + 1}" style="flex:1;min-width:0">`
           + signalList(`lk-wsignals-${ci + 1}`, h, esc))
-        : row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="text" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" placeholder="${esc(a.empty && a.empty !== '?' ? a.empty : a.label || '')}" style="flex:1;min-width:0">`);
+        : row(`<label style="width:auto">${esc(a.label || a.id)}</label><input type="text" data-lkwarg="${ci}" data-k="${esc(a.id)}" value="${esc(String(v))}" placeholder="${esc(a.empty && a.empty !== '?' ? a.empty : a.label || '')}" style="flex:1;min-width:0">`
+          // an event of the game: the Event of an object clicked (14 Nov 2026)
+          + (a.type === 'tag' ? pickButton(`data-lkwargpick="${ci}" data-k="${esc(a.id)}"`, 'Take the event an object triggers, clicked in the 3D view (eyedropper)') : ''));
   }
   return out;
 }

@@ -23,6 +23,11 @@ const OBJECT = 'obj:';
 const RECENT = 'deusedix.logicQuickAdd';
 const ON_OBJECT = 'An object of the map';
 const BLOCK_GROUP = 'A new logic block';
+// the eyedropper (14 Nov 2026, Gabby: "un'opzione contagocce così selezioni l'oggetto"): the object clicked in the 3D
+// view (or the Hierarchy) instead of found in the list; first in every list of the map's objects
+const PICK_GROUP = 'Pick in the 3D view';
+const PICK = { id: 'pick', label: 'Pick it in the 3D view (eyedropper)', group: PICK_GROUP, hint: 'Click the object in the 3D view or the Hierarchy',
+  words: ['pick', 'eyedropper', 'dropper', 'click', 'view', 'select', 'choose'], data: { pick: true } };
 // rules on several objects at once (app.js whenSeveral): [label, hint, other words]
 const SEVERAL_GROUP = 'Several objects';
 const SEVERAL = {
@@ -115,7 +120,7 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   // then instead of fitting the graph again (recent())
   let touched = 0;
   const touch = () => { touched = Date.now(); };
-  const READS = new Set(['whens', 'inputs', 'free', 'objects', 'blocks', 'panel', 'value', 'undoCount', 'copy']);
+  const READS = new Set(['whens', 'inputs', 'free', 'objects', 'blocks', 'panel', 'value', 'undoCount', 'copy', 'pick']);
   const edit = new Proxy(given, { get: (t, k) => (typeof t[k] === 'function' && !READS.has(k) ? (...a) => { touch(); return t[k](...a); } : t[k]) });
   let menuEl = null, quick = null, vbox = null, shownNow = { nodes: [], wires: [] }, pending = null, pendingObj = null;
   // the side panel (L1): the rule or the object selected, its form as the List's
@@ -317,11 +322,19 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
   // what a rule does: a step with no object, or one an object takes (picked from the map's objects, then its inputs)
   async function actPicker(screen, title, done) {
     const objects = (await edit.objects()).map((o) => ({ ...o, group: ON_OBJECT, hint: 'Then what it does' }));
-    quickAdd(screen, title, [...edit.free(), ...objects], async (d, it) => {
+    quickAdd(screen, title, [PICK, ...edit.free(), ...objects], async (d, it) => {
       if (d.verb) return done(d.target ? { target: d.target, verb: d.verb } : { verb: d.verb });   // a phase: its block
-      if (d.object) return inputPicker(screen, `What does ${it.label} do?`, d.object, done);
-    }, { placeholder: 'Search what it does, or an object' });
+      const o = await chosen(d, it, 'Click the object that does it');
+      if (o) return inputPicker(screen, `What does ${o.label} do?`, o.object, done);
+    }, { placeholder: 'Search what it does, or an object', lead: [PICK_GROUP] });
   }
+  // the object of a list's pick: the one picked, or the one clicked with the eyedropper ({object, label}, or null)
+  async function chosen(d, it, hint) {
+    if (d.object) return { object: d.object, label: it.label };
+    if (!d.pick || !edit.pick) return null;
+    return edit.pick(hint);
+  }
+  const pickedOne = (d, it, hint) => chosen(d, it, hint);
   async function inputPicker(screen, title, name, done) {
     const items = await edit.inputs(name);
     if (!items.length) { status('That object takes no steps: pick another one.', 'warn'); return; }
@@ -359,7 +372,7 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     ];
     const whens = await edit.whens('');
     const blocks = (edit.blocks ? edit.blocks() : []).map((b) => ({ ...b, group: BLOCK_GROUP }));
-    quickAdd(at.screen, 'Add a rule', [...extra, ...whens, ...objects, ...blocks], (d, it) => {
+    quickAdd(at.screen, 'Add a rule', [PICK, ...extra, ...whens, ...objects, ...blocks], async (d, it) => {
       if (d.block !== undefined) {
         if (!ready()) return;
         const name = edit.addBlock(d.block);
@@ -372,9 +385,13 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
       if (d.fit) return canvas().fit();
       if (d.tidy) { canvas().arrange(); return canvas().fit(); }
       if (d.several) return severalPicker(at.screen, d.several, []);
-      if (d.object) return whenPicker(at.screen, `When ${it.label}…`, d.object, (when) => newRule(d.object, when, null, at.screen));
+      if (d.object || d.pick) {
+        const o = await chosen(d, it, 'Click the object the rule starts from');
+        if (o) whenPicker(at.screen, `When ${o.label}…`, o.object, (when) => newRule(o.object, when, null, at.screen));
+        return;
+      }
       if (d.when) newRule('', d.when, null, at.screen);
-    }, { lead: ['Edit'], placeholder: 'Search what sets the rule off' });
+    }, { lead: ['Edit', PICK_GROUP], placeholder: 'Search what sets the rule off' });
   }
   // "When all of these…": the objects picked one by one, then "That's all" makes the rule (a block for all and at
   // least N, one rule with "Or when..." for any)
@@ -382,16 +399,19 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     const left = (await edit.objects()).filter((o) => !chosen.some((c) => c.name === o.data.object));
     const done = chosen.length >= 2 ? [{ id: 'done', label: `That's all: make the rule (${chosen.length} objects)`, group: 'Edit', data: { done: true } }] : [];
     const title = `${SEVERAL[kind][0]}: ${chosen.length ? chosen.map((c) => c.label).join(', ') + ', and…' : 'pick the first one'}`;
-    quickAdd(screen, title, [...done, ...left.map((o) => ({ ...o, group: ON_OBJECT, hint: chosen.length ? 'One more' : 'The first one' }))], (d, it) => {
+    quickAdd(screen, title, [...done, PICK, ...left.map((o) => ({ ...o, group: ON_OBJECT, hint: chosen.length ? 'One more' : 'The first one' }))], async (d, it) => {
       if (d.done) { if (ready()) Promise.resolve(edit.several(kind, chosen.map((c) => c.name))).then(made); return; }
-      if (d.object) severalPicker(screen, kind, [...chosen, { name: d.object, label: it.label }]);
-    }, { lead: ['Edit'], placeholder: 'Search the objects' });
+      const o = await pickedOne(d, it, chosen.length ? 'Click one more object' : 'Click the first object');
+      if (o && !chosen.some((c) => c.name === o.object)) severalPicker(screen, kind, [...chosen, { name: o.object, label: o.label }]);
+      else if (o) severalPicker(screen, kind, chosen);
+    }, { lead: ['Edit', PICK_GROUP], placeholder: 'Search the objects' });
   }
   // on a map object (or the map): a rule on what happens to it, its rules at the side, the 3D view, Why not?
   function objectMenu(id, at) {
     const name = nameOf(id), sel = canvas().selection();
     const picked = [...new Set((sel.nodes || []).map(nameOf).filter(Boolean))];
     const items = [['when', name ? 'When it…' : 'When…', 'A new rule on what happens to it'],
+      ...(name ? [['by', 'Another object makes it…', 'What it does (open, close...), then what sets it off: a switch, a button... picked in the list or the 3D view']] : []),
       ...(picked.length >= 2 && picked.includes(name) ? Object.entries(SEVERAL).map(([kind, [label, hint]]) => ['several:' + kind, `${label} (${picked.length})…`, hint]) : []),
       ['side', 'Its rules at the side'], ...(name ? [['select', 'Select in the 3D view']] : []),
       ['why', 'Why not?', 'What the last Play and Try it say of it (W)'], '-',
@@ -399,6 +419,7 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
     if (clipboard) items.push(['paste', 'Paste']);
     menuAt(at.screen, items, (what) => {
       if (what === 'when') whenPicker(at.screen, name ? 'When it…' : 'When…', name, (when) => newRule(name, when, null, at.screen));
+      else if (what === 'by') inputPicker(at.screen, 'What does it do?', name, (a) => madeBy(name, a.verb, at.screen));
       else if (what === 'side') { target = { name, label: name || 'The map' }; hiddenFor = ''; drawnSig = ''; showPanel(true); }
       else if (what === 'select') commands.select?.(name);
       else if (what === 'why') commands.why?.(sel);
@@ -486,11 +507,18 @@ export function createGraphEdit({ main, host, edit: given, status = () => {}, ca
       return whenPicker(at.screen, name ? 'When it…' : 'When…', name, (w) => newRule(name, w, null, at.screen));
     }
     const verb = verbOfPin(from.pin);
-    const doIt = (v) => edit.objects().then((objs) => quickAdd(at.screen, 'What makes it do this?', objs.filter((o) => o.data.object !== name)
-      .map((o) => ({ ...o, group: ON_OBJECT })), (d, it) => whenPicker(at.screen, `When ${it.label}…`, d.object,
-      (w) => newRule(d.object, w, { target: name, verb: v }, at.screen)), { placeholder: 'Search an object' }));
-    if (verb) return doIt(verb);
-    if (name) inputPicker(at.screen, 'What does it do?', name, (a) => doIt(a.verb));
+    if (verb) return madeBy(name, verb, at.screen);
+    if (name) inputPicker(at.screen, 'What does it do?', name, (a) => madeBy(name, a.verb, at.screen));
+  }
+  // what makes `name` do `verb`: another object (from the list, or clicked with the eyedropper), then what happens to it
+  async function madeBy(name, verb, screen) {
+    const objs = await edit.objects();
+    quickAdd(screen, 'What makes it do this?', [PICK, ...objs.filter((o) => o.data.object !== name).map((o) => ({ ...o, group: ON_OBJECT }))], async (d, it) => {
+      const o = await chosen(d, it, 'Click the object that makes it do this (a switch, a button...)');
+      if (!o) return;
+      if (o.object === name) { status('Pick another object: this one is what it acts on.', 'warn'); return; }
+      whenPicker(screen, `When ${o.label}…`, o.object, (w) => newRule(o.object, w, { target: name, verb }, screen));
+    }, { placeholder: 'Search an object', lead: [PICK_GROUP] });
   }
   // onto a node: an object's happening onto another object (a new rule doing what that one can), a rule's card onto
   // an object (a step on it)

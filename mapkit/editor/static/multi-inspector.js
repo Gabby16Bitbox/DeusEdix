@@ -6,6 +6,9 @@
 // the fields are and how each is written.
 import { MIXED, shared } from './multi-edit.js';
 import { numberField } from './number-expr.js';
+import { pickButton } from './object-pick.js';
+// the fields that name another object by its Tag: an eyedropper beside them (14 Nov 2026)
+const TAG_PROPS = new Set(['Event', 'FailEvent', 'OrderTag', 'Nextpatrol', 'gazeTag', 'cameraTag', 'turretTag', 'doorTag']);
 
 // A row: {id, label, aria (its name to a screen reader and the status bar, else its label), title, row: 'bool' | 'int' | 'number' | 'text' | 'choice' | 'color', names, values (as shown,
 // in the objects' order), apply(values) (one for each object), of (how many are selected: "3 of 5" when fewer have
@@ -25,7 +28,7 @@ export function multiRows(E, rows) {
     if (r.row === 'int' || r.row === 'number')
       return `<div class="row">${label}<input ${numberField(r.row === 'int')} id="${r.id}" aria-label="${esc(r.aria || r.label)}" value="${esc(v)}" placeholder="${same.mixed ? MIXED : ''}"${limits}${mixed} style="width:80px">${some}</div>`;
     if (r.row === 'text')
-      return `<div class="row">${label}<input type="text" id="${r.id}" value="${esc(v)}" placeholder="${same.mixed ? MIXED : esc(r.placeholder || '')}"${r.list ? ` list="${r.list}"` : ''}${mixed} spellcheck="false" style="flex:1;min-width:0">${some}</div>`;
+      return `<div class="row">${label}<input type="text" id="${r.id}" value="${esc(v)}" placeholder="${same.mixed ? MIXED : esc(r.placeholder || '')}"${r.list ? ` list="${r.list}"` : ''}${mixed} spellcheck="false" style="flex:1;min-width:0">${TAG_PROPS.has(r.prop) ? pickButton(`data-mpick="${r.id}"`, 'Pick the object in the 3D view (eyedropper): its Tag') : ''}${some}</div>`;
     if (r.row === 'color')        // a colour picker always shows one: the first object's, dimmed when they differ
       return `<div class="row">${label}<input type="color" id="${r.id}" value="${esc(same.mixed ? r.values[0] : v)}"${mixed} title="${title}" style="width:46px;height:28px;padding:1px${same.mixed ? ';opacity:.5' : ''}">${some}</div>`;
     // a choice: its options (with the values the objects have that are not among them), "—" first when they differ
@@ -44,6 +47,10 @@ export function multiRows(E, rows) {
       if (r.row === 'int' || r.row === 'number') { el.onchange = () => { if (!el.value.trim()) el.value = el.defaultValue; }; continue; }
       if (r.row === 'bool') el.indeterminate = el.hasAttribute('data-mixed');
       el.onchange = () => r.apply(r.names.map(() => (r.row === 'bool' ? el.checked : el.value)));
+      const pick = root.querySelector(`[data-mpick="${r.id}"]`), ed = typeof window !== 'undefined' ? window.__editor : null;
+      if (pick && ed && ed.pickMapObject) pick.onclick = () => ed.pickMapObject({ hint: 'Click the object (its Tag goes in the field)',
+        accept: (o) => (r.names.includes(o.name) ? 'Not one of the selected objects: click another.' : true),
+        done: (o) => { if (o && el.isConnected) { el.value = ed.tagFor(o); el.removeAttribute('data-mixed'); el.onchange(); } } });
     }
   };
   return { html, wire };

@@ -28,6 +28,8 @@ import { attachToolWindow } from './tool-window.js';
 import { attachNumberScrub } from './number-scrub.js';
 import { legsOf, layerFrames, layerPlan, layerName, layerNameOk, findSeq, LAYERS } from './walk-layer.js';
 import { GRIP_SIDES, gripChannel, gripSide, gripKeys, gripAt, setGripKey, removeGripKey, moveGripKey, trimGrip, gripShapes, gripRest } from './studio-grip.js';
+// an object by the name the rules give it (app.js objName; 14 Nov 2026), its own name when the page has none
+const said = (n) => (typeof window !== 'undefined' && window.__editor && window.__editor.objName ? window.__editor.objName(n) : n);
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -2544,7 +2546,7 @@ async function viewInGame(a) {
   const who = E && (E.baseActors || []).concat(E.added || []).find((x) => x.cls === ST.cls);
   if (!who) { status(`${a.name} is in the game. Give it to a character in its Properties (Animation) to see it there.`, 'ok'); return; }
   E.useStudioAnim(who.name, a.name);
-  status(`${a.name} given to ${who.name} (its Properties). Rebuild the map and Play from here to watch it.`, 'ok');
+  status(`${a.name} given to ${said(who.name)} (its Properties). Rebuild the map and Play from here to watch it.`, 'ok');
 }
 // a character of a map uses an animation of the Studio: make sure it is baked on its models
 // an animation saved and baked on every model of a character class and on the models it was baked on before,

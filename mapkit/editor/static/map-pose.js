@@ -1,4 +1,6 @@
 // Pose here (Gabby, 18 Oct 2026): a character posed where it stands in the map, against the map around it (a
+// an object by the name the rules give it (app.js objName; 14 Nov 2026), its own name when the page has none
+const said = (n) => (typeof window !== 'undefined' && window.__editor && window.__editor.objName ? window.__editor.objName(n) : n);
 // hand on a railing, the back on a wall), instead of in the Animation Studio's empty room.
 // The character is shown with the Studio's skeleton and IK (window.__studio.kit) at its own place. Handles:
 // the hands (orange) and the feet (blue) stick to whatever is under the pointer (the map's surfaces and objects:
@@ -434,13 +436,13 @@ export function createMapPose(d) {
     d.stopPreview();
     d.select(null);                                            // its gizmo away: the handles take the clicks
     const info = await d.animsOf(a.cls, d.meshOf(a));
-    if (!info) { d.log(`${a.name} has no animated model to pose.`, 'warn'); return; }
+    if (!info) { d.log(`${said(a.name)} has no animated model to pose.`, 'warn'); return; }
     const dmap = await d.animFrames(info);
     const grp = d.animatedModel(g, info, dmap);
     if (!grp.children.length) { d.log('This character has no model to pose here.', 'warn'); return; }
     d.fitAnimated(g, info, dmap, grp);
     const mesh = info.mesh || d.meshOf(a);
-    d.status(`Pose here: reading ${a.name}'s skeleton...`);
+    d.status(`Pose here: reading ${said(a.name)}'s skeleton...`);
     const m = await St.loadModel(mesh), rig = await St.rigFor(mesh, m);
     S = { g, a, info, grp, m, rig, K: St.kit, St, out: new Float32Array(m.FV * 3), mesh, stuck: new Set(), gripManual: {}, contact: {}, undo: [], redo: [] };
     S.grips = St.kit.gripsOf(rig, m);
@@ -483,7 +485,7 @@ export function createMapPose(d) {
       S.raf = requestAnimationFrame(tick);
     };
     S.raf = requestAnimationFrame(tick);
-    d.status(`Posing ${a.name}: drag its hands and feet onto the map. Save gives it the pose; Esc leaves.`);
+    d.status(`Posing ${said(a.name)}: drag its hands and feet onto the map. Save gives it the pose; Esc leaves.`);
   }
   // a new pose: standing as the model stands, each limb on IK where it is
   function start(reset) {
@@ -539,7 +541,7 @@ export function createMapPose(d) {
       contact: Object.fromEntries(Object.entries(S.contact).map(([c, v]) => [c, v.toArray()])) };
     await S.St.store(anim, a.cls, (t) => status(t));
     d.refuseWhileBuilding('the pose waits');
-    d.pushUndo(`Pose ${a.name} here`);
+    d.pushUndo(`Pose ${said(a.name)} here`);
     const edits = d.edits();
     edits.anims = edits.anims || {};
     edits.anims[a.name] = Object.assign({}, edits.anims[a.name], { idle: anim.name, rate: 1, own: true, still: true, loc: d.UE(S.g.position) });
@@ -548,7 +550,7 @@ export function createMapPose(d) {
     const name = anim.name;
     close();
     d.animsChanged();
-    d.status(`${a.name} keeps the pose ${name} when idle, and stays put: Rebuild to put it in the map.`, 'ok');
+    d.status(`${said(a.name)} keeps the pose ${name} when idle, and stays put: Rebuild to put it in the map.`, 'ok');
   }
   // Animate: the pose as the start of an animation of its own, opened in the Animation Studio to go on with it
   // (Gabby, 20 Oct 2026). The character plays it when idle; it carries no pose_here: Pose here would rebuild its
@@ -577,7 +579,7 @@ export function createMapPose(d) {
     d.refuseWhileBuilding('the pose waits');
     // it is the character's animation when idle at once (Crypt Test, 20 Oct 2026: it had to be picked by hand
     // afterwards); the Studio's Save bakes it on the character's models
-    d.pushUndo(`Pose ${a.name} as ${name}`);
+    d.pushUndo(`Pose ${said(a.name)} as ${name}`);
     const edits = d.edits();
     edits.anims = edits.anims || {};
     edits.anims[a.name] = Object.assign({}, edits.anims[a.name], { idle: name, rate: 1, own: true, still: true, loc: d.UE(S.g.position) });
@@ -585,10 +587,10 @@ export function createMapPose(d) {
     d.setDirty();
     close();
     d.animsChanged();
-    if (!window.__studio?.editAnim) { d.status(`The animation ${name} is saved and ${a.name} plays it when idle: open it in the Animation Studio.`, 'ok'); return; }
+    if (!window.__studio?.editAnim) { d.status(`The animation ${name} is saved and ${said(a.name)} plays it when idle: open it in the Animation Studio.`, 'ok'); return; }
     await window.__studio.open(cls);
     await window.__studio.editAnim(name);
-    d.status(`${name} starts from the pose and ${a.name} plays it when idle: animate it, then Save in the Studio.`, 'ok');
+    d.status(`${name} starts from the pose and ${said(a.name)} plays it when idle: animate it, then Save in the Studio.`, 'ok');
   }
   function close() {
     if (!S) return;

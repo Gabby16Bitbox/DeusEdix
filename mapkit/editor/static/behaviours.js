@@ -2,6 +2,8 @@
 // (editor/behaviours.py makes them real: properties of the character, UCBehave and UCPlayerMove actors).
 // Loaded by app.js as a plain module: window.__behaviours = { characterSections, playerSection }.
 import { numberField } from './number-expr.js';            // the numbers take maths (2+3, +=10)
+// an object by the name the rules give it (app.js objName; 14 Nov 2026), its own name when the page has none
+const said = (n) => (typeof window !== 'undefined' && window.__editor && window.__editor.objName ? window.__editor.objName(n) : n);
 const GRAVITY = 950;                       // ZoneInfo.ZoneGravity: a jump of JumpZ goes JumpZ^2 / (2 * 950) high
 const GRENADES = [['GasGrenade', 'Gas grenade'], ['LAM', 'LAM'], ['EMPGrenade', 'EMP grenade'], ['NanoVirusGrenade', 'Scramble grenade']];
 const AUGS = [['AugStealth', 'Run Silent'], ['AugSpeed', 'Speed Enhancement'], ['AugMuscle', 'Microfibral Muscle'], ['AugCloak', 'Cloak'],
@@ -56,7 +58,7 @@ export function characterSections(E, a, p, redraw) {
         const v = $(id).value.trim();
         if (v === '') E.unsetProp(a, key);
         else E.setProp(a, key, conv(+v).toFixed(6));
-        E.status(`${a.name}: ${key} ${v === '' ? 'as the game has it' : 'changed'}: Rebuild to put it in the map.`, 'ok');
+        E.status(`${said(a.name)}: ${key} ${v === '' ? 'as the game has it' : 'changed'}: Rebuild to put it in the map.`, 'ok');
       };
     };
     setNum('mvspeed', 'GroundSpeed');
@@ -73,7 +75,7 @@ export function characterSections(E, a, p, redraw) {
       if (e.grenades || e.jump || e.dodge) E.edits.behave[a.name] = e;
       else delete E.edits.behave[a.name];
       E.setDirty();
-      E.status(`${a.name}'s behaviours changed: Rebuild to put them in the map.`, 'ok');
+      E.status(`${said(a.name)}'s behaviours changed: Rebuild to put them in the map.`, 'ok');
       if (again) redraw();
     };
     $('bhgren').onchange = () => change((e) => { if ($('bhgren').checked) e.grenades = { cls: 'GasGrenade', above: 96, range: 900, every: 6 }; else delete e.grenades; }, true);

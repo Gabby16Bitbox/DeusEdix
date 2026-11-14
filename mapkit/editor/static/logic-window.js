@@ -56,11 +56,12 @@
 // Returns {refresh(), focus(name), open(), redrawList(), tryWhy(id)}: refresh draws again (the edits changed); focus
 // shows a name's chain; tryWhy(id, key) is Try it's answer for a rule (null when nothing was tried with the rules of
 // that key: app.js logicTrial's, the map and its edits now).
-import { logicIndex, logicGraph, scopeOf, thingId, PIECE_KINDS, STORY_KINDS } from './logic-graph-model.js';
+import { logicIndex, logicGraph, scopeOf, thingId, present, PIECE_KINDS, STORY_KINDS } from './logic-graph-model.js';
 import { readView } from './logic-graph-read.js';
 import { logicProblems, problemsByNode } from './logic-graph-problems.js';
 import { createGraphCanvas } from './graph-canvas.js';
 import { createGraphEdit } from './logic-graph-edit.js';
+import { pickButton } from './object-pick.js';
 import { createLogicTry } from './logic-try.js';
 import { phasesPage, phasesHtml } from './logic-phases-page.js';
 import { escapeHtml as esc } from './shortcut-bar.js';
@@ -180,7 +181,7 @@ export function canvasOf(graph, problems = new Map(), pictures = () => '') {
       const word = n.kind === 'world' ? '' : String(n.word || '');
       out = { id: n.id, kind: n.kind === 'world' ? 'world' : 'thing', icon: iconOf(n.family), thumb: n.kind === 'world' ? '' : pictures(n.name),
         title, sub: n.missing ? 'not in the map' : word && n.kind !== 'group' && !title.toLowerCase().includes(word.toLowerCase()) ? word : undefined,
-        rows, dim: n.disabled, tone: n.missing ? 'bad' : tone(n.id), label: `${title}${word ? ', ' + word : ''}${n.name ? ' (' + n.name + ')' : ''}` };
+        rows, dim: n.disabled, tone: n.missing ? 'bad' : tone(n.id), label: `${title}${word ? ', ' + word : ''}${n.name && !/^UCPf\w+?[AB]\d+$/.test(n.name) ? ' (' + n.name + ')' : ''}` };
     }
     if (!out.in) out.in = { id: 'in' };
     out.out = { id: 'out' };                                  // the header pins: a wire whose pin the node lacks
@@ -271,7 +272,7 @@ export function indexOf(ix, whole, problems, { values = null, fresh = null } = {
   const label = (n) => (n.kind === 'world' ? 'The map' : n.label || n.name);
   const objects = things.map((n) => ({ key: 'thing:' + n.id, text: label(n), sort: (n.kind === 'world' ? '0' : '1') + label(n).toLowerCase(),
     note: starts.get(n.id) ? `${starts.get(n.id)}` : '', tone: n.missing ? 'bad' : undefined,
-    title: n.missing ? `${n.name} is not in the map` : `${label(n)}${n.word ? ' · ' + n.word : ''}${n.name ? ' (' + n.name + ')' : ''}`
+    title: n.missing ? `${label(n)} is not in the map` : `${label(n)}${n.word ? ' · ' + n.word : ''}${n.name && !/^UCPf\w+?[AB]\d+$/.test(n.name) ? ' (' + n.name + ')' : ''}`
       + (starts.get(n.id) ? `\nStarts ${starts.get(n.id)} rule${starts.get(n.id) === 1 ? '' : 's'}` : '') }))
     .sort((a, b) => a.sort.localeCompare(b.sort));
   // a watched one: its pin, and what the game said it holds (the note), changed a moment ago (its age)
@@ -1071,13 +1072,15 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
           const objs = await objectsFor(sl.family);
           const pre = first && objs.some((o) => o.name === focusName && o.fits !== false) ? focusName : '';
           first = false;
-          const opt = (o) => `<option value="${esc(o.name)}"${o.name === pre ? ' selected' : ''}>${esc(o.label)}${o.label !== o.name ? ` (${esc(o.name)})` : ''}</option>`;
+          // the map's own name (UCEdit3) only to tell two of the same name apart (14 Nov 2026)
+          const twin = (o) => objs.some((x) => x !== o && x.label === o.label);
+          const opt = (o) => `<option value="${esc(o.name)}"${o.name === pre ? ' selected' : ''}>${esc(o.label)}${o.label !== o.name && twin(o) ? ` (${esc(o.name)})` : ''}</option>`;
           const fits = objs.filter((o) => o.fits !== false), rest = objs.filter((o) => o.fits === false);
           out.push(`<label class="lw-patslot"><span>${esc(capital(sl.words))}</span><select data-slot="${esc(sl.id)}">`
             + `<option value="">(none: its rules wait for one)</option>`
             + (rest.length && fits.length ? `<optgroup label="Of the same kind as ${esc(sl.words)}">${fits.map(opt).join('')}</optgroup>` : fits.map(opt).join(''))
             + (rest.length ? `<optgroup label="Other objects (its rules may not fit them)">${rest.map(opt).join('')}</optgroup>` : '')
-            + '</select><button type="button" data-pat="mine" title="The object selected in the 3D view or the graph">Use selected</button></label>');
+            + '</select>' + pickButton('data-pat="pick"', 'Pick it in the 3D view (eyedropper)') + '<button type="button" data-pat="mine" title="The object selected in the 3D view or the graph">Use selected</button></label>');
         }
         if (brings.length) out.push(`<p class="lw-whynote">It brings ${esc(brings.map((sl) => sl.words).join(', '))}: made next to the first object chosen.</p>`);
         out.push('<div class="lw-pbtns"><button type="button" class="primary" data-pat="place" title="One step: Ctrl+Z takes it back">Place</button>'
@@ -1141,6 +1144,13 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
       else if (what === 'cancel') { patsChoosing = null; patsDraw(); }
       else if (what === 'place') placeChosen();
       else if (what === 'lab') patterns.example('logic_lab').catch((e) => status('The Logic Lab could not be opened: ' + (e.message || e), 'warn'));
+      else if (what === 'pick') {                   // the eyedropper: any object the slot lists
+        const field = b.closest('.lw-patslot').querySelector('select'), ed = window.__editor;
+        if (!ed || !ed.pickMapObject) return;
+        ed.pickMapObject({ hint: 'Click the object for this part of the pattern',
+          accept: (o) => ([...field.options].some((x) => x.value === o.name) ? true : 'This pattern cannot use it: click another object.'),
+          done: (o) => { if (o && field.isConnected) { field.value = o.name; field.dispatchEvent(new Event('change', { bubbles: true })); } } });
+      }
       else if (what === 'mine') {
         const field = b.closest('.lw-patslot').querySelector('select');
         if (focusName && [...field.options].some((o) => o.value === focusName)) field.value = focusName;
@@ -1358,8 +1368,12 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
         }
         const rootId = focusName ? thingId(focusName) : null;
         const chain = scope === 'chain' && rootId && whole.nodes.some((n) => n.id === rootId);
+        // the object selected with no rules yet: alone, with all it can do and all that can happen to it on its pins
+        // (14 Nov 2026, Gabby: a door with no rules showed the whole map, and linking a switch to it was not easy)
+        const lone = !chain && !boxAt && !focusState && scope === 'chain' && rootId && rootId.startsWith('obj:') && present(ix, focusName)
+          ? logicGraph(ix, { open: [...boxedRules(bl)], things: [focusName], showAll: [rootId] }).nodes.find((n) => n.id === rootId) : null;
         // inside a block: all it holds, its ports at its edges; else the scope chosen, its blocks one node each
-        graph = boxAt ? boxedView(whole, bl, boxAt)
+        graph = boxAt ? boxedView(whole, bl, boxAt) : lone ? { root: rootId, nodes: [lone], wires: [], total: 1, hidden: 0, more: {} }
           : boxedView(focusState ? scopeOf(whole, { kind: 'state', state: focusState }, { ix })
             : chain ? scopeOf(whole, { kind: 'chain', root: rootId }, { ix }) : scopeOf(whole, { kind: 'map' }, { ix, limit: 400 }), bl, null);
         renderSide();
@@ -1369,6 +1383,7 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
         crumbText = focusState ? `The rules that set or read ${focusState}`
           : named && named.kind === 'signal' ? `The signal "${named.label}": the rules that send it and those that wait for it`
           : named ? `${named.label || named.name}: what sets its rules off and what they do`
+          : lone ? `${lone.label || lone.name}: no rules yet. Right-click it ("When it…", "Another object makes it…") or drag from one of its pins`
             : scope === 'chain' ? 'Nothing selected has rules: the whole map' : 'The whole map';
         crumb();
         const shown = canvasOf(graph, byNode, (name) => {
@@ -1399,7 +1414,7 @@ export function createLogicWindow({ root, input, select = () => {}, status = () 
         // an empty graph says how to start (12 Nov 2026: a blank canvas, nothing to say what to do)
         let emptyEl = $('.lw-graph .lw-empty');
         if (!emptyEl) { emptyEl = document.createElement('div'); emptyEl.className = 'lw-empty'; $('.lw-graph').appendChild(emptyEl); }
-        const none = !shown.wires.length && !boxAt && !focusState && !q;
+        const none = !shown.wires.length && !boxAt && !focusState && !q && !lone;
         emptyEl.hidden = !none;
         if (none) emptyEl.innerHTML = ge ? '<b>No rules here yet.</b> Press <kbd>Tab</kbd> or right-click the empty graph to add one ("When the map starts", "When the player uses…"), or right-click an object.'
           : '<b>No rules on this map yet.</b>';

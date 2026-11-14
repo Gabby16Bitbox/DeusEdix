@@ -13,7 +13,9 @@ import { laterFields, present, actorOf, thingId, ruleId, pieceId, PIECE_KINDS, s
 const goneName = (ix, n) => {
   let said = String(own((ix.input && ix.input.goneLabels) || {}, n) || '');
   try { if (!said && actorOf(ix, n) && ix.ctx && ix.ctx.name) said = String(ix.ctx.name(n) || ''); } catch { said = ''; }
-  return said && said.toLowerCase() !== String(n).toLowerCase() && !said.includes(String(n)) ? `${said.charAt(0).toUpperCase()}${said.slice(1)} (${n})` : String(n);
+  if (!said || said.toLowerCase() === String(n).toLowerCase() || said.includes(String(n))) return String(n);
+  // a prefab copy's object (UCPfp2A0) by its copy's name alone: its own name means nothing to the user (14 Nov 2026)
+  return `${said.charAt(0).toUpperCase()}${said.slice(1)}${/^UCPf\w+?[AB]\d+$/.test(String(n)) ? '' : ` (${n})`}`;
 };
 const own = (table, key) => (table && Object.hasOwn(table, key) ? table[key] : undefined);
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);

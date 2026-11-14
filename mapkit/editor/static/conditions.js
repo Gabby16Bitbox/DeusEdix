@@ -10,6 +10,7 @@ import { itemOptionsHtml } from './item-options.js';
 // conditionText is the sentence; mountConditions shows a list in a container and edits it (a state with the shared
 // state field: state-editor.js).
 import { SKILLS } from './behaviours.js';
+import { pickButton } from './object-pick.js';
 import { isFormula, valueNow, valueText, formulaProblem } from './logic-numbers.js';
 
 export const CONDITION_KINDS = [['flag', 'A state'], ['item', 'The player carries'], ['alive', 'A character is alive'],
@@ -224,6 +225,8 @@ const options = (pairs, cur) => pairs.map(([v, t]) => `<option value="${esc(v)}"
 
 // one row's own fields (data-cf: the field it writes)
 function rowFields(c, ctx) {
+  // the eyedropper of a field naming an object of the map (ctx.pick; 14 Nov 2026)
+  const dropper = (what, title) => (ctx.pick ? pickButton(`data-cpick="${what}"`, title) : '');
   const yesNo = (key, yes, no) => `<select data-cf="${key}">${options([['1', yes], ['0', no]], yesOf(c, key) ? '1' : '0')}</select>`;
   let number = (key) => `<input type="number" data-cf="${key}" value="${+c[key] || 0}" step="1" style="width:70px">`;
   if (VALUED.has(kindOf(c))) {          // the compared value: a number, or (P9 slice 5) a formula of counters
@@ -235,7 +238,7 @@ function rowFields(c, ctx) {
     case 'flag': return '<div class="cond-state" style="flex:1;min-width:0"></div>';
     case 'item': return `${yesNo('has', 'The player carries', 'The player does not carry')}<select data-cf="item" style="flex:1;min-width:0">${itemOptionsHtml(ctx.items, c.item)}</select>`;
     case 'alive': return `<select data-cf="actor" style="flex:1;min-width:0"><option value="">(choose the character)</option>${options((ctx.characters || []).map((a) => [a.name, a.label]), c.actor)}${
-      c.actor && !(ctx.characters || []).some((a) => a.name === c.actor) ? `<option selected value="${esc(c.actor)}">${esc(c.actor)}</option>` : ''}</select>${yesNo('is', 'is alive', 'is not alive')}`;
+      c.actor && !(ctx.characters || []).some((a) => a.name === c.actor) ? `<option selected value="${esc(c.actor)}">${esc(c.actor)}</option>` : ''}</select>${dropper('character', 'Pick the character in the 3D view (eyedropper)')}${yesNo('is', 'is alive', 'is not alive')}`;
     case 'skill': return `<select data-cf="skill" style="flex:1;min-width:0">${options(SKILLS, c.skill)}</select><span class="hint" style="margin:0">at least</span><select data-cf="level">${options(LEVELS, c.level)}</select>`;
     case 'counter': return `<input type="text" data-cf="counter" value="${esc(c.counter || '')}" placeholder="counter name" list="${ctx.counterList}" style="flex:1;min-width:0"><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}`;
     case 'credits': return `<span class="hint" style="margin:0">The player has</span><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}<span class="hint" style="margin:0">credits</span>`;
@@ -246,7 +249,7 @@ function rowFields(c, ctx) {
       + (c.how === 'level' ? `<span class="hint" style="margin:0">or more:</span><select data-cf="level">${options(AUG_LEVELS, c.level)}</select>` : '');
     case 'water': return yesNo('is', 'The player is in water', 'The player is not in water');
     case 'zone': return `${yesNo('is', 'The player is in', 'The player is not in')}<select data-cf="zone" style="flex:1;min-width:0"><option value="">(choose the zone)</option>${options((ctx.zones || []).map((z) => [z.name, z.label]), c.zone)}${
-      c.zone && !(ctx.zones || []).some((z) => z.name === c.zone) ? `<option selected value="${esc(c.zone)}">${esc(c.zone)}</option>` : ''}</select>`;
+      c.zone && !(ctx.zones || []).some((z) => z.name === c.zone) ? `<option selected value="${esc(c.zone)}">${esc(c.zone)}</option>` : ''}</select>${dropper('zone', 'Pick the zone in the 3D view (eyedropper)')}`;
     case 'items': {
       const kinds = ITEM_KINDS.map((k) => [k[0], `any ${k[1]}`]), isKind = kinds.some((k) => k[0] === c.item);
       return `<span class="hint" style="margin:0">The player carries</span><select data-cf="op">${options(OPS, c.op)}</select>${number('value')}`
@@ -254,6 +257,7 @@ function rowFields(c, ctx) {
     }
     case 'near': return `<div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${yesNo('is', 'The player is', 'The player is not')}<span class="hint" style="margin:0">within</span><input type="number" data-cf="radius" value="${Math.round(+(c.radius ?? 256))}" step="32" min="1" style="width:64px"><span class="hint" style="margin:0">units of</span>`
       + [0, 1, 2].map((k) => `<span style="display:inline-flex;gap:3px;align-items:center;white-space:nowrap"><span class="hint" style="margin:0">${'XYZ'[k]}</span><input type="number" data-cat="${k}" value="${Math.round(+(c.at || [])[k] || 0)}" style="width:72px"></span>`).join('')
+      + (ctx.pickPoint ? '<button type="button" data-cpt="click" title="Click a floor in the 3D view">Click in the scene</button>' : '')
       + (ctx.point ? '<button type="button" data-cpt="selected" title="Put the point where the selected object is">Selected object</button><button type="button" data-cpt="camera" title="Put the point in front of the camera">In front of the camera</button>' : '')
       + '</div>';
     default: return '';
@@ -309,7 +313,11 @@ export function mountConditions(host, list, ctx) {
       c.at = [...(c.at || [0, 0, 0])];
       c.at[+f.dataset.cat] = Math.round(+f.value || 0);
     });
+    for (const b of row.querySelectorAll('[data-cpick]')) b.onclick = () => ctx.pick(b.dataset.cpick, (name) => ctx.change(() => {
+      if (b.dataset.cpick === 'zone') c.zone = name; else c.actor = name;
+    }));
     for (const b of row.querySelectorAll('[data-cpt]')) b.onclick = () => {
+      if (b.dataset.cpt === 'click') { ctx.pickPoint((p) => ctx.change(() => { c.at = p.map((v) => Math.round(+v || 0)); })); return; }
       const p = ctx.point(b.dataset.cpt);
       if (!p) { ctx.warn?.('Select an object in the scene first.'); return; }
       ctx.change(() => { c.at = p.map((v) => Math.round(+v || 0)); });

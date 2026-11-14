@@ -205,7 +205,11 @@ def description(prefab):
     lift = p.get('bIsDoor') == 'False'
     return dict(kind='elevator' if lift else 'door', mode='stand' if lift else 'use',
                 moveTime=float(p.get('MoveTime', 1)), stayOpenTime=float(p.get('StayOpenTime', 4)),
-                locked=p.get('bLocked') == 'True', keyId=p.get('KeyIDNeeded', ''))
+                locked=p.get('bLocked') == 'True', keyId=p.get('KeyIDNeeded', ''),
+                # lock picking and damage (14 Nov 2026): the game's DeusExMover defaults when the piece does not say
+                pickable=p.get('bPickable') == 'True', lockStrength=float(p.get('lockStrength', 0.2)),
+                breakable=p.get('bBreakable') == 'True', doorStrength=float(p.get('doorStrength', 0.25)),
+                minDamage=int(float(p.get('minDamageThreshold', 10))))
 
 
 def apply_settings(raw, settings):
@@ -213,9 +217,28 @@ def apply_settings(raw, settings):
     import math
     if not settings:
         return raw
-    if not isinstance(settings, dict) or set(settings) - {'mode', 'moveTime', 'stayOpenTime', 'locked', 'keyId'}:
+    if not isinstance(settings, dict) or set(settings) - {'mode', 'moveTime', 'stayOpenTime', 'locked', 'keyId', 'pickable',
+                                                           'lockStrength', 'breakable', 'doorStrength', 'minDamage'}:
         raise ValueError('Invalid mover settings.')
     values = {}
+    # lock picking and damage (14 Nov 2026, Gabby: a door from Objects > Movers had no lockpicking or damage options):
+    # DeusExMover bPickable/lockStrength, bBreakable/doorStrength (0 easy or weak, 1 hard or strong), minDamageThreshold
+    for key, prop in [('pickable', 'bPickable'), ('breakable', 'bBreakable')]:
+        if key in settings:
+            if not isinstance(settings[key], bool):
+                raise ValueError('Invalid door setting: ' + key)
+            values[prop] = 'True' if settings[key] else 'False'
+    for key, prop in [('lockStrength', 'lockStrength'), ('doorStrength', 'doorStrength')]:
+        if key in settings:
+            value = settings[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError('Invalid door strength: use a number from 0 to 1.')
+            values[prop] = '%.6f' % value
+    if 'minDamage' in settings:
+        value = settings['minDamage']
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1000:
+            raise ValueError('Invalid minimum damage: use a number from 0 to 1000.')
+        values['minDamageThreshold'] = str(int(round(value)))
     for key, prop, minimum in [('moveTime', 'MoveTime', .05), ('stayOpenTime', 'StayOpenTime', 0)]:
         if key not in settings:
             continue

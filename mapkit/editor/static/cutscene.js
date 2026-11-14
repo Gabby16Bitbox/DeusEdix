@@ -1,3 +1,4 @@
+import { pickButton } from './object-pick.js';
 // Cutscenes of the map editor (editor/cutscenes.py builds them, src/<settings.PACKAGE>/Classes/UCCutscene.uc plays
 // them): a "Cutscene camera" (+ Cutscene, or Objects > Triggers) and its timeline at the bottom, like the camera
 // paths of Premiere or of the Minecraft film mods.
@@ -521,7 +522,9 @@ function render() {
   if (sel && sel.kind === 'key' && !c.keys.includes(sel.ref)) cur.sel = null;
   if (sel && sel.kind === 'line' && !c.lines.includes(sel.ref)) cur.sel = null;
   if (sel && sel.kind === 'ev' && !evs.includes(sel.ref)) cur.sel = null;
-  const pawns = K.allActors().filter((a) => K.isCharacter(a)).map((a) => [a.name, `${K.hierLabel(a)} (${a.name})`]);
+  // by their names; the map's own name (UCEdit3) only to tell two of the same name apart (14 Nov 2026)
+  const chars = K.allActors().filter((a) => K.isCharacter(a)), said = (a) => (window.__editor.objName ? window.__editor.objName(a.name) : K.hierLabel(a));
+  const pawns = chars.map((a) => [a.name, chars.some((b) => b !== a && said(b) === said(a)) ? `${said(a)} (${a.name})` : said(a)]);
   if (c.look && !pawns.some((x) => x[0] === c.look)) pawns.unshift([c.look, c.look]);
   const pct = (t) => (t / max * 100) + '%';
   const shots = [...new Set(c.keys.map(shotOf))].map((s) => {
@@ -541,7 +544,7 @@ function render() {
       <button id="cskdel">Delete key</button>`;
   } else if (cur.sel && cur.sel.kind === 'line') {
     const ln = cur.sel.ref;
-    selHtml = `<b>Subtitle · ${(+ln.t).toFixed(2)} s</b><label>Who</label><input id="cslwho" list="cswho" value="${esc(ln.who)}" style="width:120px" placeholder="(nobody)">
+    selHtml = `<b>Subtitle · ${(+ln.t).toFixed(2)} s</b><label>Who</label><input id="cslwho" list="cswho" value="${esc(ln.who)}" style="width:120px" placeholder="(nobody)">${pickButton('id="cslwhopick"', 'Pick who says it in the 3D view (eyedropper): their name')}
       <input id="csltext" value="${esc(ln.text)}" style="flex:1;min-width:160px" placeholder="the line">
       <label>Seconds</label><input id="csldur" type="number" min="0" step="0.1" value="${+ln.d || 0}" style="width:54px" title="0: as long as the text needs (${lineLen(Object.assign({}, ln, { d: 0 })).toFixed(1)} s)">
       <button id="cslsnd" title="A sound or a voice for this line">${ln.snd ? '♪ ' + esc(String(ln.snd).split('.').pop()) : 'Sound...'}</button>${ln.snd ? '<button id="cslplay">▶</button><button id="cslnosnd" title="No sound">✕</button>' : ''}
@@ -580,7 +583,7 @@ function render() {
       <button id="csclose">Close</button></div>
     <div class="row" style="flex-wrap:wrap;row-gap:4px;margin-top:4px">
       <label style="width:auto">Path</label><select id="cspath"><option value="0" ${c.straight ? '' : 'selected'}>Smooth through the keys</option><option value="1" ${c.straight ? 'selected' : ''}>Straight lines</option></select>
-      <label style="width:auto">Looks at</label><select id="cslookat" style="max-width:220px"><option value="">where its keys look</option>${pawns.map(([n, l]) => `<option value="${esc(n)}" ${n === c.look ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <label style="width:auto">Looks at</label><select id="cslookat" style="max-width:220px"><option value="">where its keys look</option>${pawns.map(([n, l]) => `<option value="${esc(n)}" ${n === c.look ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>${pickButton('id="cslookpick"', 'Pick the character it looks at in the 3D view (eyedropper)')}
       <label style="width:auto">Fade in</label><input id="csfin" type="number" min="0" step="0.1" value="${+c.fadeIn || 0}" style="width:48px">
       <label style="width:auto">out</label><input id="csfout" type="number" min="0" step="0.1" value="${+c.fadeOut || 0}" style="width:48px">s
       <label style="width:auto">Length</label><input id="cslen" type="number" min="0" step="0.5" value="${r2(len)}" style="width:54px" title="Seconds (at least until its last key and line)">s
@@ -619,6 +622,8 @@ function wire(c, max) {
   on('#csroll', 'onchange', (e) => { cur.roll = +e.target.value || 0; if (cur.look) E().cam.roll = cur.roll * Math.PI / 180; });
   on('#cspath', 'onchange', (e) => change(() => { c.straight = e.target.value === '1'; }));
   on('#cslookat', 'onchange', (e) => change(() => { c.look = e.target.value; }));
+  on('#cslookpick', 'onclick', () => window.__editor.pickMapObject({ hint: 'Click the character the camera looks at',
+    accept: (o) => (K.isCharacter(o) ? true : 'Click a character.'), done: (o) => { if (o) change(() => { c.look = o.name; }); } }));
   on('#csfin', 'onchange', (e) => change(() => { c.fadeIn = Math.max(0, +e.target.value || 0); }));
   on('#csfout', 'onchange', (e) => change(() => { c.fadeOut = Math.max(0, +e.target.value || 0); }));
   on('#cslen', 'onchange', (e) => change(() => { c.length = Math.max(0, +e.target.value || 0); }));
@@ -637,6 +642,8 @@ function wire(c, max) {
   const ln = cur.sel && cur.sel.kind === 'line' ? cur.sel.ref : null;
   if (ln) {
     on('#cslwho', 'onchange', (e) => change(() => { ln.who = e.target.value.trim(); }));
+    on('#cslwhopick', 'onclick', () => window.__editor.pickMapObject({ hint: 'Click who says this line',
+      accept: (o) => (K.isCharacter(o) ? true : 'Click a character.'), done: (o) => { if (o) change(() => { ln.who = K.hierLabel(o); }); } }));
     on('#csltext', 'onchange', (e) => change(() => { ln.text = e.target.value; }));
     on('#csldur', 'onchange', (e) => change(() => { ln.d = Math.max(0, +e.target.value || 0); }));
     on('#cslsnd', 'onclick', () => K.pickSound(ln.snd || '', (name) => { if (name) change(() => { ln.snd = name; }); }));

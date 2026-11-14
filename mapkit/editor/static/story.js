@@ -9,6 +9,7 @@ import {mountConditions} from './conditions.js';
 import {signalsOf} from './logic-rule-ui.js';
 import {storyStepName} from './story-history.js';
 import {moveEvent, putBackLoss} from './story-move.js';
+import {pickButton} from './object-pick.js';
 // "Story" panel of the map editor: dialogues attached to the characters and objects of the map, InfoLinks
 // (one-way radio calls) and the events of the mission. Saved in tools/mapkit/story/<map>.json; "Apply in game" turns them into
 // UnrealScript (tools/mapkit/story.py), compiles the editor's package and installs it.
@@ -454,9 +455,49 @@ function itemSelect(v, configureKey = false) {
     + (warning ? `<div class="hint" style="color:var(--warn);overflow-wrap:anywhere">${esc(warning)}</div>` : '');
 }
 function pawns() { return talkers().filter((a) => a.kind === 'pawn'); }
-function doors() { return (E().baseActors || []).filter((a) => a.kind === 'mover').sort((a, b) => a.name.localeCompare(b.name)); }
-function actorSelect(list, v, what) {
-  return `<select data-k="actor" style="max-width:300px"><option value="">(${what})</option>${list.map((a) => `<option value="${esc(a.name)}" ${a.name === v ? 'selected' : ''}>${esc(actorLabel(a))}</option>`).join('')}</select>`;
+// every door of the map: the built map's, the ones added in the editor (a door from Objects > Movers) and the moving
+// blocks (14 Nov 2026: a door from the library was not in the list)
+function doors() {
+  const ed = E(), deleted = (ed.edits && ed.edits.deleted) || {}, seen = new Set(), out = [];
+  const all = ed.cutKit && ed.cutKit.allActors ? ed.cutKit.allActors() : (ed.baseActors || []);
+  for (const a of all) if (a && a.name && !deleted[a.name] && !seen.has(a.name) && (a.kind === 'mover' || /Mover$/i.test(String(a.cls || '')))) { seen.add(a.name); out.push(a); }
+  for (const b of (ed.edits && ed.edits.boxes) || []) if (b && b.mover && b.name && !seen.has(b.name)) { seen.add(b.name); out.push({ name: b.name, kind: 'mover', cls: 'DeusExMover' }); }
+  return out.sort((a, b) => actorLabel(a).localeCompare(actorLabel(b), undefined, { numeric: true }));
+}
+// an object of the map clicked for a Story field, the panel stepping aside meanwhile (pickHook); 14 Nov 2026, Gabby:
+// an eyedropper wherever a field names an object
+function pickInScene(hint, accept, done) {
+  const ed = E();
+  if (!ed || !ed.pickMapObject) { log('The 3D view is not ready yet.', 'warn'); return; }
+  acts()?.hook(pickHook);
+  ed.pickMapObject({ hint, accept, done: (o) => { if (o) done(o); } });
+}
+const PICK_KINDS = {
+  pawn: ['Click the character', (o, ch) => E().chainHas(ch, 'ScriptedPawn') || 'Click a character.'],
+  door: ['Click the door', (o, ch) => E().chainHas(ch, 'Mover') || doors().some((d) => d.name === o.name) || 'Click a door.'],
+};
+// the eyedroppers of actorSelect: obj.actor becomes the object clicked
+function wireActorPicks(el, obj, redraw) {
+  for (const b of el.querySelectorAll('[data-actpick]')) b.onclick = () => {
+    const [hint, accept] = PICK_KINDS[b.dataset.actpick] || PICK_KINDS.pawn;
+    pickInScene(hint, accept, (o) => { obj.actor = o.name; changed(); redraw(); });
+  };
+}
+// the eyedroppers of a Tag field (Trigger an event): the clicked object's Tag, given one when it has none
+function wireTagPicks(el, obj, redraw) {
+  for (const b of el.querySelectorAll('[data-tagpick]')) b.onclick = () =>
+    pickInScene('Click the object it triggers (a door, a light, an alarm...)', null, (o) => { obj.tag = E().tagFor(o); changed(); redraw(); });
+}
+// the objects a Tag reaches, under its field
+function tagSaid(tag) {
+  const ed = E(), names = ed && ed.taggedNames ? ed.taggedNames(tag) : null;
+  if (!names) return '';
+  return names.length ? `<div class="tip" style="margin:0 0 2px">→ ${esc(names.slice(0, 3).join(', '))}${names.length > 3 ? ` and ${names.length - 3} more` : ''}</div>`
+    : '<div class="tip" style="margin:0 0 2px;color:var(--warn)">no object has this Tag: it triggers nothing</div>';
+}
+function actorSelect(list, v, what, pick = list.length && list.every((a) => a.kind === 'mover') ? 'door' : 'pawn') {
+  return `<select data-k="actor" style="max-width:300px"><option value="">(${what})</option>${list.map((a) => `<option value="${esc(a.name)}" ${a.name === v ? 'selected' : ''}>${esc(actorLabel(a))}</option>`).join('')}</select>`
+    + pickButton(`data-actpick="${pick}"`, pick === 'door' ? 'Pick the door in the 3D view (eyedropper)' : 'Pick the character in the 3D view (eyedropper)');
 }
 function optSelect(map, v, key = 'act') {
   return `<select data-k="${key}">${Object.entries(map).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
@@ -465,7 +506,7 @@ function optSelect(map, v, key = 'act') {
 function pointHtml(at) {
   at = at || [0, 0, 0];
   return `<div class="f st-point">point X <input type="number" data-pi="0" value="${at[0]}" style="width:80px"> Y <input type="number" data-pi="1" value="${at[1]}" style="width:80px"> Z <input type="number" data-pi="2" value="${at[2]}" style="width:80px">
-    <button data-psel="1">Use the selected object</button><button data-pcam="1">Use the point in front of the camera</button></div>`;
+    <button data-ppick="1" title="Click a floor in the 3D view">Click in the scene</button><button data-psel="1">Use the selected object</button><button data-pcam="1">Use the point in front of the camera</button></div>`;
 }
 function wirePoint(el, obj, redraw) {
   const box = el.querySelector('.st-point');
@@ -474,6 +515,14 @@ function wirePoint(el, obj, redraw) {
   for (const i of box.querySelectorAll('[data-pi]')) i.oninput = () => { obj.at[+i.dataset.pi] = +i.value; changed(); };
   box.querySelector('[data-psel]').onclick = () => { const p = E().selectedLoc(); if (!p) { log('Select an object in the scene.', 'warn'); return; } obj.at = p; changed(); redraw(); };
   box.querySelector('[data-pcam]').onclick = () => { obj.at = E().cameraPoint(160); changed(); redraw(); };
+  box.querySelector('[data-ppick]').onclick = () => pickPoint((p) => { obj.at = p; changed(); redraw(); });
+}
+// a place clicked on a floor of the 3D view (or chosen among the map's places), the panel stepping aside
+function pickPoint(done) {
+  const ed = E();
+  if (!ed || !ed.cutKit || !ed.cutKit.lkStartPick) { log('The 3D view is not ready yet.', 'warn'); return; }
+  acts()?.hook(pickHook);
+  ed.cutKit.lkStartPick({ hint: 'Click a floor where it is', point: true, done: (_, p) => { if (p) done(p.map((v) => Math.round(v))); } });
 }
 
 // a signal (P5): its name, from those of the map's rules; the rules "When the signal ... is sent" run
@@ -487,7 +536,7 @@ function actionBody(a) {
   if (a.type === 'goal') return `<div class="f">name <input type="text" data-k="goal" list="st-goals" value="${esc(a.goal)}" style="max-width:180px"> text <input type="text" data-k="text" value="${esc(a.text)}"> <label><input type="checkbox" data-k="done" ${a.done ? 'checked' : ''}> completed</label></div>`;
   if (a.type === 'note' || a.type === 'message') return `<div class="f"><input type="text" data-k="text" ${a.type === 'note' ? 'list="st-notes"' : ''} value="${esc(a.text)}" placeholder="the text"></div>`;
   if (a.type === 'talk') return `<div class="f"><select data-k="dialogue"><option value="">(choose)</option>${story.dialogues.map((d) => `<option value="${esc(d.id)}" ${d.id === a.dialogue ? 'selected' : ''}>${esc(d.title || d.id)}</option>`).join('')}</select></div>`;
-  if (a.type === 'trigger') return `<div class="f">Tag <input type="text" data-k="tag" value="${esc(a.tag)}"></div>`;
+  if (a.type === 'trigger') return `<div class="f">Tag <input type="text" data-k="tag" value="${esc(a.tag)}">${pickButton('data-tagpick="1"', 'Pick the object it triggers (eyedropper)')}</div>${tagSaid(a.tag)}`;
   if (a.type === 'signal') return signalHtml(a);
   if (a.type === 'cutscene') return `<div class="f"><select data-k="cutscene"><option value="">(choose)</option>${cutscenes().map(([n, t]) => `<option value="${esc(n)}" ${n === a.cutscene ? 'selected' : ''}>${esc(t)} (${esc(n)})</option>`).join('')}</select></div>`
     + (cutscenes().length ? '' : '<div class="tip" style="margin:2px 0">No cutscene in this map yet: + Cutscene in the bottom bar.</div>');
@@ -548,6 +597,8 @@ function renderActions(box, list) {
       return;
     }
     bindFields(card, a);
+    wireActorPicks(card, a, redraw);
+    wireTagPicks(card, a, redraw);
     if (a.type === 'flag') stateField(card.querySelector('.st-state-field'), a, 'set');
     const act = card.querySelector('select[data-k="act"]');
     if (act) act.addEventListener('change', redraw);
@@ -651,6 +702,8 @@ function eventConditions(el, e) {
     empty: 'No conditions: it happens as soon as its "when" does.',
     max: Infinity,                        // the Story compiles any number (conditions.unreal); a rule takes 8
     point: (how) => { const p = how === 'selected' ? E().selectedLoc() : E().cameraPoint(160); return p ? p.map((v) => Math.round(v)) : null; },
+    pick: (kind, done) => { acts()?.hook(pickHook); E().condPick(kind, done); },
+    pickPoint: (done) => pickPoint(done),
     warn: (t) => log(t, 'warn'),
   });
 }
@@ -681,7 +734,7 @@ function renderDialogue(el, d) {
   el.innerHTML = `<details class="st-dset" ${graphMode() && !settingsOpen ? '' : 'open'}><summary>${gist}</summary>
     <div class="f"><label>Title</label><input type="text" data-k="title" value="${esc(d.title)}"></div>
     <div class="f"><label>Speaker</label><select id="st-owner">${ts.map((a) => `<option value="${esc(a.name)}" ${a.name === d.owner ? 'selected' : ''}>${esc(actorLabel(a))}</option>`).join('')}</select>
-      <button id="st-show">Show in scene</button><button id="st-pick" title="Select the character in the scene, then press here">Use selection</button></div>
+      ${pickButton('id="st-ownpick"', 'Pick the speaker in the 3D view (eyedropper)')}<button id="st-show">Show in scene</button><button id="st-pick" title="Select the character in the scene, then press here">Use selection</button></div>
     <div class="f"><label>Starts</label><select data-k="start"><option value="talk" ${d.start !== 'near' ? 'selected' : ''}>when JC talks to them (click)</option><option value="near" ${d.start === 'near' ? 'selected' : ''}>when JC gets close (and sees them)</option></select>
       <span id="st-rad" style="${d.start === 'near' ? '' : 'display:none'}">within <input type="number" data-k="radius" value="${d.radius || 200}" style="width:80px"> units</span>
       <label><input type="checkbox" data-k="once" ${d.once !== false ? 'checked' : ''}> only once</label></div>
@@ -702,6 +755,9 @@ function renderDialogue(el, d) {
   // drawn again: the lines say who the speaker is, and the priority is among the speaker's dialogues
   $('#st-owner').onchange = () => { d.owner = $('#st-owner').value; d.bind = bindOf(d.owner); changed(); render(); };
   $('#st-show').onclick = () => locate(d.owner);
+  $('#st-ownpick').onclick = () => pickInScene('Click who says this dialogue (a character, or an object that talks)',
+    (o) => talkers().some((t) => t.name === o.name) || 'Click a character, or an object that can talk.',
+    (o) => { d.owner = o.name; d.bind = bindOf(o.name); changed(); render(); });
   $('#st-pick').onclick = () => {
     const s = E().selected, a = s && s.userData && s.userData.actor;
     if (!a) { log('Select a character or an object in the scene first.', 'warn'); return; }
@@ -904,7 +960,7 @@ function renderSteps(el, d, only) {
       body = `<div class="f"><select data-k="who"><option value="npc" ${s.who === 'npc' ? 'selected' : ''}>${esc(ownerName(d))} (the speaker)</option><option value="jc" ${s.who === 'jc' ? 'selected' : ''}>JC</option>
         ${s.who && !['npc','jc'].includes(s.who) && !s.who.startsWith('actor:') ? `<option selected value="${esc(s.who)}">${esc(s.who)} (original binding)</option>` : ''}
         ${ts.filter((a) => a.name !== d.owner && a.kind === 'pawn').map((a) => `<option value="actor:${esc(a.name)}" ${s.who === 'actor:' + a.name ? 'selected' : ''}>${esc(actorLabel(a))}</option>`).join('')}</select>
-        ${locButton(`data-loc="${i}"`)}
+        ${pickButton(`data-whopick="${i}"`, 'Pick who says it in the 3D view (eyedropper)')}${locButton(`data-loc="${i}"`)}
         <textarea data-k="text" placeholder="what they say">${esc(s.text)}</textarea></div>${voiceBar(s, 'd:' + i)}`;
     } else if (s.type === 'choice') {
       const n = (s.options || []).length;
@@ -926,7 +982,7 @@ function renderSteps(el, d, only) {
       body = `<div class="f">name <input type="text" data-k="goal" list="st-goals" value="${esc(s.goal)}" placeholder="UC_TalkToMax" style="max-width:200px"> text <input type="text" data-k="text" value="${esc(s.text)}"></div>
         <div class="f"><label style="width:auto"><input type="checkbox" data-k="done" ${s.done ? 'checked' : ''}> already completed (ticks off a goal given earlier)</label></div>`;
     } else if (s.type === 'trigger') {
-      body = `<div class="f">Tag <input type="text" data-k="tag" value="${esc(s.tag)}" placeholder="the Tag of doors, lights, alarms...">`;
+      body = `<div class="f">Tag <input type="text" data-k="tag" value="${esc(s.tag)}" placeholder="the Tag of doors, lights, alarms...">${pickButton(`data-tagpick="${i}"`, 'Pick the object it triggers (eyedropper)')}${tagSaid(s.tag)}`;
     } else if (s.type === 'signal') {
       body = signalHtml(s);
     } else if (s.type === 'do') {
@@ -976,6 +1032,11 @@ function renderSteps(el, d, only) {
     const random=card.querySelector('[data-random-labels]'); if(random) random.oninput=()=>{s.labels=random.value.split('\n').map(x=>x.trim()).filter(Boolean);changed();};
   });
   wireVoices(el, { kind: 'd', d }, again);
+  for (const b of el.querySelectorAll('[data-whopick]')) b.onclick = () => pickInScene('Click the character who says this line',
+    (o, ch) => E().chainHas(ch, 'ScriptedPawn') || o.name === d.owner || 'Click a character.',
+    (o) => { const s = steps[+b.dataset.whopick]; s.who = o.name === d.owner ? 'npc' : 'actor:' + o.name; if (typeof s.voice === 'object') delete s.voice; changed(); again(); });
+  for (const b of el.querySelectorAll('[data-tagpick]')) b.onclick = () => pickInScene('Click the object it triggers (a door, a light, an alarm...)', null,
+    (o) => { steps[+b.dataset.tagpick].tag = E().tagFor(o); changed(); again(); });
   for (const b of el.querySelectorAll('[data-loc]')) b.onclick = () => {
     const who = String(steps[+b.dataset.loc].who || 'npc');
     if (who === 'jc') { log('JC is the player: he is not a character placed in the map.', 'warn'); return; }
@@ -1288,17 +1349,19 @@ function renderEvent(el, e) {
       w.at = w.at || [0, 0, 0];
       box.innerHTML = `<div class="f"><label>Point</label>X <input type="number" data-i="0" value="${w.at[0]}" style="width:90px"> Y <input type="number" data-i="1" value="${w.at[1]}" style="width:90px"> Z <input type="number" data-i="2" value="${w.at[2]}" style="width:90px">
         radius <input type="number" id="st-wr" value="${w.radius || 256}" style="width:80px"></div>
-        <div class="f"><label></label><button id="st-wsel">Use the selected object</button><button id="st-wcam">Use the point in front of the camera</button></div>`;
+        <div class="f"><label></label><button id="st-wpick" title="Click a floor in the 3D view">Click in the scene</button><button id="st-wsel">Use the selected object</button><button id="st-wcam">Use the point in front of the camera</button></div>`;
       for (const i of box.querySelectorAll('[data-i]')) i.oninput = () => { w.at[+i.dataset.i] = +i.value; changed(); };
       $('#st-wr').oninput = () => { w.radius = +$('#st-wr').value; changed(); };
       $('#st-wsel').onclick = () => { const p = E().selectedLoc(); if (!p) { log('Select an object in the scene.', 'warn'); return; } w.at = p; changed(); wf(); };
       $('#st-wcam').onclick = () => { w.at = E().cameraPoint(160); changed(); wf(); };
+      $('#st-wpick').onclick = () => pickPoint((p) => { w.at = p; changed(); wf(); });
     } else if (w.type === 'flag') {
       box.innerHTML = '<div class="st-state-field"></div>';
       stateField(box.firstElementChild, w);
     } else if (w.type === 'dead') {
       box.innerHTML = `<div class="f"><label>Who</label>${actorSelect(pawns(), w.actor, 'who')}${locButton('data-wloc="1"')}</div>`;
       bindFields(box, w);
+      wireActorPicks(box, w, wf);
       box.querySelector('[data-wloc]').onclick = () => locate(w.actor);
     } else if (w.type === 'item') {
       box.innerHTML = `<div class="f"><label>Item</label>${itemSelect(w.item)}</div>`;

@@ -1487,6 +1487,15 @@ disappear while you place, move or resize it. The faces of the hole's sides (wit
 appear after **Rebuild**, when the engine really cuts it. Holes cut what you drew too (walls,
 floors, ceilings, stairs and roofs, see *Drawing walls*): a doorway through a drawn wall, a
 stairwell through a drawn floor.
+After **Rebuild** the hole's box is hidden: the 3D view shows the opening, and a click in it reaches
+the floor beyond. Select the hole in the Hierarchy (under *Blocks*) to see it and change it again; once
+moved or resized, it shows until the next Rebuild.
+
+**Filling an opening**: **Fill** in the bottom bar (or Tools > **Fill an opening**). Move the mouse
+over a doorway, a window or a hole in a floor or a ceiling: a green block shows what will fill it.
+Click to place it, Shift+click to fill more, `Esc` to stop. Its faces take the texture of the wall
+round the opening, laid as the wall is, so the patch does not show. To close a hole you made in the
+editor, delete the hole instead.
 
 **Build order**: blocks are built in their order, as UnrealEd builds its brushes. A hole cuts the
 solid blocks built before it; a solid block built after a hole fills it again. A block's panel shows

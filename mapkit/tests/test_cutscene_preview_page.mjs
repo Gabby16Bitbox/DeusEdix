@@ -55,8 +55,10 @@ function page() {
     // the visibility of the objects
     proxies: { children: all }, keyOf: () => 'a:x', objectHidden: () => false, isIcon: () => false, structures: {}, selected: null,
     sceneObjects: () => [], objectEyeOff: () => false, vpBar: null,
+    // a hole the Rebuild has cut (holeTucked): as the last build has it
+    builtBoxes: new Map(), boxSig: (b) => JSON.stringify([b.lo, b.hi]), groupPivot: { userData: {} }, selectionLocked: () => false, selectionHidden: () => false,
   });
-  vm.runInContext([...MOTION, 'keyValue', 'previewTarget', 'walkWay', 'builtValue', 'lampType', 'lampSkin', 'lampKind', 'setLampsOff', 'applyObjectVisibility'].map(body).join('\n'), c);
+  vm.runInContext([...MOTION, 'keyValue', 'previewTarget', 'walkWay', 'builtValue', 'lampType', 'lampSkin', 'lampKind', 'setLampsOff', 'holeTucked', 'applyObjectVisibility'].map(body).join('\n'), c);
   return { c, door, lift, lamp, guard, crate, block };
 }
 
@@ -188,4 +190,24 @@ test('an object a cutscene\'s preview has vanish stays hidden when the objects a
   delete crate.userData.cutHidden;
   c.applyObjectVisibility();
   assert.equal(crate.visible, true);
+});
+
+// Gabby, 14 Nov 2026: once the Rebuild has cut the wall, the hole's box goes from the 3D view; selected, it shows
+test('a hole the Rebuild has cut is hidden, shown while selected, and shown again once moved', () => {
+  const { c } = page();
+  const box = { name: 'UCEditBox9', hole: true, lo: [0, 0, 0], hi: [64, 64, 112] };
+  const hole = { position: vec(0, 0, 0), scale: vec(64, 112, 64), userData: { box, kind: 'box' } };
+  c.proxies.children.push(hole);
+  c.applyObjectVisibility();
+  assert.equal(hole.visible, true);                    // not built yet: the red box shows where it will cut
+  c.builtBoxes.set(box.name, c.boxSig(box));
+  c.applyObjectVisibility();
+  assert.deepEqual([hole.visible, hole.userData.tucked], [false, true]);
+  c.selected = hole;
+  c.applyObjectVisibility();
+  assert.equal(hole.visible, true);                    // picked in the Hierarchy
+  c.selected = null;
+  box.hi = [64, 64, 128];                              // made taller: shown until the next Rebuild
+  c.applyObjectVisibility();
+  assert.equal(hole.visible, true);
 });

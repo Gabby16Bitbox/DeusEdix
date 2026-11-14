@@ -341,7 +341,9 @@ function storyActors(story) {
 function contextOf(input, actors, canon) {
   const edits = input.edits || {}, actor = (n) => own(actors, n) || own(actors, canon(n));      // in any letter case
   return {
-    name: (n) => (!n ? 'nothing' : own(SPECIAL, n) ? SPECIAL[n] : actor(n) ? actor(n).title || n : `${String(n).replace(QUALIFIED, '')} (missing)`),
+    // one deleted: by what it was called (input.goneLabels, 14 Nov 2026: "UCPfp2A0 (missing)" for a door)
+    name: (n) => (!n ? 'nothing' : own(SPECIAL, n) ? SPECIAL[n] : actor(n) ? actor(n).title || n
+      : `${own(input.goneLabels || {}, n) || String(n).replace(QUALIFIED, '')} (missing)`),
     family: (n) => (actor(n) && actor(n).family) || 'other',
     word: (n) => ownAnyCase(own(edits.logic, 'words'), n) || (actor(n) && actor(n).word) || '',
     usable: (n) => !!ownAnyCase(edits.usable, n),
@@ -655,7 +657,7 @@ function thingNode(ix, id) {
   if (id === 'world') return { id, kind: 'world', name: '', label: 'The map', word: '', family: 'world', pins: { out: [], in: [] }, pos: posOf(ix, id) };
   if (isGroup(id)) return { id, kind: 'group', unnamed: true, name: id, label: '', word: 'group', family: 'group', members: [], pins: { out: [], in: [] }, pos: posOf(ix, id) };
   const name = id.startsWith(OBJECT) ? id.slice(OBJECT.length) : id, a = actorOf(ix, name) || {};
-  return { id, kind: a.kind || 'thing', name, label: a.label || name, family: a.family || 'other',
+  return { id, kind: a.kind || 'thing', name, label: a.label || own((ix.input && ix.input.goneLabels) || {}, name) || name, family: a.family || 'other',
     word: a.kind ? (own(ix.catalog.pieces, a.family) || {}).label || a.word || '' : ix.vocab.noun(a.family || 'other', ix.ctx.word(name)) || ix.ctx.word(name),
     missing: !present(ix, name), disabled: ix.off.has(name), at: a.at || null, members: a.members, item: a.item,
     format: a.format || '', pins: { out: [], in: [] }, pos: posOf(ix, id) };
@@ -746,6 +748,8 @@ export function logicGraph(ix, options = {}) {
         from: { node: card.id, pin: row.id }, to: { node: row.target, pin: row.pin }, delay: row.time });
     }
   }
+  // objects asked for with no rule on them (the one selected in the Logic window: shown alone, options.things)
+  for (const n of options.things || []) if (n && present(ix, n)) node(thingId(n));
   storyGraph(ix, node, nodes, wires);
   stateWires(ix, nodes, wires);
   if (options.game !== false) gameWires(ix, node, wires);

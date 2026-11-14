@@ -46,6 +46,7 @@ import { characterSections, playerSection, MOVEMENT } from './behaviours.js';
 import { allPropsSection, classProps } from './all-props.js';
 import { numberField, plainNumber, evaluate, evaluateAll, fieldText, stepped, steppedBy } from './number-expr.js';
 import { unquote, classRef, propShown, propText, propRow } from './prop-kinds.js';
+import { pickButton, saidHtml } from './object-pick.js';
 import { TRANSFORM, kindCounts, valueChoices, valueText, valuesText } from './multi-edit.js';
 import { multiRows, narrowRows } from './multi-inspector.js';
 import { classKeys, valueKeys, baseOf, sameText, shownOf, copySet, rawSet, pastePlan, resetPlan, clearRawPlan, changeRows, chosenPlans, fieldPaste,
@@ -68,7 +69,7 @@ import { createPrefabBrowser } from './prefab-browser.js';
 import { moverFields, moverPanel, wireMoverPanel } from './mover-piece.js';
 import { createPiecesBrowser } from './pieces-browser.js';
 import { collectPrefabSelection } from './prefab-selection.js';
-import { freePid, linkOf, linkFields, copiesOf, outdated, overridesOf, overridesData, putOverrides, replacedOn, updateCopy, appliedCopy, unpack, copyCounts, isLibraryVersion } from './prefab-links.js';
+import { freePid, isMember, linkOf, linkFields, copiesOf, outdated, overridesOf, overridesData, putOverrides, replacedOn, updateCopy, appliedCopy, unpack, copyCounts, isLibraryVersion } from './prefab-links.js';
 import { createTextureTransfer } from './texture-transfer.js';
 import { createSurfaceTexturePreview } from './surface-texture-preview.js';
 import { createTextureSlip, sameFrame } from './texture-slip-ui.js';
@@ -429,6 +430,7 @@ canvas.addEventListener('pointermove', (e) => {
     drag.x = e.clientX; drag.y = e.clientY;
   }
   if (placing) { lastPlacingMove = e; movePlacing(e); }
+  if (fillPicking && !cam.look) fillHover(e);         // Fill: the block it would make follows the mouse
   if (drag && drag.marquee && !tc.dragging && e.buttons & 1 && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 5) {
     if (!marquee) { marquee = document.createElement('div'); marquee.style.cssText = 'position:fixed;border:1px dashed #ffd25a;background:#ffd25a18;pointer-events:none;z-index:6'; document.body.appendChild(marquee); }
     Object.assign(marquee.style, { left: Math.min(drag.x, e.clientX) + 'px', top: Math.min(drag.y, e.clientY) + 'px', width: Math.abs(e.clientX - drag.x) + 'px', height: Math.abs(e.clientY - drag.y) + 'px' });
@@ -1072,7 +1074,7 @@ function updateHoleCut() {
   let n = 0;
   for (const p of proxies.children) {
     const b = p.userData.box;
-    if (!b || !b.hole || !p.visible || n >= HOLE_MAX) continue;
+    if (!b || !b.hole || (!p.visible && !p.userData.tucked) || n >= HOLE_MAX) continue;      // a cut one (holeTucked) still cuts
     const hx = Math.abs(p.scale.x) / 2 - 0.5, hy = Math.abs(p.scale.y) / 2 - 0.5, hz = Math.abs(p.scale.z) / 2 - 0.5;
     if (hx <= 0 || hy <= 0 || hz <= 0) continue;
     HOLE.min.value[n].set(p.position.x - hx, p.position.y - hy, p.position.z - hz);
@@ -2150,9 +2152,18 @@ const isIcon = (p) => ICON_KINDS.includes(p.userData.kind) && !p.userData.model 
 const iconShown = (p) => showIcons && !kindIs(p, 'noIcons');
 // a structure still in the map: not deleted, not taken apart
 function structureInMap(st) { return !poseOf(st).deleted && !st.dissolved; }
+// a hole once the Rebuild has cut it (Gabby, 14 Nov 2026: "once the wall is open and rebuilt, the tool that made the
+// hole goes"): the 3D view shows the opening, not the box, and a click in the doorway reaches the floor. Selected (in
+// the Hierarchy, Blocks) it shows again; moved or resized, it shows until the next Rebuild.
+function holeTucked(p) {
+  const b = p.userData.box;
+  if (!b || !b.hole || builtBoxes.get(b.name) !== boxSig(b)) return false;
+  return !(selected === p || (selected === groupPivot && (groupPivot.userData.members || []).includes(p)));
+}
 function applyObjectVisibility() {
   for (const p of proxies.children) if (keyOf(p)) {
-    p.visible = !objectHidden(p) && !p.userData.cutHidden;      // cutHidden: vanished in a cutscene's preview (cutscene.js)
+    p.userData.tucked = holeTucked(p);
+    p.visible = !objectHidden(p) && !p.userData.cutHidden && !p.userData.tucked;      // cutHidden: vanished in a cutscene's preview (cutscene.js)
     if (isIcon(p)) p.userData.body.visible = iconShown(p);      // hidden icons cannot be clicked: pick them in the Hierarchy
   }
   for (const st of Object.values(structures)) st.obj.visible = structureInMap(st) && !objectHidden(st.obj);
@@ -4037,6 +4048,38 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && texturePic
 // taking the texture around?"): a click inside a doorway, a window or a hole in a floor or ceiling of the map makes a
 // solid block that fills it, its front and back laid as the wall round it (blocks.py matched). Shift+click: another.
 let fillPicking = false;
+// A tool like Hole (Gabby, 14 Nov 2026: "the fill could just be another tool, filling it where you put it"): the
+// block it would make follows the mouse over the openings, green, before the click.
+const fillGhost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshBasicMaterial({ color: 0x6ee07a, transparent: true, opacity: 0.32, depthWrite: false }));
+fillGhost.add(new THREE.LineSegments(new THREE.EdgesGeometry(fillGhost.geometry), new THREE.LineBasicMaterial({ color: 0xb8ffbf })));
+fillGhost.visible = false;
+fillGhost.renderOrder = 2;
+scene.add(fillGhost);
+let fillHoverEvent = null, fillHoverTimer = 0, fillHoverWhy = '';
+function fillHover(e) {
+  fillHoverEvent = e;
+  if (!fillHoverTimer) fillHoverTimer = setTimeout(fillHoverNow, 50);     // measuring casts some hundred rays: not every move
+}
+function fillHoverNow() {
+  fillHoverTimer = 0;
+  if (!fillPicking || !fillHoverEvent) return;
+  const r = mouseRay(fillHoverEvent), o = r.ray.origin, dv = r.ray.direction;
+  const m = measureOpening(castMap, [o.x, o.z, o.y], [dv.x, dv.z, dv.y]);
+  const own = m.ok && ownHoleOf(m);
+  fillGhost.visible = !!m.ok && !own;
+  let say;
+  if (own) say = `This opening is the editor's hole ${own.name}: click to select it, then delete it (Del) to close it.  (Esc ends)`;
+  else if (m.ok) {
+    const box = fillBox(m, YAW);
+    fillGhost.scale.set(box.hi[0] - box.lo[0], box.hi[2] - box.lo[2], box.hi[1] - box.lo[1]);
+    fillGhost.position.copy(T([(box.lo[0] + box.hi[0]) / 2, (box.lo[1] + box.hi[1]) / 2, (box.lo[2] + box.hi[2]) / 2]));
+    fillGhost.quaternion.copy(rotations.quat(box.rot || undefined));     // (null for a wall on the axes)
+    say = `Click to fill this opening: ${Math.round(m.sides.left + m.sides.right)} x ${Math.round(m.sides.down + m.sides.up)}, ${Math.round(m.depth)} deep  (Shift+click: fill another, Esc ends)`;
+  } else say = m.why + '  (Esc ends)';
+  if (say !== fillHoverWhy) { fillHoverWhy = say; status(say, m.ok && !own ? '' : 'warn'); }
+  wake();
+}
 function startCloseOpening() {
   if (!script || mapLoading || gameView?.active) { status('Open a map (and stop Play) to close an opening.', 'warn'); return; }
   if (waitsForRebuild()) return;
@@ -4044,11 +4087,21 @@ function startCloseOpening() {
   endTexturePick(null);
   if (document.activeElement) document.activeElement.blur();      // Esc must reach the editor
   fillPicking = true;
+  fillHoverWhy = '';
+  $('#addfill')?.classList.add('active');
   canvas.style.cursor = 'crosshair';
-  status('Click inside the opening to close: a doorway, a window, a hole in a floor or a ceiling  (Esc cancels)');
+  status('Move over the opening to fill: a doorway, a window, a hole in a floor or a ceiling; the block shows, click to place it  (Esc cancels)');
 }
-function endCloseOpening() { if (fillPicking) { fillPicking = false; canvas.style.cursor = ''; } }
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && fillPicking) { e.stopPropagation(); e.preventDefault(); endCloseOpening(); status('Close an opening cancelled.'); } }, true);
+function endCloseOpening() {
+  if (!fillPicking) return;
+  fillPicking = false;
+  canvas.style.cursor = '';
+  fillGhost.visible = false;
+  clearTimeout(fillHoverTimer); fillHoverTimer = 0; fillHoverEvent = null;
+  $('#addfill')?.classList.remove('active');
+  wake();
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && fillPicking) { e.stopPropagation(); e.preventDefault(); endCloseOpening(); status('Fill cancelled.'); } }, true);
 const addK = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];      // a + k b (Close an opening)
 // the nearest surface of the built map facing a ray, in Unreal units: { d, n, p, hit } (close-opening.js casts it)
 function castMap(from, dir, far = Infinity) {
@@ -4086,13 +4139,17 @@ function openingFace(h, n) {
   return { n, tex, flags: ((face ? face.flags : hit.object.userData.flags) || 0) & LOOK_FLAGS,
     o: map.o.map(r), u: map.u.map(r), v: map.v.map(r), w: map.w, h: map.h };
 }
+// the editor's own hole an opening measured is (a block of edits.boxes), or null
+function ownHoleOf(m) {
+  const inside = addK(m.C, m.n, -m.depth / 2);
+  return edits.boxes.find((b) => b.hole && !(b.rot || []).some(Boolean) && [0, 1, 2].every((k) => inside[k] > b.lo[k] - 2 && inside[k] < b.hi[k] + 2)) || null;
+}
 function closeOpeningClick(e) {
   const r = mouseRay(e), o = r.ray.origin.clone(), dv = r.ray.direction.clone();
   const m = measureOpening(castMap, [o.x, o.z, o.y], [dv.x, dv.z, dv.y]);
   if (!m.ok) { status(m.why + '  (Esc ends)', 'warn'); return; }
   // a hole the editor cut: closing it is deleting it (or making it smaller)
-  const inside = addK(m.C, m.n, -m.depth / 2);
-  const own = edits.boxes.find((b) => b.hole && !(b.rot || []).some(Boolean) && [0, 1, 2].every((k) => inside[k] > b.lo[k] - 2 && inside[k] < b.hi[k] + 2));
+  const own = ownHoleOf(m);
   if (own) {
     const p = proxies.children.find((x) => x.userData.box === own);
     if (p) select(p);
@@ -4102,7 +4159,7 @@ function closeOpeningClick(e) {
   }
   const box = fillBox(m, YAW);
   const front = m.frontHit && openingFace(m.frontHit, m.n), back = m.backHit && openingFace(m.backHit, m.n.map((x) => -x));
-  pushUndo('Close an opening');
+  pushUndo('Fill an opening');
   const b = { name: nextName('UCEditBox'), label: 'Fill', lo: box.lo, hi: box.hi, tex: front?.tex || back?.tex || lastBlockTex, solid: true };
   if (box.rot) b.rot = box.rot;
   const match = [front, back].filter(Boolean);
@@ -4112,6 +4169,7 @@ function closeOpeningClick(e) {
   setDirty();
   select(makeBoxProxy(b));
   if (!e.shiftKey) endCloseOpening();
+  else { fillGhost.visible = false; fillHoverWhy = ''; }
   const size = `${Math.round(m.sides.left + m.sides.right)} x ${Math.round(m.sides.down + m.sides.up)}, ${Math.round(m.depth)} deep`;
   const missing = !front ? ` No wall face beside it to take the texture from: it has ${b.tex}.`
     : !back ? " Nothing behind the wall to take the back from: the back has the block's own mapping." : '';
@@ -4346,9 +4404,22 @@ function invertSelection() {
   status(`${list.length} selected: what was not.`, 'ok');
 }
 
+// the object of the map the Logic window shows for a selection: an object, a moving block, or a built prefab copy's
+// own object (a door from Objects > Movers: UCPf<pid>A0; 14 Nov 2026, Gabby: a door picked in the view showed nothing)
+let lkFocusNow = '';
+function lkFocusOf(p) {
+  if (!p) return '';
+  const d = p.userData;
+  if (d.actor) return d.actor.name || '';
+  if (d.box && d.box.mover) return d.box.name;
+  const m = isStruct(p) && /^paste~(.+)$/.exec(String(d.name || ''));
+  const n = m ? 'UCPf' + m[1].replace(/\W/g, '') + 'A0' : '';
+  return n && lkActor(n) ? n : '';
+}
 function select(p, keepInspector = false) {
   if (vertexEdit?.active && p !== vertexEdit.block) vertexEdit.exit(false);     // another object: Edit vertices ends
-  logicWindow?.focus(p ? (p.userData.actor || {}).name || (p.userData.box && p.userData.box.mover ? p.userData.box.name : '') : '');
+  lkFocusNow = lkFocusOf(p);              // (before the window draws: selected is set further on)
+  logicWindow?.focus(lkFocusNow);
   refreshLogicWires(p);
   if (showPaths && (pathFocusOf(p)?.name || '') !== pathFocus) {   // a character selected: what it can walk stands out
     queueMicrotask(() => {                     // once it is the selection
@@ -5062,6 +5133,18 @@ function logicEditOf() {
       // the next, another object under the same name)
       return (await lgObjectsOf()).map((o) => ({ id: `obj:${script}:${o.name}`, label: o.label, data: { object: o.name } }));
     },
+    // the eyedropper (14 Nov 2026, Gabby): an object clicked in the 3D view, the Hierarchy or the list that comes with it
+    // (lkStartPick) -> {object, label} by the graph's names; never settles when cancelled (Esc)
+    pick(hint) {
+      return new Promise((resolve) => {
+        lkStartPick({ hint: hint || 'Click the object in the 3D view', accept: (a) => (lkNavOnly(a) ? 'A path node or a start has nothing to do: click another object.' : true),
+          done: async (a) => {
+            if (!a || !a.name) return;
+            const o = (await lgObjectsOf()).find((x) => x.name === a.name);
+            resolve({ object: a.name, label: o ? o.label : (logicLabels([a.name])[a.name] || a.name) });
+          } });
+      });
+    },
     // the logic blocks of Objects > Logic, and the Timer, to put in the map from the graph (13 Nov 2026: a Phases or
     // a First of block could only be placed from the Browser, the graph's menu found nothing)
     blocks() {
@@ -5402,8 +5485,11 @@ function logicLabels(names) {
   for (const n of names) {
     // a moving block: as the Hierarchy calls it (its proxy has no actor)
     const q = proxyOf(n) || proxies.children.find((c) => c.userData.box && c.userData.box.name === n), a = lkActor(n);
+    // a prefab copy's object (a door from Objects > Movers) by its copy's name, "Door · Comn Offc Door B" (14 Nov 2026,
+    // Gabby: the graph called it "Moving block", or UCPfp2A0)
+    const copy = lkCopyLabel(n);
     // a class name as words: "UNATCO Troop", "MJ12 Troop" (the Hierarchy's label is the class when nothing names it)
-    const l = (q ? objectLabel(q)[0] : a ? hierLabel(a) : '') || n;
+    const l = (copy || (q ? objectLabel(q)[0] : a ? hierLabel(a) : '')) || n;
     // a name given in the Hierarchy (F2: edits.editorNames) as it was typed (14 Nov 2026: "ZoneDance" shown as
     // "Zone Dance" in the graph, "ZoneDance" in the rule's own sentence)
     const given = String(((edits && edits.editorNames) || {})[n] || '').trim();
@@ -5428,7 +5514,8 @@ async function logicInput() {
   const links = ed.links || [];
   // the characters of the groups of a kind or a faction the rules use (P9): their nodes' words, Try it's world
   if (lgGroups().some(lgSet)) await lgSetReady();
-  const names = [...new Set([...logicNames(links), ...lgSetNames(links)])];
+  // (the object selected too: one with no rules yet is shown alone in the graph, what it can do on its pins)
+  const names = [...new Set([...logicNames(links), ...lgSetNames(links), ...(lkFocusNow ? [lkFocusNow] : [])])];
   const found = names.map((n) => [n, lkActor(n)]).filter(([, a]) => a);
   const sets = Object.fromEntries(lgGroups().filter(lgSet).map((g) => [g.id, lgSetMembers(lgSet(g))]));
   await Promise.all([...new Set(found.map(([, a]) => a.cls))].map((cls) => chainOf(cls)));
@@ -5486,8 +5573,9 @@ async function logicInput() {
   // the Gate just deleted): its own name, else its kind as words
   const goneLabels = {};
   for (const n of names.filter((x) => !lkActor(x))) {
-    const a = allActors().find((x) => x.name === n);
-    if (!a) { if (lkGoneLabels.has(n)) goneLabels[n] = lkGoneLabels.get(n); continue; }
+    const a = allActors().find((x) => x.name === n), kept = lkGoneLabels.get(n) || lkDeletedLabel(n);
+    // (a deleted prefab copy's object is still in the last build: by its copy's name, not "Door")
+    if (!a || kept) { if (kept) goneLabels[n] = kept; continue; }
     const l = unquote(actorProp(a, 'FamiliarName') || '').trim() || LK_KIND[lkCatOf(a)] || hierLabel(a) || '';
     if (l) goneLabels[n] = /\s/.test(l) ? l : l.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
   }
@@ -6579,6 +6667,10 @@ function copyLogicOf(pairs, offset = 0) {
 // Delete warns when rules name what goes (Logic P0): without it they never start, or act on nothing. ps: proxies
 function confirmRuleLoss(ps) {
   const names = new Set(ps.filter((m) => !isStruct(m)).map((m) => m.userData.actor?.name || m.userData.box?.name).filter(Boolean));
+  // a copy of a prefab (a door from Objects > Movers...): the objects in it the rules name, by its pid (UCPf<pid>A<slot>;
+  // 14 Nov 2026: such a door was deleted with no word, and its rule stayed on "UCPfp2A0")
+  const pids = ps.filter(isStruct).map((m) => /^paste~(.+)$/.exec(String(m.userData.name || ''))?.[1]).filter(Boolean);
+  if (pids.length) for (const l of lkList()) for (const n of logicNames([l])) if (pids.some((pid) => isMember(n, pid))) names.add(n);
   if (!names.size) return true;
   const hit = lkList().filter((l) => logicNames([l]).some((n) => names.has(n)));
   if (!hit.length) return true;
@@ -6592,9 +6684,87 @@ function confirmRuleLoss(ps) {
   // what they were called, for the problems the rules have without them (an object added in the editor leaves nothing
   // in the edits once deleted): logicInput's goneLabels
   if (yes) for (const n of list) { try { lkGoneLabels.set(n, lkName(n)); } catch { /* named as it is */ } }
+  // a prefab copy's object leaves nothing of its name in the edits once its copy is gone: kept as its Hierarchy name,
+  // so the rules still say "Door · Comn Offc Door B (missing)" after a reload
+  if (yes) for (const n of list) {
+    const copy = /^UCPf/.test(n) ? lkCopyLabel(n) : '';
+    if (copy && !String(((edits.editorNames || {})[n]) || '').trim()) (edits.editorNames = edits.editorNames || {})[n] = copy;
+  }
   return yes;
 }
 const lkGoneLabels = new Map();
+// a prefab copy's object by its copy's name ("Door · Comn Offc Door B"), numbered when several copies share it (14 Nov
+// 2026, Gabby: the graph and the rules said UCPfp2A0)
+function lkCopyLabel(n) {
+  const all = (edits.prefabs || []).filter((x) => x && x.pid && x.label);
+  const e = all.find((x) => isMember(n, x.pid));
+  if (!e) return '';
+  const same = all.filter((x) => String(x.label) === String(e.label));
+  return same.length > 1 ? `${e.label} ${same.indexOf(e) + 1}` : String(e.label);
+}
+
+// ---- the eyedroppers of the fields that name an object of the map (14 Nov 2026, Gabby: "do all the points")
+// an object by the name the rules give it, for lists and messages ("Door · Comn Offc Door B", "Switch 1"), not UCEdit3
+function objName(n) {
+  let s = '';
+  try { s = lkName(n); } catch { s = ''; }
+  s = String(s || n || '').replace(/^the /, '');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+// pick an object of the map for a field: clicked in the 3D view or the Hierarchy, or found in the list that comes with
+// it when the view is covered; accept(actor, chain) says true, or why not
+function pickMapObject({ hint, accept, done }) {
+  return lkStartPick({ hint, any: true, accept, done: (a) => done(a) });
+}
+const isNoneTag = (t) => !String(t || '').trim() || /^none$/i.test(String(t).trim());
+// the Event an object triggers: its own, else one given now ("SwitchOneUsed"), unique in the map
+function eventFor(a) {
+  const e = eventOf(a).trim();
+  if (!isNoneTag(e)) return e;
+  const base = objName(a.name).replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('').slice(0, 24) + 'Used';
+  const taken = new Set(allActors().flatMap((b) => [eventOf(b), tagOf(b)]).map((x) => String(x).toLowerCase()));
+  let ev = /^[A-Za-z]/.test(base) ? base : 'Event' + base, k = 2;
+  while (taken.has(ev.toLowerCase())) ev = base + k++;
+  setProp(a, 'Event', propText('name', ev));
+  status(`${objName(a.name)} triggers the event ${ev} now.`, 'ok');
+  return ev;
+}
+// the objects whose Tag is `tag`, by name (what an Event, an OrderTag... reaches); null for no Tag
+function taggedNames(tag) {
+  if (isNoneTag(tag)) return null;
+  const low = String(tag).trim().toLowerCase();
+  return allActors().filter((b) => b.name && !edits.deleted[b.name] && lkActor(b.name) && tagOf(b).toLowerCase() === low).map((b) => objName(b.name));
+}
+// the Tag an object answers to: its own, else one given now, readable and unique in the map ("DoorCommOffcDoorB"). A
+// Tag that is only its class (every Unreal object has one) would reach every object of its kind
+function tagFor(a) {
+  const t = tagOf(a).trim(), cls = String(a.cls || '').split('.').pop();
+  if (!isNoneTag(t) && t.toLowerCase() !== cls.toLowerCase()) return t;
+  const words = objName(a.name).replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  let base = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('').slice(0, 28);
+  if (!/^[A-Za-z]/.test(base)) base = 'Tag' + base;
+  const taken = new Set(allActors().map((b) => tagOf(b).toLowerCase()));
+  let tag = base, k = 2;
+  while (taken.has(tag.toLowerCase())) tag = base + k++;
+  setProp(a, 'Tag', propText('name', tag));
+  status(`${objName(a.name)} has the Tag ${tag} now.`, 'ok');
+  return tag;
+}
+// what an object deleted before this session was called, from what the edits keep of it (14 Nov 2026, Gabby: the graph
+// said "UCPfp2A0" and "UCEdit3" for a door and a crate deleted earlier): a prefab copy's object by its copy's label
+// ("Door · Comn Offc Door B"), an object added in the editor by its class as the Objects list names it; '' when unknown
+function lkDeletedLabel(n) {
+  const copy = lkCopyLabel(n);
+  if (copy) return copy;
+  // a deleted copy's object keeps its copy's name in the Hierarchy names (confirmRuleLoss)
+  const given = String(((edits && edits.editorNames) || {})[n] || '').trim();
+  if (given) return given;
+  const cls = String((edits.deleted || {})[n]?.cls || '').split('.').pop();
+  if (!cls) return '';
+  const it = (palette || []).flatMap((c) => c.items || []).find((x) => String(x.cls).split('.').pop().toLowerCase() === cls.toLowerCase());
+  const said = it ? String(itemLabel(it) || '').split(':')[0].trim() : '';
+  return said || cls.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+}
 function duplicateSelected({offset = 48, prepared = null} = {}) {
   if (!selected || !requireUnlocked()) return false;
   const all = selected === groupPivot ? members() : [selected];
@@ -7494,10 +7664,15 @@ function buildPalette() {
     }
     const starred = new Set(objectFavs.list().map((fav) => fav.id));
     const found = rankSearch([...each.values()], search, (x) => paletteFields(x.it, x.category), (x) => (starred.has(objectFavId(x.it)) ? 3 : 0));
-    html += `<details data-cat="Results" open><summary>Best matches <small>${found.length}</small></summary>`;
+    // a door or a lift asked for: the Movers (the game's real doors and lifts) before the other matches (14 Nov 2026,
+    // Gabby: "door" listed a sound effect, a zone, the rain, fire plugs... first, and the doors last)
+    const movers = `<details data-cat="Movers" open><summary>Movers</summary><div id="object-movers"></div></details>`;
+    const moversFirst = search.words.some((w) => MOVER_WORDS.has(w));
+    if (moversFirst) html += movers;
+    html += `<details data-cat="Results" open><summary>${moversFirst ? 'Other matches' : 'Best matches'} <small>${found.length}</small></summary>`;
     for (const x of found.slice(0, 300)) html += paletteTile(x.it, shown);
     html += '</details>';
-    html += `<details data-cat="Movers" open><summary>Movers</summary><div id="object-movers"></div></details>`;
+    if (!moversFirst) html += movers;
     if (!found.length) html = '<div class="hint">No objects match these words. Try another word (sink, chair, bin…) or look in Pieces and Models.</div>' + html;
   }
   const favs = search ? [] : objectFavs.entries((id) => byFav.get(id))
@@ -7537,6 +7712,8 @@ function buildPalette() {
   if (bottomTab === 'objects') void moversBrowser.render();
   observeThumbs();
 }
+// the words that ask for a door or a lift in the Objects search (search-rank.js words: small letters)
+const MOVER_WORDS = new Set(['door', 'doors', 'elevator', 'elevators', 'lift', 'lifts', 'mover', 'movers', 'gate', 'gates', 'hatch', 'shutter', 'shutters']);
 function iconOf(cls, preset = null) {       // objects without a 3D model: lights, triggers, points... (preset: how it is placed)
   return objectPreviewIcon(cls, preset);
 }
@@ -8936,6 +9113,8 @@ function hierLabel(a) {
   // a name given in the editor to an object the game cannot name (a path node: no FamiliarName), edits.editorNames
   const given = ((edits && edits.editorNames) || {})[a.name];
   if (given) return given;
+  // a prefab copy's object by its copy's name (14 Nov 2026: the Inspector said "Moving block" for a library door)
+  { const copy = edits ? lkCopyLabel(a.name) : ''; if (copy) return copy; }
   if (a.cls === 'PatrolPoint' && tagOf(a) && tagOf(a) !== 'None') return 'Patrol point ' + tagOf(a);
   if (a.cls === 'UCCutscene') return 'Cutscene ' + (((edits.cutscenes || {})[a.name] || {}).title || '');
   if (a.cls === 'UCMeshDeco') {             // a model of the Models tab: its name, else its mesh
@@ -10911,6 +11090,58 @@ function proxyOf(name) {                 // exact first; then in any letter case
   return proxies.children.find((c) => c.userData.actor && String(c.userData.actor.name).toLowerCase() === low);
 }
 
+// The eyedropper of an Inspector field that names another object (14 Nov 2026): what it takes, what it writes (the
+// picked object's Tag, given one when it has none; a key's or a door's Key ID) and what the field reaches, in words.
+// null for a field that names nothing else (the object's own Tag, a game text)
+const chainHas = (chain, ...names) => (chain || []).some((c) => names.includes(String(c).split('.').pop()));
+function namePick(a, prop) {
+  const not = (ok, why) => (ok ? true : why);
+  const tagged = (hint, accept, none) => ({
+    title: hint.replace(/^Click/, 'Pick') + ' (eyedropper)',
+    said: (v) => saidHtml(taggedNames(v), { none }),
+    pick: (put, end) => pickMapObject({ hint, accept, done: (o) => { end(); if (o) put(tagFor(o)); } }),
+  });
+  const other = (o) => not(o.name !== a.name, 'Not itself: click another object.');
+  if (prop === 'Event') return tagged('Click the object it triggers (a door, a light, an alarm...)', other, 'no object has this Tag: it triggers nothing');
+  if (prop === 'FailEvent') return tagged('Click the object a wrong code triggers (an alarm...)', other, 'no object has this Tag');
+  if (prop === 'gazeTag') return tagged('Click the object they look at', other, 'no object has this Tag');
+  if (prop === 'Nextpatrol') return tagged('Click the next patrol point', (o, ch) => not(chainHas(ch, 'PatrolPoint') && o.name !== a.name, 'Click another patrol point.'), 'no patrol point has this Tag');
+  if (prop === 'cameraTag') return tagged('Click a security camera it controls', (o, ch) => not(chainHas(ch, 'SecurityCamera'), 'Click a security camera.'), 'no camera has this Tag');
+  if (prop === 'turretTag') return tagged('Click a turret it controls', (o, ch) => not(chainHas(ch, 'AutoTurret'), 'Click a turret.'), 'no turret has this Tag');
+  if (prop === 'doorTag') return tagged('Click a door it controls', (o, ch) => not(chainHas(ch, 'DeusExMover'), 'Click a door.'), 'no door has this Tag');
+  if (prop === 'OrderTag') {
+    const orders = unquote(String(actorProp(a, 'Orders') || a.orders || '')).trim();
+    if (orders === 'Sitting') return tagged('Click the seat they sit on', (o, ch) => not(chainHas(ch, 'Seat'), 'Click a chair, bench or sofa from Objects.'), 'no seat has this Tag');
+    if (orders === 'Following') return tagged('Click the character they follow', (o, ch) => not(chainHas(ch, 'ScriptedPawn') && o.name !== a.name, 'Click another character.'), 'no character has this Tag');
+    if (orders === 'Patrolling') return tagged('Click the first patrol point', (o, ch) => not(chainHas(ch, 'PatrolPoint'), 'Click a patrol point.'), 'no patrol point has this Tag');
+    return tagged('Click the object of their orders (a point, a character...)', other, 'no object has this Tag');
+  }
+  // Key IDs: the door's from its key, the key's from its door (one made for both when neither has one)
+  const keyField = { KeyIDNeeded: ['KeyID', 'NanoKey', 'Click the NanoKey that opens it', 'Click a NanoKey (Objects > Items).', 'opened by'],
+    KeyID: ['KeyIDNeeded', 'DeusExMover', 'Click the door it opens', 'Click a door.', 'opens'] }[prop];
+  if (!keyField) return null;
+  const [otherKey, cls, hint, why, verb] = keyField;
+  const idOf = (o, k) => { const x = String(actorProp(o, k) || '').trim(); return isNoneTag(x) ? '' : x; };
+  const newId = (door) => {
+    const base = objName(door.name).replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('').slice(0, 24) || 'Key';
+    const taken = new Set(allActors().flatMap((b) => [idOf(b, 'KeyID'), idOf(b, 'KeyIDNeeded')]).map((x) => x.toLowerCase()));
+    let id = base, k = 2;
+    while (taken.has(id.toLowerCase())) id = base + k++;
+    return id;
+  };
+  return {
+    title: hint.replace(/^Click/, 'Pick') + ' (eyedropper)',
+    said: (v) => (isNoneTag(v) ? '' : saidHtml(allActors().filter((b) => b.name !== a.name && !edits.deleted[b.name] && idOf(b, otherKey).toLowerCase() === String(v).trim().toLowerCase()).map((b) => objName(b.name)),
+      { arrow: verb, none: prop === 'KeyID' ? 'no door needs this key' : 'no key has this ID' })),
+    pick: (put, end) => pickMapObject({ hint, accept: (o, ch) => not(chainHas(ch, cls), why), done: (o) => {
+      end();
+      if (!o) return;
+      const id = idOf(o, otherKey) || idOf(a, prop) || newId(prop === 'KeyID' ? o : a);
+      if (!idOf(o, otherKey)) setProp(o, otherKey, propText('name', id));
+      put(id);
+    } }),
+  };
+}
 // who triggers what: Event -> Tag, keypads' FailEvent, security computers, keys and doors
 function linksOf(a) {
   const out = [];
@@ -11176,7 +11407,7 @@ function wireAnim(a, p, redraw) {
       if (idle) { edits.anims[a.name] = Object.assign({}, edits.anims[a.name], { idle, rate, own: own || undefined, loc: UE(p.position) }); standForIdle(a.name); }
       else if (edits.anims[a.name]) { delete edits.anims[a.name].idle; delete edits.anims[a.name].rate; delete edits.anims[a.name].own; if (!Object.keys(edits.anims[a.name]).some((k) => k !== 'loc')) delete edits.anims[a.name]; }
       setDirty();
-      if (own) status(`${a.name} does ${idle} (Animation Studio): Rebuild to put it in the map.`, 'ok');
+      if (own) status(`${objName(a.name)} does ${idle} (Animation Studio): Rebuild to put it in the map.`, 'ok');
       if (idle && previewing && previewing.g === p) startPreview(p, a.cls, idle, rate);
     };
     sel.onchange = save;
@@ -11637,7 +11868,7 @@ document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.bcreat
     setProp(a, t.dataset.sndprop, `Sound'${name}'`);
     showSoundRange(p);
     showDetails();
-    status(`${a.name}: ${t.dataset.sndprop} = ${name.split('.').pop()}`, 'ok');
+    status(`${objName(a.name)}: ${t.dataset.sndprop} = ${name.split('.').pop()}`, 'ok');
   });
 }
 // a sound let go over the 3D view: the sounds of the object under it, or a sound effect at that point
@@ -12161,7 +12392,7 @@ function routeHtml(a) {
   if (!points.length) h += '<div class="hint" style="margin:0 0 4px">Draw route, then click the floor to add patrol points.</div>';
   else if (orders !== 'Patrolling') h += `<div class="hint" style="margin:0 0 4px;color:#ffd25a">Orders is ${escapeHtml(orders || 'not Patrolling')}: they follow the route only with Orders = Patrolling.</div>`;
   points.forEach((b, i) => {
-    h += `<div class="row"><span style="width:18px;color:#ffa040;font-weight:700">${i + 1}</span><a href="#" data-rp="${i}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--accent, #5aa2ff)" title="Select this patrol point">${escapeHtml(tagOf(b))}</a>
+    h += `<div class="row"><span style="width:18px;color:#ffa040;font-weight:700">${i + 1}</span><a href="#" data-rp="${i}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--accent, #5aa2ff)" title="Select this patrol point (Tag ${escapeHtml(tagOf(b))})">${escapeHtml(((edits.editorNames || {})[b.name]) || 'Patrol point')}</a>
       <label style="width:auto" title="Seconds they stop here, turned the way the point faces (turn it with E)">wait</label><input type="number" data-rw="${i}" value="${+actorProp(b, 'PauseTime') || 0}" min="0" step="1" style="width:52px"><button data-rx="${i}" title="Take this point out of the route">✕</button></div>`;
   });
   if (points.length > 1) h += `<div class="hint" style="margin:0 0 4px">${loop ? '↻ after the last point, back to 1' : 'they stop at the last point'}</div>`;
@@ -12283,7 +12514,7 @@ async function openFactions() {
   facBox.innerHTML = `<div class="row"><b style="flex:1">Factions in ${escapeHtml(mapName)}</b><button id="fclose">Close</button></div>
     <div class="hint" style="margin:4px 0 8px">How the characters treat JC and each other when the map starts. Members of the same faction are always friends. A relation that is not <i>fixed</i> turns hostile when JC attacks them, as in the game. To change it during the mission (after a dialogue, when a flag is set...), use the Story: action <i>A faction...</i>.</div>
     <table class="ftab"><tr><th>Faction</th><th>Characters</th><th>Towards JC</th></tr>
-    ${names.map((f, k) => `<tr><td><b>${escapeHtml(f)}</b></td><td><a href="#" data-fx="${k}">${groups.get(f).length}</a><div class="fmem" id="fmem${k}" style="display:none">${groups.get(f).map((m) => `<a href="#" data-sel="${escapeHtml(m.name)}">${escapeHtml(m.name)}</a>`).join(' ')}</div></td><td>${toJC(groups.get(f))}</td></tr>`).join('')
+    ${names.map((f, k) => `<tr><td><b>${escapeHtml(f)}</b></td><td><a href="#" data-fx="${k}">${groups.get(f).length}</a><div class="fmem" id="fmem${k}" style="display:none">${groups.get(f).map((m) => `<a href="#" data-sel="${escapeHtml(m.name)}" title="${escapeHtml(m.name)}">${escapeHtml(objName(m.name))}</a>`).join(', ')}</div></td><td>${toJC(groups.get(f))}</td></tr>`).join('')
       || '<tr><td colspan="3" class="hint">No characters in this map.</td></tr>'}</table>
     <div class="row" style="margin-top:10px;flex-wrap:wrap"><b>Change a whole faction:</b>
       <select id="ffac">${names.filter((f) => f !== '(no faction)').map((f) => `<option>${escapeHtml(f)}</option>`).join('')}</select> towards
@@ -12603,7 +12834,7 @@ function drawProps(p, fields, box) {
         html += `<div class="box" style="margin:4px 0;padding:6px">
           <div class="row"><label style="width:62px">Button</label><input type="text" data-op="${i}" data-k="Text" value="${escapeHtml(structShown(sget(m, 'Text')))}" style="flex:1;min-width:0"><button data-opx="${i}" title="remove">✕</button></div>
           <div class="row"><label style="width:62px">Message</label><input type="text" data-op="${i}" data-k="TriggerText" value="${escapeHtml(structShown(sget(m, 'TriggerText') || ''))}" placeholder="what the screen says when it is used" style="flex:1;min-width:0"></div>
-          <div class="row"><label style="width:62px">Triggers</label><input type="text" data-op="${i}" data-k="TriggerEvent" value="${escapeHtml(ev === 'None' ? '' : ev)}" placeholder="the Tag of a door, an alarm..." style="flex:1;min-width:0"></div>
+          <div class="row"><label style="width:62px">Triggers</label><input type="text" data-op="${i}" data-k="TriggerEvent" value="${escapeHtml(ev === 'None' ? '' : ev)}" placeholder="the Tag of a door, an alarm..." style="flex:1;min-width:0">${pickButton(`data-oppick="${i}"`, 'Pick the object it triggers (eyedropper)')}</div>${saidHtml(taggedNames(ev), { none: 'no object has this Tag: it triggers nothing' })}
           <div class="row"><label style="width:62px">Account</label><select data-op="${i}" data-k="userName"><option value="">(every account)</option>${[...new Set(logins.concat(user ? [user] : []))].map((l) => `<option ${l === user ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
             <label style="width:auto"><input type="checkbox" data-op="${i}" data-k="bTriggerOnceOnly" ${String(sget(m, 'bTriggerOnceOnly')) === 'True' ? 'checked' : ''}> once</label></div></div>`;
       }
@@ -12621,6 +12852,10 @@ function drawProps(p, fields, box) {
         };
         for (const [i] of rows) {
           for (const x of box.querySelectorAll(`[data-op="${i}"]`)) x.onchange = () => { save(i); redraw(); };
+          const dropper = box.querySelector(`[data-oppick="${i}"]`);
+          if (dropper) dropper.onclick = () => pickMapObject({ hint: 'Click the object this option triggers (a door, a light, an alarm...)',
+            accept: (o) => (o.name !== a.name ? true : 'Not the computer itself.'),
+            done: (o) => { const x = box.querySelector(`[data-op="${i}"][data-k="TriggerEvent"]`); if (!o || !x) return; x.value = tagFor(o); save(i); redraw(); } });
           $(`[data-opx="${i}"]`, box).onclick = () => {
             setProp(a, `${f.prop}(${i})`, structText(mergeStruct(f.default[i], '').map(([k2, v2]) => [k2, v2.startsWith('"') ? '""' : v2])));
             redraw();
@@ -12663,8 +12898,13 @@ function drawProps(p, fields, box) {
         };
       });
     } else if (f.kind === 'name' || f.kind === 'string') {
-      const shown = propShown(f.kind, v);
-      html += `<div class="row">${lab}<input type="text" id="${id}" value="${escapeHtml(shown)}" placeholder="${f.kind === 'name' ? 'None' : ''}" style="flex:1;min-width:0"></div>`;
+      const shown = propShown(f.kind, v), dropper = f.kind === 'name' ? namePick(a, f.prop) : null;
+      html += `<div class="row">${lab}<input type="text" id="${id}" value="${escapeHtml(shown)}" placeholder="${f.kind === 'name' ? 'None' : ''}" style="flex:1;min-width:0">${dropper ? pickButton(`data-namepick="${id}"`, dropper.title) : ''}</div>`
+        + (dropper ? dropper.said(shown) : '');
+      if (dropper) wires.push(() => {
+        const b = box.querySelector(`[data-namepick="${id}"]`);
+        if (b) b.onclick = () => dropper.pick((text) => { setProp(a, f.prop, propText('name', text)); redraw(); }, () => {});
+      });
       if (f.prop === 'KeyIDNeeded' || f.prop === 'KeyID') html += `<p class="hint" style="margin:2px 0 6px;overflow-wrap:anywhere">${f.prop === 'KeyIDNeeded'
         ? 'Use the same Key ID on the NanoKey, e.g. 2. Enable Locked to require the key. None means no key can unlock this door.'
         : 'Use the same Key ID in the door’s Inspector > Door, e.g. 2. One key can open several matching doors.'}</p>`;
@@ -12848,7 +13088,7 @@ function drawProps(p, fields, box) {
   }
   { const ap = allPropsSection(behaveApi, [a], p); html += ap.html; wires.push(ap.wire); }    // UnrealEd's whole Properties
   if (links.length) {
-    html += inspectorSection('connections', 'Connections', links.map((l, k) => `<div class="row"><span style="color:${l.dir === 'out' ? '#ffa040' : '#40c0ff'}">${l.dir === 'out' ? '→' : '←'} ${escapeHtml(l.why)}</span><a href="#" data-link="${k}" style="color:var(--accent, #5aa2ff)">${escapeHtml(l.name)}${NAMES[l.cls] ? ' (' + escapeHtml(NAMES[l.cls]) + ')' : ''}</a></div>`).join(''));
+    html += inspectorSection('connections', 'Connections', links.map((l, k) => `<div class="row"><span style="color:${l.dir === 'out' ? '#ffa040' : '#40c0ff'}">${l.dir === 'out' ? '→' : '←'} ${escapeHtml(l.why)}</span><a href="#" data-link="${k}" style="color:var(--accent, #5aa2ff)" title="${escapeHtml(l.name)}">${escapeHtml(objName(l.name))}${NAMES[l.cls] && !objName(l.name).toLowerCase().includes(String(NAMES[l.cls]).toLowerCase()) ? ' (' + escapeHtml(NAMES[l.cls]) + ')' : ''}</a></div>`).join(''));
   }
   if (!html) return;
   if (propertySlider && propertySlider.p === p) return;
@@ -13290,6 +13530,8 @@ function lkNewId() { let n = 1; for (const l of lkList()) n = Math.max(n, (+Stri
 // one, which edits.props / moved / deleted use.
 function lkActor(name) {
   if (!name) return null;
+  // an object of a prefab copy deleted (its entry gone) is gone, though the last build still has it (14 Nov 2026)
+  if (/^UCPf\w+?[AB]\d+$/.test(String(name)) && !(edits.prefabs || []).some((e) => e && e.pid && isMember(name, e.pid))) return null;
   const all = allActors(), low = String(name).toLowerCase();
   const a = all.find((x) => x.name === name && !edits.deleted[x.name])
     || all.find((x) => String(x.name).toLowerCase() === low && !edits.deleted[x.name]);
@@ -13305,7 +13547,7 @@ const LK_KIND = { door: 'door', light: 'light', zone: 'zone', soundfx: 'sound ef
 function lkName(name) {
   if (LK_SPECIAL[name]) return LK_SPECIAL[name];
   const a = lkActor(name);
-  if (!a) return name ? `${name} (missing)` : 'nothing';
+  if (!a) return name ? `${lkGoneLabels.get(name) || lkDeletedLabel(name) || name} (missing)` : 'nothing';
   if (a.cls === 'UCCutscene') return `the cutscene "${((edits.cutscenes || {})[name] || {}).title || name}"`;
   // a timer by what the HUD says, a counter by the state it keeps (13 Nov 2026, Deep Ops: two timers were both "the timer")
   const kept = lkKeptName(a);
@@ -13314,6 +13556,9 @@ function lkName(name) {
   // the animation of door LiftBlock" for the moving block named LiftBlock)
   const given = String(((edits && edits.editorNames) || {})[name] || '').trim();
   if (given && !Object.entries(edits.editorNames).some(([k, v]) => k !== name && !edits.deleted[k] && String(v || '').trim().toLowerCase() === given.toLowerCase())) return given;
+  // a prefab copy's object (a door from Objects > Movers) by its copy's name (14 Nov 2026: "open door UCPfp1A0")
+  const copy = lkCopyLabel(name);
+  if (copy) return copy;
   // its own name (the Inspector's, 12 Nov 2026: FamiliarName, a block's label) says it alone, unless another has it too
   const boxOwn = (b) => String((b && b.label) || '').trim(), actorOwn = (x) => unquote(actorProp(x, 'FamiliarName') || '').trim();
   const own = a.box ? boxOwn((edits.boxes || []).find((b) => b.name === name)) : actorOwn(a), low = own.toLowerCase();
@@ -13487,7 +13732,18 @@ function lkScenePoint(how) {
   const p = how === 'selected' ? window.__editor.selectedLoc() : window.__editor.cameraPoint(160);
   return p ? p.map((v) => Math.round(v)) : null;
 }
-const lkPointOpts = { point: lkScenePoint, warn: (t) => log(t, 'warn'), get zones() { return lkZones(); } };
+// the eyedroppers of the conditions (conditions.js ctx.pick, ctx.pickPoint; 14 Nov 2026): a character, a zone, a floor
+function lkCondPick(kind, done) {
+  const zones = kind === 'zone' ? lkZones() : null;
+  pickMapObject({ hint: kind === 'zone' ? 'Click the zone (its icon in the 3D view, or in the Hierarchy)' : 'Click the character',
+    accept: (o, ch) => (kind === 'zone' ? zones.some((z) => z.name.toLowerCase() === String(o.name).toLowerCase()) || 'Click a zone.'
+      : chainHas(ch, 'ScriptedPawn') || 'Click a character.'),
+    done: (o) => { if (o) done(o.name); } });
+}
+function lkCondPickPoint(done) {
+  lkStartPick({ hint: 'Click a floor where the point is', point: true, done: (_, p) => { if (p) done(p); } });
+}
+const lkPointOpts = { point: lkScenePoint, pick: lkCondPick, pickPoint: lkCondPickPoint, warn: (t) => log(t, 'warn'), get zones() { return lkZones(); } };
 function lkStepsSaid(l) {
   return l.steps ? [stepsText(l, lkActText, { name: lkName, cond: (c) => conditionText(c, lkCondNames), storyTitle: lkStoryTitle })].filter(Boolean)
     : [...(l.do || [])].sort((x, y) => (+x.delay || 0) - (+y.delay || 0)).map((x) => (+x.delay > 0 ? `after ${+x.delay} s ` : '') + lkActText(x));
@@ -13633,7 +13889,9 @@ async function lkPickList(opts, from) {
   // (13 Nov 2026: a place could only be clicked on the floor, so the path node put there for it was of no use)
   if (opts.point) return lkPlaceList(opts, from, logic, all);
   // only what a rule can use: path nodes, player starts and the like have nothing to do or to say
-  const usable = all.filter((a) => { const io = lkIo(a); return (io.inputs.length || io.outputs.length) && !lkNavOnly(a); });
+  // a field's eyedropper (pickMapObject): any object its accept takes
+  const usable = opts.any ? all.filter((a) => !opts.accept || opts.accept(a, chainNow[a.cls] || [a.cls]) === true)
+    : all.filter((a) => { const io = lkIo(a); return (io.inputs.length || io.outputs.length) && !lkNavOnly(a); });
   const labels = logicLabels(usable.map((a) => a.name));
   const items = usable.map((a) => ({ id: a.name, label: labels[a.name] || a.name, group: 'Objects of the map', hint: LK_KIND[lkCatOf(a)] || a.cls, words: [a.name, a.cls], data: { actor: a } }))
     .sort((x, y) => x.label.localeCompare(y.label, undefined, { numeric: true }));
@@ -13815,7 +14073,7 @@ function lkAreaHtml(x, j, source) {
   const area = x.area, names = lkAreaTargets(x, source);
   return `<div class="lk-area" style="padding:6px 0 6px 12px;border-left:2px solid #ffd17b">
     <div class="row"><label>Group</label><select data-lkakind="${j}">${[['light','Lights'],['character','Characters'],['object','Objects']].map(([v,t]) => `<option value="${v}" ${v === area.kind ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-    <div class="row"><label>Tag</label><input data-lkatag="${j}" value="${escapeHtml(area.tag || '')}" placeholder="All tags" maxlength="64" aria-label="Area tag filter" style="flex:1;min-width:0" list="area-tags-${escapeHtml(source || 'start')}-${j}">${tagSuggestions(`area-tags-${source || 'start'}-${j}`)}</div>
+    <div class="row"><label>Tag</label><input data-lkatag="${j}" value="${escapeHtml(area.tag || '')}" placeholder="All tags" maxlength="64" aria-label="Area tag filter" style="flex:1;min-width:0" list="area-tags-${escapeHtml(source || 'start')}-${j}">${pickButton(`data-lkatagpick="${j}"`, 'Take the scripting tag of an object clicked in the 3D view (eyedropper)')}${tagSuggestions(`area-tags-${source || 'start'}-${j}`)}</div>
     <div class="row"><label>Radius</label><input type="number" min="1" max="65536" step="32" data-lkaradius="${j}" value="${area.radius}" style="width:80px"><span>units</span></div>
     <div class="row"><label>Center</label><span style="flex:1">${area.at.map(Math.round).join(', ')}</span><button data-lkacenter="${j}" title="Pick the center on a surface">Pick...</button></div>
     <label style="display:flex;width:auto;gap:6px;align-items:center"><input type="checkbox" data-lkadynamic="${j}" ${area.dynamic ? 'checked' : ''}> Include newcomers</label>
@@ -13829,6 +14087,9 @@ function lkWireArea(el, l, ch) {
   const capture = x => { x.area.members = lkAreaCurrent(x.area, l.src); };
   const bind = (attr, event, fn) => { for (const input of el.querySelectorAll(`[${attr}]`)) input[event] = () => fn(input, l.do[+input.getAttribute(attr)]); };
   bind('data-lkatag', 'onchange', (i,x) => { const v=i.value.trim(); if (v && !validScriptTag(v)) { i.setCustomValidity('Use 1-64 letters, digits or underscores.'); i.reportValidity(); return; } i.setCustomValidity(''); ch(() => { x.area.tag=v; capture(x); }); });
+  bind('data-lkatagpick', 'onclick', (b, x) => pickMapObject({ hint: 'Click an object: its scripting tag is taken',
+    accept: (o) => (scriptingTagOf(o) ? true : 'It has no scripting tag: click another object.'),
+    done: (o) => { if (o) ch(() => { x.area.tag = scriptingTagOf(o); capture(x); }); } }));
   bind('data-lkaradius', 'onchange', (i,x) => ch(() => { x.area.radius = Math.min(65536, Math.max(1, +i.value || 256)); capture(x); }));
   bind('data-lkakind', 'onchange', (i,x) => ch(() => { x.area.kind = i.value; x.verb = AREA_VERBS[i.value][0]; lkDefaults(x, lkActor(l.src)); capture(x); }));
   bind('data-lkadynamic', 'onchange', (i,x) => ch(() => { x.area.dynamic = i.checked; }));
@@ -14031,7 +14292,7 @@ function lkRuleHtml(l, inPanel, branch = false) {
         + `<option value="ended" ${u.type === 'ended' ? 'selected' : ''}>a dialogue has ended</option><option value="heard" ${u.type === 'heard' ? 'selected' : ''}>an InfoLink has been heard</option>`
         + `<option value="cond" ${!['arrived', 'ended', 'heard'].includes(u.type) ? 'selected' : ''}>a condition holds</option></select>${lkStepTools(step.j)}</div>`
         + (u.type === 'arrived'
-          ? `<div class="row" style="padding-left:24px"><select data-lkuntilwho="${step.j}" style="flex:1;min-width:0"><option value="">(choose the character)</option>${chars.map((a) => `<option value="${escapeHtml(a.name)}" ${a.name === u.actor ? 'selected' : ''}>${escapeHtml(lkName(a.name))}</option>`).join('')}</select></div>`
+          ? `<div class="row" style="padding-left:24px"><select data-lkuntilwho="${step.j}" style="flex:1;min-width:0"><option value="">(choose the character)</option>${chars.map((a) => `<option value="${escapeHtml(a.name)}" ${a.name === u.actor ? 'selected' : ''}>${escapeHtml(lkName(a.name))}</option>`).join('')}</select>${pickButton(`data-lkuntilpick="${step.j}"`, 'Pick the character in the 3D view (eyedropper)')}</div>`
           : LK_STORY_UNTIL[u.type] ? lkUntilStoryRow(step.j, u)
           : `<div class="lk-cond" data-lkuntilcond="${step.j}"></div>`)
         + `<div class="row" style="padding-left:24px"><label style="width:auto">at most</label><input type="number" data-lkmax="${step.j}" value="${+x.max || 0}" min="0" step="1" style="width:60px"><span class="hint" style="margin:0">s (0: no limit)</span></div></div>`;
@@ -14089,7 +14350,7 @@ function lkActHtml(l, step, num, pad) {
   if (x.requires) h += `<div class="row" style="padding-left:38px"><select data-lkmatch="${j}" style="flex:1;min-width:0"><option value="all">only if all of these hold</option><option value="any" ${x.match === 'any' ? 'selected' : ''}>only if any of these holds</option></select></div>`
     + `<div class="lk-cond" data-lkcondstep="${j}" style="margin-left:38px"></div>`;
   if (x.area) h += lkAreaHtml(x, j, l.src);
-  if (x.targetTag !== undefined) h += `<div class="row"><label>Tag</label><input data-lktag="${j}" value="${escapeHtml(x.targetTag)}" maxlength="64" aria-label="Target scripting tag" list="target-tags-${escapeHtml(l.id)}-${j}" style="flex:1;min-width:0">${tagSuggestions(`target-tags-${l.id}-${j}`)}<span class="hint">${(n => `${n} ${n === 1 ? 'match' : 'matches'}`)(lkTagTargets(x,l.src).length)}</span></div>`
+  if (x.targetTag !== undefined) h += `<div class="row"><label>Tag</label><input data-lktag="${j}" value="${escapeHtml(x.targetTag)}" maxlength="64" aria-label="Target scripting tag" list="target-tags-${escapeHtml(l.id)}-${j}" style="flex:1;min-width:0">${pickButton(`data-lktagpick="${j}"`, 'Take the scripting tag of an object clicked in the 3D view (eyedropper)')}${tagSuggestions(`target-tags-${l.id}-${j}`)}<span class="hint">${(n => `${n} ${n === 1 ? 'match' : 'matches'}`)(lkTagTargets(x,l.src).length)}</span></div>`
     + `<div class="row" style="padding-left:38px"><button data-lkname="${j}" title="Give the objects with this tag a name: other rules can use the same group, and a change to it changes them all">Name this group…</button></div>`;
   if (x.group !== undefined) {
     const can = lkGroupTargets(x, l.src).length, all = lgMembers(x.group).length;
@@ -14133,7 +14394,7 @@ function lkActHtml(l, step, num, pad) {
       const field = kind === 'number' || kind === 'seconds'
         ? `<input type="number" ${at} value="${escapeHtml(v)}" step="any"${kind === 'seconds' ? ' min="0"' : ''} placeholder="the script's own" style="width:90px">${kind === 'seconds' ? '<span class="hint">seconds</span>' : ''}`
         : kind === 'yesno' ? `<select ${at}>${opts([['True', 'Yes'], ['False', 'No']], "the script's own")}</select>`
-        : kind === 'thing' ? `<select ${at} style="flex:1;min-width:0">${opts(allActors().filter((a) => !edits.deleted[a.name]).map((a) => [a.name, lkName(a.name)]).sort((p, q) => p[1].localeCompare(q[1], undefined, { numeric: true })), 'nothing (the script\'s own)')}</select>`
+        : kind === 'thing' ? `<select ${at} style="flex:1;min-width:0">${opts(allActors().filter((a) => !edits.deleted[a.name]).map((a) => [a.name, lkName(a.name)]).sort((p, q) => p[1].localeCompare(q[1], undefined, { numeric: true })), 'nothing (the script\'s own)')}</select>${pickButton(`data-lkiargpick="${j}" data-k="${escapeHtml(key)}"`, 'Pick it in the 3D view (eyedropper)')}`
         : `<input type="text" ${at} value="${escapeHtml(v)}" placeholder="its value (empty: the script's own)" style="flex:1;min-width:0">`;
       h += row(`<label style="width:auto">${escapeHtml(key)}</label>${field}`);
     }
@@ -14195,6 +14456,8 @@ function lkWire(box, redraw) {
     // what a cause takes (the rule's own: -1, an "Or when...": its index), the options of the rule (P6)
     const causeOf = (n, key) => (+n.dataset[key] < 0 ? l : (l.also || [])[+n.dataset[key]]);
     for (const inp of q('[data-lkwarg]')) inp.onchange = () => ch(() => { const c = causeOf(inp, 'lkwarg'); if (c) c[inp.dataset.k] = inp.type === 'number' ? String(Math.max(0, +inp.value || 0)) : inp.value.trim(); });
+    for (const b of q('[data-lkwargpick]')) b.onclick = () => pickMapObject({ hint: 'Click the object whose event it waits for (a button, a trigger...)',
+      done: (o) => { if (o) { const ev = eventFor(o); ch(() => { const c = causeOf(b, 'lkwargpick'); if (c) c[b.dataset.k] = ev; }); } } });
     for (const s of q('[data-lkwatchk]')) s.onchange = () => ch(() => { const c = causeOf(s, 'lkwatchk'); if (!c) return; const w = c.watch || {}, name = w.counter ?? w.flag ?? ''; c.watch = s.value === 'counter' ? { counter: name } : { flag: name }; });
     for (const inp of q('[data-lkwatchn]')) inp.onchange = () => ch(() => { const c = causeOf(inp, 'lkwatchn'); if (!c) return; const w = c.watch || {}; c.watch = w.counter !== undefined ? { counter: inp.value.trim() } : { flag: inp.value.trim() }; });
     for (const host of q('[data-lkwatchcond]')) {             // a condition that becomes true: one only
@@ -14300,10 +14563,15 @@ function lkWire(box, redraw) {
       if (inp.value.trim()) args.set(inp.dataset.k, inp.value.trim().replace(/[;|"]/g, ',')); else args.delete(inp.dataset.k);
       x.b = [...args].map(([k, v]) => `${k}=${v}`).join(';');
     });
+    for (const b of q('[data-lkiargpick]')) b.onclick = () => pickMapObject({ hint: `Click the object for ${b.dataset.k}`,
+      done: (o) => { const sel = b.previousElementSibling; if (!o || !sel) return; sel.value = o.name; sel.dispatchEvent(new Event('change')); } });
     for (const c of q('[data-lkset]')) c.onchange = () => ch(() => { act(c).c = c.checked ? 'set' : ''; });
     for (const s of q('[data-lkgroup]')) s.onchange = () => { if (s.value) ch(() => { l.do[+s.dataset.lkgroup].group = s.value; }); };
     for (const b of q('[data-lkgsel]')) b.onclick = () => lgSelect(l.do[+b.dataset.lkgsel].group);
     for (const b of q('[data-lkname]')) b.onclick = () => lgNameStep(l, +b.dataset.lkname, redraw);
+    for (const b of q('[data-lktagpick]')) b.onclick = () => pickMapObject({ hint: 'Click an object: its scripting tag is taken',
+      accept: (o) => (scriptingTagOf(o) ? true : 'It has no scripting tag: click another object.'),
+      done: (o) => { if (o) ch(() => { l.do[+b.dataset.lktagpick].targetTag = scriptingTagOf(o); }); } });
     for (const input of q('[data-lktag]')) input.onchange = () => { const tag=input.value.trim(); if (!validScriptTag(tag)) { input.setCustomValidity('Use 1-64 letters, digits or underscores.'); input.reportValidity(); return; } input.setCustomValidity(''); ch(() => { l.do[+input.dataset.lktag].targetTag=tag; }); };
     for (const d of q('[data-lkd]')) d.onchange = () => ch(() => { l.do[+d.dataset.lkd].delay = Math.max(0, Math.round((+d.value || 0) * 10) / 10); });
     for (const b of q('[data-lka]')) b.onclick = () => ch(() => { l.do.splice(+b.dataset.lka, 1); });
@@ -14324,6 +14592,9 @@ function lkWire(box, redraw) {
       if (LK_STORY_UNTIL[t]) x.until = { type: t, [LK_STORY_UNTIL[t][0]]: s.value };
     });
     for (const s of q('[data-lkuntilwho]')) s.onchange = () => ch(() => { l.do[+s.dataset.lkuntilwho].until = { type: 'arrived', actor: s.value }; });
+    for (const b of q('[data-lkuntilpick]')) b.onclick = () => pickMapObject({ hint: 'Click the character who must arrive',
+      accept: (o, chain) => chainHas(chain, 'ScriptedPawn') || 'Click a character.',
+      done: (o) => { if (o) ch(() => { l.do[+b.dataset.lkuntilpick].until = { type: 'arrived', actor: o.name }; }); } });
     for (const m of q('[data-lkmax]')) m.onchange = () => ch(() => { l.do[+m.dataset.lkmax].max = Math.max(0, Math.round(+m.value || 0)); });
     const stepCondOpts = { ...lkPointOpts, mountState: (host, value, onChange) => mountStateField(host, value, { onChange }), items: propItems || [],
       characters: allActors().filter((a) => isCharacter(a) && !edits.deleted[a.name]).map((a) => ({ name: a.name, label: lkName(a.name) })),
@@ -15815,18 +16086,20 @@ $('#bpkgs').onclick = () => openPackages().catch((e) => log('Packages: ' + e.mes
 
 // Check map: rules whose objects are gone, rules that do nothing
 function lkCheck(add) {
+  // objects by the names the rules give them (14 Nov 2026: "UCEdit3 needs no key"), a deleted one by what it was
+  const nm = (n) => (lkActor(n) ? objName(n) : lkGoneLabels.get(n) || lkDeletedLabel(n) || n);
   for (const l of lkList()) {
     const who = l.src || (l.do || []).map((x) => x.target).find(Boolean);
     const say = lkSentence(l);
     if (edits.disabled?.[l.src]) { add('info', `Interaction "${say}": its source is disabled in game.`, who); continue; }
     if (lgSetRule(l) && !LG_SET_WHENS.includes(l.when)) add('error', `Interaction "${say}": a group of a kind or a faction cannot start it on "${LK_WHEN[l.when] || l.when}".`, null);
-    else if (l.src ? !lkActor(l.src) : !WORLD_CAUSES.includes(l.when) && !lgSetRule(l)) add('error', `Interaction "${say}": its object ${l.src} is not in the map any more.`, null);
-    for (const c of l.also || []) if (c.src && !lkActor(c.src)) add('error', `Interaction "${say}": ${c.src}, one of the things that set it off, is not in the map any more.`, who);
+    else if (l.src ? !lkActor(l.src) : !WORLD_CAUSES.includes(l.when) && !lgSetRule(l)) add('error', `Interaction "${say}": its object ${nm(l.src)} is not in the map any more.`, null);
+    for (const c of l.also || []) if (c.src && !lkActor(c.src)) add('error', `Interaction "${say}": ${nm(c.src)}, one of the things that set it off, is not in the map any more.`, who);
     if (!(l.do || []).length) add('warn', `Interaction "${say}": it does nothing yet (+ Then...).`, who);
     for (const x of [...(l.do || []), ...(l.else || [])]) {
       if (x.area && !lkAreaTargets(x, l.src).length) add('warn', `Interaction "${say}": the area group currently has no recipients.`, who);
-      if (edits.disabled?.[x.target]) { add('warn', `Interaction "${say}": ${x.target} is disabled in game.`, x.target); continue; }
-      if (x.target && !LK_SPECIAL[x.target] && !lkActor(x.target)) add('error', `Interaction "${say}": ${x.target} is not in the map any more.`, who);
+      if (edits.disabled?.[x.target]) { add('warn', `Interaction "${say}": ${nm(x.target)} is disabled in game.`, x.target); continue; }
+      if (x.target && !LK_SPECIAL[x.target] && !lkActor(x.target)) add('error', `Interaction "${say}": ${nm(x.target)} is not in the map any more.`, who);
       if (LK_VERBS[x.verb] && LK_VERBS[x.verb][1] && LK_VERBS[x.verb][1] !== 'any' && !x.target && !x.area && !x.targetTag && x.group === undefined) add('error', `Interaction "${say}": "${LK_VERBS[x.verb][0]}" has no object.`, who);
       if (x.group !== undefined && !lgGroup(x.group)) add('error', `Interaction "${say}": its group no longer exists.`, who);
       else if (x.group !== undefined && lgSet(lgGroup(x.group)) && !TAG_CHARACTER_VERBS.has(x.verb)) add('warn', `Interaction "${say}": the group "${lgName(x.group)}" holds characters only, and they cannot do that.`, who);
@@ -15835,13 +16108,13 @@ function lkCheck(add) {
       for (const arg of lkArgsOf(x.verb).filter((a) => a.formula && formulaProblem(String(x[a.id] ?? ''))))    // P9 slice 5
         add('error', `Interaction "${say}": the formula "${x[arg.id]}" cannot be worked out: ${formulaProblem(String(x[arg.id]))}.`, who);
       if (x.verb === 'flag' && !String(x.a || '').trim()) add('error', `Interaction "${say}": no state chosen.`, who);
-      if (x.verb === 'floor' && lkActor(x.target) && !lkFloorOk(lkActor(x.target), Math.max(0, lkWholeOf(x.a, 0)))) add('error', `Interaction "${say}": ${x.target} has no floor ${Math.max(0, lkWholeOf(x.a, 0))}.`, who);
+      if (x.verb === 'floor' && lkActor(x.target) && !lkFloorOk(lkActor(x.target), Math.max(0, lkWholeOf(x.a, 0)))) add('error', `Interaction "${say}": ${nm(x.target)} has no floor ${Math.max(0, lkWholeOf(x.a, 0))}.`, who);
       if (x.verb === 'goal' && !String(x.a || '').trim()) add('error', `Interaction "${say}": the goal has no name.`, who);
       if (x.verb === 'sound' && !x.a) add('warn', `Interaction "${say}": no sound chosen.`, who);
       if ((x.verb === 'message' || x.verb === 'note') && !x.a) add('warn', `Interaction "${say}": the text is empty.`, who);
       if (x.verb === 'travel' && !x.a) add('error', `Interaction "${say}": no map to go to.`, who);
       if (x.verb === 'travel' && x.a && allMapNames && allMapNames.length && !allMapNames.includes(x.a)) add('error', `Interaction "${say}": the map ${x.a} does not exist.`, who);
-      if (x.verb === 'key' && x.target && lkActor(x.target) && !String(actorProp(lkActor(x.target), 'KeyIDNeeded') || '').replace(/^None$/i, '')) add('warn', `Interaction "${say}": ${x.target} needs no key (set "Key ID" in Inspector > Door).`, who);
+      if (x.verb === 'key' && x.target && lkActor(x.target) && !String(actorProp(lkActor(x.target), 'KeyIDNeeded') || '').replace(/^None$/i, '')) add('warn', `Interaction "${say}": ${nm(x.target)} needs no key (set "Key ID" in Inspector > Door).`, who);
     }
     if (l.when === 'option' && lkActor(l.src) && propSchema[lkActor(l.src).cls] && !lkOptionText(l)) add('warn', `Interaction "${say}": the computer has no button for it (write its text).`, who);
     if ((l.when === 'enter' || l.when === 'leave') && lkTriggeredSound(lkActor(l.src))) add('warn', `Interaction "${say}": this sound plays when a rule sets it off, not when JC walks in: it says neither walks in nor walks out (tick "Plays when JC walks in").`, who);
@@ -15851,7 +16124,7 @@ function lkCheck(add) {
     if (l.when === 'output' && sio && !sio.outputs.includes(lkWhenKey(l))) add('error', `Interaction "${say}": the script has no output "${l.port}" any more.`, who);
     for (const x of l.do || []) {
       const tio = x.verb === 'input' && ioNow[lkActor(x.target)?.cls];
-      if (tio && !tio.inputs.includes(lkVerbKey(x))) add('error', `Interaction "${say}": ${x.target} has no input "${x.a}" any more.`, who);
+      if (tio && !tio.inputs.includes(lkVerbKey(x))) add('error', `Interaction "${say}": ${nm(x.target)} has no input "${x.a}" any more.`, who);
     }
   }
   if (window.__cutscene) window.__cutscene.check(add);
@@ -15962,7 +16235,8 @@ async function openLinks() {
   const L = await api('/api/links?map=' + encodeURIComponent(mapName));
   // exits and arrival points placed in the editor and not built yet
   const pending = edits.added.filter((a) => a.cls === 'Teleporter').map((a) => ({ name: a.name, url: unquote(actorProp(a, 'URL') || ''), tag: String(actorProp(a, 'Tag') || '') }));
-  const go = (n) => `<a href="#" data-sel="${escapeHtml(n)}">${escapeHtml(n)}</a>`;
+  // by the names the rules give them, the actor's name on hover (14 Nov 2026: the list said UCEdit3, Teleporter2)
+  const go = (n) => { let said = n; try { if (lkActor(n)) said = objName(n); } catch { said = n; } return `<a href="#" data-sel="${escapeHtml(n)}" title="${escapeHtml(n)}">${escapeHtml(said)}</a>`; };
   const exits = L.exits.map((e) => `<tr><td>${go(e.name)}</td><td>${escapeHtml(e.to_map)}</td><td>${escapeHtml(e.to_tag || 'the start')}</td><td></td></tr>`)
     .concat(pending.filter((p) => p.url).map((p) => `<tr><td>${go(p.name)}</td><td>${escapeHtml(p.url.split('#')[0])}</td><td>${escapeHtml(p.url.split('#')[1] || 'the start')}</td><td class="warn">not built yet</td></tr>`));
   const arr = L.arrivals.map((t) => `<tr><td>${escapeHtml(t)}</td><td>${escapeHtml(mapName)}#${escapeHtml(t)}</td><td></td></tr>`)
@@ -17025,7 +17299,7 @@ function copyProps(p, section = null) {
   const a = p.userData.actor, s = section && sectionOf(a, section.key), o = propState(a);
   propClip = { set: s?.raw ? rawSet(o) : copySet(o, s?.keys || null), what: section ? section.title : 'properties', of: a.name };
   const n = Object.keys(propClip.set.props).length + Object.keys(propClip.set.raw).length;
-  status(`${a.name}: ${propClip.what} copied (${n} values). Paste them on other objects: ⋮ in the Inspector, right click a section's title, or Edit > Paste properties.`, 'ok');
+  status(`${objName(a.name)}: ${propClip.what} copied (${n} values). Paste them on other objects: ⋮ in the Inspector, right click a section's title, or Edit > Paste properties.`, 'ok');
 }
 // Copy value: a field's values (one for each of its keys) with what Paste value matches in a field like it
 // (prop-sets.js fieldPaste: its property, kind, declaration, a choice's options)
@@ -18390,6 +18664,10 @@ window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorPro
 Object.assign(window.__editor, { storyStep, storyStepOnTop, undoStep, redoStep, storyRulesStep,
   // Move to Logic's preview: a rule not in the map yet in words; a rule of the map opened in the Logic window
   ruleSentence: (rule) => lkSentence(JSON.parse(JSON.stringify(rule))),
+  // the eyedroppers of the fields that name an object (object-pick.js): for story.js, cutscene.js, conditions...
+  objName: (n) => objName(n), pickMapObject: (o) => pickMapObject(o), tagFor: (a) => tagFor(a), taggedNames: (t) => taggedNames(t),
+  condPick: (kind, done) => lkCondPick(kind, done), condPickPoint: (done) => lkCondPickPoint(done),
+  chainHas,
   openRule: (id) => { const l = lkGet(id); if (l) logicOpen(l.src || '', 'list', id); return !!l; },
   ruleCopy: (id) => { const l = lkGet(id); return l ? JSON.parse(JSON.stringify(l)) : null; } });
 // the assistant's level logic (agent.js logic_*: logicPropose and the rest above)
