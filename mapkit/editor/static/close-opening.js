@@ -147,7 +147,7 @@ export function fillBox(m, yawUnits = 65536) {
   // the centre: half way into the wall, in the middle of the opening
   const centre = add(add(add(C, n, -depth / 2), u, (a + b) / 2), v, (c + d) / 2);
   const half = { n: depth / 2, u: (b - a) / 2, v: (d - c) / 2 };
-  const r2 = (x) => Math.round(x * 100) / 100;
+  const r2 = (x) => tidy(Math.round(x * 100) / 100);     // on the grid when that close to it: no sliver left at the wall
   let size, rot = null;
   if (m.kind !== 'wall') size = [2 * half.u, 2 * half.v, 2 * half.n];            // x, y across; z the depth
   else if (Math.abs(n[0]) === 1) size = [2 * half.n, 2 * half.u, 2 * half.v];    // a wall facing x

@@ -229,6 +229,7 @@ test('a Fill block the Rebuild has built is hidden as a hole is; a solid block i
   c.builtBoxes.set(wall.name, c.boxSig(wall));
   c.applyObjectVisibility();
   assert.deepEqual([pf.visible, pf.userData.tucked, pw.visible], [false, true, true]);
+  assert.equal(pf.userData.builtShown, true);          // its box is tucked away, what it built still shows (live-blocks.js)
   fill.solid = false;                                  // made a detail block: no Fill block any more
   c.applyObjectVisibility();
   assert.equal(pf.visible, true);

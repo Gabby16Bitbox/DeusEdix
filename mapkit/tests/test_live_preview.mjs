@@ -23,6 +23,8 @@ test('deletion and hidden blocks suppress baked faces; undo restores them', () =
   live.add(b.name,b,group); live.sync([]); assert.equal(group.visible,false);
   live.sync([p]); assert.equal(group.visible,true);
   p.visible=false; live.sync([p]); assert.equal(group.visible,false);
+  p.userData.builtShown=true; live.sync([p]); assert.equal(group.visible,true);     // a built Fill block's box tucked away: its faces stay
+  p.userData.builtShown=false;
   p.visible=true; p.userData.box={...b,tex:'Other'}; live.sync([p]); assert.equal(group.visible,false);
   p.userData.box=b;live.sync([p]);assert.equal(group.visible,true);
 });
@@ -30,6 +32,10 @@ test('edited geometry replaces baked faces instead of drawing twice', () => {
   const live = createLiveBlocks(THREE, createRotations(THREE)), group = new THREE.Group(); live.add(b.name,b,group);
   assert.equal(live.canFollow({...b,shape:'wedge'}),false);
   assert.equal(live.canFollow({...b,lo:[20,30,40]}),true);
+  // a Fill block (its faces laid as the walls round it) is not stretched: moved or resized, its built faces go
+  live.add('F1',{...b,name:'F1',fill:true},new THREE.Group());
+  assert.equal(live.canFollow({...b,name:'F1',fill:true}),true);
+  assert.equal(live.canFollow({...b,name:'F1',fill:true,hi:[b.hi[0]+64,b.hi[1],b.hi[2]]}),false);
 });
 test('drawn walls follow uncommitted movement and retain ownership after translation', () => {
   const live=createLiveBlocks(THREE,createRotations(THREE)),group=new THREE.Group(),p=new THREE.Group();

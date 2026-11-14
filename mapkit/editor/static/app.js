@@ -1074,7 +1074,9 @@ function updateHoleCut() {
   let n = 0;
   for (const p of proxies.children) {
     const b = p.userData.box;
-    if (!b || !b.hole || (!p.visible && !p.userData.tucked) || n >= HOLE_MAX) continue;      // a cut one (holeTucked) still cuts
+    // a hole the Rebuild has cut (holeTucked) is in the map's surfaces already: cutting the view too would drop what was
+    // built after it, the faces of a Fill block that closes it (14 Nov 2026: they showed the void behind)
+    if (!b || !b.hole || !p.visible || n >= HOLE_MAX) continue;
     const hx = Math.abs(p.scale.x) / 2 - 0.5, hy = Math.abs(p.scale.y) / 2 - 0.5, hz = Math.abs(p.scale.z) / 2 - 0.5;
     if (hx <= 0 || hy <= 0 || hz <= 0) continue;
     HOLE.min.value[n].set(p.position.x - hx, p.position.y - hy, p.position.z - hz);
@@ -2164,6 +2166,8 @@ function applyObjectVisibility() {
   for (const p of proxies.children) if (keyOf(p)) {
     p.userData.tucked = holeTucked(p);
     p.visible = !objectHidden(p) && !p.userData.cutHidden && !p.userData.tucked;      // cutHidden: vanished in a cutscene's preview (cutscene.js)
+    // a built block whose box is tucked away still shows what it built (a Fill block's faces: live-blocks.js sync)
+    p.userData.builtShown = p.userData.tucked && !objectHidden(p) && !p.userData.cutHidden;
     if (isIcon(p)) p.userData.body.visible = iconShown(p);      // hidden icons cannot be clicked: pick them in the Hierarchy
   }
   for (const st of Object.values(structures)) st.obj.visible = structureInMap(st) && !objectHidden(st.obj);
@@ -4248,6 +4252,10 @@ function fillFree(e) {
   const face = surfaceTools.faceAt(h);
   const tex = shortTex((face && (surfaceTools.textureOf(face) || face.tex)) || h.object.userData.tex || '') || lastBlockTex;
   const b = holeBox({ hit: h.point, n, tex });
+  // flush with the surface clicked (a hole stands 8 out of it; a Fill block there would be a bump in the room)
+  const p = UE(h.point), m = UE(n);
+  const k = Math.abs(m[2]) >= 0.6 ? 2 : Math.abs(m[0]) >= Math.abs(m[1]) ? 0 : 1;
+  if (m[k] > 0) b.hi[k] = Math.round(p[k] * 10) / 10; else b.lo[k] = Math.round(p[k] * 10) / 10;
   return { lo: b.lo, hi: b.hi, tex: b.tex };
 }
 // The map's built faces round a block (within `grow` units of it, [x, y, z]; the faces inside it, its own once built

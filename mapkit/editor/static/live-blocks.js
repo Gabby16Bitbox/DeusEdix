@@ -2,8 +2,11 @@
 export const blockTransform = b => ({ centre: b.lo.map((v, i) => (v + b.hi[i]) / 2),
   size: b.hi.map((v, i) => v - b.lo[i]), rot: b.rot || [0, 0, 0] });
 export function blockShapeKey(b) {
+  // a Fill block's faces are laid as the surfaces round it (b.match), not as the block: moved or resized they would
+  // stretch with it, so they show only where they were built (14 Nov 2026, Gabby: "it stretches the texture with the
+  // hole"); until the Rebuild the green box shows alone
   return JSON.stringify([b.tex, b.shape || 'box', b.verts, b.sides, b.hollow, b.top, !!b.align,
-    b.sign, !!b.mover, !!b.hole, b.water, !!b.portal]);
+    b.sign, !!b.mover, !!b.hole, b.water, !!b.portal, ...(b.fill ? [b.lo, b.hi, b.rot || null] : [])]);
 }
 export function drawingShapeKey(p) {
   const { name, pts = [], z, rot, ...shape } = p;
@@ -33,7 +36,9 @@ export function createLiveBlocks(THREE, rotations) {
     const byName = new Map(proxies.map(p => [p.userData.box?.name || p.userData.drawn?.name, p]));
     for (const [name, e] of entries) {
       const p = byName.get(name);
-      e.group.visible = !!p && p.visible && (e.drawn ? canFollowDrawing(p.userData.drawn) : canFollow(p.userData.box));
+      // the box tucked away once built (a Fill block: app.js holeTucked) still shows its faces (14 Nov 2026, Gabby:
+      // "fill does not close the gap", the view showed the void behind it)
+      e.group.visible = !!p && (p.visible || !!p.userData.builtShown) && (e.drawn ? canFollowDrawing(p.userData.drawn) : canFollow(p.userData.box));
       if (e.group.visible) { p.updateMatrix(); e.group.matrix.multiplyMatrices(p.matrix, e.inverse); e.group.matrixWorldNeedsUpdate = true; }
     }
   }
