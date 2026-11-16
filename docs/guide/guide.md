@@ -1026,8 +1026,12 @@ for example): there you can only change objects, not the map's geometry.
   only once even if the game repeats it a hundred times. The tile says how often the game uses it
   and where. Click one, then a floor (it stands on it) or a wall (its front faces out): it becomes
   part of the map with **Rebuild**, like a pasted structure; move, turn and copy it as one.
-  The first time, the Pieces tab reads the game's original maps to find them (**Generate Pieces**):
-  several maps at once, a few minutes in all; after that only changed maps are read again.
+  To find them the editor has to read the game's original maps once. It never starts by itself: the
+  Pieces tab says what it costs and offers **Read the game's maps**. It runs the game's editor in the
+  background, two maps at a time, for several minutes (longer on a slow PC, and the editor is slower
+  meanwhile), and keeps about 1 GB of cache on disk for Revision, about 0.4 GB for Deus Ex, shared by
+  all your projects (its big text files are kept compressed). **Pause scan** stops it; **Resume scan** goes on from where it was. After that
+  only changed maps are read again, with **Refresh scan**.
 - **Game doors and elevators** are in **Objects → Movers**, under **Doors** or **Elevators · two stops**.
   Pieces contains static geometry; Movers contains native moving brushes. Choose a textured preview,
   place it in an opening and **Rebuild**. Doors are individual leaves/panels; use them in Play to

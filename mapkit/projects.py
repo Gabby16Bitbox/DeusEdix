@@ -39,6 +39,7 @@ PYTHON.update({'build_cache.py', 'build_cached.py', 'build_cpu.py', 'preview_bun
 PYTHON.add('patrol_paths.py')          # walking support for drawn patrol routes
 PYTHON.add('infolink_styles.py')       # shared InfoLink styles in existing and new projects
 PYTHON.add('keyconfig.py')             # nanokey ids given by rules and dialogues (links, story)
+PYTHON.add('packed.py')                # the map cache's big text files kept gzip-compressed (data, pieces, prefabs)
 STATIC_EXT = {'.js', '.css', '.html', '.json', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.ogg', '.wav'}
 TUTORIAL_EXT = {'.py', '.json', '.png', '.jpg', '.jpeg', '.wav', '.ogg', '.mp3', '.md'}
 GENERATED = {'UCPortraits.uc', 'UCVoiceDubs.uc', 'UCInfoLinkStyle.uc', 'UCMenuLook.uc'}
@@ -135,7 +136,9 @@ def _apply_editor_update(path, writes, expected):
         originals[rel] = old
     backup = path / '.deusedix-updates' / (datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     for rel, data in originals.items():
-        if data is not None:
+        # not the baseline: it is the editor's own files zipped (28 MB), nothing of the person's, and every update
+        # left one more in every project (14 Nov 2026). A failed update still puts it back, from memory (below).
+        if data is not None and rel != BASE:
             _write(backup / 'files' / rel, data)
     report = dict(version=1, status='prepared', files={rel: dict(before=expected[rel], after=_hash(data))
                                                      for rel, data in changed.items()})
@@ -150,6 +153,7 @@ def _apply_editor_update(path, writes, expected):
             _write(target, data)
             applied.append(rel)
         _json(backup / 'update.json', dict(report, status='complete'))
+        _drop_old_baselines(path)
     except Exception:
         for rel in reversed(applied):
             target = path / rel
@@ -162,6 +166,22 @@ def _apply_editor_update(path, writes, expected):
         _json(backup / 'update.json', dict(report, status='rolled back'))
         raise
     return str(backup)
+
+
+def _drop_old_baselines(path):
+    """The baselines the updates before 14 Nov 2026 kept in their backups (28 MB each): removed, the other files of
+    those backups stay."""
+    try:
+        backups = [d for d in (path / '.deusedix-updates').iterdir() if d.is_dir() and not d.is_symlink()]
+    except OSError:
+        return
+    for d in backups:
+        old = d / 'files' / BASE
+        try:
+            if old.is_file() and not old.is_symlink() and not (d / 'files').is_symlink():
+                old.unlink()
+        except OSError:
+            pass
 
 
 def _read(path):

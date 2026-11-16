@@ -1,3 +1,4 @@
 pillow
+zstd==1.5.7.2
 pywebview==6.2.1
 pyinstaller==6.22.3

@@ -83,7 +83,7 @@ export function createPiecesBrowser({
     const processed = number(scan.processed), total = number(scan.total), found = number(scan.items ?? catalog?.items?.length);
     const gameName = catalog?.gameName || ({ vanilla: 'Deus Ex', revision: 'Deus Ex: Revision' })[catalog?.game] || 'Selected game';
     const failure = readError || scanError || (state === 'error' ? scan.message || 'The local scan could not finish.' : '');
-    let html = `<div class="pieces-scan-toolbar"><button data-pieces-scan ${active ? 'disabled' : ''}>${active ? 'Scanning…' : state === 'paused' ? 'Resume scan' : failure ? 'Retry scan' : 'Refresh scan'}</button>
+    let html = `<div class="pieces-scan-toolbar"><button data-pieces-scan ${active ? 'disabled' : ''}>${active ? 'Scanning…' : state === 'paused' ? 'Resume scan' : failure ? 'Retry scan' : found ? 'Refresh scan' : 'Scan the game’s maps'}</button>
       ${['running', 'pausing'].includes(state) ? `<button data-pieces-pause ${pausing || state === 'pausing' ? 'disabled' : ''}>${pausing || state === 'pausing' ? 'Pausing…' : 'Pause scan'}</button>` : ''}<select data-pieces-material title="Filter by material" aria-label="Material"><option value="">All materials</option>${[...new Set((catalog?.items || []).flatMap(i => i.materials || []))].sort().map(m => `<option ${material === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select><span class="hint">${esc(gameName)} · from your installed maps · project-local cache</span></div>`;
     if (active) {
       html += `<div class="pieces-scan-progress" role="status" aria-live="polite"><span>${total ? `${processed} / ${total} maps` : 'Finding installed maps…'} · ${found} pieces found</span>
@@ -171,12 +171,19 @@ export function createPiecesBrowser({
     }
     if (!html) {
       const running = ['running', 'pausing'].includes(catalog?.scan?.state) || scanning;
+      // never read (or only begun): what reading the game's maps costs, and the button that starts it
+      const state = catalog?.scan?.state || 'idle', ask = !items.length && !running && !readError && ['idle', 'paused'].includes(state);
+      const cost = catalog?.game === 'vanilla' ? 'about 0.4 GB' : 'about 1 GB';      // measured 16 Nov 2026, packed (packed.py)
+      const Noun = noun[0].toUpperCase() + noun.slice(1);
       const text = items.length ? `No ${noun} match these words.` : running
-        ? `Scanning installed maps. ${noun[0].toUpperCase() + noun.slice(1)} will appear here as they are found; you can keep working.`
+        ? `Scanning installed maps. ${Noun} will appear here as they are found; you can keep working.`
+        : ask ? `${Noun} are taken from the maps of your game, so they have to be read once. Reading them all runs the game’s editor in the background for several minutes (longer on a slow PC: the editor is slower meanwhile) and keeps ${cost} of cache on disk, shared by all your projects. You can pause it and go on later. <button data-pieces-first>${state === 'paused' ? 'Go on reading the game’s maps' : 'Read the game’s maps'}</button>`
         : `No ${noun} are cached yet. Check the selected game installation, then refresh the scan.`;
       html = `<div class="hint pieces-empty">${text}</div>`;
     }
     target.innerHTML = html;
+    const first = target.querySelector('[data-pieces-first]');
+    if (first) first.onclick = () => { void scan(false); };
     for (const detail of target.querySelectorAll('details')) detail.addEventListener('toggle', () => {
       if (!query) (detail.open ? openCategories.add(detail.dataset.cat) : openCategories.delete(detail.dataset.cat));
       thumbnails();
@@ -251,10 +258,10 @@ export function createPiecesBrowser({
     catch (error) { if (!disposed && revision === generation) readError = error?.message || String(error); }
     if (disposed || revision !== generation) return;
     draw();
-    const state = catalog?.scan?.state || 'idle';
-    if (catalog && !autoAttempted && !['running', 'error', 'paused', 'pausing'].includes(state) && (!catalog.items.length || catalog.scan?.stale))
-      await scan(true);
-    else poll();
+    // No scan starts by itself (14 Nov 2026): the first one reads every map of the game, minutes of two engines at
+    // work and gigabytes of cache, which a tester met without having asked for them. The panel says what it costs and
+    // offers it (draw: data-pieces-first); maps that changed since are said, with Refresh scan.
+    poll();
   }
 
   async function place(id) {

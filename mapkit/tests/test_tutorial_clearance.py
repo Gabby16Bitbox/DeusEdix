@@ -12,10 +12,10 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(KIT), str(KIT/'editor')]
-import data, kit, sizes, t3d
+import data, kit, packed, sizes, t3d
 
 folder = data.prepare('00_DeusEdix_Tutorial')
-actors = {a['name']: a for a in t3d.actors((folder/'scene.t3d').read_text(encoding='latin1'))}
+actors = {a['name']: a for a in t3d.actors(packed.read_text(folder/'scene.t3d', encoding='latin1'))}       # (plain or packed)
 meshes = json.loads((folder/'meshes.json').read_text())
 dimensions = sizes.load()
 models = {}

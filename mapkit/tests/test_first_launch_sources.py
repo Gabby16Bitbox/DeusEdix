@@ -61,7 +61,8 @@ class CompilerSourcesTests(unittest.TestCase):
         tree=ast.parse(source)
         nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('_owners','_assemble')]   # with the helper it calls
         module=ast.Module(body=nodes,type_ignores=[])
-        namespace=dict(json=json,OUT=self.root,structures=lambda name:{},PF={})
+        import packed                    # _assemble reads polys.json plain or packed (packed.py)
+        namespace=dict(json=json,OUT=self.root,structures=lambda name:{},PF={},packed=packed)
         exec(compile(module,'_assemble','exec'),namespace)
         folder=self.root/'geometry';folder.mkdir()
         for name,content in [('polys',[]),('textures',{}),('brushes',[]),('texflags',{'Package.Leaves':2,'Package.Glass':4})]:

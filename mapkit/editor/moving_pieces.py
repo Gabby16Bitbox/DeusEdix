@@ -13,6 +13,7 @@ import atomicfile
 import data
 import kit
 import t3d
+import packed
 
 VERSION = 1
 CATEGORIES = ['Doors · moving', 'Elevators · two stops']
@@ -21,9 +22,9 @@ ASSETS = 'moving-pieces.json'
 
 
 def _stamp(folder):
-    p = Path(folder) / 'scene.t3d'
-    s = p.stat()
-    return [VERSION, s.st_mtime_ns, s.st_size]
+    # the T3D's date and size, the same once it is packed (packed.signature): what was stamped before still matches
+    mtime, size = packed.signature(Path(folder) / 'scene.t3d')
+    return [VERSION, mtime, size]
 
 
 def cached(folder):
@@ -78,7 +79,7 @@ def prepare(folder, source, log=print):
     folder = Path(folder)
     if cached(folder) is not None:
         return
-    actors = [a for a in t3d.actors((folder / 'scene.t3d').read_text(encoding='latin1')) if kind(a)]
+    actors = [a for a in t3d.actors(packed.read_text(folder / 'scene.t3d', encoding='latin1')) if kind(a)]
     meshes = {}
     if actors:
         wanted = {a['name'] for a in actors}
@@ -92,6 +93,7 @@ def prepare(folder, source, log=print):
                               not (folder / info[part['tex']]['png']).is_file())}
         if len(meshes) != len(wanted) or missing():
             session = kit.Session([Path(source)], 'pieces-movers-' + Path(source).stem)
+            read = False
             try:
                 session.cmd('MAP LOAD FILE="..\\Input\\%s"' % Path(source).name)
                 if len(meshes) != len(wanted):
@@ -101,8 +103,11 @@ def prepare(folder, source, log=print):
                 if missing():
                     info.update(data.export_textures(session, missing(), folder, log))
                     atomicfile.write_json(folder / 'textures.json', info)
+                read = True
             finally:
                 session.close()
+                if read:
+                    kit.discard(session.folder)     # all it wrote was read (kit.discard)
     atomicfile.write_json(folder / ASSETS, dict(stamp=_stamp(folder), meshes=meshes))
 
 
@@ -113,7 +118,7 @@ def entries(folder, map_name):
         return []
     info = json.loads((Path(folder) / 'textures.json').read_text(encoding='utf-8'))
     rows = []
-    for actor in t3d.actors((Path(folder) / 'scene.t3d').read_text(encoding='latin1')):
+    for actor in t3d.actors(packed.read_text(Path(folder) / 'scene.t3d', encoding='latin1')):
         what = kind(actor)
         mesh = assets['meshes'].get(actor['name'])
         if not what or not mesh or not mesh.get('parts'):

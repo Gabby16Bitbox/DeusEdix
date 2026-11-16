@@ -148,17 +148,83 @@ def _ini(system):
     return '\n'.join(out) + '\n'
 
 
-def prune(keep=20):
-    """Delete all but the newest private runs (their System files are mostly hard links; a run
-    still in use keeps its locked files and is skipped)."""
+KEEP_RUNS = 8           # the finished runs kept for their logs and outputs (their System links are gone: release_system)
+STALE_LINKS = 600       # a kept run this old (seconds) with no host running loses the links a crash or an older editor left
+
+
+def run_busy(folder):
+    """A host still runs in this run (Windows refuses to open a running program for writing), or a resident engine
+    holds it (resident_build.run_in_use)."""
+    import resident_build
+    if resident_build.run_in_use(folder):
+        return True
+    exe = Path(folder) / 'System' / HOST.name
+    if not exe.is_file():
+        return False
+    try:
+        with exe.open('r+b'):
+            return False
+    except OSError:
+        return True
+
+
+def release_system(folder):
+    """Once a run's host has ended: the hard links of its System go (the game's and the editor's programs and
+    packages, about 580 MB a run as Explorer counts them, though they take no space: 20 runs looked like 12 GB of
+    junk in a project, 14 Nov 2026). Its ini files, logs, outputs and what the run itself wrote stay; link_system puts
+    the links back when the run is used again. Never while a host runs in it. -> how many links went."""
+    system = Path(folder) / 'System'
+    if os.environ.get('DEUSEDIX_KEEP_RUN_LINKS') or not system.is_dir() or run_busy(folder):
+        return 0
+    gone = 0
+    for path in system.iterdir():
+        try:
+            if path.suffix.lower() in LINKED and path.is_file() and path.stat().st_nlink > 1:
+                path.unlink()               # this name only: the file it shares stays where it is
+                gone += 1
+        except OSError:
+            pass
+    return gone
+
+
+def _run_age(d):
+    """Seconds since a run was made, by its name (new_run), else by its folder's time."""
+    try:
+        return time.time() - time.mktime(time.strptime(d.name[:15], '%Y%m%d-%H%M%S'))
+    except ValueError:
+        try:
+            return time.time() - d.stat().st_mtime
+        except OSError:
+            return 0.0
+
+
+def prune(keep=None):
+    """Delete all but the newest private runs (a run still in use is skipped), and take the System links of the kept
+    ones that are old and idle (release_system: runs of an editor before 14 Nov 2026, or of a host that crashed)."""
     if not RUNS.exists():
         return
+    keep = KEEP_RUNS if keep is None else keep
     runs = sorted((d for d in RUNS.iterdir() if d.is_dir()), key=lambda d: d.name)
     for d in runs[:-keep]:
-        import resident_build
-        if resident_build.run_in_use(d):
+        if run_busy(d):
             continue
         shutil.rmtree(d, ignore_errors=True)
+    for d in runs[-keep:]:
+        if _run_age(d) > STALE_LINKS:
+            release_system(d)
+
+
+def discard(folder):
+    """A finished run whose outputs were taken: deleted now, not at a later prune (the scan of the game's maps for the
+    Pieces library left up to 90 MB a map in the 20 runs kept). Only a folder of RUNS, never one in use."""
+    folder = Path(folder)
+    try:
+        if folder.resolve().parent != RUNS.resolve() or not folder.is_dir() or run_busy(folder):
+            return False
+    except OSError:
+        return False
+    shutil.rmtree(folder, ignore_errors=True)
+    return not folder.exists()
 
 
 def host_files():
@@ -207,6 +273,42 @@ def editor_packages():
     return settings.MODELS_PACKAGE, settings.SOUNDS_PACKAGE, settings.SCRIPTS_PACKAGE
 
 
+def link_system(system):
+    """The programs and packages a run's host loads, as hard links in its System: DEV's (themselves the game's), the
+    editor's own from dist, the packages of other mods. A name already there is kept (the host and DeusEdixNav, which
+    new_run copies; what the run wrote), so a run whose links release_system took gets them back."""
+    system = Path(system)
+    own = [name + '.u' for name in (settings.PACKAGE, settings.VOICES_PACKAGE) + editor_packages()]
+    for path in DEV.iterdir():
+        if path.is_file() and path.suffix.lower() in LINKED:
+            if path.name in own or (system / path.name).exists():
+                continue
+            os.link(path, system / path.name)
+    for name in own:
+        source = PROJECT / 'dist' / name
+        if source.exists() and not (system / name).exists():
+            os.link(source, system / name)      # a link, not a copy: the voices alone are 37 MB
+    for p in extra_packages():                  # a package of another mod kept outside the game's folders
+        source = Path(p.get('path') or '')
+        if p.get('path') and source.is_file() and not (system / source.name).exists():
+            try:
+                os.link(source, system / source.name)
+            except OSError:
+                atomicfile.copy_file(source, system / source.name)
+
+
+def relink_system(folder):
+    """link_system for a run that is used again, when it can be done: a run with no System, or made where DEV is not
+    (a test's own folder), is left as it is, and its host says what it misses as before."""
+    system = Path(folder) / 'System'
+    if not system.is_dir() or not DEV.is_dir():
+        return
+    try:
+        link_system(system)
+    except OSError:
+        pass
+
+
 def new_run(inputs=(), label='run'):
     """Create a private run. inputs: paths of maps (or other files) copied into Input\\."""
     if not HOST.exists():
@@ -215,26 +317,9 @@ def new_run(inputs=(), label='run'):
     folder = RUNS / (time.strftime('%Y%m%d-%H%M%S-') + label + '-' + uuid.uuid4().hex[:6])
     system = folder / 'System'
     system.mkdir(parents=True)
-    own = [name + '.u' for name in (settings.PACKAGE, settings.VOICES_PACKAGE) + editor_packages()]
-    for path in DEV.iterdir():
-        if path.is_file() and path.suffix.lower() in LINKED:
-            if path.name in own:
-                continue
-            os.link(path, system / path.name)
-    for name in own:
-        source = PROJECT / 'dist' / name
-        if source.exists():
-            os.link(source, system / name)      # a link, not a copy: the voices alone are 37 MB
     for f in host_files() + native_files():     # the newest build of DeusEdixNav, not a copy left in DEV
-        (system / f.name).unlink(missing_ok=True)
         shutil.copy2(f, system / f.name)
-    for p in extra_packages():                  # a package of another mod kept outside the game's folders
-        source = Path(p.get('path') or '')
-        if p.get('path') and source.is_file() and not (system / source.name).exists():
-            try:
-                os.link(source, system / source.name)
-            except OSError:
-                atomicfile.copy_file(source, system / source.name)
+    link_system(system)
     # the run's System is mostly hard links (to DEV's files, themselves the game's): a write replaces a name, never
     # writes into a file it shares
     for path in DEV.glob('*.ini'):
@@ -262,6 +347,14 @@ def execute(folder, commands, log_name='host.log', timeout=3600, echo=False, tri
     Stopped: no retry). In a map script the editor runs, the run's log is named in its HOST_LOG_ENV file (LogNote)."""
     if watch is None and os.environ.get(HOST_LOG_ENV):
         watch = LogNote(os.environ[HOST_LOG_ENV])
+    relink_system(folder)                           # a run used again: the links its last host's end took
+    try:
+        return _execute_tries(folder, commands, log_name, timeout, echo, tries, watch, prepared)
+    finally:
+        release_system(folder)                      # the host has ended: its System's links go (release_system)
+
+
+def _execute_tries(folder, commands, log_name, timeout, echo, tries, watch, prepared):
     for attempt in range(tries):
         try:
             return _execute(folder, commands, log_name, timeout, echo and attempt == tries - 1, watch,
@@ -360,6 +453,7 @@ class _PreparedBuild:
         except (BrokenPipeError, OSError):
             pass
         self.stream.close()
+        release_system(self.folder)
 
 
 @contextmanager
@@ -400,6 +494,8 @@ class Session:
         import queue
         import threading
         self.folder = Path(folder) if folder else new_run(inputs, label)
+        if folder:
+            relink_system(self.folder)              # a run used again: the links its last host's end took
         self.log = (self.folder / 'session.log').open('a', encoding='utf-8')
         self.proc = subprocess.Popen([str(self.folder / 'System' / HOST.name), '-'], cwd=self.folder / 'System',
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -480,4 +576,9 @@ class Session:
             self.proc.wait(timeout=120)
         except Exception:
             self.proc.kill()
+            try:
+                self.proc.wait(timeout=30)
+            except Exception:
+                pass
         self.log.close()
+        release_system(self.folder)                 # the host has ended: its System's links go

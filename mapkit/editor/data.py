@@ -21,6 +21,7 @@ import activation  # noqa: E402
 import props as props_mod  # noqa: E402
 import build_cpu  # noqa: E402
 from itemcatalog import inventory_catalog, placement_metadata  # noqa: E402
+import packed
 
 CACHE = HERE / 'cache'
 OUT = KIT / 'out'
@@ -107,7 +108,7 @@ def prepare(map_name, force=False, log=print, src=None, analyse=None, lite=False
     folder = map_folder(map_name)
     stamp = folder / 'stamp.txt'
     key = _stamp(src)
-    if force or not stamp.exists() or stamp.read_text() != key or not (folder / 'polys.json').exists():
+    if force or not stamp.exists() or stamp.read_text() != key or not packed.exists(folder / 'polys.json'):
         _dump(map_name, src, folder, log, lite)
         stamp.write_text(key)
         (folder / 'assembled.txt').unlink(missing_ok=True)
@@ -118,9 +119,12 @@ def prepare(map_name, force=False, log=print, src=None, analyse=None, lite=False
     gfile = OUT / (map_name + '.groups.json')
     akey = key + '-a%d' % ASSEMBLY + ('-%d' % gfile.stat().st_mtime_ns if gfile.exists() else '')
     done = folder / 'assembled.txt'
-    if not done.exists() or done.read_text() != akey or not (folder / 'geometry.json').exists():
+    if not done.exists() or done.read_text() != akey or not packed.exists(folder / 'geometry.json'):
         _assemble(map_name, folder)
         done.write_text(akey)
+    # its big text files are kept packed (packed.py): three quarters of the cache, a tenth of them once packed. The map
+    # shown is packed fast (its Rebuild waits for it: a third of a second for a map of 80 MB)
+    packed.pack_folder(folder, packed.SMALL if lite else packed.FAST)
     return folder
 
 
@@ -208,6 +212,8 @@ def _dump_session(map_name, src, folder, log, lite=False, cached=None):
             lightmap_atlas(lights, folder, log)
     finally:
         s.close()
+    if cached is None:
+        kit.discard(s.folder)       # all it wrote was read: up to 90 MB a map, not left for a later prune (kit.discard)
     (folder / 'psurf.json').write_text(json.dumps(psurf), encoding='utf-8')
     (folder / 'pface.json').write_text(json.dumps(pface), encoding='utf-8')
     (folder / 'pzone.json').write_text(json.dumps(pzone), encoding='utf-8')
@@ -270,7 +276,7 @@ def _owners(map_name, brushes):
 def _assemble(map_name, folder):
     """geometry.json: the polygons as triangles with UVs, one mesh per texture (per structure)."""
     from texture_mapping import frame
-    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    polys = json.loads(packed.read_text(folder / 'polys.json', encoding='utf-8'))
     tex_info = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
     brushes = json.loads((folder / 'brushes.json').read_text(encoding='utf-8'))
     owner = _owners(map_name, brushes)
@@ -362,7 +368,7 @@ def views(map_name):
         old = json.loads(cached.read_text(encoding='utf-8'))
         if old.get('key') == key:
             return old
-    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    polys = json.loads(packed.read_text(folder / 'polys.json', encoding='utf-8'))
     owner = _owners(map_name, json.loads((folder / 'brushes.json').read_text(encoding='utf-8')))
     psurf = json.loads((folder / 'psurf.json').read_text(encoding='utf-8')) if (folder / 'psurf.json').exists() else []
     pzone = json.loads((folder / 'pzone.json').read_text(encoding='utf-8')) if (folder / 'pzone.json').exists() else {}
@@ -400,9 +406,9 @@ def zone_looks(map_name):
     import zones
     folder = map_folder(map_name)
     names = json.loads((folder / 'pzone.json').read_text(encoding='utf-8')).get('zones') if (folder / 'pzone.json').exists() else None
-    if not names or not (folder / 'scene.t3d').exists():
+    if not names or not packed.exists(folder / 'scene.t3d'):
         return []
-    found = {a['name']: a for a in t3d.actors((folder / 'scene.t3d').read_text(encoding='latin1', errors='replace'))}
+    found = {a['name']: a for a in t3d.actors(packed.read_text(folder / 'scene.t3d', encoding='latin1', errors='replace'))}
     level = next((a for a in found.values() if a['cls'] == 'LevelInfo'), None)    # not DeusExLevelInfo (an Info)
     try:
         classes = props_mod.defaults(log=lambda *a: None).get('classes', {})
@@ -739,16 +745,16 @@ EDITABLE_SKIP = ('Brush', 'LevelInfo', 'DeusExLevelInfo', 'ZoneInfo', 'SkyZoneIn
 def object_tags(map_name):
     import object_tags as scripting_tags
     path = map_folder(map_name) / 'scene.t3d'
-    if not path.exists():path = OUT / (map_name + '.t3d')
-    return scripting_tags.from_text(path.read_text(encoding='latin1', errors='replace')) if path.exists() else {}
+    if not packed.exists(path):path = OUT / (map_name + '.t3d')
+    return scripting_tags.from_text(packed.read_text(path, encoding='latin1', errors='replace')) if packed.exists(path) else {}
 
 
 def actors(map_name):
     """Actors of the map shown in the editor with position, rotation, collision size and a category."""
     path = map_folder(map_name) / 'scene.t3d'
-    if not path.exists():
+    if not packed.exists(path):
         path = OUT / (map_name + '.t3d')
-    text = path.read_text(encoding='latin1', errors='replace')
+    text = packed.read_text(path, encoding='latin1', errors='replace')
     out = []
     cache = sizes.load()
     try:

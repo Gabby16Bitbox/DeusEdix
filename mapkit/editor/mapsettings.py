@@ -29,6 +29,7 @@ import sys  # noqa: E402
 sys.path.insert(0, str(KIT))
 import settings  # noqa: E402
 import player_profiles
+import packed
 MUSIC_DIR = settings.REVISION / 'Music'
 ROLES = [('AmbientIntroOggFile', 'Exploring: intro', 'Ambientintro'), ('AmbientOggFile', 'Exploring', 'Ambient'),
          ('CombatOggFile', 'Combat', 'Combat'), ('ConversationOggFile', 'Conversations', 'Convo'),
@@ -111,7 +112,7 @@ def _block(text, cls):
 def _scene(map_name):
     """The map as the editor last looked at it (cache/<map>/scene.t3d), '' before that."""
     path = CACHE / map_name / 'scene.t3d'
-    return path.read_text(encoding='latin-1', errors='replace') if path.exists() else ''
+    return packed.read_text(path, encoding='latin-1', errors='replace') if packed.exists(path) else ''
 
 
 def true_north(map_name):

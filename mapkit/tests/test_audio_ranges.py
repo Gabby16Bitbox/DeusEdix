@@ -28,7 +28,9 @@ def file_handler(folder):
     methods = [node for node in original.body if isinstance(node, ast.FunctionDef)
                and node.name in ('_send', '_audio_file', '_file')]
     assert len(methods) == 3, 'Test the real range implementation, not a substitute'
-    namespace = dict(json=json, mimetypes=mimetypes, os=os, re=re)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import packed                        # _file looks for a packed form of a file that is not there (packed.py)
+    namespace = dict(json=json, mimetypes=mimetypes, os=os, re=re, packed=packed)
     exec(compile(ast.Module(body=methods, type_ignores=[]), str(SOURCE), 'exec'), namespace)
 
     class Handler(BaseHTTPRequestHandler):

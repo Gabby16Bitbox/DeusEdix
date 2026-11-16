@@ -28,6 +28,7 @@ import classes
 import prefabs
 import settings
 import t3d
+import packed
 
 ROOT = prefabs.ROOT
 _ID = re.compile(r'usr_[a-f0-9]{32}')
@@ -57,10 +58,11 @@ def _safe(root, path):
 
 def _read_json(root, name):
     path = _safe(root, Path(root) / name)
-    if not path.is_file() or path.stat().st_size > _MAX_BYTES:
+    # (a big file of the map cache may be kept packed: packed.py; its size is the size of what it holds)
+    if not packed.exists(path) or packed.signature(path)[1] > _MAX_BYTES:
         raise ValueError('Rebuild and reopen the map: its prefab snapshot data is missing or too large (%s).' % name)
     try:
-        return json.loads(path.read_text(encoding='utf-8'))
+        return json.loads(packed.read_text(path, encoding='utf-8'))
     except (OSError, ValueError) as exc:
         raise ValueError('Cannot read prefab snapshot data: %s.' % name) from exc
 
@@ -225,9 +227,9 @@ def _capture(map_name, selection, folder, structures):
         raise ValueError('Invalid source map for this prefab.')
     folder = Path(folder)
     source = _safe(folder, folder / 'scene.t3d')
-    if not source.is_file() or source.stat().st_size > _MAX_BYTES:
+    if not packed.exists(source) or packed.signature(source)[1] > _MAX_BYTES:
         raise ValueError('Rebuild and reopen the map before saving this prefab.')
-    text = source.read_text(encoding='latin1')
+    text = packed.read_text(source, encoding='latin1')
     parsed = list(t3d.actors(text))
     actors = {actor['name']: actor for actor in parsed}
     if len(actors) != len(parsed):

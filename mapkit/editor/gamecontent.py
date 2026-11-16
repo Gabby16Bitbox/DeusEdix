@@ -8,6 +8,7 @@ import kit
 import t3d
 
 import settings  # noqa: E402
+import packed
 CACHE = settings.GAME_CACHE / '_gamecontent'     # shared by the game's projects
 VERSION = 1
 _memory = {}
@@ -53,8 +54,8 @@ def text(package, tag, map_name=''):
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', map_name):
             raise ValueError('Invalid map name.')
         file = Path(__file__).resolve().parent / 'cache' / map_name / 'scene.t3d'
-        if file.is_file():
-            for actor in t3d.actors(file.read_text(encoding='latin1')):
+        if packed.exists(file):
+            for actor in t3d.actors(packed.read_text(file, encoding='latin1')):
                 p = {k.lower(): v for k, v in actor['props'].items()}
                 if actor['cls'].split('.')[-1] == 'UCTextBlock' and p.get('textname', '').lower() == tag.lower():
                     chunks = [p.get('text', '""')] + [p.get('textmore(%d)' % i, '""') for i in range(64)]
@@ -91,9 +92,9 @@ def mission_flags(map_name):
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', str(map_name)):
         raise ValueError('Invalid map name.')
     file = Path(__file__).resolve().parent / 'cache' / map_name / 'scene.t3d'
-    if not file.is_file():
+    if not packed.exists(file):
         return dict(map=map_name, flags={}, classes=[], message='Build or open this map to read its mission script.')
-    level = next((a['props'] for a in t3d.actors(file.read_text(encoding='latin1')) if a['cls'].split('.')[-1] == 'DeusExLevelInfo'), {})
+    level = next((a['props'] for a in t3d.actors(packed.read_text(file, encoding='latin1')) if a['cls'].split('.')[-1] == 'DeusExLevelInfo'), {})
     script = gamecons.ref({k.lower(): v for k,v in level.items()}.get('script', ''))
     result = dict(map=map_name, script=script, flags={}, classes=[], message='')
     if not script:

@@ -21,6 +21,7 @@ from pathlib import Path
 import data
 import atomicfile
 import moving_pieces
+import packed
 
 HERE = Path(__file__).resolve().parent
 CATALOG = HERE.parent / 'catalog' / 'objects.json'
@@ -50,7 +51,7 @@ CATEGORIES = [
 
 
 def _maps():
-    return sorted(p.name[4:] for p in data.GAME_CACHE.glob('ref_*') if (p / 'brushes.json').exists() and (p / 'polys.json').exists())
+    return sorted(p.name[4:] for p in data.GAME_CACHE.glob('ref_*') if (p / 'brushes.json').exists() and packed.exists(p / 'polys.json'))
 
 
 def own_flags(folder):
@@ -94,7 +95,7 @@ def _category(tex, flags, size):
 def _clusters(folder):
     """Detail brushes (semisolid / non-solid, added, visible) that touch -> lists of brushes."""
     brushes = json.loads((folder / 'brushes.json').read_text(encoding='utf-8'))
-    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    polys = json.loads(packed.read_text(folder / 'polys.json', encoding='utf-8'))
     seen = defaultdict(int)
     for tex, flags, nums, verts, brush in polys:
         if not flags & PF_FAKE:
@@ -249,7 +250,7 @@ def prefab(oid, log=print, pid=None):
               placement=dict(offset=[0, 0, 0], yaw=0), rotatable=True)
     if it.get('kind') in ('door', 'elevator'):
         import t3d
-        actor = next(a for a in t3d.actors((folder / 'scene.t3d').read_text(encoding='latin1')) if a['name'] == it['actors'][0])
+        actor = next(a for a in t3d.actors(packed.read_text(folder / 'scene.t3d', encoding='latin1')) if a['name'] == it['actors'][0])
         raw = moving_pieces.template(actor, it['kind'], it['tex'])
         block = dict(name=actor['name'], cls='DeusExMover', brush=False, mover=True, raw=raw)
         dst = prefabs.ROOT / pid

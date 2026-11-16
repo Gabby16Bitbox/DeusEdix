@@ -74,6 +74,7 @@ import mods  # noqa: E402
 import agent_bridge  # noqa: E402
 import local_guard  # noqa: E402
 import logic_catalog  # noqa: E402
+import packed
 
 PORT = int(os.environ.get('DEUSEDIX_PORT') or 8790)      # DeusEdix's launcher picks a free one
 STATIC = HERE / 'static'
@@ -187,7 +188,7 @@ def copy_actor(map_name, name):
     """An object of the map shown, with the properties that make it look the way it does there
     (skins, scale, light...): pasted as a new object anywhere."""
     import t3d
-    text = (data.CACHE / map_name / 'scene.t3d').read_text(encoding='latin1', errors='replace')
+    text = packed.read_text(data.CACHE / map_name / 'scene.t3d', encoding='latin1', errors='replace')
     for a in t3d.actors(text):
         if a['name'] == name:
             props = {k: v for k, v in a['props'].items() if COPY_PROPS.match(k) and "'MyLevel." not in v}
@@ -697,6 +698,8 @@ class Handler(BaseHTTPRequestHandler):
     def _file(self, path, keep=False):
         """keep: the browser may keep it and ask again whether it changed (304: nothing to send). For what
         the editor made from the game on this PC (textures, models, previews), not for the editor's code."""
+        if not path.is_file() and packed.form_of(packed.real(path)):
+            return self._packed_file(path)          # a big file of the map cache, kept packed (packed.py)
         if not path.exists() or not path.is_file():
             return self._send(404, {'error': 'not found'})
         if path.suffix.lower() in ('.wav', '.mp3', '.ogg', '.flac', '.m4a', '.opus'):
@@ -717,6 +720,39 @@ class Handler(BaseHTTPRequestHandler):
         body = path.read_bytes()
         self.send_response(200)
         self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('ETag', tag)
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _packed_file(self, path):
+        """A file of the map cache kept packed (packed.py), as the file it is: sent as it lies on disk to a browser
+        that takes its coding (zstd: Chromium and the app's own view do, on this PC's address too; gzip: every one),
+        unpacked otherwise. The browser keeps it, as _file's keep."""
+        try:
+            mtime, size = packed.signature(path)
+            stored = packed.real(path)
+        except OSError:
+            return self._send(404, {'error': 'not found'})
+        coding = {packed.ZST: 'zstd', packed.GZ: 'gzip'}.get(packed.form_of(stored))
+        tag = '"%x-%x"' % (mtime, size)
+        if self.headers.get('If-None-Match') == tag:
+            self.send_response(304)
+            self.send_header('ETag', tag)
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            return
+        taken = {part.split(';')[0].strip().lower() for part in (self.headers.get('Accept-Encoding') or '').split(',')}
+        as_stored = coding is not None and coding in taken
+        try:
+            body = stored.read_bytes() if as_stored else packed.read_bytes(path)
+        except OSError:
+            return self._send(404, {'error': 'not found'})
+        self.send_response(200)
+        self.send_header('Content-Type', mimetypes.guess_type(str(path))[0] or 'application/octet-stream')
+        if as_stored:
+            self.send_header('Content-Encoding', coding)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('ETag', tag)
         self.send_header('Cache-Control', 'no-cache')

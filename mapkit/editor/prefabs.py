@@ -23,6 +23,7 @@ ROOT = KIT / 'prefabs'
 import sys  # noqa: E402
 sys.path.insert(0, str(KIT))
 import settings  # noqa: E402
+import packed
 GAME_TEXTURES = settings.TEXTURE_DIRS[0]          # Revision\Textures, or the original game's Textures
 GAME_TEXTURES_DX = settings.GAME / 'Textures'
 
@@ -82,7 +83,7 @@ def region_piece(map_name, spec, log=print):
     lo, hi, skip = spec.get('lo'), spec.get('hi'), set(spec.get('skip') or [])
     actors = []
     if lo and hi:
-        text = (Path(folder) / 'scene.t3d').read_text(encoding='latin1', errors='replace')
+        text = packed.read_text(Path(folder) / 'scene.t3d', encoding='latin1', errors='replace')
         for a in t3d.actors(text):
             if a['cls'] == 'Brush' or a['name'] in skip or a['cls'] in (spec.get('skip_cls') or []):
                 continue
@@ -101,7 +102,7 @@ def _original(map_name, name, log=print):
     _, folder, _ = dxmaps.reference(map_name, log=log)
     import build_cache
     try:
-        return build_cache.actor(Path(folder) / 'scene.t3d', name, t3d.actors)
+        return build_cache.actor(Path(folder) / 'scene.t3d', name, t3d.actors)      # (plain or packed: build_cache)
     except KeyError:
         raise KeyError('%s has no %s' % (map_name, name)) from None
 
@@ -161,7 +162,7 @@ def copy(map_name, structure, cache_folder, structures, pid=None):
         if 0 <= i < len(brushes):
             names.add(brushes[i]['name'])
     actor_names = set(st.get('actors') or [])
-    text = (folder / 'scene.t3d').read_text(encoding='latin1', errors='replace')
+    text = packed.read_text(folder / 'scene.t3d', encoding='latin1', errors='replace')
     blocks, used_tex = [], set()
     for a in t3d.actors(text):
         if a['name'] in names or a['name'] in actor_names:
@@ -186,7 +187,7 @@ def copy(map_name, structure, cache_folder, structures, pid=None):
     dst = ROOT / pid
     (dst / 'tex').mkdir(parents=True, exist_ok=True)
     # preview: the structure's polygons as the editor shows them, with their textures
-    geo = json.loads((folder / 'geometry.json').read_text(encoding='utf-8'))
+    geo = json.loads(packed.read_text(folder / 'geometry.json', encoding='utf-8'))
     groups, textures = [], {}
     for g in geo['groups']:
         if g.get('structure') != structure:
@@ -220,7 +221,7 @@ def _facing(folder, brushes, names):
     """Which way the piece looks in its map (yaw, Unreal units): the side its visible upright faces
     turn to, weighted by area (a sign, a neon, a wall lamp). None when it has no clear front."""
     import math
-    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    polys = json.loads(packed.read_text(folder / 'polys.json', encoding='utf-8'))
     ords = {b['ord'] for b in brushes if b['name'] in names}
     sx = sy = tot = 0.0
     for tex, flags, nums, verts, brush in polys:
@@ -246,7 +247,7 @@ def _hide_unseen_faces(blocks, folder, brushes, text):
     leftover textures on the others) become invisible in the copy: seen from a new angle they would
     show those leftovers. Visible = matches a polygon the original BSP draws for that brush."""
     import t3d
-    polys = json.loads((folder / 'polys.json').read_text(encoding='utf-8'))
+    polys = json.loads(packed.read_text(folder / 'polys.json', encoding='utf-8'))
     ordinal = {b['name']: b['ord'] for b in brushes}
     seen = {}
     for tex, flags, nums, verts, brush in polys:
@@ -322,9 +323,8 @@ def display_file(pid):
     if re.fullmatch(r'[\w.-]+', source):
         for folder in (data.map_folder('ref_' + source), data.map_folder(source)):
             p = folder / 'polys.json'
-            if p.is_file():
-                st = p.stat()
-                paths.append((str(p), st.st_mtime_ns, st.st_size))
+            if packed.exists(p):
+                paths.append((str(p), *packed.signature(p)))       # the same once the file is packed
     key = json.dumps([DISPLAY_VERSION, stat.st_mtime_ns, stat.st_size, paths])
     kept = data.CACHE / '_prefab_display' / ('%s-%s.json' % (pid, hashlib.sha256(key.encode()).hexdigest()[:16]))
     if kept.is_file():

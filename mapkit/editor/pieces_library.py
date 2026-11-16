@@ -23,6 +23,7 @@ import moving_pieces
 import prefabs
 import settings
 import t3d
+import packed
 
 _MAP = re.compile(r'[0-9]{2}_[A-Za-z0-9_-]+')
 _OBJECT = re.compile(moving_pieces.IDENTITY)
@@ -224,7 +225,7 @@ def _cache_valid(name, signature, identity, objects=True):
         marker = json.loads(_safe(folder, folder / 'pieces-source.json').read_text(encoding='utf-8'))
         if marker != dict(identity=identity, source=signature):
             return False
-        if any(not _safe(folder, folder / file).is_file() for file in _REQUIRED):
+        if any(not packed.exists(_safe(folder, folder / file)) for file in _REQUIRED):      # (the big ones, plain or packed)
             return False
         textures = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
         if not isinstance(textures, dict):
@@ -245,7 +246,7 @@ def _cache_health(name, signature, identity):
     """Short GET-only health memo; scans/placement always recheck every asset."""
     folder = _cache_folder(name)
     try:
-        stamps = tuple((file, path.stat().st_mtime_ns, path.stat().st_size) for file in (*_REQUIRED, 'pieces-source.json', moving_pieces.ASSETS)
+        stamps = tuple((file, *packed.signature(path)) for file in (*_REQUIRED, 'pieces-source.json', moving_pieces.ASSETS)
                        for path in [_safe(folder, folder / file)])
         object_path = _safe(gamelib.CACHE, gamelib.CACHE / (name + '.json'))
         stamps += (('objects', object_path.stat().st_mtime_ns, object_path.stat().st_size),)
@@ -317,6 +318,14 @@ def _run(lock, maps, identity, prepare, operation, waiting=lambda: False):
         if existing:
             ready = {name: value for name, value in existing['maps'].items() if name in maps and
                      _stat_matches(maps[name], value) and _cache_valid(name, value, identity)}
+        # the caches read before 14 Nov 2026 keep their big text files plain: packed now (packed.py), once, about a
+        # second a map; nothing of the SDK is used, so no lock is held
+        for name in list(ready):
+            if _cancel.is_set():
+                return
+            if any((_cache_folder(name) / file).is_file() for file in packed.NAMES):
+                _update(current=name, message='Packing the cache of %s…' % name)
+                packed.pack_folder(_cache_folder(name))
         if prepare:
             _update(message='Preparing the local headless map tools…')
             with operation() if operation else nullcontext():
@@ -435,14 +444,13 @@ def stop(snapshot=True):
 def _brush_blocks(path, mtime, size):
     # Parsing is pure and keyed by the actual exported file, not the game map's
     # name. Rebuilt/replaced reference exports cannot reuse a previous parse.
-    return {actor['name']: actor for actor in t3d.actors(Path(path).read_text(encoding='latin1'))}
+    return {actor['name']: actor for actor in t3d.actors(packed.read_text(path, encoding='latin1'))}
 
 
 def _validate_piece(item, name):
     if item.get('kind') in ('door', 'elevator'):
         path = _safe(_cache_folder(name), _cache_folder(name) / 'scene.t3d')
-        st = path.stat()
-        actors = _brush_blocks(str(path), st.st_mtime_ns, st.st_size)
+        actors = _brush_blocks(str(path), *packed.signature(path))
         names = item.get('actors')
         if not isinstance(names, list) or len(names) != 1 or names[0] not in actors:
             raise ValueError('This moving piece is incomplete. Rescan Pieces first.')
@@ -453,8 +461,7 @@ def _validate_piece(item, name):
             any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', value) for value in names)):
         raise ValueError('This piece’s generated brush cache is incomplete. Rescan Pieces first.')
     path = _safe(_cache_folder(name), _cache_folder(name) / 'scene.t3d')
-    st = path.stat()
-    actors = _brush_blocks(str(path), st.st_mtime_ns, st.st_size)
+    actors = _brush_blocks(str(path), *packed.signature(path))
     local = re.compile(r'\b(?:MyLevel|%s)\.' % re.escape(name), re.I)
     for selected in names:
         actor = actors.get(selected)

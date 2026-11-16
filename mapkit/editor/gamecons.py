@@ -16,6 +16,7 @@ from pathlib import Path
 import kit
 import settings
 import t3d
+import packed
 
 HERE = Path(__file__).resolve().parent
 CACHE = settings.GAME_CACHE / '_gamecons'        # the game's conversations and voices: shared by its projects
@@ -352,9 +353,9 @@ def for_map(map_name, actors, package=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', map_name):
         raise ValueError('Invalid map name.')
     scene = HERE / 'cache' / map_name / 'scene.t3d'
-    if not scene.exists():
+    if not packed.exists(scene):
         raise ValueError('Open the map before reading its conversations.')
-    map_actors = list(t3d.actors(scene.read_text(encoding='latin1')))
+    map_actors = list(t3d.actors(packed.read_text(scene, encoding='latin1')))
     level = next((a['props'] for a in map_actors if a['cls'].split('.')[-1] == 'DeusExLevelInfo'), {})
     mission = int(level.get('missionNumber', 0))
     default_package = level.get('ConversationPackage', 'DeusExConversations').strip('"')

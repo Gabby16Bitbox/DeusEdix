@@ -27,7 +27,9 @@ Revision team (Caustic Creative), Eidos, Square Enix or Ion Storm.** Use it at y
   not the voice of anyone in Deus Ex or Revision, nor a clone of a real person.
 - **Third-party libraries** keep their own licences: Pillow (MIT-CMU), the MCP Python SDK (MIT),
   nlohmann/json 3.11.3 (MIT, `mapkit/host/third_party/nlohmann`, with its `LICENSE.MIT`; compiled into the
-  headless host).
+  headless host), python-zstd 1.5.7.2 (BSD, https://github.com/sergey-dryabzhinsky/python-zstd) with the
+  Zstandard library it carries (BSD): the map cache's big text files are kept compressed with it
+  (`mapkit/packed.py`; without it the editor uses gzip).
 - **three.js**, the 3D view (shipped with the editor, so it needs no internet):
   - The files: `mapkit/editor/static/vendor/three` holds three.js r160 (npm `three@0.160.0`,
     https://threejs.org), unchanged: `build/three.module.js` and the `examples/jsm` files the editor imports.

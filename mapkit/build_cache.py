@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path
 import json
+import packed
 
 _current = ContextVar('deusedix_build_cache', default=None)
 
@@ -32,7 +33,7 @@ def memo(key, factory, copy=False):
 
 
 def file_key(path):
-    path = Path(path)
+    path = packed.real(path)            # a big file of the map cache may be kept packed (packed.py)
     stat = path.stat()
     # Lexical aliases may have separate entries. Resolving junctions on every
     # lookup is costly and unnecessary for correctness. File identity also
@@ -44,18 +45,18 @@ def json_file(path):
     # Class dictionaries are read by the existing code. Defensive copies here
     # are costly: callers that mutate defaults must continue obtaining their
     # own copy. Outside a build scope this is exactly the original disk read.
-    return memo(('json', *file_key(path)), lambda: json.loads(Path(path).read_text(encoding='utf-8')))
+    return memo(('json', *file_key(path)), lambda: json.loads(packed.read_text(path, encoding='utf-8')))
 
 
 def actor(path, name, parse):
     if _current.get() is None:
-        for row in parse(Path(path).read_text(encoding='latin1', errors='replace')):
+        for row in parse(packed.read_text(path, encoding='latin1', errors='replace')):
             if row['name'] == name:
                 return row
         raise KeyError(name)
     def index():
         result = {}
-        for row in parse(Path(path).read_text(encoding='latin1', errors='replace')):
+        for row in parse(packed.read_text(path, encoding='latin1', errors='replace')):
             result.setdefault(row['name'], row)
         return result
     actors = memo(('actors', parse, *file_key(path)), index)

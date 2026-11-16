@@ -50,6 +50,7 @@ import activation  # noqa: E402
 import preview_owners  # noqa: E402
 import rebuild  # noqa: E402
 from scene import Scene, PF_SEMISOLID  # noqa: E402
+import packed
 
 OUT = KIT / 'out'
 MOD_MAPS = PROJECT / 'maps'
@@ -454,13 +455,13 @@ def source_scene(map_name, src, run, watch=None):
     key = stamp(src)['sha1']
     try:
         if (folder / 'stamp.txt').read_text() == key:
-            return (folder / 'scene.t3d').read_text(encoding='latin1')
+            return packed.read_text(folder / 'scene.t3d', encoding='latin1')
     except OSError:
         pass
     text = None
     if data.dumped_from(map_name, src):
         try:
-            text = (data.map_folder(map_name) / 'scene.t3d').read_text(encoding='latin1')
+            text = packed.read_text(data.map_folder(map_name) / 'scene.t3d', encoding='latin1')
         except OSError:
             pass
         if not data.dumped_from(map_name, src):
