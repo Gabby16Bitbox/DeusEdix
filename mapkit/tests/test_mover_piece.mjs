@@ -41,3 +41,37 @@ test('built door routes editing to its native properties without a second confli
   assert.match(html,/id="mover-details"/);assert.match(html,/Key ID and Locked/);
   assert(!html.includes('data-mover-setting="keyId"'));
 });
+test('a hinged door says which way it opens, before and after Rebuild; a sliding door and a lift do not',()=>{
+  const hinged={mover:{...door.mover,turn:16384,opens:'built'}};
+  for(const built of [false,true]){
+    const html=moverPanel(hinged,{...options,built});
+    assert.match(html,/data-mover-setting="opens"/);
+    assert.match(html,/<option value="built" selected>/);
+    assert.match(html,/value="away"/);
+    assert(!html.includes('value="into"'));          // only the assistant sets a room
+    assert.match(html,/id="mover-room" hidden/);      // filled by the page when it has no room to open (door-room.js)
+  }
+  assert(!moverPanel({mover:{...door.mover,turn:0}},options).includes('mover-room'));
+  assert.match(moverPanel({...hinged,moverSettings:{opens:'into',into:[1,2,3]}},options),/<option value="into" selected>/);
+  assert.match(moverPanel(door,options),/data-mover-setting="opens"/);      // a door placed before 17 Nov: not known
+  assert(!moverPanel({mover:{...door.mover,turn:0}},options).includes('data-mover-setting="opens"'));
+  assert(!moverPanel({mover:{kind:'elevator',turn:16384}},options).includes('data-mover-setting="opens"'));
+  const entry=structuredClone(hinged),select={dataset:{moverSetting:'opens'},type:'select-one',value:'away',checkValidity:()=>true};
+  wireMoverPanel({querySelectorAll:()=>[select]},{getEntry:()=>entry,change:f=>f(entry)});
+  select.onchange();assert.equal(entry.moverSettings.opens,'away');
+});
+test('every door says what it does when it meets someone (Ignore by default), a lift does not',()=>{
+  for(const built of [false,true]){
+    for(const d of [door,{mover:{...door.mover,turn:0}},{mover:{...door.mover,turn:16384}}]){
+      const html=moverPanel(d,{...options,built});
+      assert.match(html,/data-mover-setting="meets"/);
+      assert.match(html,/<option value="ignore" selected>/);
+      for(const v of ['stop','return','crush'])assert.match(html,new RegExp(`value="${v}"`));
+    }
+  }
+  assert.match(moverPanel({...door,moverSettings:{meets:'return'}},options),/<option value="return" selected>/);
+  assert(!moverPanel({mover:{kind:'elevator'}},options).includes('data-mover-setting="meets"'));
+  const entry=structuredClone(door),select={dataset:{moverSetting:'meets'},type:'select-one',value:'stop',checkValidity:()=>true};
+  wireMoverPanel({querySelectorAll:()=>[select]},{getEntry:()=>entry,change:f=>f(entry)});
+  select.onchange();assert.equal(entry.moverSettings.meets,'stop');
+});

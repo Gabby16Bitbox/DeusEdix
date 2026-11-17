@@ -12,7 +12,10 @@ object repeated in many places or maps is listed once. Nothing assembled by hand
 Placing one: prefab(id) makes a prefab of its brushes (prefabs.copy, tools/mapkit/prefabs/obj_<id>),
 pasted like any copied structure (edits['prefabs']).
 """
+import functools
+import hashlib
 import json
+import os
 import re
 import shutil
 from collections import defaultdict
@@ -22,6 +25,7 @@ import data
 import atomicfile
 import moving_pieces
 import packed
+import t3d
 
 HERE = Path(__file__).resolve().parent
 CATALOG = HERE.parent / 'catalog' / 'objects.json'
@@ -139,66 +143,140 @@ def _clusters(folder):
     return out, polys
 
 
+def _rows(folder, m):
+    """Every object of one map, in the order the catalog lists them, as (sig, item, preview groups, its textures):
+    sig is what tells the same object in another map (or twice in this one). The map's own work, the same whatever the
+    other maps are: build lists an object once, at the first map that has it."""
+    clusters, polys = _clusters(folder)
+    tex_info = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
+    own = own_flags(folder)
+    by_ord = defaultdict(list)
+    for p in polys:
+        by_ord[p[4]].append(p)
+    rows = []
+    for c in clusters:
+        sig = (tuple(sorted(c['size'][:2])) + (c['size'][2],), tuple(sorted(c['tex'][:3])), len(c['brushes']))
+        sig = (tuple(round(v / 8) for v in sig[0]),) + sig[1:]
+        oid = '%s~%d' % (m, c['ords'][0])
+        cat, key_tex = _category(c['tex'], c['flags'], c['size'])
+        label = _words(key_tex) if key_tex else 'Object'
+        label = label[:1].upper() + label[1:] if label else 'Object'
+        it = dict(id=oid, map=m, label=label, cat=cat, size=c['size'],
+                  brushes=c['brushes'], lo=[round(v, 1) for v in c['lo']], hi=[round(v, 1) for v in c['hi']],
+                  tex=c['tex'], count=1, maps=[m])
+        # its polygons for the preview, around its pivot (centre, bottom)
+        pv = [(c['lo'][0] + c['hi'][0]) / 2, (c['lo'][1] + c['hi'][1]) / 2, c['lo'][2]]
+        groups, textures = {}, {}
+        for o in c['ords']:
+            for tex, flags, nums, verts, brush in by_ord.get(o, []):
+                if flags & PF_FAKE:
+                    continue
+                flags |= (own.get(tex) or 0) & TEX_BITS
+                b, u, v = nums[0:3], nums[3:6], nums[6:9]
+                pu, pv_, tw, th = nums[9], nums[10], nums[11] or 128, nums[12] or 128
+                g = groups.setdefault((tex, flags & 0x40004E), dict(tex=tex, flags=flags, pos=[], uv=[]))
+                pts = [verts[i:i + 3] for i in range(0, len(verts), 3)]
+                uvs = []
+                for p in pts:
+                    d = (p[0] - b[0], p[1] - b[1], p[2] - b[2])
+                    uvs.append(((d[0] * u[0] + d[1] * u[1] + d[2] * u[2] + pu) / tw, (d[0] * v[0] + d[1] * v[1] + d[2] * v[2] + pv_) / th))
+                for k in range(1, len(pts) - 1):
+                    for j in (0, k, k + 1):
+                        g['pos'] += [round(pts[j][q] - pv[q], 1) for q in range(3)]
+                        g['uv'] += [round(uvs[j][0], 4), round(uvs[j][1], 4)]
+                info = tex_info.get(tex) or {}
+                if info.get('png'):
+                    textures[tex] = '/cache/ref_%s/%s' % (m, info['png'])
+        rows.append((sig, it, list(groups.values()), textures))
+    for item, groups, signature in moving_pieces.entries(folder, m):
+        rows.append((('mover', signature), item, groups,
+                     {g['tex']: '/cache/ref_%s/%s' % (m, tex_info[g['tex']]['png']) for g in groups}))
+    return rows, len(clusters)
+
+
+# A map's rows without their previews, kept in its cache folder (ROWS) with what they were made from (_inputs): a
+# Pieces scan indexed every map again, all its polygons and its T3D, and wrote every preview file again, even with
+# nothing changed (Revision's 88 maps: 66 s at the end of every scan, 17 Nov 2026). Now a map is read again only when
+# one of its files changed, and its preview file (CACHE/<map>.json) written again only when what it holds would change.
+ROWS = 'pieces-rows.json'
+
+
+@functools.lru_cache(maxsize=1)
+def _code():
+    """The code the rows are made by: rows made by other code are made again."""
+    h = hashlib.sha256(b'%d %d' % (VERSION, moving_pieces.VERSION))
+    for module in (__file__, moving_pieces.__file__, t3d.__file__, packed.__file__):
+        try:
+            h.update(Path(module).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:20]
+
+
+def _inputs(folder):
+    """What a map's rows are made from: its cache files' dates and sizes (packed or not), the names of its textures
+    (a mover with a missing one is left out) and the code."""
+    stamps = [_code()]
+    for name in ('brushes.json', 'polys.json', 'textures.json', 'texflags.json', 'scene.t3d', moving_pieces.ASSETS):
+        try:
+            stamps.append([name, *packed.signature(folder / name)])
+        except OSError:
+            stamps.append([name, None])
+    try:
+        names = sorted(os.listdir(folder / 'tex'))
+    except OSError:
+        names = None
+    stamps.append(hashlib.sha256(json.dumps(names).encode()).hexdigest()[:20])
+    return stamps
+
+
+def _tuple(value):
+    return tuple(_tuple(v) for v in value) if isinstance(value, list) else value
+
+
+def _kept_rows(folder, inputs):
+    """[(sig, item)] kept for this map, when they were made from these very inputs; else None."""
+    try:
+        kept = json.loads(packed.read_text(folder / ROWS))
+        if kept.get('inputs') != inputs:
+            return None
+        return [(_tuple(sig), item) for sig, item in kept['rows']]
+    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        return None
+
+
+def _written():
+    """{map: [key, date, size]} of the preview files the last build wrote (in the catalog), {} without them."""
+    try:
+        files = json.loads(CATALOG.read_text(encoding='utf-8')).get('objectFiles')
+        return files if isinstance(files, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def build(maps=None, log=print, metadata=None):
     """Index the original maps in the cache (cache/ref_<map>) into catalog/objects.json."""
     maps = _maps() if maps is None else maps
     CACHE.mkdir(parents=True, exist_ok=True)
-    items, by_sig = [], {}
+    items, by_sig, written, files = [], {}, _written(), {}
     for m in maps:
         folder = data.map_folder('ref_' + m)
-        clusters, polys = _clusters(folder)
-        tex_info = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
-        own = own_flags(folder)
-        by_ord = defaultdict(list)
-        for p in polys:
-            by_ord[p[4]].append(p)
-        shapes, textures, n_new = {}, {}, 0
-        for c in clusters:
-            sig = (tuple(sorted(c['size'][:2])) + (c['size'][2],), tuple(sorted(c['tex'][:3])), len(c['brushes']))
-            sig = (tuple(round(v / 8) for v in sig[0]),) + sig[1:]
+        inputs = _inputs(folder)
+        rows, made = _kept_rows(folder, inputs), None
+        if rows is None:
+            made, found = _rows(folder, m)
+            rows = [(sig, item) for sig, item, _groups, _textures in made]
+            try:
+                atomicfile.write_json(folder / ROWS, dict(inputs=inputs, rows=rows))
+                packed.pack(folder / ROWS)
+            except OSError:
+                pass                        # only the next build reads this map again
+            rows = [(sig, json.loads(json.dumps(item))) for sig, item in rows]     # counted below: not the kept ones
+        else:
+            found = sum(1 for sig, _item in rows if sig[0] != 'mover')
+        new = []
+        for sig, item in rows:
             if sig in by_sig:               # the same object elsewhere: counted, not listed again
-                it = by_sig[sig]
-                it['count'] += 1
-                if m not in it['maps']:
-                    it['maps'].append(m)
-                continue
-            oid = '%s~%d' % (m, c['ords'][0])
-            cat, key_tex = _category(c['tex'], c['flags'], c['size'])
-            label = _words(key_tex) if key_tex else 'Object'
-            label = label[:1].upper() + label[1:] if label else 'Object'
-            it = dict(id=oid, map=m, label=label, cat=cat, size=c['size'],
-                      brushes=c['brushes'], lo=[round(v, 1) for v in c['lo']], hi=[round(v, 1) for v in c['hi']],
-                      tex=c['tex'], count=1, maps=[m])
-            by_sig[sig] = it
-            items.append(it)
-            n_new += 1
-            # its polygons for the preview, around its pivot (centre, bottom)
-            pv = [(c['lo'][0] + c['hi'][0]) / 2, (c['lo'][1] + c['hi'][1]) / 2, c['lo'][2]]
-            groups = {}
-            for o in c['ords']:
-                for tex, flags, nums, verts, brush in by_ord.get(o, []):
-                    if flags & PF_FAKE:
-                        continue
-                    flags |= (own.get(tex) or 0) & TEX_BITS
-                    b, u, v = nums[0:3], nums[3:6], nums[6:9]
-                    pu, pv_, tw, th = nums[9], nums[10], nums[11] or 128, nums[12] or 128
-                    g = groups.setdefault((tex, flags & 0x40004E), dict(tex=tex, flags=flags, pos=[], uv=[]))
-                    pts = [verts[i:i + 3] for i in range(0, len(verts), 3)]
-                    uvs = []
-                    for p in pts:
-                        d = (p[0] - b[0], p[1] - b[1], p[2] - b[2])
-                        uvs.append(((d[0] * u[0] + d[1] * u[1] + d[2] * u[2] + pu) / tw, (d[0] * v[0] + d[1] * v[1] + d[2] * v[2] + pv_) / th))
-                    for k in range(1, len(pts) - 1):
-                        for j in (0, k, k + 1):
-                            g['pos'] += [round(pts[j][q] - pv[q], 1) for q in range(3)]
-                            g['uv'] += [round(uvs[j][0], 4), round(uvs[j][1], 4)]
-                    info = tex_info.get(tex) or {}
-                    if info.get('png'):
-                        textures[tex] = '/cache/ref_%s/%s' % (m, info['png'])
-            shapes[oid] = list(groups.values())
-        for item, groups, signature in moving_pieces.entries(folder, m):
-            sig = ('mover', signature)
-            if sig in by_sig:
                 previous = by_sig[sig]
                 previous['count'] += 1
                 if m not in previous['maps']:
@@ -206,16 +284,33 @@ def build(maps=None, log=print, metadata=None):
                 continue
             by_sig[sig] = item
             items.append(item)
-            n_new += 1
-            shapes[item['id']] = groups
-            for g in groups:
-                textures[g['tex']] = '/cache/ref_%s/%s' % (m, tex_info[g['tex']]['png'])
-        atomicfile.write_json(CACHE / (m + '.json'), dict(textures=textures, objects=shapes))
-        log('%s: %d objects (%d new)' % (m, len(clusters), n_new))
+            new.append(item['id'])
+        # its previews: the objects listed at this map, written again only when they are other ones or made again
+        # (kept packed, packed.py: 118 MB of Revision's previews to about a tenth; the page gets them as they are)
+        key = hashlib.sha256(json.dumps([inputs, new]).encode()).hexdigest()[:20]
+        path = CACHE / (m + '.json')
+        try:
+            same = written.get(m) == [key, *packed.signature(path)]
+        except OSError:
+            same = False
+        if not same:
+            if made is None:
+                made, _found = _rows(folder, m)
+            listed = set(new)
+            shapes, textures = {}, {}
+            for _sig, item, groups, tex in made:
+                if item['id'] in listed:
+                    shapes[item['id']] = groups
+                    textures.update(tex)
+            atomicfile.write_json(path, dict(textures=textures, objects=shapes))
+        if path.is_file():                  # written now, or plain from before
+            packed.pack(path)
+        files[m] = [key, *packed.signature(path)]
+        log('%s: %d objects (%d new)' % (m, found, len(new)))
     order = list(dict.fromkeys(moving_pieces.CATEGORIES + [c[0] for c in CATEGORIES] + SHAPES + ['Other details']))
     items.sort(key=lambda it: (order.index(it['cat']), -it['count'], it['label']))
     CATALOG.parent.mkdir(parents=True, exist_ok=True)
-    atomicfile.write_json(CATALOG, dict(version=VERSION, categories=order, items=items, **(metadata or {})))
+    atomicfile.write_json(CATALOG, dict(version=VERSION, categories=order, items=items, objectFiles=files, **(metadata or {})))
     log('pieces: %d objects of the game' % len(items))
     return items
 
@@ -264,7 +359,7 @@ def prefab(oid, log=print, pid=None):
     else:
         clip = prefabs.copy(it['map'], '__object__', folder, {'__object__': st}, pid=pid)
     # its preview: the polygons of the catalog (copy() takes them from the map's structures)
-    shapes = json.loads((CACHE / (it['map'] + '.json')).read_text(encoding='utf-8'))
+    shapes = json.loads(packed.read_text(CACHE / (it['map'] + '.json')))
     dst = prefabs.ROOT / pid
     groups, textures, own = [], {}, own_flags(folder)
     for g in shapes['objects'].get(oid, []):

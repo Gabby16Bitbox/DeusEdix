@@ -140,4 +140,176 @@ class MovingPiecesTests(unittest.TestCase):
         self.assertEqual(state.movers,['UCPfoneA0'])
         self.assertEqual(state.actor_group['UCPfoneA0'],'paste~one')
 
+def hinged(**props):
+    """A door 64 wide along +x from its hinge at the origin, turning a quarter (Yaw 16384) to open."""
+    values={'Location':'(X=0,Y=0,Z=0)','KeyRot(1)':'(Yaw=16384)','bIsDoor':'True'}
+    values.update(props)
+    raw=('Begin Actor Class=DeusExMover Name=Door2\n'
+         '    Begin Brush Name=DoorModel\n        Begin PolyList\n          Begin Polygon Texture=TestDoor\n'
+         '             Vertex +0,-4,+0\n             Vertex +64,-4,+0\n             Vertex +64,+4,+128\n'
+         '             Vertex +0,+4,+128\n          End Polygon\n        End PolyList\n    End Brush\n'+
+         ''.join('    %s=%s\n'%kv for kv in values.items())+'End Actor\n')
+    return raw
+
+
+def box_door():
+    """The library door of Deep Ops' 02_Close_Test: 8 thick, 64 wide, 128 high, hinged on its +x face."""
+    faces=[]
+    for axis in range(3):
+        for side in (0,1):
+            lo,hi=(-8,-32,-64),(0,32,64)
+            corners=[]
+            for a in (0,1):
+                for b in (0,1) if a==0 else (1,0):
+                    q=[0,0,0];q[axis]=(lo,hi)[side][axis]
+                    o=[i for i in range(3) if i!=axis]
+                    q[o[0]]=(lo,hi)[a][o[0]];q[o[1]]=(lo,hi)[b][o[1]];corners.append(q)
+            faces.append('          Begin Polygon Texture=TestDoor\n'+''.join(
+                '             Vertex %+f,%+f,%+f\n'%tuple(c) for c in corners)+'          End Polygon\n')
+    return ('Begin Actor Class=DeusExMover Name=Door3\n    bIsDoor=True\n    KeyRot(1)=(Yaw=-16384)\n'
+            '    BasePos=(X=132.000000,Y=-200.000000,Z=128.000000)\n'
+            '    Location=(X=132.000000,Y=-200.000000,Z=128.000000)\n'
+            '    Begin Brush Name=Door3M\n       Begin PolyList\n'+''.join(faces)+
+            '       End PolyList\n    End Brush\n    PrePivot=(Y=-32.000000,Z=64.000000)\nEnd Actor\n')
+
+
+class DoorOpensTests(unittest.TestCase):
+    """Which way a library door swings (the Inspector's Opens, 17 Nov 2026): Gabby's doors opened toward JC."""
+    def props(self,raw):
+        a=next(t3d.actors(raw));return a['cls'],a['props']
+
+    def test_a_door_goes_on_opening_when_it_meets_someone_a_lift_goes_back(self):
+        self.assertEqual(next(t3d.actors(moving.template(actor(**{'KeyRot(1)':'(Yaw=16384)'}),'door',{'Test.Walls.TestDoor'})))['props']['MoverEncroachType'],'ME_IgnoreWhenEncroach')
+        lift=actor(**{'KeyPos(1)':'(Z=400)'})
+        self.assertEqual(next(t3d.actors(moving.template(lift,'elevator',{'Test.Walls.TestDoor'})))['props']['MoverEncroachType'],'ME_ReturnWhenEncroach')
+        # a door of a prefab made before (Return) is placed as one that goes on
+        old=hinged(MoverEncroachType='ME_ReturnWhenEncroach')
+        self.assertEqual(self.props(moving.placed(old,geom.XForm((0,0,0),(0,0,0),0,(1,1,1),False),'D'))[1]['MoverEncroachType'],'ME_IgnoreWhenEncroach')
+
+    def test_the_middle_of_the_door_turns_about_its_hinge(self):
+        a=next(t3d.actors(hinged()))
+        for yaw,want in [(0,(32,0)),(16384,(0,32)),(-16384,(0,-32))]:
+            got=moving.swing_center(a,yaw)
+            self.assertAlmostEqual(got[0],want[0],3);self.assertAlmostEqual(got[1],want[1],3)
+
+    def test_built_other_away(self):
+        raw=hinged()
+        self.assertEqual(moving.opening(raw,None),raw)
+        self.assertEqual(moving.opening(raw,{'opens':'built'}),raw)
+        cls,p=self.props(moving.opening(raw,{'opens':'other'}))
+        self.assertEqual((cls,t3d.rot(p['KeyRot(1)'])),('DeusExMover',(0,-16384,0)))
+        cls,p=self.props(moving.opening(raw,{'opens':'away'}))
+        self.assertEqual((cls,t3d.rot(p['KeyRot(1)'])),('UCDoorMover',(0,16384,0)))   # the game class picks each time
+
+    def test_into_takes_the_way_toward_the_room(self):
+        cls,p=self.props(moving.opening(hinged(),{'opens':'into','into':[0,300,0]}))
+        self.assertEqual(t3d.rot(p['KeyRot(1)']),(0,16384,0))          # its own way already swings to +y
+        cls,p=self.props(moving.opening(hinged(),{'opens':'into','into':[10,-300,40]}))
+        self.assertEqual(t3d.rot(p['KeyRot(1)']),(0,-16384,0))
+        cls,p=self.props(moving.opening(hinged(**{'KeyRot(1)':'(Yaw=-16384)'}),{'opens':'into','into':[0,300]}))
+        self.assertEqual(t3d.rot(p['KeyRot(1)']),(0,16384,0))
+
+    def test_a_sliding_door_or_a_lift_is_left_as_it_is(self):
+        slide=hinged(**{'KeyRot(1)':'(Yaw=0)','KeyPos(1)':'(X=64)'})
+        for how in ('other','away',):
+            self.assertEqual(moving.opening(slide,{'opens':how}),slide)
+        lift=hinged(bIsDoor='False')
+        self.assertEqual(moving.opening(lift,{'opens':'away'}),lift)
+
+    def test_settings_are_checked(self):
+        for bad in ({'opens':'sideways'},{'opens':'into'},{'opens':'into','into':[1,'x',2]},{'opens':'into','into':[True,1,2]}):
+            with self.assertRaises(ValueError,msg=bad):moving.apply_settings(hinged(),bad)
+        self.assertEqual(moving.apply_settings(hinged(),{'opens':'away'}),hinged())
+
+    def test_placed_copy_keeps_its_way_after_a_turn(self):
+        # placed() sets the keys again from the original (mover_transform): the way is chosen after it (prefabs.place)
+        pf=dict(pivot=[32,0,0],blocks=[dict(raw=hinged(),brush=False,mover=True)])
+        blocks,_,_=prefabs.place(dict(_prefab=pf,pid='d',offset=[1000,0,0],yaw=16384,moverSettings={'opens':'other'}))
+        cls,p=self.props(blocks[0])
+        self.assertEqual(t3d.rot(p['KeyRot(1)'])[1],-16384)
+        blocks,_,_=prefabs.place(dict(_prefab=pf,pid='d',offset=[1000,0,0],yaw=16384,moverSettings={'opens':'away'}))
+        self.assertTrue(blocks[0].startswith('Begin Actor Class=UCDoorMover Name=UCPfdA0'))
+        self.assertEqual(self.props(blocks[0])[1]['MoverEncroachType'],'ME_IgnoreWhenEncroach')
+
+    def test_the_other_way_turns_about_the_other_face(self):
+        # Gabby, 17 Nov 2026: a door 8 thick hinged on its +x face went into the jamb turned the other way.
+        # Like UCPfp1A0: x -8..0 from the hinge, 64 wide toward +y, PrePivot (0,-32,64), opens Yaw -16384 (to +x)
+        door=box_door()
+        shut=sorted(v for _,vs in t3d.world_verts(next(t3d.actors(door))) for v in vs)
+        cls,p=self.props(moving.opening(door,{'opens':'other'}))
+        a=next(t3d.actors(moving.opening(door,{'opens':'other'})))
+        self.assertEqual(t3d.rot(p['KeyRot(1)'])[1],16384)
+        self.assertEqual((t3d.vec(p['Location']),t3d.vec(p['BasePos'])),((124,-200,128),(124,-200,128)))
+        got=sorted(v for _,vs in t3d.world_verts(a) for v in vs)      # shut it stays where it was
+        for g,w in zip(got,shut):
+            for k in range(3):self.assertAlmostEqual(g[k],w[k],3)
+        # open, it lies on the -x side from x 60 to 124, y -200..-192: out of the jamb (y < -200 is the wall)
+        a['props']['Rotation']='(Yaw=16384)'
+        lo,hi=t3d.bounds(a)
+        for g,w in zip(lo+hi,(60,-200,0,124,-192,128)):self.assertAlmostEqual(g,w,3)
+
+    def test_away_gets_both_hinges_and_where_the_door_ends(self):
+        cls,p=self.props(moving.opening(box_door(),{'opens':'away'}))
+        self.assertEqual(cls,'UCDoorMover')
+        want={'MirrorHinge':(-8,0,0),'MirrorPrePivot':(-8,0,0),'MirrorKeyPos':(0,0,0),
+              'BuiltMiddle':(164,-196,64),'MirrorMiddle':(92,-196,64)}
+        for key,w in want.items():
+            for g,v in zip(t3d.vec(p[key]),w):self.assertAlmostEqual(g,v,3,msg=key)
+
+    def test_the_room_each_way_is_on_its_own_side_of_the_wall(self):
+        # the Discord's gate in a narrow alley: the lines it sweeps, each way (the wall is x 120..136, door x 124..132)
+        room=moving.sweep(next(t3d.actors(box_door())))
+        self.assertEqual((len(room['built']),len(room['other'])),(10,10))
+        for a,b in room['built']:
+            self.assertTrue(all(q[0]>136 and -200<q[1]<-136 and q[2] in (32,96) for q in (a,b)),(a,b))
+        for (a,b),(c,d) in zip(room['built'],room['other']):       # the mirror image about the middle of the door, x 128
+            for q,r in ((a,c),(b,d)):
+                for g,w in zip((256-q[0],q[1],q[2]),r):self.assertAlmostEqual(g,w,2)
+        self.assertIsNone(moving.sweep(next(t3d.actors(hinged(**{'KeyRot(1)':'(Yaw=0)','KeyPos(1)':'(Z=64)'})))))
+
+    def test_away_takes_the_room_to_the_game(self):
+        cls,p=self.props(moving.opening(box_door(),{'opens':'away'}))
+        room=moving.sweep(next(t3d.actors(box_door())))
+        for i in range(moving.ROOM_LINES):
+            self.assertEqual(t3d.vec(p['BuiltRoomFrom(%d)'%i]),room['built'][i][0])
+            self.assertEqual(t3d.vec(p['MirrorRoomTo(%d)'%i]),room['other'][i][1])
+        uc=(ROOT/'project-template'/'src'/'DeusEdix'/'Classes'/'UCDoorMover.uc').read_text(encoding='utf-8')
+        self.assertIn('BuiltRoomFrom[%d]'%moving.ROOM_LINES,uc)
+
+    def test_door_room_refuses_what_is_not_a_placed_copy(self):
+        for bad in (None,{},{'pid':'p1','prefab':'../x'},{'pid':'p1','prefab':'usr_'+'0'*32+'/..'}):
+            with self.assertRaises(ValueError):prefabs.door_room(bad)
+
+    def test_into_compares_the_mirror_image(self):
+        cls,p=self.props(moving.opening(box_door(),{'opens':'into','into':[-300,-168,48]}))
+        self.assertEqual((t3d.rot(p['KeyRot(1)'])[1],t3d.vec(p['Location'])),(16384,(124,-200,128)))
+        self.assertEqual(moving.opening(box_door(),{'opens':'into','into':[400,-168,48]}),box_door())
+
+    def test_description_says_how_it_turns(self):
+        d=moving.description(dict(blocks=[dict(mover=True,raw=hinged())]))
+        self.assertEqual((d['turn'],d['opens'],d['meets']),(16384,'built','ignore'))
+
+    def test_meets_someone(self):
+        # the game's MoverEncroachType, chosen in the Inspector (Discord, 17 Nov 2026); Ignore by default
+        self.assertEqual(moving.meeting(hinged(),None),hinged())
+        self.assertEqual(moving.meeting(hinged(),{'meets':'ignore'}),hinged())
+        for how,enc in [('stop','ME_StopWhenEncroach'),('return','ME_ReturnWhenEncroach'),('crush','ME_CrushWhenEncroach')]:
+            self.assertEqual(self.props(moving.meeting(hinged(),{'meets':how}))[1]['MoverEncroachType'],enc)
+        lift=hinged(bIsDoor='False')
+        self.assertEqual(moving.meeting(lift,{'meets':'crush'}),lift)
+        with self.assertRaises(ValueError):moving.apply_settings(hinged(),{'meets':'bounce'})
+        self.assertEqual(moving.apply_settings(hinged(),{'meets':'stop'}),hinged())
+        # placed through prefabs.place: after placed(), which sets Ignore on every door
+        pf=dict(pivot=[32,0,0],blocks=[dict(raw=hinged(),brush=False,mover=True)])
+        blocks,_,_=prefabs.place(dict(_prefab=pf,pid='d',offset=[0,0,0],yaw=0,moverSettings={'opens':'away','meets':'return'}))
+        cls,p=self.props(blocks[0])
+        self.assertEqual((cls,p['MoverEncroachType']),('UCDoorMover','ME_ReturnWhenEncroach'))
+
+    def test_the_builds_take_the_door_class_as_a_mover(self):
+        for name in ('scene.py','editor/dxmaps.py'):
+            self.assertIn('UCDoorMover',(ROOT/name).read_text(encoding='utf-8'),name)
+        uc=ROOT/'project-template'/'src'/'DeusEdix'/'Classes'/'UCDoorMover.uc'
+        self.assertIn('class UCDoorMover extends DeusExMover;',uc.read_text(encoding='utf-8'))
+
+
 if __name__=='__main__':unittest.main()

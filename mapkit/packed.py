@@ -112,10 +112,39 @@ def read_bytes(path):
     raise FileNotFoundError(2, 'No such file, plain or packed', str(path))
 
 
+UTF16_BOM = b'\xff\xfe'
+
+
+def text_of(data, encoding='utf-8', errors='strict'):
+    """Bytes as text, as Path.read_text gives it (its arguments, and its line ends: the engine's T3D ends its lines
+    with CR LF, and every reader of it expects the LF alone that text mode gives).
+    The engine writes a T3D as UTF-16 when a value in it holds a character beyond Latin-1 (Revision's
+    97_Survival_Dockyard: a mover's MoverGlideType is junk, 17 Nov 2026); read as Latin-1 it had no actor at all. Such
+    a file is read as the UTF-16 it is, and for a Latin-1 reader (every T3D reader) without the lines that hold such
+    characters: what the reader writes back must be Latin-1, and that property then has its default."""
+    if data.startswith(UTF16_BOM):
+        text = data[2:].decode('utf-16-le', 'surrogatepass')
+        if encoding.lower().replace('_', '-') in ('latin1', 'latin-1', 'iso-8859-1', 'cp1252'):
+            text = '\n'.join(line for line in text.split('\n') if all(ord(c) < 256 for c in line))
+    else:
+        text = data.decode(encoding, errors)
+    return text.replace('\r\n', '\n').replace('\r', '\n')
+
+
 def read_text(path, encoding='utf-8', errors='strict'):
-    """path's text, plain or packed, as Path.read_text gives it (its arguments, and its line ends: the engine's
-    T3D ends its lines with CR LF, and every reader of it expects the LF alone that text mode gives)."""
-    return read_bytes(path).decode(encoding, errors).replace('\r\n', '\n').replace('\r', '\n')
+    """path's text, plain or packed, as Path.read_text gives it (text_of)."""
+    return text_of(read_bytes(path), encoding, errors)
+
+
+def latin1_t3d(path):
+    """Make a plain T3D the engine wrote as UTF-16 (text_of) Latin-1, as every reader of it expects. -> whether it
+    was."""
+    path = Path(path)
+    data = path.read_bytes()
+    if not data.startswith(UTF16_BOM):
+        return False
+    path.write_bytes(text_of(data, 'latin1').replace('\n', '\r\n').encode('latin1'))
+    return True
 
 
 def _zstd_size(file):

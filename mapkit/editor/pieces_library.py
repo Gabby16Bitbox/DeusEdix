@@ -79,40 +79,98 @@ def _inventory():
     return dict(sorted(rows.items(), key=lambda item: item[0].casefold()))
 
 
+_PACKAGE_TAG = b'\xc1\x83\x2a\x9e'
+_SEEN = 'maps-seen.json'    # in the game's cache: the maps hashed before, with what identified them then
+_SHA = re.compile(r'[a-f0-9]{64}')
+_seen_files = {}            # that file as last read, by its path, size and time
+
+
+def _guid(path):
+    """The GUID in an Unreal package's header (after the tag, the versions, the flags and the three tables' counts and
+    offsets: bytes 36 to 52), as hex; None for a file that is not a package. Saving a map again gives it a new one as a
+    rule (measured 17 Nov 2026 on 30 maps the editors had saved again: 29 new, one kept with a new size)."""
+    with Path(path).open('rb') as stream:
+        head = stream.read(52)
+    return head[36:52].hex() if len(head) == 52 and head[:4] == _PACKAGE_TAG else None
+
+
+def _seen_path():
+    return _safe(editor_data.GAME_CACHE, Path(editor_data.GAME_CACHE) / _SEEN)
+
+
+def _seen():
+    """{map path: dict(size, mtime, guid, sha256)} of the maps hashed before (read only), {} when there is none."""
+    path = _seen_path()
+    try:
+        st = path.stat()
+    except OSError:
+        return {}
+    key = (st.st_mtime_ns, st.st_size)
+    with _guard:
+        kept = _seen_files.get(str(path))
+    if kept and kept[0] == key:
+        return kept[1]
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+        rows = value.get('maps') if isinstance(value, dict) and value.get('version') == 1 else None
+        value = {name: row for name, row in rows.items() if isinstance(row, dict) and
+                 isinstance(row.get('size'), int) and isinstance(row.get('mtime'), int) and
+                 isinstance(row.get('guid'), (str, type(None))) and
+                 isinstance(row.get('sha256'), str) and _SHA.fullmatch(row['sha256'])} if isinstance(rows, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        value = {}
+    with _guard:
+        _seen_files[str(path)] = (key, value)
+    return value
+
+
+def _remember(value, guid):
+    """Keep a map's hash with its size, date and GUID (_seen). Losing it only costs reading the map again."""
+    try:
+        path = _seen_path()
+        with _guard:
+            rows = dict(_seen())
+            rows[value['path']] = dict(size=value['size'], mtime=value['mtime'], guid=guid, sha256=value['sha256'])
+            atomicfile.write_json(path, dict(version=1, maps=rows))
+    except (OSError, ValueError):
+        pass
+
+
 def _signature(path, digest=True):
+    """(path, size, mtime) of an original map and, with digest, the SHA-256 of its contents. The whole map is read
+    only when it is new here or its size, date or package GUID changed since it was hashed (_seen): every scan of the
+    library read all the game's maps (Revision: 137 maps, 1.1 GB, 17 Nov 2026), the header alone is 52 bytes."""
     path = Path(path)
     before = path.stat()
     value = dict(path=str(path.resolve()), size=before.st_size, mtime=before.st_mtime_ns)
     if digest:
-        h = hashlib.sha256()
-        with path.open('rb') as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                h.update(chunk)
+        guid = _guid(path)
+        row = _seen().get(value['path'])
+        known = row and (row['size'], row['mtime'], row['guid']) == (value['size'], value['mtime'], guid)
+        if known:
+            value['sha256'] = row['sha256']
+        else:
+            h = hashlib.sha256()
+            with path.open('rb') as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                    h.update(chunk)
+            value['sha256'] = h.hexdigest()
         after = path.stat()
         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
             raise RuntimeError('An original map changed during scanning; retry after the game update finishes.')
-        value['sha256'] = h.hexdigest()
+        if not known:
+            _remember(value, guid)
     return value
 
 
-_digests = {}       # (path, size, time) of an original map -> its sha256: hashed once per start of the editor
-
-
 def _same_map(path, signature):
-    """_signature(path) == signature, the map's contents hashed only the first time this size and time are seen
-    (placing a piece hashed its whole original map at every click)."""
+    """_signature(path) == signature: the date and size first, the map's contents hashed only when they are not
+    known (placing a piece hashed its whole original map at every click)."""
     try:
         current = _signature(path, False)
         if current != {k: signature.get(k) for k in ('path', 'size', 'mtime')}:
             return False
-        key = (current['path'], current['size'], current['mtime'])
-        with _guard:
-            known = _digests.get(key)
-        if known is None:
-            known = _signature(path)
-            with _guard:
-                _digests[key] = known
-        return known == signature
+        return _signature(path) == signature
     except OSError:
         return False
 
@@ -189,9 +247,10 @@ def data():
     valid, stale = {}, source is None
     if source:
         stale = source.get('inventory') != inventory
+        objects = _objects_listing()
         for name, signature in source['maps'].items():
             if (_MAP.fullmatch(name) and _stat_matches(Path(settings.REVISION_MAPS) / (name + '.dx'), signature)
-                    and _cache_health(name, signature, identity)):
+                    and _cache_health(name, signature, identity, objects)):
                 valid[name] = signature
             else:
                 stale = True
@@ -219,6 +278,36 @@ def _cache_folder(name):
     return _safe(editor_data.GAME_CACHE, Path(editor_data.GAME_CACHE) / ('ref_' + name))      # shared by the game's projects
 
 
+_FOLDED = os.path.normcase('A') == 'a'          # names that differ in case only are the same file (Windows)
+
+
+def _plain_files(folder):
+    """The names of a folder's regular files that are not links (one listing), case folded where the file system
+    ignores case."""
+    names = set()
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            if (entry.is_file(follow_symlinks=False) and
+                    not getattr(entry.stat(follow_symlinks=False), 'st_file_attributes', 0) & 0x400):
+                names.add(entry.name.casefold() if _FOLDED else entry.name)
+    return names
+
+
+def _texture_there(folder, png, listed):
+    """_safe(folder, folder / png).is_file(), the folder of the textures checked and listed once (listed: by folder)
+    instead of every file of it resolved and its folders walked one by one: 16,605 textures of Revision's 89 maps
+    took 11 s, at every look at the Pieces (17 Nov 2026). A path out of the ordinary is checked the old way."""
+    parts = (png.replace('\\', '/') if os.sep == '\\' else png).split('/')
+    if len(parts) != 2 or any(part in ('', '.', '..') or ':' in part for part in parts):
+        return _safe(folder, folder / png).is_file()
+    if parts[0] not in listed:
+        try:
+            listed[parts[0]] = _plain_files(_safe(folder, folder / parts[0]))
+        except FileNotFoundError:
+            listed[parts[0]] = set()
+    return (parts[1].casefold() if _FOLDED else parts[1]) in listed[parts[0]]
+
+
 def _cache_valid(name, signature, identity, objects=True):
     folder = _cache_folder(name)
     try:
@@ -230,29 +319,53 @@ def _cache_valid(name, signature, identity, objects=True):
         textures = json.loads((folder / 'textures.json').read_text(encoding='utf-8'))
         if not isinstance(textures, dict):
             return False
+        listed = {}
         for info in textures.values():
             png = info.get('png') if isinstance(info, dict) else None
-            if png and (not isinstance(png, str) or not _safe(folder, folder / png).is_file()):
+            if png and (not isinstance(png, str) or not _texture_there(folder, png, listed)):
                 return False
         expected = '%s-%d-%d-m%d' % (Path(dxmaps.GAME_MAPS) / (name + '.dx'), signature['mtime'], signature['size'], editor_data.MESH_VERSION)
         return ((folder / 'stamp.txt').read_text() == expected and
-                (not objects or (_safe(gamelib.CACHE, gamelib.CACHE / (name + '.json')).is_file() and
+                (not objects or (packed.exists(_safe(gamelib.CACHE, gamelib.CACHE / (name + '.json'))) and
                                  moving_pieces.ready(_safe(folder, folder / moving_pieces.ASSETS).parent))))
     except (OSError, ValueError, TypeError, KeyError):
         return False
 
 
-def _cache_health(name, signature, identity):
-    """Short GET-only health memo; scans/placement always recheck every asset."""
+_HEALTH_FOR = 60     # seconds a map's health is known while nothing of its cache changed (it was 3 before 17 Nov 2026)
+
+
+def _listing(folder):
+    """What a folder holds, as one listing gives it: (name, date, size, a link) of every entry."""
+    rows = []
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            st = entry.stat(follow_symlinks=False)
+            rows.append((entry.name, st.st_mtime_ns, st.st_size, entry.is_symlink() or
+                         bool(getattr(st, 'st_file_attributes', 0) & 0x400)))
+    return tuple(sorted(rows))
+
+
+def _objects_listing():
+    """{name: (date, size)} of the maps' object lists (gamelib.CACHE), one listing for every map, by their plain names
+    (they are kept packed); {} without it."""
+    try:
+        return {(name[:-len(form)] if form else name): row[1:] for row in _listing(_safe(gamelib.CACHE, gamelib.CACHE))
+                for name in [row[0]] for form in [packed.form_of(row[0])]}
+    except (OSError, ValueError):
+        return {}
+
+
+def _cache_health(name, signature, identity, objects=None):
+    """GET-only health memo; scans/placement always recheck every asset. Known again, for _HEALTH_FOR, while one
+    listing of the map's cache folder and its object list stay the same: checked file by file every 3 s, 5 of the
+    6 s of every look at the Pieces of Revision went to it (17 Nov 2026). objects: _objects_listing(), once for all."""
     folder = _cache_folder(name)
     try:
-        stamps = tuple((file, *packed.signature(path)) for file in (*_REQUIRED, 'pieces-source.json', moving_pieces.ASSETS)
-                       for path in [_safe(folder, folder / file)])
-        object_path = _safe(gamelib.CACHE, gamelib.CACHE / (name + '.json'))
-        stamps += (('objects', object_path.stat().st_mtime_ns, object_path.stat().st_size),)
+        stamps = (_listing(folder), (objects if objects is not None else _objects_listing()).get(name + '.json'))
     except (OSError, ValueError):
         return False
-    key = (str(folder.resolve()), signature['sha256'], identity['target'], identity['mesh_version'])
+    key = (str(folder), signature['sha256'], identity['target'], identity['mesh_version'])
     now = time.monotonic()
     with _guard:
         previous = _health.get(key)
@@ -260,7 +373,7 @@ def _cache_health(name, signature, identity):
             return previous[2]
     valid = _cache_valid(name, signature, identity)
     with _guard:
-        _health[key] = (now + 3, stamps, valid)
+        _health[key] = (now + _HEALTH_FOR, stamps, valid)
     return valid
 
 

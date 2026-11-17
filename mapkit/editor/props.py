@@ -14,7 +14,7 @@ import settings
 from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
-VERSION = 21               # 21: pickup credit amounts and augmentation choices; 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
+VERSION = 22               # 22: UCDoorMover (a library door that opens away from whoever opens it); 21: pickup credit amounts and augmentation choices; 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
                           # 14: timers (UCTimer) 15: effect points (UCEffectPoint)
                           # 16: a lamp's phase and corona, what a zone does to the view (the 3D view's Effects)
                           # 17: a zone's echo (the Reverb row) and Revision's OpenAL reverb

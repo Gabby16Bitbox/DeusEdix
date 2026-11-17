@@ -312,10 +312,14 @@ PROFILE = TARGETS[TARGET]
 # Caches made from the game itself (its maps for the Pieces, the models of its objects and their pictures, its
 # textures, conversations, voices, animations and characters) are the same in every project made for that game:
 # a managed project keeps them once per game, in the app's editor cache (17 Oct 2026: about 3.7 GB, and the slow
-# first scans and previews, were made again in every project). The working copy and the app's own workspace keep
-# theirs where they were. A project's own maps and models stay in its own cache (editor/data.py CACHE).
+# first scans and previews, were made again in every project). The app's own workspace (and the working copy) shares
+# them too since 17 Nov 2026: it runs the same code (its Pieces were a second copy of the game's maps, 3.2 GB). An
+# existing workspace opened from elsewhere keeps its own where they were: it runs its own copy of the code, maybe
+# another version, which may not read what this one writes. A project's own maps and models stay in its own cache
+# (editor/data.py CACHE).
 EDITOR_CACHE = Path(__file__).resolve().parent / 'editor' / 'cache'
-GAME_CACHE = (APP_ROOT / 'tools' / 'mapkit' / 'editor' / 'cache' / ('game-' + TARGET)) if MANAGED_PROJECT else EDITOR_CACHE
+GAME_CACHE = (APP_ROOT / 'tools' / 'mapkit' / 'editor' / 'cache' / ('game-' + TARGET)) if MANAGED_PROJECT else \
+    EDITOR_CACHE if EXTERNAL_WORKSPACE else EDITOR_CACHE / ('game-' + TARGET)
 IS_REVISION = TARGET == 'revision'
 GAME_NAME = PROFILE['name']
 _default = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Deus Ex')

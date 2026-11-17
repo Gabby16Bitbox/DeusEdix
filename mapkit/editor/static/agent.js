@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { ensureIds, graphOf } from './story-graph.js';
 import { DRAW_DEFAULTS } from './draw-tools.js';
 import { createPlay } from './story-sim.js';
+import { wayOf } from './door-room.js';
 
 const E = () => window.__editor, K = () => window.__editor?.agentKit;
 // the map's level logic (app.js logicKit: the rules, what objects can do, Try it, the proposals)
@@ -125,6 +126,7 @@ const OPS = {
     for (const b of ed.edits.boxes || [])
       out.push({ name: b.name, cls: 'block', label: (typeof b.label === 'string' && b.label.trim()) || k.boxKind(b), kind: k.boxKind(b), loc: b.lo.map((v, i) => r1((v + b.hi[i]) / 2)), size: b.hi.map((v, i) => r1(v - b.lo[i])) });
     for (const d of ed.edits.drawn || []) out.push({ name: d.name, cls: 'drawn', label: d.kind, loc: d.pts?.[0] || null });
+    for (const e of ed.edits.prefabs || []) out.push(pasteInfo(e));       // library doors, lifts, pieces, prefabs
     const t = text.toLowerCase(), c = cls.toLowerCase();
     let hits = out.filter((o) => (!t || `${o.name} ${o.cls} ${o.label}`.toLowerCase().includes(t)) && (!c || String(o.cls).toLowerCase() === c));
     if (near) {
@@ -147,6 +149,8 @@ const OPS = {
     if (b) return Object.assign({ kind: k.boxKind(b) }, JSON.parse(JSON.stringify(b)));
     const d = (ed.edits.drawn || []).find((x) => x.name === name);
     if (d) return JSON.parse(JSON.stringify(d));
+    const e = pasteNamed(name);
+    if (e) return JSON.parse(JSON.stringify(pasteInfo(e)));
     throw new Error(`${name}: not in the map (find_objects gives the names).`);
   },
   select({ names, focus = false }) {
@@ -204,6 +208,69 @@ const OPS = {
     } finally { if (k.placing === item) k.cancelPlacing(); }
     if (!name) throw new Error('The picture could not be placed.');
     return OPS.object({ name });
+  },
+  // a door of the game's library (Objects > Movers) in a doorway (17 Nov 2026, Gabby: the assistant's doors opened
+  // toward JC and hit him). at: the floor in the doorway's middle; through: the way one walks through it (yaw);
+  // opens: 'into' (the way that takes it into the room `into` is in), 'away' (from whoever opens it, game class
+  // UCDoorMover), 'built' or 'other' (its map's own way, or the other); meets: what it does when someone is in its way
+  // (MEETS: ignore, the default, goes through them; stop, return, crush)
+  async door({ at, through = 0, opens = 'into', into, piece = '', width, meets }) {
+    const k = needEditable(), script = E().script;
+    const vector = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+    if (!vector(at)) throw new Error('at: the floor in the middle of the doorway, [x, y, z].');
+    if (!['into', 'away', 'built', 'other'].includes(opens)) throw new Error('opens: into, away, built or other.');
+    if (meets !== undefined && !MEETS.includes(meets)) throw new Error('meets: ' + MEETS.join(', ') + '.');
+    if (opens === 'into' && !vector(into)) throw new Error('A door opens into a room: give into, a point [x, y, z] inside the room it should swing into (the room the player enters through it, not the corridor he comes from), or opens "away".');
+    const catalog = await k.api('/api/pieces');
+    const doors = (catalog.items || []).filter((it) => it.kind === 'door');
+    if (!doors.length) throw new Error('The game\'s doors are not read yet: in Objects > Movers, read the game\'s maps (the Pieces scan), then try again.');
+    const t = String(piece || '').toLowerCase(), hinged = (it) => !(it.travel || []).some((v) => Math.abs(v) > 1);
+    const wide = (it) => Math.max(it.size[0], it.size[1]);
+    let pool = doors.filter((it) => it.id === piece);
+    if (!pool.length && t) pool = doors.filter((it) => `${it.id} ${it.label} ${it.map}`.toLowerCase().includes(t));
+    if (!pool.length && t) throw new Error(`No library door matches "${piece}" (try wood, metal, glass, a map name, or leave it out).`);
+    if (!pool.length) pool = doors;
+    // a hinged door for into/away/other (a sliding one has no way to choose); then the size closest to the doorway's
+    const want = Number.isFinite(width) && width > 0 ? width : 64;
+    const best = [...pool].sort((a, b) => (hinged(b) - hinged(a)) * (opens === 'built' ? 0 : 1)
+      || Math.abs(wide(a) - want) + Math.abs(a.size[2] - 128) - Math.abs(wide(b) - want) - Math.abs(b.size[2] - 128))[0];
+    const clip = await k.api('/api/piece_prefab?id=' + encodeURIComponent(best.id), {});
+    if (!clip || clip.kind !== 'prefab' || !clip.mover) throw new Error(`The door ${best.id} could not be made ready.`);
+    needEditable();
+    if (E().script !== script) throw new Error('The map changed while the door was made ready.');
+    // the door's thin side across the way through: turned so that it closes the doorway
+    const thinX = best.size[0] < best.size[1];             // as it stands in its map, which is the piece's yaw 0
+    const yaw = ((Math.round(through) + (thinX ? 0 : -k.YAW / 4)) % k.YAW + k.YAW) % k.YAW;
+    const item = { prefab: clip, radius: 4, height: 0, turn: yaw };
+    k.startPlacing(item);
+    const before = (E().edits.prefabs || []).length;
+    try {
+      const r = k.placeOnRay(new THREE.Raycaster(k.T([at[0], at[1], at[2] + 40]), k.T([0, 0, -1]).normalize()))
+        || { p: k.T(at), n: new THREE.Vector3(0, 1, 0), hit: k.T(at), tex: null };
+      k.placeWith(r, { quiet: true });
+    } finally { if (k.placing === item) k.cancelPlacing(); }
+    const entry = (E().edits.prefabs || [])[before];
+    if (!entry) throw new Error('The door could not be placed there.');
+    entry.moverSettings = { ...entry.moverSettings, opens, ...(opens === 'into' ? { into: into.map((v) => Math.round(v)) } : {}),
+      ...(meets ? { meets } : {}) };
+    // room to open (door-room.js; the Discord's gate in a narrow alley): 'into' a room with no room for it takes the
+    // way that has room, and says so; any other way that goes into something is said too
+    let room = null, warning = '';
+    if (hinged(best)) {
+      try {
+        const got = await k.doorRoom(entry);
+        room = got.room;
+        const way = wayOf(opens, entry.moverSettings.into, got.middle), free = way === 'built' ? 'other' : 'built';
+        if (opens === 'into' && room && !room[way] && room[free]) {
+          entry.moverSettings = { ...entry.moverSettings, opens: free };
+          delete entry.moverSettings.into;
+          warning = `No room for it to open into that room (something is in the way there): it opens the other way (opens "${free}").`;
+        } else warning = (await k.doorRoom(entry)).note;
+      } catch (_) { /* the check is a help: the door is placed all the same */ }
+    }
+    k.setDirty(); k.rebuildProxies();
+    return { ...pasteInfo(entry), piece: best.id, hinged: hinged(best), ...(room ? { room } : {}), ...(warning ? { warning } : {}),
+      note: hinged(best) ? 'Rebuild to play it.' : 'This door slides: it has no side to open toward.' };
   },
   move({ name, loc, yaw, scale, size }) {
     const k = needEditable(), p = proxyOrFail(name);
@@ -446,8 +513,38 @@ async function writeInfoLink(key, fields) {
   });
   return { infolink: JSON.parse(JSON.stringify(infoLinkOf(await story(), key))) };
 }
+// a placed piece of the library (a door, a lift, a piece, a prefab): named paste~<its number>, as the editor names it
+const pasteNamed = (name) => (E().edits.prefabs || []).find((e) => 'paste~' + e.pid === name) || null;
+function pasteInfo(e) {
+  const pivot = e.pivot || [0, 0, 0], off = e.offset || [0, 0, 0];
+  return { name: 'paste~' + e.pid, cls: e.mover ? e.mover.kind : 'piece', label: e.label || '', loc: pivot.map((v, i) => r1(v + off[i])),
+    yaw: e.yaw || 0, ...(e.mover ? { mover: { ...e.mover, ...e.moverSettings } } : {}) };
+}
+// what a library door does when someone is in its way (the Inspector's Meets someone; moving_pieces.MEETS)
+const MEETS = ['ignore', 'stop', 'return', 'crush'];
+// a placed door's opening (opens, into) and meets as the Inspector's Opens and Meets someone set them
+function setPaste(k, e, props) {
+  const unknown = Object.keys(props).filter((key) => !['opens', 'into', 'meets'].includes(key));
+  if (unknown.length || !e.mover || e.mover.kind !== 'door')
+    throw new Error(`paste~${e.pid}: ${e.mover?.kind === 'door' ? 'a door takes opens (into, away, built, other), into (a point in the room it opens into) and meets (ignore, stop, return, crush)' : 'only a door\'s opens can be set here; move it with the gizmo'}.`);
+  const next = { ...e.moverSettings };
+  for (const [key, v] of Object.entries(props)) { if (v === null) delete next[key]; else next[key] = v; }
+  const vector = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+  if (next.opens && !['into', 'away', 'built', 'other'].includes(next.opens)) throw new Error('opens: into, away, built or other.');
+  if (next.meets && !MEETS.includes(next.meets)) throw new Error('meets: ' + MEETS.join(', ') + '.');
+  if (next.opens === 'into' && !vector(next.into)) throw new Error('opens "into" needs into: a point [x, y, z] inside the room the door swings into.');
+  k.pushUndo(`Assistant: door paste~${e.pid} opens`);
+  e.moverSettings = next;
+  k.setDirty(); k.rebuildProxies();
+  if (!k.doorRoom) return pasteInfo(e);
+  // and whether it has room to open that way (door-room.js)
+  return k.doorRoom(e).then(({ room, note }) => ({ ...pasteInfo(e), ...(room ? { room } : {}), ...(note ? { warning: note } : {}) }))
+    .catch(() => pasteInfo(e));
+}
 // a block's or a drawn piece's fields, as their panels set them (their size: move_object; null: back to the default)
 function setPiece(k, name, props) {
+  const paste = pasteNamed(name);
+  if (paste) return setPaste(k, paste, props);
   const ed = E(), b = (ed.edits.boxes || []).find((x) => x.name === name), d = (ed.edits.drawn || []).find((x) => x.name === name);
   if (!b && !d) throw new Error(`${name}: nothing of that name in the map (find_objects gives the names).`);
   // a block also takes mover (a moving block, as the Inspector's Kind) and door (the Inspector's Quick door: how it

@@ -28,7 +28,7 @@ PAGE_GONE = 8        # a page that has not asked for this long is not open any m
 # what the page knows how to do (static/agent.js OPS): anything else is refused here, before it waits for a page
 OPS = frozenset(('state', 'maps', 'open_map', 'find', 'object', 'select', 'place', 'move', 'set', 'delete',
                  'undo', 'redo', 'save', 'rebuild', 'view', 'story_list', 'story_get', 'story_write', 'story_play',
-                 'run_js', 'classes', 'textures', 'draw', 'batch', 'picture', 'logic_read', 'logic_offer', 'logic_check',
+                 'run_js', 'classes', 'textures', 'draw', 'batch', 'picture', 'door', 'logic_read', 'logic_offer', 'logic_check',
                  'logic_try', 'logic_propose', 'logic_proposal', 'logic_why', 'logic_log', 'logic_patterns'))
 MAX_BATCH = 100                        # calls in one batch
 ADVANCED = frozenset(('run_js',))      # only with the second switch: JavaScript in the page can do anything it can

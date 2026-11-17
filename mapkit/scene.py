@@ -445,7 +445,7 @@ class Scene:
                 if cmd not in self.extra_obj:
                     self.extra_obj.append(cmd)
             self.actors += blocks
-            self.movers += [n for block in blocks for cls, n in [_head(block)] if cls == 'DeusExMover']
+            self.movers += [n for block in blocks for cls, n in [_head(block)] if cls in ('DeusExMover', 'UCDoorMover')]
             for n in brushes + actors:
                 if e['group']:
                     self.actor_group[n] = e['group']
@@ -1042,7 +1042,7 @@ class Scene:
                                                      pitch=int(e.get('pitch') or 0), roll=int(e.get('roll') or 0),
                                                      scale=list(e.get('scale') or [1, 1, 1]), stretch=bool(e.get('stretch')))
             self.actors += blocks
-            self.movers += [n for block in blocks for cls, n in [_head(block)] if cls == 'DeusExMover']
+            self.movers += [n for block in blocks for cls, n in [_head(block)] if cls in ('DeusExMover', 'UCDoorMover')]
             for n in actors + brushes:
                 self.actor_group[n] = g
             self.pastes.append((g, brushes))

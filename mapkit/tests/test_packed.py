@@ -146,6 +146,34 @@ class WithoutZstd(Both, unittest.TestCase):
             self.assertEqual(stream.read(), TEXT.encode('latin1'))
 
 
+class Utf16(unittest.TestCase):
+    """The engine writes a T3D as UTF-16 when a value holds junk beyond Latin-1 (Revision's 97_Survival_Dockyard);
+    read as Latin-1 it had no actor at all (17 Nov 2026)."""
+    T3D = ('Begin Map\r\nBegin Actor Class=DeusExMover Name=DeusExMover128\r\n    MoverGlideType=ሴ\ud800x\r\n'
+           '    Tag=Gateé\r\nEnd Actor\r\nEnd Map\r\n')
+
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp(prefix='packed-', dir=str(Path(__file__).parent)))
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.file = self.folder / 'scene.t3d'
+        self.file.write_bytes(packed.UTF16_BOM + self.T3D.encode('utf-16-le', 'surrogatepass'))
+
+    def test_read_as_the_utf16_it_is_without_the_junk_for_latin1_readers(self):
+        want = 'Begin Map\nBegin Actor Class=DeusExMover Name=DeusExMover128\n    Tag=Gateé\nEnd Actor\nEnd Map\n'
+        self.assertEqual(packed.read_text(self.file, encoding='latin1'), want)
+        self.assertIn('ሴ', packed.read_text(self.file, encoding='utf-8', errors='replace'))     # all of it
+        packed.pack(self.file)
+        self.assertEqual(packed.read_text(self.file, encoding='latin1'), want)
+
+    def test_a_written_t3d_is_made_latin1(self):
+        self.assertTrue(packed.latin1_t3d(self.file))
+        data = self.file.read_bytes()
+        self.assertEqual(data, b'Begin Map\r\nBegin Actor Class=DeusExMover Name=DeusExMover128\r\n    Tag=Gate\xe9\r\n'
+                               b'End Actor\r\nEnd Map\r\n')
+        self.assertFalse(packed.latin1_t3d(self.file))                   # already Latin-1: left as it is
+        self.assertEqual(self.file.read_bytes(), data)
+
+
 class Readers(unittest.TestCase):
     def test_the_readers_of_the_cache_go_through_it(self):
         # no reader left that opens one of the three files itself (a packed cache would look empty to it)

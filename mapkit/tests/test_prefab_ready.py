@@ -96,7 +96,13 @@ class PieceMadeBefore(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.map = Path(self.temp.name) / '01_Test.dx'
         self.map.write_bytes(b'map')
-        pl._digests.clear()
+        # the maps hashed before are kept in the game's cache (maps-seen.json, 0.1.73): an empty one of the test's own
+        cache = Path(self.temp.name) / 'cache'
+        cache.mkdir()
+        keep = patch.object(pl.editor_data, 'GAME_CACHE', cache)
+        keep.start()
+        self.addCleanup(keep.stop)
+        pl._seen_files.clear()
 
     def signature(self):
         st = self.map.stat()
@@ -104,20 +110,19 @@ class PieceMadeBefore(unittest.TestCase):
 
     def test_the_original_map_is_hashed_once_per_size_and_time(self):
         hashed = []
-        real = pl._signature
+        real = pl.hashlib.sha256
 
-        def signature(path, digest=True):
-            if digest:
-                hashed.append(path)
-                return dict(real(path, False), sha256='x' * 64)
-            return real(path, False)
-        with patch.object(pl, '_signature', signature):
-            self.assertTrue(pl._same_map(self.map, self.signature()))
-            self.assertTrue(pl._same_map(self.map, self.signature()))
+        def sha256(*args):
+            hashed.append(1)
+            return real(*args)
+        with patch.object(pl.hashlib, 'sha256', sha256):
+            signature = pl._signature(self.map)
+            self.assertTrue(pl._same_map(self.map, signature))
+            self.assertTrue(pl._same_map(self.map, signature))
             self.assertEqual(len(hashed), 1)
-            self.assertFalse(pl._same_map(self.map, dict(self.signature(), sha256='y' * 64)))
+            self.assertFalse(pl._same_map(self.map, dict(signature, sha256='y' * 64)))
             self.map.write_bytes(b'another map')
-            self.assertFalse(pl._same_map(self.map, dict(self.signature(), size=3)))
+            self.assertFalse(pl._same_map(self.map, signature))
 
     def test_made_before_needs_no_cache_check_and_none_otherwise(self):
         item = dict(id='Obj_1', map='01_Test')

@@ -176,6 +176,7 @@ def _dump_session(map_name, src, folder, log, lite=False, cached=None):
         write_paths(s.folder / 'Output' / 'paths.jsonl', folder)
         s.cmd(r'MAP EXPORT FILE="..\Output\scene.t3d"')
         shutil.copy2(s.folder / 'Output' / 'scene.t3d', folder / 'scene.t3d')
+        packed.latin1_t3d(folder / 'scene.t3d')        # (written as UTF-16 when a value holds junk: packed.text_of)
         brushes = parse_brushes(s.folder / 'Output' / 'brushes.jsonl')
         meshes = parse_meshes(s.folder / 'Output' / 'meshes.bin')     # {} when lite (no file)
         saved = activation.load(src)

@@ -360,7 +360,9 @@ def _source_cached(path, mtime, size):
 
 @lru_cache(maxsize=4)
 def _polys_cached(path, mtime, size):
-    return json.loads(Path(path).read_text(encoding='utf-8'))
+    # (plain or packed: since 0.1.72 a map's polys.json is kept packed, and the preview of every Piece placed for the
+    # first time failed here, 17 Nov 2026)
+    return json.loads(packed.read_text(path, encoding='utf-8'))
 
 
 @lru_cache(maxsize=32)
@@ -505,8 +507,43 @@ def place(entry):
             import moving_pieces
             raw = moving_pieces.apply_settings(raw, entry.get('moverSettings'))
             raw = moving_pieces.placed(raw, xf, new, original_raw)
+            raw = moving_pieces.opening(raw, entry.get('moverSettings'))     # after placed: it sets the keys again
+            raw = moving_pieces.meeting(raw, entry.get('moverSettings'))     # and the door's MoverEncroachType
         out.append(raw)
     return out, brushes, actors
+
+
+_PID = re.compile(r'[A-Za-z0-9_]{1,200}')   # usr_<hex> of the library, obj_<piece>_<hex> of the Pieces
+
+
+def door_room(entry):
+    """The room a placed library door needs to open each way, where the build puts it (moving_pieces.sweep: lines in
+    the world; the editor traces them against what is in the map): {'built': [[a, b], ...], 'other': [...], 'middle':
+    {'built', 'other'}}, both empty for a door that does not turn. ValueError for something that is not a placed copy."""
+    import moving_pieces
+    if not isinstance(entry, dict) or not isinstance(entry.get('prefab'), str) or not _PID.fullmatch(entry['prefab']) \
+            or entry['prefab'] in ('.', '..') or not isinstance(entry.get('pid'), str):
+        raise ValueError('This is not a placed copy.')
+    try:
+        load(entry['prefab'])
+    except (OSError, ValueError) as exc:
+        raise ValueError("This copy's prefab is missing.") from exc
+    plain = dict(entry, moverSettings={k: v for k, v in (entry.get('moverSettings') or {}).items()
+                                       if k not in ('opens', 'into')})
+    for raw in place(plain)[0]:
+        for actor in t3d_actors(raw):
+            if actor['props'].get('bIsDoor') == 'True':
+                room = moving_pieces.sweep(actor)
+                if room:
+                    ends = moving_pieces.mirror(actor)    # where its middle ends each way: what 'into' compares
+                    return dict(room, middle=dict(built=[round(v, 3) for v in ends['built']],
+                                                  other=[round(v, 3) for v in ends['other']]))
+    return dict(built=[], other=[])
+
+
+def t3d_actors(raw):
+    import t3d
+    return t3d.actors(raw)
 
 
 def _at_place(actor, record):

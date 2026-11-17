@@ -1044,6 +1044,12 @@ for example): there you can only change objects, not the map's geometry.
   support Undo and independent duplicates. After Rebuild, **Edit mover…** selects the native actor
   for its tags, interactions, Door sounds and Animate settings. Moving, turning, duplicating and Undo
   work as with a piece. A mover placed by an older version can be selected as a native actor after Rebuild.
+  A hinged door's **Opens** says which way it swings: as in its map (the default), the other side, or
+  **away from who opens it** (from either side, also when a character opens it; its hinge moves to the
+  door's other face, so it never goes into the jamb). A warning under it says when the door would swing
+  into a wall or a block; an *away* door with room on one side only always opens that way in the game.
+  **Meets someone** says what a door does when someone is in its way: goes through them (the default, as
+  almost all the game's own doors), stops until they move, goes back, or hurts them.
   Multi-floor/script-controlled mechanisms and unsupported tilted movers are not listed as ready-made
   pieces. This does not cut a doorway or build an elevator shaft, buttons or navigation automatically.
   On upgrade, **Refresh scan** adds the mover library using existing reference caches where possible;

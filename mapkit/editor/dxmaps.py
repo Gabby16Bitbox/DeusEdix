@@ -660,7 +660,8 @@ def build(map_name, log=print, options=None, watch=None):
             lights = lights or _light(cls)
             nav = nav or cls in NAV
             lines.append('  EDIT replaced %s (%s)' % (a['name'], cls))
-    movers = re.findall(r'Begin Actor Class=DeusExMover Name=(\w+)', '\n'.join(blocks))
+    # (UCDoorMover: a library door that opens away from whoever opens it, moving_pieces.opening)
+    movers = re.findall(r'Begin Actor Class=(?:DeusExMover|UCDoorMover) Name=(\w+)', '\n'.join(blocks))
     for a in edits.get('added') or []:
         if a['name'] in unreplaced:     # the copy's object it replaces is still there: two objects never share a name
             lines.append('  EDIT %s %s not added (the object it replaces is still there)' % (a['cls'], a['name']))

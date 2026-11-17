@@ -67,6 +67,7 @@ import { usablePlayerStarts, PLAYER_START_REQUIRED } from './player-start.js';
 import {mapPlayerFields, wireProjectPlayer, applyMapPlayer} from './player-profiles.js';
 import { createPrefabBrowser } from './prefab-browser.js';
 import { moverFields, moverPanel, wireMoverPanel } from './mover-piece.js';
+import { roomOf, roomNote } from './door-room.js';
 import { createPiecesBrowser } from './pieces-browser.js';
 import { collectPrefabSelection } from './prefab-selection.js';
 import { freePid, isMember, linkOf, linkFields, copiesOf, outdated, overridesOf, overridesData, putOverrides, replacedOn, updateCopy, appliedCopy, unpack, copyCounts, isLibraryVersion } from './prefab-links.js';
@@ -10346,6 +10347,37 @@ function pendingSurfaces() {
   return proxies.children.filter((p) => p.userData.drawn || (p.userData.box && ['solid', 'detail', 'mover'].includes(boxKind(p.userData.box))));
 }
 function placeAt(e) { return placeOnRay(mouseRay(e)); }
+// Is something of the map across the line a→b (Unreal units): the map's surfaces (not inside a hole not cut yet) and
+// what is drawn or blocked out but not built (door-room.js: the room a door needs to open)
+// Cast both ways (a ray meets only the faces turned toward it). Where the objects stand is brought up to date first:
+// a block placed while the 3D view is not drawn (the window hidden) kept its old place for rays (17 Nov 2026).
+function segmentBlocked(a, b) {
+  proxies.updateMatrixWorld();
+  const inHole = (q) => { for (let i = 0; i < HOLE.n.value; i++) { const lo = HOLE.min.value[i], hi = HOLE.max.value[i];
+    if (q.x > lo.x && q.y > lo.y && q.z > lo.z && q.x < hi.x && q.y < hi.y && q.z < hi.z) return true; } return false; };
+  const cast = (from, to) => {
+    const A = T(from), d = T(to).sub(A), far = d.length();
+    if (!(far > 0)) return false;
+    const r = new THREE.Raycaster(A, d.normalize(), 0, far);
+    const hits = r.intersectObjects(worldMeshes, false).concat(r.intersectObjects(pendingSurfaces(), true).filter((h) => h.object.isMesh && h.face));
+    return presentHits(hits).some((h) => !inHole(h.point));
+  };
+  return cast(a, b) || cast(b, a);
+}
+// The room a placed library door has to open each way, {built, other} (null: it does not turn), and the Inspector's
+// line about it. The lines it sweeps come from the server once per placement (the door's own, not what is around it).
+const doorLines = new Map();
+async function doorRoom(entry) {
+  const { _prefab, moverSettings, ...where } = entry;           // what places it; not which way it opens
+  const key = JSON.stringify(where);
+  if (!doorLines.has(key)) {
+    const got = await api('/api/door_room', { entry: where });
+    if (doorLines.size > 200) doorLines.clear();
+    doorLines.set(key, got);
+  }
+  const lines = doorLines.get(key), room = roomOf(lines, segmentBlocked), s = entry.moverSettings || {};
+  return { room, note: roomNote(s.opens || 'built', room, s.into, lines.middle), middle: lines.middle || null };
+}
 // where something being placed stands: on the first surface `ray` meets (on a floor, under a ceiling, against a wall)
 function placeOnRay(ray) {
   const hits = ray.intersectObjects(worldMeshes, false)
@@ -17923,11 +17955,18 @@ function showDetails(live, view = null) {
     };
     // its position, turn and size (not the texture section's inputs: a picture chosen to import moves nothing)
     for (const i of el.querySelectorAll('input:not([type=file]):not([type=checkbox][data-tex])')) if (!i.closest('.texrow, [data-mover-settings]')) i.addEventListener('change', apply);
+    // a hinged door with no room to open some way says so under its Opens (door-room.js)
+    const showRoom = () => {
+      const box = $('#mover-room'), entry = pasteEntry(st.name);
+      if (!box || !entry) return;
+      doorRoom(entry).then(({ note }) => { if (box.isConnected) { box.textContent = note; box.hidden = !note; } }).catch(() => {});
+    };
     wireMoverPanel(el, { getEntry: () => pasteEntry(st.name), change: update => {
       if (!requireUnlocked(p)) return;
       const entry = pasteEntry(st.name); if (!entry) return;
-      pushUndo(stepOf('Mover settings of', [p])); update(entry); setDirty();
+      pushUndo(stepOf('Mover settings of', [p])); update(entry); setDirty(); showRoom();
     } });
+    showRoom();
     if ($('#mover-details')) $('#mover-details').onclick = () => { if (nativeMover) { inspectorPin = null; select(nativeMover); } };
     if ($('#bdup')) $('#bdup').onclick = () => inspectorAction(p, duplicateSelected);
     $('#bcopy').onclick = () => inspectorAction(p, copySelected);
@@ -18970,7 +19009,7 @@ function viewShot({ from, lookAt, focus, keep = false, clean = false } = {}) {
 // what an AI assistant's calls use (agent.js): the editor's own steps, so that what it does is what a click does
 window.__editor.agentKit = { T, UE, YAW, yawToRad, radToYaw, allActors, actorProp, setProp, unsetProp, pushUndo, setDirty,
   proxyOf, select, setMulti, focusSelected: () => focusSelected({ instant: true }), deleteSelected, commit, rebuildProxies, showDetails, hierLabel, boxKind,
-  placeOnRay, placeWith, startPlacing, cancelPlacing, placingOf, signPicture, undoStep, redoStep, viewShot, isCharacter, warnHiddenKinds,
+  placeOnRay, doorRoom, placeWith, startPlacing, cancelPlacing, placingOf, signPicture, undoStep, redoStep, viewShot, isCharacter, warnHiddenKinds,
   save: () => saveWorkspace(), openMap, mapList: () => mapList, palette: () => palette, chainOf: (cls) => chainNow[cls] || null,
   get lightMode() { return lightMode; }, setLightMode, api,
   structureOf: (name) => structures[actorStruct[name]]?.label || actorStruct[name] || null, builtScale: (name) => builtScale[name] || 1,

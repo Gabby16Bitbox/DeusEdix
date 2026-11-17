@@ -79,6 +79,27 @@ End Actor
             output.append(dict(entry=entry, display=display, seconds=time.perf_counter()-before))
         (HERE/'real-signs.json').write_text(json.dumps(output))
 
+    def test_a_piece_preview_upgrades_from_a_packed_polys_json(self):
+        # a Piece's display.json has no texture frames (gamelib.prefab): they come from its map's polys.json, kept
+        # packed since 0.1.72; it was read as a plain file and the preview of every new Piece failed (17 Nov 2026)
+        import packed
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nums = [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1]
+            pos = [0, 0, 0, 1, 0, 0, 0, 1, 0]
+            ref = root / 'game' / 'ref_01_Fixture'
+            ref.mkdir(parents=True)
+            (ref / 'polys.json').write_bytes(json.dumps([['T', 0, nums, pos, 0]]).encode())
+            self.assertTrue(packed.pack(ref / 'polys.json'))
+            piece = root / 'prefabs' / 'obj_01_Fixture_1_abc'
+            piece.mkdir(parents=True)
+            (piece / 'prefab.json').write_text(json.dumps(dict(source='01_Fixture')))
+            (piece / 'display.json').write_text(json.dumps(dict(groups=[dict(tex='T', flags=0, pos=pos, uv=[0, 0, 1, 0, 0, 1])], textures={})))
+            with patch.object(prefabs, 'ROOT', root / 'prefabs'), patch.object(data, 'GAME_CACHE', root / 'game'), \
+                    patch.object(data, 'CACHE', root / 'cache'):
+                display = prefabs.display('obj_01_Fixture_1_abc')
+            self.assertEqual(display['groups'][0]['uvFrames'], [texture_mapping.frame(nums)])
+
     def test_match_rejects_same_texture_wrong_plane_and_pan(self):
         group = dict(tex='T', pos=[0,0,0, 1,0,0, 0,1,0], uv=[0,0, 1,0, 0,1])
         nums = [0,0,0, 1,0,0, 0,1,0, 0,0,1,1]

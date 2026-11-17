@@ -6,6 +6,7 @@ controllers cannot be copied as independent objects without their mission logic.
 import hashlib
 import functools
 import json
+import math
 import re
 from pathlib import Path
 
@@ -165,6 +166,14 @@ KEEP = {'Location', 'Rotation', 'PrePivot', 'MainScale', 'PostScale', 'PolyFlags
         'MoveTime', 'StayOpenTime', 'MoverGlideType', 'OpeningSound', 'OpenedSound',
         'ClosingSound', 'ClosedSound', 'MoveAmbientSound', 'SoundVolume', 'SoundRadius', 'SoundPitch',
         'KeyPos(1)', 'KeyRot(1)'}
+ENCROACH = {'door': 'ME_IgnoreWhenEncroach', 'elevator': 'ME_ReturnWhenEncroach'}
+# the Inspector's Opens of a hinged door (17 Nov 2026, Gabby): the way it turns as the original map has it, the other
+# way, away from whoever opens it (the game class UCDoorMover, in the project's package), or into the room a point is in
+DOOR_CLASS = 'UCDoorMover'
+OPENS = ('built', 'other', 'away', 'into')
+# what a door does when it meets someone (the Inspector's "Meets someone"): ignore is ENCROACH['door']
+MEETS = {'ignore': 'ME_IgnoreWhenEncroach', 'stop': 'ME_StopWhenEncroach', 'return': 'ME_ReturnWhenEncroach',
+         'crush': 'ME_CrushWhenEncroach'}
 
 
 def template(actor, what, textures):
@@ -193,7 +202,9 @@ def template(actor, what, textures):
                   bOneWay='False', bSlave='False', bTriggerOnceOnly='False', bIsDoor='True' if what == 'door' else 'False',
                   bFrobbable='True' if what == 'door' else 'False', bHighlight='True' if what == 'door' else 'False',
                   InitialState='TriggerToggle' if what == 'door' else 'StandOpenTimed',
-                  MoverEncroachType='ME_ReturnWhenEncroach')
+                  # a door that meets someone goes on opening, as 1549 of Revision's 1654 hinged doors do (Return closed
+                  # it again in the player's face, 17 Nov 2026); a lift still goes back
+                  MoverEncroachType=ENCROACH[what])
     if what == 'elevator':
         values.update(StayOpenTime='4.000000', DelayTime='0.500000', BumpType='BT_PlayerBump')
     return ('Begin Actor Class=DeusExMover Name='+actor['name']+'\n'+body+'\n'+
@@ -214,7 +225,9 @@ def description(prefab):
                 # lock picking and damage (14 Nov 2026): the game's DeusExMover defaults when the piece does not say
                 pickable=p.get('bPickable') == 'True', lockStrength=float(p.get('lockStrength', 0.2)),
                 breakable=p.get('bBreakable') == 'True', doorStrength=float(p.get('doorStrength', 0.25)),
-                minDamage=int(float(p.get('minDamageThreshold', 10))))
+                minDamage=int(float(p.get('minDamageThreshold', 10))),
+                # a hinged door (its turn when open): the Inspector offers which way it opens
+                turn=0 if lift else t3d.rot(p.get('KeyRot(1)'))[1], opens='built', meets='ignore')
 
 
 def apply_settings(raw, settings):
@@ -223,8 +236,11 @@ def apply_settings(raw, settings):
     if not settings:
         return raw
     if not isinstance(settings, dict) or set(settings) - {'mode', 'moveTime', 'stayOpenTime', 'locked', 'keyId', 'pickable',
-                                                           'lockStrength', 'breakable', 'doorStrength', 'minDamage'}:
+                                                           'lockStrength', 'breakable', 'doorStrength', 'minDamage',
+                                                           'opens', 'into', 'meets'}:
         raise ValueError('Invalid mover settings.')
+    _opens_of(settings)             # checked here, done once the door is placed (opening)
+    _meets_of(settings)             # and meeting
     values = {}
     # lock picking and damage (14 Nov 2026, Gabby: a door from Objects > Movers had no lockpicking or damage options):
     # DeusExMover bPickable/lockStrength, bBreakable/doorStrength (0 easy or weak, 1 hard or strong), minDamageThreshold
@@ -292,8 +308,207 @@ def placed(raw, xf, name, original_raw=None):
     a = next(t3d.actors(raw)); p = a['props']
     extra = {'Tag': name, 'BasePos': p.get('Location', '(X=0,Y=0,Z=0)'),
              'BaseRot': p.get('Rotation', '(Pitch=0,Yaw=0,Roll=0)')}
-    for key, value in extra.items():
+    if p.get('bIsDoor') == 'True':
+        extra['MoverEncroachType'] = ENCROACH['door']       # also a door of a prefab made before 17 Nov 2026
+    return _set(raw, extra)
+
+
+def _set(raw, values):
+    for key, value in values.items():
         line = '    %s=%s' % (key, value)
         raw, count = re.subn(r'(?m)^\s*'+re.escape(key)+r'=[^\r\n]*', lambda m: line, raw, count=1)
         if not count: raw = raw.replace('End Actor', line+'\nEnd Actor')
     return raw
+
+
+def _opens_of(settings):
+    """(how, into point) of mover settings; ValueError when they are not right."""
+    how = (settings or {}).get('opens', 'built')
+    if how not in OPENS:
+        raise ValueError('Invalid door opening: use ' + ', '.join(OPENS) + '.')
+    into = (settings or {}).get('into')
+    if how == 'into':
+        if (not isinstance(into, (list, tuple)) or len(into) not in (2, 3) or
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in into)):
+            raise ValueError('A door that opens into a room needs into: a point [x, y, z] in that room.')
+    return how, into
+
+
+def _meets_of(settings):
+    """What a door does when it meets someone (mover settings' meets); ValueError when it is not one of MEETS."""
+    how = (settings or {}).get('meets', 'ignore')
+    if how not in MEETS:
+        raise ValueError('Invalid door setting meets: use ' + ', '.join(MEETS) + '.')
+    return how
+
+
+def meeting(raw, settings):
+    """A placed door's "When it meets someone" (17 Nov 2026, the game's MoverEncroachType, asked about on the modding
+    Discord): 'ignore' (placed() set it: it goes on through them, as 1549 of Revision's 1654 hinged doors), 'stop'
+    (it waits until they move), 'return' (it goes back), 'crush' (it goes on and hurts them). A lift keeps its own."""
+    how = _meets_of(settings)
+    if how == 'ignore' or next(t3d.actors(raw))['props'].get('bIsDoor') != 'True':
+        return raw
+    return _set(raw, {'MoverEncroachType': MEETS[how]})
+
+
+def swing_center(actor, yaw):
+    """Where the middle of a door is, turned yaw (Unreal units, 65536 a whole turn) about its hinge (its Location)."""
+    lo, hi = t3d.bounds(actor)
+    hinge = t3d.vec(actor['props'].get('Location'))
+    middle = [(lo[k] + hi[k]) / 2 - hinge[k] for k in range(3)]
+    q = t3d._rotate(middle, (0, yaw, 0))
+    return tuple(q[k] + hinge[k] for k in range(3))
+
+
+def _unrotate(p, r):
+    """t3d._rotate undone (yaw, pitch, roll taken back in the other order)."""
+    pitch, yaw, roll = (a * math.pi / 32768.0 for a in r)
+    x, y, z = p
+    cy, sy = math.cos(-yaw), math.sin(-yaw)
+    x, y = x * cy - y * sy, x * sy + y * cy
+    cp, sp = math.cos(-pitch), math.sin(-pitch)
+    x, z = x * cp - z * sp, x * sp + z * cp
+    cr, sr = math.cos(-roll), math.sin(-roll)
+    y, z = y * cr - z * sr, y * sr + z * cr
+    return (x, y, z)
+
+
+def _vec(v):
+    return '(X=%.3f,Y=%.3f,Z=%.3f)' % tuple(v)
+
+
+def _frame(actor):
+    """A shut door seen from its hinge (its Location): `u` along its width, `n` across its thickness (both flat),
+    `m` the middle of its thickness along n, `far` its other edge along u (signed), `low`/`high` its bottom and top.
+    None without vertices."""
+    p = actor['props']
+    pts = [v for _, vs in t3d.world_verts(actor) for v in vs]
+    if not pts:
+        return None
+    hinge = t3d.vec(p.get('Location'))
+    flat = [(q[0] - hinge[0], q[1] - hinge[1]) for q in pts]
+    mx, my = sum(x for x, _ in flat) / len(flat), sum(y for _, y in flat) / len(flat)
+    sxx = sum((x - mx) ** 2 for x, _ in flat)
+    syy = sum((y - my) ** 2 for _, y in flat)
+    sxy = sum((x - mx) * (y - my) for x, y in flat)
+    along = 0.5 * math.atan2(2 * sxy, sxx - syy)            # the door's width; its thickness across it
+    u, n = (math.cos(along), math.sin(along)), (-math.sin(along), math.cos(along))
+    depth = [x * n[0] + y * n[1] for x, y in flat]
+    width = [x * u[0] + y * u[1] for x, y in flat]
+    far = max(width) if abs(max(width)) >= abs(min(width)) else min(width)
+    return dict(hinge=hinge, u=u, n=n, m=(min(depth) + max(depth)) / 2, far=far,
+                low=min(q[2] for q in pts), high=max(q[2] for q in pts))
+
+
+def _flipper(f):
+    """Mirrored across the plane through the hinge, across the door's thickness."""
+    n = f['n']
+
+    def flip(v):
+        d = v[0] * n[0] + v[1] * n[1]
+        return (v[0] - 2 * d * n[0], v[1] - 2 * d * n[1], v[2])
+    return flip
+
+
+ROOM_TURNS = (1 / 3.0, 2 / 3.0, 0.85)    # how far open (of its whole turn) the room it needs is tried
+ROOM_HEIGHTS = (0.25, 0.75)              # at which heights of the door
+ROOM_LINES = 10                          # lines a way: UCDoorMover's BuiltRoomFrom[10] ... MirrorRoomTo[10]
+
+
+def sweep(actor):
+    """The room a hinged door needs to open, each way (17 Nov 2026, from the modding Discord: a gate in a narrow alley
+    turned the other way goes into the wall): lines through the middle of its thickness at a quarter and three
+    quarters of its height, from 0.4 of its width out to its edge less 4 units, at a third, two thirds and 0.85 of its
+    turn, and its edge between those. {'built': [[a, b], ...], 'other': [...]} in the world, `other` the mirror image
+    (mirror()); None for a door that does not turn."""
+    p = actor['props']
+    turn = t3d.rot(p.get('KeyRot(1)'))[1]
+    f = _frame(actor) if turn else None
+    if not f:
+        return None
+    hinge, u, n, m, far = f['hinge'], f['u'], f['n'], f['m'], f['far']
+    key = t3d.vec(p.get('KeyPos(1)'))
+    sign, width = (1 if far >= 0 else -1), abs(far)
+
+    def at(t, part, z):
+        q = t3d._rotate((u[0] * t + n[0] * m, u[1] * t + n[1] * m, 0.0), (0, turn * part, 0))
+        return (hinge[0] + q[0] + key[0] * part, hinge[1] + q[1] + key[1] * part, z + key[2] * part)
+    lines = []
+    for h in ROOM_HEIGHTS:
+        z = f['low'] + (f['high'] - f['low']) * h
+        edge = [at(sign * max(width - 4, width * 0.5), part, z) for part in ROOM_TURNS]
+        lines += [(at(sign * width * 0.4, part, z), e) for part, e in zip(ROOM_TURNS, edge)]
+        lines += list(zip(edge, edge[1:]))
+    flip, shift = _flipper(f), (2 * m * n[0], 2 * m * n[1], 0.0)
+
+    def other(v):
+        r = flip(tuple(v[k] - hinge[k] for k in range(3)))
+        return tuple(round(r[k] + hinge[k] + shift[k], 3) for k in range(3))
+    rounded = lambda v: tuple(round(c, 3) for c in v)
+    return dict(built=[[rounded(a), rounded(b)] for a, b in lines], other=[[other(a), other(b)] for a, b in lines])
+
+
+def mirror(actor):
+    """The other way of a hinged door as the mirror image of its own swing across the middle of its thickness
+    (17 Nov 2026, Gabby: turned the other way about the same hinge, a door hinged on one face of its thickness went
+    into the jamb). Its hinge goes to the other face (`shift`, world) and its PrePivot by `prepivot`, so shut it stays
+    where it is; `keypos` its KeyPos(1) mirrored; `built` and `other` where its middle ends, open each way. None
+    without vertices."""
+    p = actor['props']
+    f = _frame(actor)
+    if not f:
+        return None
+    hinge, n, m = f['hinge'], f['n'], f['m']
+    shift = (2 * m * n[0], 2 * m * n[1], 0.0)
+    flip = _flipper(f)
+    main, post = t3d._scale(p, 'MainScale'), t3d._scale(p, 'PostScale')
+    local = _unrotate(tuple(shift[k] / (post[k] or 1) for k in range(3)), t3d.rot(p.get('Rotation')))
+    prepivot = tuple(local[k] / (main[k] or 1) for k in range(3))
+    keypos = t3d.vec(p.get('KeyPos(1)'))
+    built = swing_center(actor, t3d.rot(p.get('KeyRot(1)'))[1])
+    built = tuple(built[k] + keypos[k] for k in range(3))
+    rel = flip(tuple(built[k] - hinge[k] for k in range(3)))
+    other = tuple(rel[k] + hinge[k] + shift[k] for k in range(3))
+    return dict(shift=shift, prepivot=prepivot, keypos=flip(keypos), built=built, other=other)
+
+
+def opening(raw, settings):
+    """A placed door's Opens (apply_settings checked it): 'built' the turn of the original map; 'other' the same turn
+    the other way, as the mirror image of its own (mirror(): the hinge goes to the other face of the door); 'into'
+    whichever of the two takes the door into the room `into` is in (closer to that point when open); 'away' the class
+    UCDoorMover, which picks it each time from who opens it. Anything else, or a door that slides, is left as it is."""
+    how, into = _opens_of(settings)
+    if how == 'built':
+        return raw
+    actor = next(t3d.actors(raw))
+    p = actor['props']
+    turn = t3d.rot(p.get('KeyRot(1)'))
+    if p.get('bIsDoor') != 'True' or not turn[1] or not t3d.bounds(actor):
+        return raw
+    other = mirror(actor)
+    if how == 'away':
+        raw = re.sub(r'^Begin Actor Class=\S+', 'Begin Actor Class=' + DOOR_CLASS, raw, count=1)
+        values = {'MirrorHinge': _vec(other['shift']), 'MirrorPrePivot': _vec(other['prepivot']),
+                  'MirrorKeyPos': _vec(other['keypos']), 'BuiltMiddle': _vec(other['built']),
+                  'MirrorMiddle': _vec(other['other'])}
+        # the room each way needs: the game traces these lines once and never turns it into a wall (UCDoorMover.HasRoom)
+        room = sweep(actor) or {}
+        for way, prefix in (('built', 'Built'), ('other', 'Mirror')):
+            for i, (a, b) in enumerate(room.get(way, [])[:ROOM_LINES]):
+                values['%sRoomFrom(%d)' % (prefix, i)] = _vec(a)
+                values['%sRoomTo(%d)' % (prefix, i)] = _vec(b)
+        return _set(raw, values)
+    if how == 'into':
+        far = lambda q: math.hypot(*(q[k] - into[k] for k in range(2)))
+        if far(other['other']) >= far(other['built']):
+            return raw
+    values = {'KeyRot(1)': '(Pitch=%d,Yaw=%d,Roll=%d)' % (turn[0], -turn[1], turn[2])}
+    if any(abs(v) > 0.001 for v in other['keypos']):
+        values['KeyPos(1)'] = _vec(other['keypos'])
+    if any(abs(v) > 0.001 for v in other['shift']):
+        moved = _vec(t3d.vec(p.get('Location'))[k] + other['shift'][k] for k in range(3))
+        pre = t3d.vec(p.get('PrePivot'))
+        values.update({'Location': moved, 'BasePos': moved,
+                       'PrePivot': _vec(pre[k] + other['prepivot'][k] for k in range(3))})
+    return _set(raw, values)

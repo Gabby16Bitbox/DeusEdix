@@ -1792,6 +1792,12 @@ class Handler(BaseHTTPRequestHandler):
                 # Update instances: where the objects of the copies stand in the version they are put on
                 with LOCK:
                     return self._send(200, dict(members=prefab_library.members(body.get('entries') if isinstance(body, dict) else None)))
+            if u.path == '/api/door_room':
+                # the room a placed library door needs to open each way (prefabs.door_room): the page traces it
+                try:
+                    return self._send(200, prefabs.door_room(body.get('entry') if isinstance(body, dict) else None))
+                except ValueError as exc:
+                    return self._send(400, dict(error=str(exc)))
             if u.path == '/api/drawn_look':
                 # a drawing's faces with their textures as the build maps them (the editor's preview until a Rebuild)
                 import drawn
