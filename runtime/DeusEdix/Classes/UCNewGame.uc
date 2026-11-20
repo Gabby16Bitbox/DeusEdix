@@ -2,13 +2,14 @@
 // UCNewGame - the game's character screen of a new game (name, skills, look), started from the project's
 // own main menu (UCMenuRoot): its Start begins the project's first map (UCMenuLook.StartMap) where the
 // game's would play its intro and then begin UNATCO Island. Revision's screen (RevMenuScreenNewGame), the
-// original game's MenuScreenNewGame in the project's version for it (dev\vanilla_runtime.py).
+// original game's MenuScreenNewGame in the project's version for it (dev\vanilla_runtime.py). An installed mod
+// with no menu of its own opens it from the game's own menu, for its first map (UCModStart).
 //=============================================================================
 class UCNewGame extends RevMenuScreenNewGame;
 
 function ProcessAction(String actionKey)
 {
-	if (actionKey == "START" && class'UCMenuLook'.default.StartMap != "")
+	if (actionKey == "START" && StartMapOf() != "")
 	{
 		if (TrimSpaceS(editName.GetText()) == "")
 		{
@@ -17,10 +18,19 @@ function ProcessAction(String actionKey)
 		}
 		ForgetLastGame(player);
 		SaveSettings();
-		player.StartNewGame(class'UCMenuLook'.default.StartMap);
+		player.StartNewGame(StartMapOf());
 		return;
 	}
 	Super.ProcessAction(actionKey);
+}
+
+// the map a new game begins on: an installed mod's with the game's own menu (UCModStart, set only by its launch),
+// else the project's own menu's (UCMenuLook.StartMap); none: the game's own new game
+static function string StartMapOf()
+{
+	if (class'UCModStart'.default.StartMap != "")
+		return class'UCModStart'.default.StartMap;
+	return class'UCMenuLook'.default.StartMap;
 }
 
 // A new game starts with no states or counters of the last one. The game's own new game clears them in its intro

@@ -39,7 +39,9 @@ APPS = {'6910': 'Deus Ex: Game of the Year Edition', '397550': 'Deus Ex: Revisio
 # (windowed: the original game has none, its ini's StartupFullscreen=False alone does it)
 # and the words the engine needs to start on the map its command line names (map_switch: the original game's
 # UGameEngine::Init takes its first word as the map only with -hax0r or -server on the line, else it loads the menu
-# map, DX.dx: a player whose Steam launch options lack -hax0r got the menu for every Play, 18 Nov 2026)
+# map, DX.dx: a player whose Steam launch options lack -hax0r got the menu for every Play, 18 Nov 2026). -hax0r
+# also turns the game's cheats on (DeusEx.dll's player), as UnrealEd's own Play does: a mod's game starts on
+# START_MAP instead, which needs no switch (mods.start_of)
 TARGETS = {
     'revision': dict(name='Deus Ex: Revision', short='Revision', root='Revision', exe='Revision.exe',
                      ini='Revision.ini', user_ini='RevisionUser.ini', def_user_ini='RevisionDefUser.ini', app='397550',
@@ -50,6 +52,10 @@ TARGETS = {
                     launch_in_system=False, windowed=(), map_switch=('-hax0r',)),
 }
 DEFAULT_TARGET = 'revision'
+# the original game's own start map (UGameEngine::Init's DefaultLocalMap, DX.dx, its main menu): the engine opens
+# it with no map on the command line, so a launch naming it gets no map_switch. A mod's folder, first in its
+# launch's paths, may hold its own (mods.start_of), as the original game's own mods do.
+START_MAP = 'DX'
 # development mode's names (devmode.json): the mod's display name, its package, the maps folder it adds to the
 # game, its voices, the Studio's animations, the imported models, sounds and scripts, the web address of its
 # repository's files (links of its guide; '' = none)
@@ -222,7 +228,10 @@ def game_command(args, target=None, folder=None):
     profile = TARGETS[target]
     folder = Path(folder or GAME)
     args = list(args)
-    if args and not str(args[0]).startswith('-'):        # a map to start on (the URL is the first word)
+    first = str(args[0]) if args else ''
+    # a map to start on (the URL is the first word; INI=, USERINI= are not maps), other than the game's own
+    if first and not first.startswith('-') and not re.match(r'\w+=', first) and first.lower() not in (
+            START_MAP.lower(), START_MAP.lower() + '.dx'):
         args += [word for word in profile.get('map_switch', ()) if word.lower() not in (a.lower() for a in args)]
     if from_steam(folder):
         import winreg

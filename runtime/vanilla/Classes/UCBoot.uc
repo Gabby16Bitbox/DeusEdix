@@ -76,7 +76,8 @@ function Wake()
 }
 
 // the map behind the project's own main menu (UCMenuLook.MenuMap): its stage (UCMenuStage) holds JC still
-// there, as the game's title screen, and opens the menu
+// there, as the game's title screen, and opens the menu. An installed mod on the original game starts on it as
+// the game's own start map, DX.dx (a copy in the mod's folder, first in its paths: mods.start_of): that name too
 function EnsureMenuStage()
 {
 	local UCMenuStage stage;
@@ -87,7 +88,7 @@ function EnsureMenuStage()
 	here = string(Level);
 	if (InStr(here, ".") >= 0)
 		here = Left(here, InStr(here, "."));
-	if (!(here ~= class'UCMenuLook'.default.MenuMap))
+	if (!(here ~= class'UCMenuLook'.default.MenuMap) && !(here ~= "DX"))
 		return;
 	foreach AllActors(class'UCMenuStage', stage)
 		return;

@@ -568,9 +568,14 @@ def launch_ini(target, mod_id):
     text = project_game.activate_text(text, paths, project_game.original_save_paths(text), rel + '\\Save',
                                       project_game.original_actors(text))
     m = check_manifest(json.loads((folder / 'mod.json').read_text(encoding='utf-8')))
+    start = start_of(target, folder, m)
     if m['menu']:
         # the mod's own main menu: the game opens it at its start and for Esc (its package's UCMenuRoot)
         text = project_game.menu_ini(text, m['package'] + '.UCMenuRoot', m['menu'])
+    elif start['new_game']:
+        # the game's own menu, its New Game beginning the mod's first map (UCMenuRoot, UCNewGame, UCModStart)
+        text = project_game.menu_ini(text, m['package'] + '.UCMenuRoot', '')
+        text = project_game.ini_put(text, m['package'] + '.UCModStart', 'StartMap', start['new_game'])
     inis = project_game.write_launch_inis(settings.launch_inis(settings.LAUNCH_MOD, folder, target), text,
                                           system / profile['user_ini'], target)
     return project_game.launch_args(inis, system)
@@ -586,10 +591,66 @@ def play(target, mod_id):
         raise ValueError('This mod needs packages of other mods that are not installed: %s.' % ', '.join(missing))
     if _running(target):
         raise ValueError('%s is already running: close it first.' % settings.TARGETS[target]['short'])
-    start = m['menu'] or m['start']          # a mod with its own main menu starts on it, as the game on its own
-    argv, cwd = settings.game_command([start] + launch_ini(target, mod_id), target=target)
+    start = start_of(target, folder, m, prepare=True)
+    argv, cwd = settings.game_command([start['word']] + launch_ini(target, mod_id), target=target)
     subprocess.Popen(argv, cwd=cwd)
-    return dict(ok=True, name=m['name'], start=start)
+    return dict(ok=True, name=m['name'], start=start['shows'])
+
+
+def _has_class(folder, package, name):
+    """Whether the mod's package (in its folder) has the class `name`: its name table holds the name (a package
+    exported by an older DeusEdix lacks the newer classes)."""
+    try:
+        return name.encode('latin1') + b'\x00' in (folder / (package + '.u')).read_bytes()
+    except OSError:
+        return False
+
+
+def _menu_copy(folder, menu):
+    """The mod's main menu map as the game's own start map in the mod's folder (DX.dx, settings.START_MAP): a hard
+    link to it, else a copy; made again when the menu map changed (an update of the mod)."""
+    import filecmp
+    import os
+    source, copy = folder / (menu + '.dx'), folder / (settings.START_MAP + '.dx')
+    if copy.is_file():
+        try:
+            if os.path.samefile(source, copy) or filecmp.cmp(source, copy, shallow=False):
+                return copy
+        except OSError:
+            pass
+        copy.unlink()
+    try:
+        os.link(source, copy)
+    except OSError:
+        shutil.copy2(source, copy)
+    return copy
+
+
+def start_of(target, folder, m, prepare=False):
+    """How the game of the mod `m` (installed in `folder`) starts. -> dict(word: the first word of its command line,
+    the map it starts on; new_game: the map the game's own New Game begins, '' for the game's own; shows: the map
+    the player sees first). Revision starts on the map its command line names (the mod's menu map, else its start
+    map). The original game takes that map only with -hax0r, which also turns its cheats on (settings.TARGETS
+    map_switch): a mod starts there the way the original game's own mods do, on the game's start map DX.dx
+    (settings.START_MAP) with nothing on the command line to switch it. With its own main menu, its menu map is that
+    DX.dx, in the mod's folder (first in its launch's paths; made when `prepare`, _menu_copy); without, the game's own
+    menu, whose New Game begins the mod's start map (UCModStart, in packages from DeusEdix 0.1.75 on). A mod for
+    which neither works (a package from an older DeusEdix, a mod from the internet with no DX map of its own, a mod
+    map named DX that is not its menu) starts on its map with -hax0r, as before."""
+    own = settings.START_MAP.lower()
+    named = [x for x in m['maps'] if x.lower() == own]
+    if settings.TARGETS[target].get('map_switch'):
+        if m['menu'] and (not named or named == [m['menu']]):
+            if prepare and m['menu'].lower() != own:
+                _menu_copy(folder, m['menu'])
+            return dict(word=settings.START_MAP, new_game='', shows=m['menu'])
+        if m['kind'] == 'classic' and named:
+            return dict(word=settings.START_MAP, new_game='', shows=named[0])
+        if (not m['menu'] and m['kind'] == 'deusedix' and not named
+                and _has_class(folder, m['package'], 'UCModStart')):
+            return dict(word=settings.START_MAP, new_game=m['start'], shows=settings.START_MAP)
+    start = m['menu'] or m['start']          # a mod with its own main menu starts on it, as the game on its own
+    return dict(word=start, new_game='', shows=start)
 
 
 def launch_copies(target):

@@ -81,6 +81,7 @@ def fake_settings(game, target='revision', project='p', managed=True):
         DEV={'package': 'DevMod', 'mapsDir': 'DevMaps'}, PROJECT=game.parent / 'project', STANDALONE=True,
         ANIMS_PACKAGE='A', MODELS_PACKAGE='M', SOUNDS_PACKAGE='S', SCRIPTS_PACKAGE='Scripts',
         LAUNCH_PLAY=real_settings.LAUNCH_PLAY, LAUNCH_MOD=real_settings.LAUNCH_MOD, launch_names=real_settings.launch_names,
+        START_MAP=real_settings.START_MAP,
         check_game=lambda folder, target=None: [], launch_inis=real(real_settings.launch_inis),
         system_folder=real(real_settings.system_folder),
         game_command=lambda args, target=None, folder=None: (['C:\\Steam\\steam.exe', '-applaunch', profile['app']]
@@ -1009,12 +1010,15 @@ class ModPlayTests(Game):
     MANIFEST = dict(format=1, id='my-mod', name='My Mod', version='1', package='DXP_my_mod', packages=['DXP_my_mod'],
                     maps=['01_ModMap'], start='01_ModMap', requires=[])
 
-    def play(self, target, editor=None, **manifest):
-        """The Mods panel's Play of a mod of `target` (the hub's game: `editor`, the mod's by default)."""
+    def play(self, target, editor=None, files=(), **manifest):
+        """The Mods panel's Play of a mod of `target` (the hub's game: `editor`, the mod's by default), with these
+        `files` (name: bytes) in its folder."""
         self.use(editor or target)
         mods = module('mods', self.s)
         folder = mods.mods_root(target) / 'my-mod'
         folder.mkdir(parents=True)
+        for name, data in dict(files).items():
+            (folder / name).write_bytes(data)
         (folder / 'mod.json').write_text(json.dumps(dict(self.MANIFEST, game=target, **manifest)), encoding='utf-8')
         with patch.object(mods.subprocess, 'run', return_value=types.SimpleNamespace(stdout='')), \
                 patch.object(mods.subprocess, 'Popen') as popen:
@@ -1037,8 +1041,12 @@ class ModPlayTests(Game):
             with self.subTest(target=target):
                 self.setUp()
                 try:
-                    argv, folder = self.play(target, maps=['00_Title', '01_ModMap'], menu='00_Title')
-                    self.assertEqual(argv[0], '00_Title')
+                    argv, folder = self.play(target, maps=['00_Title', '01_ModMap'], menu='00_Title',
+                                             files={'00_Title.dx': b'title map'})
+                    # the original game: on its own start map, the menu map as the mod's DX.dx (no -hax0r, mods.start_of)
+                    self.assertEqual(argv[0], '00_Title' if target == 'revision' else 'DX')
+                    if target == 'vanilla':
+                        self.assertEqual((folder / 'DX.dx').read_bytes(), b'title map')
                     ini = ((self.system() / 'DeusEdixMod.ini') if target == 'revision'
                            else folder / 'Play' / 'DeusEx.ini').read_bytes()
                     self.assertIn(b'\r\nRoot=DXP_my_mod.UCMenuRoot\r\n', ini)
@@ -1056,6 +1064,17 @@ class ModPlayTests(Game):
                                 'USERINI=..\\DeusEdixMods\\my-mod\\Play\\User.ini,'])
         self.assertEqual((folder / 'Play' / 'User.ini').read_bytes(), b'[Engine.Input]\r\nF24=\r\n')
         self.assertIn(b'StartupFullscreen=True\r\n', (folder / 'Play' / 'DeusEx.ini').read_bytes())
+        self.assert_players_untouched()
+
+    def test_an_original_game_mod_without_a_menu_starts_on_the_games(self):
+        """No main menu of its own: the game's own menu (no map, no -hax0r), whose New Game begins the mod's start map
+        (UCMenuRoot, UCModStart in the launch's copy of the ini); a package from before UCModStart: on its map."""
+        argv, folder = self.play('vanilla', files={'DXP_my_mod.u': b'\x00UCModStart\x00'})
+        self.assertEqual(argv[0], 'DX')
+        ini = (folder / 'Play' / 'DeusEx.ini').read_bytes()
+        self.assertIn(b'\r\nRoot=DXP_my_mod.UCMenuRoot\r\n', ini)
+        self.assertIn(b'[DXP_my_mod.UCModStart]\r\nStartMap=01_ModMap\r\n', ini)
+        self.assertFalse((folder / 'DX.dx').exists())
         self.assert_players_untouched()
 
     def test_every_launch_copy_is_named_by_settings(self):

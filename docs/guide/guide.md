@@ -2412,6 +2412,10 @@ In the **Projects** window, **Mods** lists the mods installed in both games:
 - **Play** starts the game on the mod's first map, **Starts on** chooses another, **Remove** takes it
   away. A mod lives in its own folder (`DeusEdixMods`): the game's settings and other mods are not
   changed.
+- **In the original game** a mod starts the way the big mods do, from a menu and with the game's cheats off: a
+  mod with its own main menu (below) opens on it, one without opens the game's own menu, whose **New Game** begins
+  the mod's **Starts on** map instead of Liberty Island. A mod exported before DeusEdix 0.1.75 still starts
+  straight on its map, with the cheats on: export it again. In Revision a mod starts on its menu or its map.
 
 ### Your own main menu
 
