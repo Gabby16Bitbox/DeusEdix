@@ -12,7 +12,7 @@ export function createSceneTextures({ createTexture, loadImage, placeholder, wak
   function pump() {
     while (active < limit) {
       const waiting = [...jobs].filter(j => !j.running);
-      const j = waiting.find(j => j.scope === 'scene') ||
+      const j = waiting.find(j => j.urgent) || waiting.find(j => j.scope === 'scene') ||
         (previewActive < previewLimit && waiting.find(j => j.scope === 'preview'));
       if (!j) return;
       j.running = true; active++;
@@ -52,6 +52,10 @@ export function createSceneTextures({ createTexture, loadImage, placeholder, wak
       texture.image = placeholder; texture.userData.pending = true; texture.needsUpdate = true;
       jobs.add({ url, scope, texture, attempt: 0, running: false }); pumpSoon();
       return texture;
+    },
+    // a texture wanted now (what is being placed): it goes before every other still waiting
+    hurry(texture) {
+      for (const j of jobs) if (j.texture === texture && !j.urgent) { j.urgent = true; pumpSoon(); }
     },
     pending(scope = 'scene') { return [...jobs].some(j => j.scope === scope); },
     clear() {

@@ -414,6 +414,7 @@ const MENUS = [
     { label: 'Interactive tutorial...', project: true,
       run: () => (['training', 'tutorial'].includes(window.__projects?.current?.kind) ? window.__tutorial?.start() : window.__projects?.training()) },
     sep,
+    { label: 'Check for updates...', run: () => window.__appUpdate?.check(true) },
     { label: 'About DeusEdix', run: openAbout },
   ]],
 ];

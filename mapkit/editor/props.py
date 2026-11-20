@@ -14,7 +14,7 @@ import settings
 from classtree import ClassTree
 
 CACHE = Path(__file__).resolve().parent / 'cache' / '_palette' / 'defaults.json'
-VERSION = 22               # 22: UCDoorMover (a library door that opens away from whoever opens it); 21: pickup credit amounts and augmentation choices; 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
+VERSION = 23               # 23: UCGameFixes (the original game's fixes); 22: UCDoorMover (a library door that opens away from whoever opens it); 21: pickup credit amounts and augmentation choices; 20: Counter; 19: Phases, At least N, First of; 18: the logic blocks (UCBAllOf, UCBGate, UCBSwitch) 2: the Character Creator's classes (UCCustom*) of the editor's package; 3: lights; 4: map links; 5: texts; 6: computers
                           # 14: timers (UCTimer) 15: effect points (UCEffectPoint)
                           # 16: a lamp's phase and corona, what a zone does to the view (the 3D view's Effects)
                           # 17: a zone's echo (the Reverb row) and Revision's OpenAL reverb
@@ -37,9 +37,12 @@ EDITOR_DEFAULTS = {'UCTriggerBox': {'bCylinder': ['False'], 'CylinderRadius': ['
                    'UCSoundFX': {'FXSounds': ['None'] * 7, 'FXOrder': ['0'], 'RandomPitch': ['0.000000'],
                                  'RandomVolume': ['0.000000'], 'RepeatMin': ['0.000000'], 'RepeatMax': ['0.000000']},
                    # how many of its contents drop out (Containers.numThings, default 1): not in the class dump
-                   'Containers': {'numThings': ['1']}}
+                   'Containers': {'numThings': ['1']},
+                   'UCGameFixes': {'bDisarmedAmmo': ['True'], 'AmmoRule': ['"Like from a body"'], 'Rounds': ['6'],
+                                   'DisarmMessage': ['""']}}
 CHOICES = {'DamageType': ['Radiation', 'Burned', 'Shocked', 'PoisonGas', 'Poison', 'TearGas', 'HalonGas', 'Drowned'],
-           'Mode': ['In turn', 'In order', 'At random']}       # a Switch block's (UCBSwitch.Mode)
+           'Mode': ['In turn', 'In order', 'At random'],       # a Switch block's (UCBSwitch.Mode)
+           'AmmoRule': ['Like from a body', 'What they had left', 'A full magazine', 'This many']}   # UCGameFixes
 FIELDS = [
     ('Links', 'Actor', 'Tag', 'Tag', 'name', 'The name other objects use to find it (the door a button opens, a story action...)'),
     ('Links', 'Actor', 'Event', 'Event', 'name', 'When it is used or triggered, it triggers every object whose Tag is this'),
@@ -158,6 +161,16 @@ FIELDS = [
      '(empty: it counts unseen). When several run, the one closest to its end shows'),
     ('Timer', 'UCTimer', 'bAutoStart', 'Starts with the map', 'bool', 'Off: an interaction starts it ("Start the timer")'),
     ('Timer', 'UCTimer', 'bLoop', 'Starts again when it runs out', 'bool', 'Every time it runs out, its "runs out" rules happen again'),
+    # the original game's fixes (UCGameFixes, Objects > Level: the original game only)
+    ('Original game fixes', 'UCGameFixes', 'bDisarmedAmmo', 'Disarmed weapons have rounds', 'bool',
+     'A character whose arm is crippled drops their weapon, and the original game leaves it empty (only grenades keep theirs). '
+     'On: it has rounds when JC picks it up, in this map'),
+    ('Original game fixes', 'UCGameFixes', 'AmmoRule', 'How many rounds', 'choice',
+     'Like from a body: 1 to 4, as the same gun taken from a body. What they had left: the rounds the character still had. '
+     'A full magazine: one reload of that weapon. This many: the number below'),
+    ('Original game fixes', 'UCGameFixes', 'Rounds', 'Rounds (This many)', 'int', 'The rounds each disarmed weapon has with "This many"'),
+    ('Original game fixes', 'UCGameFixes', 'DisarmMessage', 'Message', 'string',
+     'What JC reads when he sees someone disarmed, e.g. "Disarmed!" (empty: nothing)'),
     # the logic blocks (P3, editor/LOGIC.md "Logic blocks")
     ('All of these', 'UCBAllOf', 'Need', 'How many', 'int', 'How many different objects must tick it off, each once (0: all of those whose rules tick it off)'),
     ('All of these', 'UCBAllOf', 'bAgain', 'Starts again when done', 'bool', 'Once all have happened it is empty again, ready for another round'),

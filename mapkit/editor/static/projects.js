@@ -161,6 +161,7 @@ export function createProjectHub({ confirmLeave, onCurrent, onVisibility }) {
       const data = await api('/api/projects');
       current = data.current || null; projects = data.projects || []; defaultLocation = data.defaultLocation || ''; games = data.games || []; ready = true;
       onCurrent?.(current); error(''); render(); if (!current) show();
+      if (!current) setTimeout(() => checkForUpdates(false), 1500);     // DeusEdix starting: a newer version on GitHub?
       return current;
     } catch (e) { ready = true; error(e); render(); if (!current) show(); return current; }
   }
@@ -359,3 +360,4 @@ export function createProjectHub({ confirmLeave, onCurrent, onVisibility }) {
   return controller;
 }
 import { waitForProjectTransition } from './project-transition.js';
+import { check as checkForUpdates } from './app-update.js';

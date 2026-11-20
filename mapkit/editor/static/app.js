@@ -187,6 +187,7 @@ let autosave = null;
 let gameView = null;
 let buildJob = null;               // the Rebuild running in the background (rebuildMap): the view is look-only meanwhile
 let dirty = false, selected = null, placing = null, snap = true;
+let placeAfterLoad = null;          // a browser item clicked while a map opens: placed in it once it is there (startPlacing)
 const undoHistory = createHistory();   // Ctrl+Z's steps, each with its name (history-names.js)
 let historyPanel = null;           // Window > History: the steps listed (history-panel.js)
 let missionSets = [];                     // the project's mission phases (Map > Mission phases, mission-phases.js)
@@ -402,7 +403,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) reset
 canvas.addEventListener('lostpointercapture', () => { if (cam.look) resetInput(); });
 // a press on a drag handle's dot (drag-handles.js) is the handle's alone: the gizmo, the camera and the picks never see it
 canvas.addEventListener('pointerdown', (e) => {
-  if (!dragHandles?.press(e)) return;
+  if (placing || !dragHandles?.press(e)) return;     // placing: the click puts the object down, even on a dot
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -682,7 +683,9 @@ async function loadScene(s, resetCamera) {
     }
     if (previousTutorial && s !== TUTORIAL_SCRIPT) await endTutorialSession();
     textureTransfer?.cancel(); surfaceTexturePreview?.restore(); texturePreviewInfo.clear(); texturePreviewPending.clear();
-    window.__story?.reset(); window.__cutscene?.close(); closeAnim(); stopPreview(); resetInput(); cancelPlacing(); soundBrowser?.clearSelection(false);
+    // what was being placed goes on in the map opened (its ghost is made again: the textures go with the old map)
+    if (placing && !placing.draw && !placing.route && !placeAfterLoad) placeAfterLoad = placing;
+    window.__story?.reset(); window.__cutscene?.close(); closeAnim(); stopPreview(); resetInput(); cancelPlacing(true); soundBrowser?.clearSelection(false);
     endAimPick();                          // Aim at a point does not go on in another map
     if (script !== s) window.__tutorial?.stop();
     if (script !== s) { sceneView.reset(); endMapSearch(); }       // Isolate, Show hidden and the search end with their map
@@ -743,8 +746,12 @@ async function loadScene(s, resetCamera) {
     $('#map').value = script;
     startScreen?.opened(script);
     if (temporaryTutorial()) status(`${mapName}: temporary training. Rebuild and Play work normally; Close map discards this session.`);
+    const later = placeAfterLoad;
+    placeAfterLoad = null;
+    if (later) { mapLoading = false; startPlacing(later); }
     return true;
   } catch (e) {
+    placeAfterLoad = null;
     log('Error: ' + e.message, 'bad');
     status('loading failed', 'bad');
     startScreen?.error(e);
@@ -1493,13 +1500,22 @@ function modelFor(a, source, preview = false) {
   }
   return modelCache[key].obj.clone();
 }
-// models of the whole game: one small file per class, fetched the first time it is shown
-function loadPaletteModel(cls) {
+// models of the whole game: one small file per class, fetched the first time it is shown. priority 'high': what is
+// being placed, ahead of the browser's requests still waiting (the map's textures, the previews); one asked for again
+// so while a preview fetches it slowly goes again, at once
+function loadPaletteModel(cls, priority = 'auto') {
   if (paletteLib[cls] || !paletteHas.has(cls)) return Promise.resolve(paletteLib[cls] || null);
-  const lib = paletteLib, loading = paletteLoading;
-  return paletteLoading[cls] || (paletteLoading[cls] = fetch(`/cache/_palette/models/${encodeURIComponent(cls)}.json`)
-    .then((r) => (r.ok ? r.json() : null)).then((m) => { if (m) lib[cls] = m; return m; }).catch(() => null)
-    .finally(() => { delete loading[cls]; }));
+  const lib = paletteLib, loading = paletteLoading, was = loading[cls];
+  if (was && (priority !== 'high' || was.high)) return was;
+  const job = fetch(`/cache/_palette/models/${encodeURIComponent(cls)}.json`, { priority })
+    .then((r) => (r.ok ? r.json() : null)).then((m) => { if (m && !lib[cls]) lib[cls] = m; return lib[cls] || m; }).catch(() => (was || null))
+    .finally(() => { if (loading[cls] === job) delete loading[cls]; });
+  job.high = priority === 'high';
+  return (loading[cls] = job);
+}
+// the textures of a model wanted now (being placed) before the others waiting (scene-textures.js hurry)
+function hurryTextures(obj) {
+  obj.traverse((o) => { const m = o.material; if (m && m.map) sceneTextures.hurry(m.map); });
 }
 // The models of the map's objects load 6 at a time, the nearest to the camera first (what you look at shows
 // first); until then an object is its outline, and it can be placed, moved and edited all the same.
@@ -2071,8 +2087,11 @@ function kindsIn(list, state) {
 // nothing new: newObjectsFolder)
 function warnHiddenKinds(list, done) {
   const hidden = kindsIn(list, 'hidden'), locked = kindsIn(list, 'locked'), what = `what was ${done.toLowerCase()}`;
+  const icons = list.filter((p) => p && isIcon(p)), noIcons = showIcons ? kindsIn(icons, 'noIcons') : icons.length ? 'all icons' : '';
   if (hidden) status(`${done}, but ${hidden} are hidden in the Show menu of the 3D view: show them there to see ${what}.`, 'warn');
   else if (locked) status(`${done}, but ${locked} are locked in the Show menu of the 3D view: unlock them there to edit ${what}.`, 'warn');
+  // its symbol shows while it is selected only (Gabby, 17 Nov 2026: "why don't I see any symbol?")
+  else if (noIcons) status(`${done}: its symbol shows only while it is selected, because ${showIcons ? `the icons of ${noIcons} are off in the Show menu` : 'the Icons button (the bulb) is off in the toolbar'} of the 3D view. Turn them on there to see it always.`, 'warn');
 }
 // Isolate and Show hidden (scene-visibility.js): what the 3D view shows for the moment, never saved
 const sceneView = createSceneVisibility();
@@ -2152,7 +2171,8 @@ function saveViewState() {
 }
 const isIcon = (p) => ICON_KINDS.includes(p.userData.kind) && !p.userData.model && !!p.userData.body;
 // an icon is drawn while the bulb (every icon) and its kind's icons (the Show menu) are on
-const iconShown = (p) => showIcons && !kindIs(p, 'noIcons');
+// (what is selected keeps its icon all the same: select)
+const iconShown = (p) => (showIcons && !kindIs(p, 'noIcons')) || p === selected;
 // a structure still in the map: not deleted, not taken apart
 function structureInMap(st) { return !poseOf(st).deleted && !st.dissolved; }
 // a hole once the Rebuild has cut it (Gabby, 14 Nov 2026: "once the wall is open and rebuilt, the tool that made the
@@ -4678,7 +4698,11 @@ function select(p, keepInspector = false) {
   if (anim && p !== anim.p) closeAnim();
   if (propertySlider) finishPropertySlider(true);
   if (selected && selected.userData.body && selected.userData.model) selected.userData.body.visible = false;
+  const was = selected;
   selected = p;
+  // an icon turned off (the bulb, or its kind's icons in the Show menu) still shows on what is selected: a Player
+  // Start just placed was only a gizmo on nothing (Gabby, 17 Nov 2026)
+  for (const q of [was, p]) if (q && q !== groupPivot && isIcon(q)) q.userData.body.visible = iconShown(q);
   tc.detach();
   outline.visible = false;
   if (p && p.userData.body && p.userData.model) p.userData.body.visible = !objectHidden(p);     // outline of the real object
@@ -4781,7 +4805,7 @@ function endTransformUndo() {
 canvas.addEventListener('pointerdown', (e) => {          // before the gizmo's own (capture)
   evenScale = null;
   transformGesture = false;
-  if (e.button !== 0 || !selected || tc.dragging || !tc.axis) return;
+  if (e.button !== 0 || !selected || tc.dragging || !tc.axis || placing) return;
   transformGesture = true;
   if (e.altKey && !placing && !lkPicking && !surfaceTools.mode) {
     const axis = tc.axis;
@@ -6768,7 +6792,7 @@ function addedKind(cls) {
   if (/^(Light|Spotlight)$/.test(cls)) return 'light';
   if (/^UCCustom/.test(cls)) return 'pawn';
   if (NAV_CLASSES.test(cls)) return 'path';
-  if (/^(UCSoundFX|AmbientSound|Trigger|UCTriggerBox|UCCutscene|UCTimer|UCEffectPoint|UCBAllOf|UCBGate|UCBSwitch|UCBPhases|UCBAtLeast|UCBFirstOf|UCBCounter)$/.test(cls) || ZONE_CLASSES.test(cls)) return 'logic';
+  if (/^(UCSoundFX|AmbientSound|Trigger|UCTriggerBox|UCCutscene|UCTimer|UCGameFixes|UCEffectPoint|UCBAllOf|UCBGate|UCBSwitch|UCBPhases|UCBAtLeast|UCBFirstOf|UCBCounter)$/.test(cls) || ZONE_CLASSES.test(cls)) return 'logic';
   if (palette.some((c) => c.category === 'Characters' && c.items.some((it) => it.cls === cls))) return 'pawn';
   if (/Teleporter|PlayerStart|MapExit/.test(cls)) return 'logic';
   return 'prop';
@@ -9182,6 +9206,7 @@ async function renderHead(model) {
 function serverThumb(cls) {
   return new Promise((res) => {
     const img = new Image();
+    img.fetchPriority = 'low';          // a preview of the browser: after what is being placed
     img.onload = () => res(img.src);
     img.onerror = () => res(null);
     img.src = `/cache/_palette/thumbs/${encodeURIComponent(cls)}.png`;
@@ -9194,7 +9219,7 @@ async function fillThumb(el) {
   if (!url && kind === 'cls') {
     if (!thumbMissing.has(key)) url = await serverThumb(id);
     if (!url) {
-      await loadPaletteModel(id);
+      await loadPaletteModel(id, 'low');           // after what is being placed and the map's own
       if (generation !== mapGeneration) return;
       const m = modelFor({ cls: id }, 'palette', true);
       if (m && !texturesReady(m)) {          // its shape at once, its textures when they arrive
@@ -10250,7 +10275,7 @@ $('#search').addEventListener('input', buildPalette);
 // friendly names of common classes (search works on both these and the class names)
 const NAMES = {
   UCSoundFX: 'Sound effect', AmbientSound: 'Ambient sound', Trigger: 'Trigger', UCTriggerBox: 'Collision box', UCCutscene: 'Cutscene camera',
-  UCTimer: 'Timer', UCEffectPoint: 'Effect point',
+  UCTimer: 'Timer', UCEffectPoint: 'Effect point', UCGameFixes: 'Original game fixes',
   UCBAllOf: 'All of these', UCBGate: 'Gate', UCBSwitch: 'Switch', UCBPhases: 'Phases', UCBAtLeast: 'At least N', UCBFirstOf: 'First of', UCBCounter: 'Counter',     // the logic blocks (Objects > Logic)
   DeusExMover: 'Moving block',              // a block made to move (built: the map's own mover)
   CrateUnbreakableSmall: 'small crate', CrateUnbreakableMed: 'medium crate', CrateUnbreakableLarge: 'large crate',
@@ -10272,7 +10297,13 @@ const NAMES = {
   Candybar: 'candy bar', SoyFood: 'soy food', BioelectricCell: 'bioelectric cell', Light: 'light',
 };
 
+// a browser item clicked while a map is being opened: placing it starts when the map is there (loadScene, placeAfterLoad)
 function startPlacing(item, button) {
+  if (mapLoading && !item.draw && !item.route) {
+    placeAfterLoad = item;
+    status(`The map is still opening: ${item.box ? 'the block' : item.prefab ? item.prefab.label : itemLabel(item)} will follow the mouse when it is there (Esc cancels).`);
+    return;
+  }
   if (!script || waitsForRebuild()) return;
   if (classReplace) {                    // Replace with... waits: the item clicked replaces the selection (anything else ends it)
     const wanted = classReplace.generation === mapGeneration && replacingItem(item);
@@ -10282,6 +10313,7 @@ function startPlacing(item, button) {
   soundBrowser?.clearSelection();
   cancelPlacing();
   placing = item;
+  gizmoOffWhilePlacing();
   if (button) button.classList.add('active');
   ghostBody.geometry.dispose();
   ghostBody.geometry = item.box ? new THREE.BoxGeometry(item.size[0], item.size[2], item.size[1])
@@ -10299,12 +10331,21 @@ function startPlacing(item, button) {
       const model = modelFor({ cls: 'UCMeshDeco', props: item.preset }, 'added');
       if (model) { model.scale.setScalar(item.scale || 1); ghost.add(model); ghostBody.visible = false; }
     }).catch(() => {});
-  } else if (!item.box && item.cls !== 'Light' && item.cls !== 'Spotlight') {
-    loadPaletteModel(item.cls).then(() => {
+  } else if (!item.box && !ICON_KINDS.includes(addedKind(item.cls))) {
+    // the model of what was clicked before the others still loading (the map's, the browser's previews): its file and
+    // its textures first (Gabby, 17 Nov 2026: a tile clicked while the map loaded showed nothing, clicked again and again)
+    loadPaletteModel(item.cls, 'high').then(() => {
       if (placing !== item) return;
       const model = modelFor({ cls: item.cls }, 'palette');
-      if (model) { ghost.add(model); ghostBody.visible = false; }
+      if (model) { hurryTextures(model); ghost.add(model); ghostBody.visible = false; wake(); }
     });
+  } else if (!item.box) {
+    // no model in the game (a Player Start, a light, a trigger, an AI point...): its symbol, as it will show once placed
+    // (Gabby, 17 Nov 2026: "when I place it there should be a preview"), even with the icons turned off
+    const kind = addedKind(item.cls);
+    const icon = createViewportIcon({ cls: item.cls, kind }, kind === 'light' ? lightColor(null) : KIND_COLOR[kind], (k) => item.preset?.[k]);
+    icon.material.depthTest = false;                 // over the floor it stands on
+    ghost.add(icon); ghostBody.visible = false;
   }
   status(`Click a ${item.sign ? 'wall' : 'floor or a wall'} to place: ${item.sign ? 'sign' : item.box ? 'block' : item.prefab ? item.prefab.label : itemLabel(item)}  (Esc cancels)`);
 }
@@ -10314,6 +10355,7 @@ function startDraw(kind, button) {
   soundBrowser?.clearSelection();
   cancelPlacing();
   placing = { draw: kind, radius: 0, height: 0 };                  // no ghost: the shape itself follows the mouse
+  gizmoOffWhilePlacing();
   if (button) button.classList.add('active');
   ghost.visible = false;
   drawTools.begin(kind);
@@ -10332,11 +10374,27 @@ function finishDraw() {
     ? `${DRAW_LABELS[p.kind]} drawn: shape, sizes and textures in the Inspector, then Rebuild.`
     : `${DRAW_LABELS[p.kind]} drawn (${p.pts.length} points): set its sizes and textures in the Inspector, then Rebuild.`, 'ok');
 }
-function cancelPlacing() {
+// While placing, the gizmo of what is selected is off: a click near the object placed just before went to its arrows
+// or its drag dots, which took it instead of placing (Gabby, 18 Nov 2026: Player Start clicked again and again,
+// "sometimes it takes nothing and takes the selection under it"). Back on when placing ends.
+var gizmoPlacingOff = false;               // var: cancelPlacing runs before this line does, at startup
+function gizmoOffWhilePlacing() {
+  if (tc.dragging) return;
+  if (tc.enabled) { tc.enabled = false; gizmoPlacingOff = true; }
+  tc.axis = null;                          // the arrow under the mouse before: no longer one
+  tc.visible = false;
+}
+// keepLater: the map being opened ends what was placing, not what waits for it (placeAfterLoad)
+function cancelPlacing(keepLater = false) {
   try { drawTools.cancel(); } catch (_) { /* before the tools are made */ }
+  if (!keepLater) placeAfterLoad = null;
   placing = null;
+  if (gizmoPlacingOff) {
+    gizmoPlacingOff = false;
+    if (!pilot) { tc.enabled = true; tc.visible = !!tc.object && !anim?.playing; }
+  }
   ghost.visible = false;
-  for (const c of [...ghost.children]) if (c !== ghostBody) ghost.remove(c);
+  for (const c of [...ghost.children]) if (c !== ghostBody) { if (c.userData.viewportIcon) c.material.dispose(); ghost.remove(c); }
   for (const b of document.querySelectorAll('.item.active')) b.classList.remove('active');
   // its "Click a floor or a wall to place..." stayed in the status bar after Esc (24 Oct 2026)
   if (/^Click a (floor or a )?wall to place: /.test($('#status').textContent)) status('');
@@ -10424,6 +10482,9 @@ function prefabYaw(clip, n) {
 function finishPlacing(e) {
   const r = placeAt(e);
   if (r) placeWith(r, { shift: e.shiftKey });
+  // a click that put nothing says why (17 Nov 2026: clicked while the map was still opening, nothing happened)
+  else status(mapLoading || !worldMeshes.length ? 'The map is still loading: click again when its floors and walls show (Esc cancels).'
+    : `Nothing to put it on there: click a ${placing?.sign ? 'wall' : 'floor or a wall'} (Esc cancels).`, 'warn');
 }
 // R while placing an object (the Scale tool's key, as Settings binds it): a quarter turn more (it keeps the turn for
 // the next ones of the same kind)

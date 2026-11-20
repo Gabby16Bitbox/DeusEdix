@@ -179,7 +179,7 @@ test('the search ends with its map: another map opened empties the box and the 3
   const c = vm.createContext({ mapLoading: false, temporaryTutorial: () => false, tutorialSession: { revision: 0 }, busy() {},
     api: async () => ({ script: 'B', map: 'B' }), TUTORIAL_SCRIPT: 'deusedix_tutorial', isTrainingProject: () => false, projectContext: {},
     textureTransfer: null, textureSlip: null, surfaceTexturePreview: null, texturePreviewInfo: new Map(), texturePreviewPending: new Set(), window: {},
-    closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {}, soundBrowser: null, endAimPick() {}, script: 'A',
+    closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {}, placing: null, placeAfterLoad: null, soundBrowser: null, endAimPick() {}, script: 'A',
     sceneView: { reset: () => calls.push('isolate ends') }, searchBox: { clear: () => calls.push('box emptied') },
     searchView: { show: (list) => calls.push(['3D view', list]) }, PACKAGE: '', MODELS_PKG: '',
     EMPTY: () => { throw new Error('the rest of the map is not this test\'s'); }, log() {}, status() {}, startScreen: null });

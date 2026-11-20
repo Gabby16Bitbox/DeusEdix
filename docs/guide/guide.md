@@ -32,6 +32,12 @@ Start **DeusEdix** from the Start menu. The first time it prepares its workspace
 which takes a few seconds. No internet connection is needed: the 3D engine (three.js) comes with
 the editor.
 
+**Updates.** When it starts, DeusEdix asks GitHub whether a newer version is out (one request to the public
+list of releases, nothing about you or your projects). If there is one, it shows what changed and offers
+**Download and install**: the installer is checked against the SHA-256 published with it, then it updates
+DeusEdix in place and your projects stay as they are. **Help > Check for updates...** asks at any time; the
+same window can turn off the check at start or skip a version.
+
 DeusEdix's window needs Windows 10 or 11 with Microsoft Edge WebView2 (part of Windows; Microsoft's
 WebView2 Runtime installs it if it is missing). Without it, or under Wine or Proton (Linux, Steam Deck),
 DeusEdix opens the editor in your web browser instead; `DeusEdix.exe --browser` does the same on

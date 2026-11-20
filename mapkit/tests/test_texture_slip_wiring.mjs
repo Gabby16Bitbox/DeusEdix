@@ -126,7 +126,7 @@ test('opening a map: its built surface rows from /api/scene, a queued row Save r
   const scene = (extra) => ({ script: 'dx:01_Lab', map: '01_Lab', actors: [], palette: [], kind: 'dx-game', edits: { surfaces: [{ op: 'pan', args: [0.5, 0], targets: [{ brush: 'Brush1', poly: 0 }] }] }, ...extra });
   const c = vm.createContext({ textureSlip: null, mapLoading: false, temporaryTutorial: () => false, tutorialSession: { revision: 0 }, busy() {},
     TUTORIAL_SCRIPT: 'deusedix_tutorial', isTrainingProject: () => false, projectContext: {}, textureTransfer: null, surfaceTexturePreview: null,
-    texturePreviewInfo: new Map(), texturePreviewPending: new Set(), window: {}, closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {},
+    texturePreviewInfo: new Map(), texturePreviewPending: new Set(), window: {}, closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {}, placing: null, placeAfterLoad: null,
     soundBrowser: null, endAimPick() {}, script: 'dx:01_Lab', sceneView: { reset() {} }, endMapSearch() {}, PACKAGE: '', MODELS_PKG: '',
     EMPTY: () => ({}), withPublishedLayout: (e) => e, queueProblem, log: (text, kind) => logged.push([text, kind]), status() {}, startScreen: null,
     mapGeneration: 0, builtScale: null, boxSig: () => '', drawnSig: () => '', undoHistory: {}, clearHistory: () => { throw new Error('stop here'); } });
@@ -150,7 +150,7 @@ test('another map opened: the Texture Slip forgets what its kept slips knew of t
   const c = vm.createContext({ textureSlip: { cancel: () => done.push('slip ends'), forget: () => done.push('slips forgotten') }, mapLoading: false,
     temporaryTutorial: () => false, tutorialSession: { revision: 0 }, busy() {}, TUTORIAL_SCRIPT: 'deusedix_tutorial', isTrainingProject: () => false,
     projectContext: {}, textureTransfer: null, surfaceTexturePreview: null, texturePreviewInfo: new Map(), texturePreviewPending: new Set(), window: {},
-    closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {}, soundBrowser: null, endAimPick() {}, script: 'dx:01_Lab',
+    closeAnim() {}, stopPreview() {}, resetInput() {}, cancelPlacing() {}, placing: null, placeAfterLoad: null, soundBrowser: null, endAimPick() {}, script: 'dx:01_Lab',
     sceneView: { reset() {} }, endMapSearch() {}, PACKAGE: '', MODELS_PKG: '', EMPTY: () => ({}), withPublishedLayout: (e) => e, queueProblem,
     log() {}, status() {}, startScreen: null, mapGeneration: 0, builtScale: null, boxSig: () => '', drawnSig: () => '', undoHistory: {},
     clearHistory: () => { throw new Error('stop here'); } });

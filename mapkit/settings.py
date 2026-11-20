@@ -37,14 +37,17 @@ APPS = {'6910': 'Deus Ex: Game of the Year Edition', '397550': 'Deus Ex: Revisio
 # original Core.dll's DefUser.ini), its Steam app, whether it reads the copies of its ini files a launch of DeusEdix's
 # starts it on from its System folder (launch_inis), and the words of its command line that start it in a window
 # (windowed: the original game has none, its ini's StartupFullscreen=False alone does it)
+# and the words the engine needs to start on the map its command line names (map_switch: the original game's
+# UGameEngine::Init takes its first word as the map only with -hax0r or -server on the line, else it loads the menu
+# map, DX.dx: a player whose Steam launch options lack -hax0r got the menu for every Play, 18 Nov 2026)
 TARGETS = {
     'revision': dict(name='Deus Ex: Revision', short='Revision', root='Revision', exe='Revision.exe',
                      ini='Revision.ini', user_ini='RevisionUser.ini', def_user_ini='RevisionDefUser.ini', app='397550',
                      sections=('Core.System', 'RevisionInternal.LaunchSystem'), launch_in_system=True,
-                     windowed=('-windowed',)),
+                     windowed=('-windowed',), map_switch=()),
     'vanilla': dict(name='Deus Ex (original game)', short='Deus Ex', root='', exe='DeusEx.exe', ini='DeusEx.ini',
                     user_ini='User.ini', def_user_ini='DefUser.ini', app='6910', sections=('Core.System',),
-                    launch_in_system=False, windowed=()),
+                    launch_in_system=False, windowed=(), map_switch=('-hax0r',)),
 }
 DEFAULT_TARGET = 'revision'
 # development mode's names (devmode.json): the mod's display name, its package, the maps folder it adds to the
@@ -218,6 +221,9 @@ def game_command(args, target=None, folder=None):
     target = target or TARGET
     profile = TARGETS[target]
     folder = Path(folder or GAME)
+    args = list(args)
+    if args and not str(args[0]).startswith('-'):        # a map to start on (the URL is the first word)
+        args += [word for word in profile.get('map_switch', ()) if word.lower() not in (a.lower() for a in args)]
     if from_steam(folder):
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam') as key:

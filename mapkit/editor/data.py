@@ -975,6 +975,9 @@ def palette():
                        dict(cls='Teleporter', radius=16, height=40, name='Arrival point', sub='',
                             preset={'bEnabled': 'False', 'Tag': 'Arrival'}),
                        dict(cls='PlayerStart', radius=18, height=40, name='Player start', sub='')]
+    if settings.TARGET == 'vanilla':            # what Revision already fixes in its own game (UCGameFixes)
+        groups['Level'].append(dict(cls='UCGameFixes', radius=16, height=16, sub='',
+                                    name='Original game fixes (in this map: a disarmed character\'s weapon has rounds)'))
     # the AI's points: the path network the characters walk on (PATHS DEFINE at Rebuild), patrols, wandering
     groups['Sounds'] = [dict(cls='AmbientSound', radius=12, height=12, name='Ambient sound (over and over: rain, a hum, wind)', sub=''),
                         dict(cls='UCSoundFX', radius=64, height=64, name='Sound effect: when JC walks in (a sound zone)', sub='',

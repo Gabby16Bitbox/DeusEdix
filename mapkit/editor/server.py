@@ -787,6 +787,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not project_server.authorized(self.headers):
                     return self._send(403, dict(error='Invalid project session.'))
                 return self._send(200, project_server.status())
+            if path in ('/api/app/update', '/api/app/update/status'):     # a newer DeusEdix on GitHub (app_update.py)
+                import app_update
+                if path.endswith('/status'):
+                    return self._send(200, app_update.status())
+                fresh = parse_qs(urlparse(self.path).query).get('fresh', [''])[0] == '1'
+                return self._send(200, app_update.check(fresh))
             if path == '/api/projects':
                 return self._send(200, project_server.api(path))
             if path == '/api/mods':                    # the mods installed in both games (app level)
@@ -1274,6 +1280,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, project_server.api(path, body))
             if path.startswith('/api/mods/'):
                 return self._mods_POST(path)
+            if path in ('/api/app/update/download', '/api/app/update/install'):
+                import app_update
+                n = int(self.headers.get('Content-Length', 0) or 0)
+                if n < 0 or n > 4096:
+                    return self._send(400, dict(error='Invalid update request.'))
+                body = json.loads(self.rfile.read(n) or b'{}')
+                try:
+                    if path.endswith('/download'):
+                        return self._send(200, app_update.download(str(body.get('version', ''))))
+                    return self._send(200, app_update.install())
+                except ValueError as exc:
+                    return self._send(400, dict(error=str(exc)))
             if not project_server.WORKER:
                 return self._send(409, dict(error='Choose a project first.'))
             if path in ('/api/agent/call', '/api/agent/result'):

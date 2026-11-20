@@ -290,7 +290,7 @@ function refreshFlags() {
   noteList.innerHTML = Object.entries(originals?.notes || {}).map(([text, uses]) => `<option value="${esc(text)}" label="${esc(uses.slice(0,3).join(', '))}">`).join('');
 }
 // what an object added in the editor is called in the lists: a character's own name, else its class in words
-const NOT_TALKERS = /^(PathNode|PatrolPoint|HidePoint|WanderPoint|AmbushPoint|Teleporter|PlayerStart|Light|Spotlight|TriangleLight|AmbientSound|UCSoundFX|ZoneInfo|UCScript\w*|UCTimer|UCEffectPoint|UCCutscene|UCTriggerBox|Trigger)$/;
+const NOT_TALKERS = /^(PathNode|PatrolPoint|HidePoint|WanderPoint|AmbushPoint|Teleporter|PlayerStart|Light|Spotlight|TriangleLight|AmbientSound|UCSoundFX|ZoneInfo|UCScript\w*|UCTimer|UCGameFixes|UCEffectPoint|UCCutscene|UCTriggerBox|Trigger)$/;
 function addedLabel(a) {
   const fam = String((a.props || {}).FamiliarName || '').replace(/^"|"$/g, '');
   return fam || String(a.cls || '').replace(/([a-z])([A-Z0-9])/g, '$1 $2');
