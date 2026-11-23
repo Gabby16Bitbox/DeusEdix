@@ -211,6 +211,12 @@ def inverse_of(verb):
 
 
 UNTIL_PORTS = dict(TABLE.get('untilPorts') or {})
+INVERSE_PORTS = dict(TABLE.get('inversePorts') or {})
+
+
+def inverse_port(port):
+    """The input of a block or a script that undoes a step on this one ('' none): inversePorts (On, Off)."""
+    return str(INVERSE_PORTS.get(str(port or ''), ''))
 
 
 def until_port(port):

@@ -286,7 +286,7 @@ The layout follows the familiar hierarchy, scene, inspector and asset browser ar
   models** and **My sounds**, what you brought in with **Import...** (or dropped on the editor).
   The **Console** tab next to it shows the running game's log (see *Scripts and the Console*).
   Click a tile, then a floor or a wall to place it, or drag it onto the 3D view; sounds are dragged
-  (see *Sounds*). **+ Create** adds a block, a hole, water, a zone portal, a sign or a cutscene camera;
+  (see *Sounds*). **+ Create** adds a block, a hole, water, a zone portal, a ladder to climb, a sign or a cutscene camera;
   **Characters...** opens the Character Creator. Nothing assembled by hand is in the library: the
   structures of the map you are editing are in the Hierarchy.
   **Favourites**, as in Unity's Project window: the **star** of a tile (it shows under the pointer) keeps that
@@ -1181,6 +1181,10 @@ texels to the offset. **Scale U/V** multiplies the tile size (2 is twice as larg
 a Pan of 0, 0 or a Scale of 1, 1 changes nothing and is not queued. **Slip** starts the Texture
 Slip (below). **Rotate 90°**, **Flip U** and **Flip V** change its orientation. **Select whole brush** selects all
 its visible faces; a structure's **Surfaces** section can select the faces of all its brushes.
+
+Changes to the faces of your blocks, holes and drawings stay on those faces: the editor builds each of them into the
+map under its own name, so deleting, adding or reordering other blocks does not move a change to another block's
+face. Changes made before 0.1.77 move to the new names by themselves at the next Rebuild (the Log says how many).
 
 **Recent textures**, as ProBuilder's material palette: under the Texture list the panel keeps the last 10 textures
 you applied to faces (with the list, the texture picker or a drag), newest first, each with its picture and its key,
@@ -2270,6 +2274,28 @@ as they were. It also works on a model that is not too detailed, to make it ligh
 it as it was read. (The simplifier is meshoptimizer, MIT licence, Arseny Kapoulkine.) A model made of
 thousands of separate small pieces, such as tufts of fur, keeps more points for its triangles.
 
+## Ladders JC can climb
+
+Deus Ex has no ladder object: JC climbs a wall when its texture is in a group called *Ladder* (the game's
+`CoreTexMetal.Ladder.ladder_a`, and a few in MolePeople and area51textures). A ladder of the original maps
+that is a model, or a ladder texture of another group, is only to look at: that is why many of the game's
+ladders cannot be climbed.
+
+- **+ Create > Ladder (climb)**: click the wall where your ladder is (a model, a piece, a texture): an orange box
+  64 wide and 256 high goes across the wall, from the floor under the click. Resize it with **R** or the numbers
+  to the ladder: after **Rebuild** JC climbs the wall inside the box as he climbs the game's ladders (look up and
+  walk into it), and only there: he stops at its top and its sides. Nothing shows in the game, and the wall
+  keeps its look.
+- At Rebuild the walls inside the box get a thin invisible skin with the game's ladder texture (2 units in front
+  of the wall, cut by the box's sides), in the original Deus Ex and in Revision. A box with no wall inside it
+  says so in Messages. The walls are the map as last built: a wall made in the same Rebuild needs one more.
+- Any block can become one: its panel's **Kind**, *Climbable area (ladder)*.
+- **Turned on and off by the rules**: a climbable area is an object of the Logic, with the inputs *Turn it on*,
+  *Turn it off* and *Turn it on or off*. Tick **starts off** in its panel for one that cannot be climbed until a
+  rule turns it on; **Edit logic…** opens its rules. Any condition works: a signal, a lever, a phase, *while the
+  player carries* an item (it turns back on when he no longer does). Turned off while JC is on it, he lets go.
+  Its speed is the game's: Deus Ex sets how fast JC climbs, the same on every ladder.
+
 ## Zones: water, rooms of their own, rain and snow, the sky
 
 Deus Ex divides a map into **zones**: closed areas, each with its own light, sound, fog, gravity, damage,
@@ -2306,7 +2332,9 @@ water. The editor makes them the way the game does.
   the sky through it. A map with no sky of its own gets a sky box (Hong Kong at night, New York at night,
   stars, sunset, clouds, bright clouds, orange haze: choose it in the hole's panel). Tick **its sides too** and its
   walls show the sky as well, after Rebuild: an open street or a rooftop, where the walls of the box would be
-  (the game's outdoor maps hide them the same way, with building fronts lower down).
+  (the game's outdoor maps hide them the same way, with building fronts lower down). Put a height in **from**
+  next to it to do the same: below it the walls keep the hole's texture (paint them as building fronts), above
+  it they are the sky. Empty, the walls are sky from the floor up.
 - **Map > Sky & time of day**: **Day**, **Sunset** or **Night**. It paints a sky of your own (its
   colours or stars), or uses a picture of yours or one of the game's skies, and sets the light:
   a sun shining in through every hole open to the sky, on the side of the sun, and the ambient light
@@ -3671,7 +3699,7 @@ The feature uses the engine from your installed game. No game maps, packages, te
   whose Properties have no Sound, are heard only if the map gives them one. A zone's **Reverb** is heard only in the
   game, with an audio that plays reverb (Galaxy, or Revision's OpenAL audio with its reverb on).
 - A zone works only when its area is closed: walls and zone portals all round. Water and portals change the
-  geometry: they need a map that can be rebuilt.
+  geometry: they need a map that can be rebuilt. So do ladders to climb, and they read the walls as last built.
 - Logic, stories, cutscenes and the editor's characters run through DeusEdix's package
   (`DeusEdix.u`, which Install puts in the game): a map that uses them needs it.
   Security cameras give no event when they see JC (the game has none): use a zone instead.

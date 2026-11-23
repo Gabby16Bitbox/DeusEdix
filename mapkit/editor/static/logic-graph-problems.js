@@ -217,7 +217,7 @@ function whileProblems(ix, r, add, at) {
     return;
   }
   const acts = (l.do || []).filter((x) => x && !FLOW.has(x.verb));
-  const stays = acts.filter((x) => (x.verb === 'flag' ? /^UCFate[0-9a-f]{6}_/i.test(String(x.a || '')) : !ix.vocab.inverse(x.verb)));
+  const stays = acts.filter((x) => (x.verb === 'flag' ? /^UCFate[0-9a-f]{6}_/i.test(String(x.a || '')) : !ix.vocab.inverse(x.verb, x.a)));
   if (acts.length && stays.length === acts.length) add('warn', 'while-no-undo', 'It holds "while", but none of its steps can be undone.', at);
   else if (stays.length) add('info', 'while-stays', `When it stops, ${stays.map((x) => `"${ix.vocab.verbLabel(x.verb)}"`).join(', ')} ${stays.length === 1 ? 'is' : 'are'} not undone.`, at);
 }

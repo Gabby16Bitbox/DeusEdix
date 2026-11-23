@@ -554,7 +554,7 @@ function setPiece(k, name, props) {
   if (unknown.length) throw new Error(`Not fields of ${name}: ${unknown.join(', ')} (it has: ${allowed.join(', ')}${b ? '; its size and place: move_object' : ''}).`);
   const SLIDES = ['up', 'down', '+x', '-x', '+y', '-y'];
   if (b && props.door != null && !SLIDES.includes(props.door)) throw new Error(`door is how it slides open: ${SLIDES.join(', ')}.`);
-  if (b && (b.hole || b.water || b.portal) && (props.mover || props.door)) throw new Error(`${name}: holes, water and portals cannot move; a solid or detail block can.`);
+  if (b && (b.hole || b.water || b.portal || b.climb) && (props.mover || props.door)) throw new Error(`${name}: holes, water, portals and climbable areas cannot move; a solid or detail block can.`);
   k.pushUndo(`Assistant: change ${name}`);
   for (const [key, v] of Object.entries(props)) {
     if (b && key === 'door') {

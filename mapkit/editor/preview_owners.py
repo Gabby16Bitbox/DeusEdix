@@ -65,7 +65,7 @@ def recover(edits, exported):
     import zones
     collector = Collector()
     for b in edits.get('boxes') or []:
-        if b.get('mover') or b.get('hole') or b.get('sign') or zones.is_zone_box(b):
+        if b.get('mover') or b.get('hole') or b.get('sign') or b.get('climb') or zones.is_zone_box(b):
             continue
         lo, hi = b['lo'], b['hi']
         if not all(hi[k] > lo[k] for k in range(3)):

@@ -40,6 +40,7 @@ import sounds  # noqa: E402
 import links  # noqa: E402
 import models  # noqa: E402
 import zones  # noqa: E402
+import climb  # noqa: E402
 import blocks as block_shapes  # noqa: E402   (build() has blocks of its own: the T3D of the added actors)
 import cutscenes  # noqa: E402
 import navbake  # noqa: E402
@@ -743,6 +744,20 @@ def build(map_name, log=print, options=None, watch=None):
             movers.append(b['name'])
             lights = True
             lines.append('  EDIT moving block %s' % b['name'])
+    # climbable areas the rules turn on and off: a UCClimbArea named as the block, and the slabs (movers) that cover
+    # its walls while it is off (climb.py)
+    switch_polys = None
+    for b in edits.get('boxes') or []:
+        if climb.switched(b, edits) and all(b['hi'][k] > b['lo'][k] for k in range(3)):
+            if switch_polys is None:
+                switch_polys = climb.world_polys(map_name)
+            (loc, area_props), slabs = climb.switch_parts(b, switch_polys)
+            blocks.append(Scene._block(climb.AREA_CLASS, loc, b['name'], (0, 0, 0), '', area_props))
+            for slab_name, slab_loc, rel, slab_props in slabs:
+                blocks.append(climb.slab_t3d(slab_name, slab_loc, rel, slab_props))
+                movers.append(slab_name)
+            lights = True
+            lines.append(climb.switch_line(b, len(slabs)))
     for a in motions.blocks(edits, map_movers):
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
     lines += motions.report(edits, map_movers)
@@ -753,7 +768,7 @@ def build(map_name, log=print, options=None, watch=None):
         cmds.append('UC_DEL UCPlayerMap0')
     for a in level_blocks:
         blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], (0, 0, 0), '', a['props']))
-    for c in level_loads + sounds.load_commands(edits) + models.load_commands(edits) + zones.packages(edits):
+    for c in level_loads + sounds.load_commands(edits) + models.load_commands(edits) + zones.packages(edits) + climb.packages(edits):
         if c not in cmds:
             cmds.insert(1, c)
     lines += mapsettings.report(edits)
@@ -782,6 +797,18 @@ def build(map_name, log=print, options=None, watch=None):
                  if a.get('scale') and abs(float(a['scale']) - 1) > 1e-3]
         cmds += ['UC_SCALE %s %.4f' % (n, scale) for n, scale in grown.items()]    # a copy's objects grown on their own
     preview = preview_owners.Collector()
+    # the blocks, holes and drawings: Brush actors named after them, one import (surfaces.stable_name: a face change
+    # keeps its brush when other blocks are deleted); in the order BRUSH ADD/SUBTRACT made them, so the same build order
+    pieces, taken = [], set()
+    climb_polys = None                          # the map's walls as last built, for the climbable areas (climb.py)
+
+    def piece(name, n, brush, sub, flags=0):
+        stable = surfaces.stable_name(name, n)
+        while stable.casefold() in taken:
+            n += 1
+            stable = surfaces.stable_name(name, n)
+        taken.add(stable.casefold())
+        pieces.append((stable, surfaces.brush_actor(stable, len(pieces), brush.t3d(), sub, flags), brush.t3d()))
     for i, b in enumerate(edits.get('boxes') or []):
         lo, hi = b['lo'], b['hi']
         if not all(hi[k] > lo[k] for k in range(3)):
@@ -790,28 +817,34 @@ def build(map_name, log=print, options=None, watch=None):
             continue
         if zones.is_zone_box(b):                 # water (pool, surface = zone portal) or a zone portal
             for j, (op, br, fl) in enumerate(zones.brush_ops(b)):
-                f = 'box%d_%d.t3d' % (i, j)
                 br = geom.rotate_brush(br, [(lo[k]+hi[k])/2 for k in range(3)], b.get('rot'), op == 'sub')
-                (folder / 'T3D' / f).write_text(br.t3d(), encoding='ascii')
-                cmds += ['BRUSH RESET', r'BRUSH IMPORT FILE="..\T3D\%s"' % f,
-                         'BRUSH SUBTRACT' if op == 'sub' else 'BRUSH ADD FLAGS=%d' % fl]
+                piece(b.get('name') or 'Box%d' % i, j, br, op == 'sub', fl)
             geometry = lights = nav = True
             lines.append('  EDIT %s %s' % ('water' if b.get('water') else 'zone portal', b.get('name')))
+            continue
+        if climb.is_climb(b):                    # a climbable area: invisible ladder skins on the walls inside it
+            if climb_polys is None:
+                climb_polys = climb.world_polys(map_name)
+            skins = climb.brushes(b, climb_polys)
+            for j, br in enumerate(skins):
+                piece(b.get('name') or 'Box%d' % i, j, br, False, PF_SEMISOLID)
+            geometry = lights = nav = True
+            lines.append(climb.report_line(b, len(skins), climb_polys))
             continue
         mats = zones.hole_mats(b) if b.get('hole') and b.get('sky') else textures.sign_mats(b, edits)
         if b.get('hole') and not b.get('sky'):
             mats = block_shapes.hole_mats(b, mats)          # its floor: another texture chosen for it
         # a cube, a wedge, a cylinder, a cone, a sphere, a dome; a hollow one: its convex pieces
-        for j, brush in enumerate(block_shapes.brushes(b, mats, 'EditBox%d' % i)):
+        sky_hole = b.get('hole') and b.get('sky')      # its sides the sky, all of them or from a height
+        for j, brush in enumerate(zones.hole_brushes(b, 'EditBox%d' % i) if sky_hole else
+                                  block_shapes.brushes(b, mats, 'EditBox%d' % i)):
             brush = geom.rotate_brush(brush, [(lo[k]+hi[k])/2 for k in range(3)], b.get('rot'), bool(b.get('hole')))
             # a hole's floor laid as the floor round it; a Fill block's faces as the walls and floors round it
             brush = block_shapes.hole_floor(brush, b) if b.get('hole') else block_shapes.matched(brush, b)
             if not b.get('hole'):
                 preview.add(b, brush)
-            f = 'box%d.t3d' % i if j == 0 else 'box%d_p%d.t3d' % (i, j)
-            (folder / 'T3D' / f).write_text(brush.t3d(), encoding='ascii')
-            cmds += ['BRUSH RESET', r'BRUSH IMPORT FILE="..\T3D\%s"' % f,
-                     'BRUSH SUBTRACT' if b.get('hole') else 'BRUSH ADD' if b.get('solid') else 'BRUSH ADD FLAGS=%d' % PF_SEMISOLID]
+            piece(b.get('name') or 'Box%d' % i, j, brush, bool(b.get('hole')),
+                  0 if b.get('hole') or b.get('solid') else PF_SEMISOLID)
         geometry = lights = nav = True
         lines.append('  EDIT %s %s' % ('hole' if b.get('hole') else 'block', b.get('name')))
     import drawn                                # walls, roads, floors and roofs drawn in the editor (Map > Draw ...)
@@ -823,9 +856,20 @@ def build(map_name, log=print, options=None, watch=None):
     drawn_snapshots = {p['name']: p for p in edits.get('drawn') or []}
     for j, (pname, br) in enumerate(built):
         preview.add(drawn_snapshots[pname], br, drawn=True)
-        (folder / 'T3D' / ('drawn%d.t3d' % j)).write_text(br.t3d(), encoding='ascii')
-        cmds += ['BRUSH RESET', r'BRUSH IMPORT FILE="..\T3D\drawn%d.t3d"' % j, 'BRUSH ADD FLAGS=%d' % PF_SEMISOLID]
+        piece(pname, 0, br, False, PF_SEMISOLID)
         geometry = lights = nav = True
+    if pieces:
+        (folder / 'T3D' / 'blocks.t3d').write_text(t3d.import_text([a for _n, a, _t in pieces]), encoding='ascii')
+        cmds += [r'MAP IMPORTADD FILE="..\T3D\blocks.t3d"', surfaces.UNLINK]
+        # face changes queued before the names stayed: their block's piece takes them (once, saved in the edits)
+        last = OUT / (map_name + '.t3d')
+        adopted = surfaces.adopt(edits, last.read_text(encoding='latin1', errors='replace') if last.exists() else '',
+                                 [(n, t) for n, _a, t in pieces])
+        if adopted:
+            surfaces.adopt_file(edits_path(map_name), adopted)
+            surface_cmds = surfaces.commands(edits)
+            edits_fingerprint = _edits_fingerprint(edits)
+            lines += surfaces.adopted_lines(adopted)
     if built:
         lines.append('  EDIT drawn: %d pieces (%s)' % (len(built), ', '.join(sorted({n for n, _b in built}))))
     lines += drawn_report

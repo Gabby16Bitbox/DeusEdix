@@ -31,6 +31,7 @@ function fixture() {
     lgSelNames: () => [], lgGroups: () => [],          // the Logic's named groups (none here)
     factionOf: () => 'None', lgKindLabel: (cls) => cls, lgMakeSet: () => null,      // a group of a kind, of a faction (P9)
     mayHavePhases: () => false, moverPhasesOf: () => '', lkActor: () => null,     // no door to give phases to (P3 slice 8)
+    lkObjBox: (b) => !!(b && (b.mover || b.climb)),                                // a moving block, a climbable area (23 Nov)
     parentNest: key => context.edits.nests.find(n => n.items.includes(key)), nestById: id => context.edits.nests.find(n => n.id === id),
     nestLeaves: n => (n?.items || []).map(k => context.objOf(k)).filter(Boolean), piecesInside: st => st.pieces || [],
     tc: { detach: () => calls.push('detach') }, outline: {}, lightRange: {}, soundRange: {}, triggerZone: {}, anim: null,

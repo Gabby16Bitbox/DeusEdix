@@ -515,7 +515,8 @@ class Scene:
         _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
         import zones as _zones
         self.zone_edits = edits
-        for cmd in _zones.packages(edits):
+        import climb as _climb
+        for cmd in _zones.packages(edits) + _climb.packages(edits):
             if cmd not in self.extra_obj:
                 self.extra_obj.append(cmd)
         has_sky = any(re.match(r'Begin Actor Class=SkyZoneInfo ', a) for a in self.actors)
@@ -544,10 +545,27 @@ class Scene:
                 continue
             if _zones.is_zone_box(b):              # water (a pool, its surface a zone portal), a zone portal
                 for op, br, fl in _zones.brush_ops(b):
+                    br = turn(br, op == 'sub')
+                    br.stable_of = b.get('name', 'EditBox')     # its Brush actor's name stays (stable_names)
                     if op == 'sub':
-                        self.sub(turn(br, True))
+                        self.sub(br)
                     else:
-                        self.add(turn(br), flags=fl)
+                        self.add(br, flags=fl)
+                continue
+            if _climb.is_climb(b):                 # a climbable area: invisible ladder skins on the walls inside it
+                if getattr(self, '_climb_polys', None) is None:
+                    self._climb_polys = _climb.world_polys(self.map_name)
+                skins = _climb.brushes(b, self._climb_polys)
+                for br in skins:
+                    br.stable_of = b.get('name', 'EditBox')
+                    self.add(br, semisolid=True)
+                print(_climb.report_line(b, len(skins), self._climb_polys))
+                if _climb.switched(b, edits):      # turned on and off by the rules: its UCClimbArea and slabs
+                    (loc, area_props), slabs = _climb.switch_parts(b, self._climb_polys)
+                    self.actor(_climb.AREA_CLASS, loc, name=b['name'], rot=(0, 0, 0), **area_props)
+                    for slab_name, slab_loc, rel, slab_props in slabs:
+                        self.mover(_climb.SLAB_CLASS, slab_loc, rel, name=slab_name, **slab_props)
+                    print(_climb.switch_line(b, len(slabs)))
                 continue
             mat = geom.Mat(b.get('tex') or 'ClenGreyCncrt_A')
             mat.lit_guard = True                   # a lightmap fine enough on every face (geom.lit_scale)
@@ -558,12 +576,16 @@ class Scene:
                 mat = _textures.sign_mats(b, edits)
             import blocks as _blocks               # its shape: a cube, a wedge, a cylinder, a cone, a sphere, a dome
             if b.get('hole'):                      # a hole: cuts through what the map has (doorways, pits, rooms)
-                for br in _blocks.brushes(b, _zones.hole_mats(b) if b.get('sky') else _blocks.hole_mats(b, mat), b.get('name', 'EditBox')):
-                    self.sub(_blocks.hole_floor(turn(br, True), b))     # its floor laid as the floor round it
+                for br in (_zones.hole_brushes(b, b.get('name', 'EditBox')) if b.get('sky') else
+                           _blocks.brushes(b, _blocks.hole_mats(b, mat), b.get('name', 'EditBox'))):
+                    br = _blocks.hole_floor(turn(br, True), b)          # its floor laid as the floor round it
+                    br.stable_of = b.get('name', 'EditBox')
+                    self.sub(br)
                 continue
             for br in _blocks.brushes(b, mat, b.get('name', 'EditBox')):     # a hollow one: its convex pieces
                 br = _blocks.matched(turn(br), b)  # a fill of an opening: laid as the wall round it
                 br.preview_box = b['name']
+                br.stable_of = b.get('name', 'EditBox')
                 self.preview_boxes[b['name']] = copy.deepcopy(b)
                 self.add(br, semisolid=not b.get('solid', False))
         # walls, roads, floors and roofs drawn in the editor (Map > Draw ...): editor/drawn.py
@@ -575,6 +597,7 @@ class Scene:
         self.preview_drawn = {p['name']: copy.deepcopy(p) for p in edits.get('drawn', [])}
         for _name, br in built:
             br.preview_drawn = _name
+            br.stable_of = _name
             self.add(br, semisolid=True)
         for line in report:
             print(line)
@@ -1224,7 +1247,8 @@ class Scene:
                 m = f.mat
                 # hazard bands are fitted to their band width (maps' hazard()), like the originals
                 # an editor block's own scale (geom.lit_scale: a lightmap fine enough) is meant, no warning for it
-                if (m is None or f.u is not None or m.flags & PF_UNLIT or m.tex.startswith('UC')
+                # an invisible face (a climbable area's ladder skin, an invisible wall) is never seen: no warning
+                if (m is None or f.u is not None or m.flags & (PF_UNLIT | PF_INVISIBLE) or m.tex.startswith('UC')
                         or m.tex == 'WarnYeloStrip_A' or (getattr(m, 'lit_guard', False) and m.tile is None)):
                     continue
                 d = db.get(m.tex.lower())
@@ -1266,13 +1290,36 @@ class Scene:
         faces of one texture into one surface, and the faces would be numbered differently). Each model
         gets a name of its own (two models of one name in MyLevel would be one)."""
         out = []
+        names = self.stable_names()
         for i, (kind, brush, flags) in enumerate(self.ops):
             xf = self.op_xf[i] if i < len(self.op_xf) else None
             model = re.sub(r'\ABegin Brush Name=\S+', 'Begin Brush Name=%s%d' % (BRUSH_MODEL, i),
                            brush.t3d(inside=(kind == 'sub'), xf=xf), count=1)
-            out.append('Begin Actor Class=Brush Name=Brush%d\n    CsgOper=%s\n%s%s    Brush=Model\'MyLevel.%s%d\'\nEnd Actor\n'
-                       % (i + 2, 'CSG_Subtract' if kind == 'sub' else 'CSG_Add',
+            out.append('Begin Actor Class=Brush Name=%s\n    CsgOper=%s\n%s%s    Brush=Model\'MyLevel.%s%d\'\nEnd Actor\n'
+                       % (names[i] or 'Brush%d' % (i + 2), 'CSG_Subtract' if kind == 'sub' else 'CSG_Add',
                           '    PolyFlags=%d\n' % flags if flags and kind != 'sub' else '', model, BRUSH_MODEL, i))
+        return out
+
+    def stable_names(self):
+        """Per op, the Brush actor name of an editor block's, hole's or drawing's piece (editor/surfaces.stable_name:
+        UCBlk_<name>, _<n> for its n-th piece), None for the script's own brushes (Brush<i + 2>, as BRUSH ADD named
+        them). A face change names its brush: these stay when other blocks are deleted."""
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))
+        import surfaces as _surfaces
+        out, taken = [], set()
+        for _kind, brush, _flags in self.ops:
+            owner = getattr(brush, 'stable_of', None)
+            if owner is None:
+                out.append(None)
+                continue
+            n = 0
+            name = _surfaces.stable_name(owner, n)
+            while name.casefold() in taken:
+                n += 1
+                name = _surfaces.stable_name(owner, n)
+            taken.add(name.casefold())
+            out.append(name)
         return out
 
     def _find_packages(self, names):
@@ -1524,6 +1571,17 @@ class Scene:
             cmds += ['MAP SAVE FILE="..\\Output\\player-base.dx"',
                      'MAP LOAD FILE="..\\Output\\player-base.dx"'] + player_cmds
         import surfaces as _surfaces
+        # face changes queued before the editor's blocks had names that stay: their block's piece takes them (once)
+        last = Path(out_map).with_suffix('.t3d') if out_map else None
+        if changes.get('surfaces') and last is not None and last.exists():
+            names = self.stable_names()
+            pieces = [(names[i], brush.t3d(inside=(kind == 'sub'), xf=self.op_xf[i] if i < len(self.op_xf) else None))
+                      for i, (kind, brush, _f) in enumerate(self.ops) if names[i]]
+            adopted = _surfaces.adopt(changes, last.read_text(encoding='latin1', errors='replace'), pieces)
+            if adopted and edits:
+                _surfaces.adopt_file(edits, adopted)
+            for line in _surfaces.adopted_lines(adopted):
+                print(line)
         surface_cmds = _surfaces.commands(changes)
         for line in _surfaces.left_out(changes):     # the Look bits the host does not write yet: left out, said
             print(line)

@@ -64,7 +64,7 @@ class Template(unittest.TestCase):
         self.assertIn('seenTime[i] < seenTime[k]', seen, 'all slots used: the oldest end gives its slot')
         self.assertIn('string(seenTag[i]) ~= tag', body(base, 'function float SeenAt(string tag)'))
         # (Unreal names ignore case: a variable seenAt would be the function's name, a compile error)
-        self.assertNotRegex(base, r'var float seenAt')
+        self.assertNotRegex(base, r'var float seenAt\b')
         w = body(base, 'function EndWatch(int i, name actorName, name conName, name endTag)')
         # the game's own end time (ConPlayBase.SetPlayedFlag: Level.TimeSeconds), before the rules hear it
         self.assertLess(w.index('Seen(endTag, c.lastPlayedTime);'), w.index('A.Trigger(Plr(), Plr());'))

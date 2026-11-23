@@ -908,6 +908,9 @@ def undo_of(a, loops=()):
         if FATE.match(str(a.get('a') or '')):     # a character's fate is a record, not a state to set back
             return None
         return dict(rest, b='1' if str(a.get('b', '1')) == '0' else '0', delay=0)
+    if a.get('verb') == 'input':                    # a block's input: its opposite one (inversePorts: On, Off)
+        port = logic_catalog.inverse_port(a.get('a'))
+        return dict(rest, a=port, delay=0) if port else None
     inverse = logic_catalog.inverse_of(a.get('verb'))
     if a.get('verb') in ('anim', 'animback') and str(a.get('target') or '').lower() in loops:
         inverse = 'animstop'

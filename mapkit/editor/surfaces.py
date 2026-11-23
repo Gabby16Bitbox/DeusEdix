@@ -193,3 +193,87 @@ def report(text):
     return ['Surface lighting rebuilt: %s -> %s lightmap samples (%+d); shadow storage %.2f -> %.2f KiB (%+d bytes).'
             % (format(before[1], ','), format(after[1], ','), after[1] - before[1],
                before[2] / 1024, after[2] / 1024, delta)]
+
+
+# ----------------------------------------------------------------- the editor's own brushes: names that stay
+# The blocks, holes and drawings made in the editor go into the map as Brush actors named after them (UCBlk_<name>,
+# _<n> for the n-th piece of a hollow shape or of a drawing), not as the engine's Brush<N>. A face change names its
+# brush (UC_SURFACE <brush> <polygon>): a Brush<N> went on to another piece when a block made before it was deleted.
+STABLE_PREFIX = 'UCBlk_'
+STABLE_MODEL = 'UCBlkModel'     # their models; UC_UNLINK after the import: one surface per polygon, as BRUSH ADD made
+UNLINK = 'UC_UNLINK ' + STABLE_MODEL
+
+
+def stable_name(name, piece=0):
+    """The Brush actor of an editor block's (or drawing's) piece: the same at every build while the block is there."""
+    base = re.sub(r'\W', '_', str(name or ''))[:40] or 'Block'
+    return '%s%s%s' % (STABLE_PREFIX, base, '_%d' % piece if piece else '')
+
+
+def brush_actor(name, index, brush_text, sub, flags=0):
+    """A brush (geom.Brush.t3d text) as a Brush actor for MAP IMPORTADD: what BRUSH IMPORT then BRUSH ADD (FLAGS=) or
+    BRUSH SUBTRACT made, under a name of its own. index: its model's number in this import (UCBlkModel<index>)."""
+    model = re.sub(r'\ABegin Brush Name=\S+', 'Begin Brush Name=%s%d' % (STABLE_MODEL, index), brush_text, count=1)
+    return ("Begin Actor Class=Brush Name=%s\n    CsgOper=%s\n%s%s    Brush=Model'MyLevel.%s%d'\nEnd Actor\n"
+            % (name, 'CSG_Subtract' if sub else 'CSG_Add', '    PolyFlags=%d\n' % flags if flags and not sub else '',
+               model, STABLE_MODEL, index))
+
+
+def _shape(polygons):
+    """A brush's shape, its textures left out (a face change may have changed them): its polygons' corners."""
+    return tuple(sorted(tuple(sorted(tuple(round(float(c), 1) for c in v) for v in vs)) for vs in polygons))
+
+
+def adopt(edits, exported, pieces):
+    """Face changes queued on a block, hole or drawing by an editor older than the names that stay: their brush was
+    the last build's Brush<N>. The piece built now with the same shape takes them, by its stable name.
+    exported: the last build's MAP EXPORT text; pieces: [(stable name, brush T3D text in world space)].
+    Changes edits['surfaces'] in place; returns {old name: new name}. A shape two pieces (or two brushes) share is
+    left as it is: never a guess."""
+    import t3d
+    rows = edits.get('surfaces') or []
+    named = {t.get('brush') for r in rows for t in r.get('targets') or [] if isinstance(t, dict)}
+    loose = {n for n in named if isinstance(n, str) and not n.startswith(STABLE_PREFIX)}
+    if not loose or not exported or not pieces:
+        return {}
+    want = {}
+    for name, text in pieces:
+        want.setdefault(_shape(p['verts'] for p in t3d.polys(text)), []).append(name)
+    found = {}
+    for actor in t3d.actors(exported):
+        if actor['cls'].rsplit('.', 1)[-1] == 'Brush' and actor['name'] in loose:
+            found.setdefault(_shape(vs for _, vs in t3d.world_verts(actor)), []).append(actor['name'])
+    shared = {key for key in found if len(found[key]) > 1}
+    mapping = {}
+    for key, olds in found.items():
+        if key in shared or len(want.get(key) or []) != 1:
+            continue
+        mapping[olds[0]] = want[key][0]
+    for row in rows:
+        for t in row.get('targets') or []:
+            if isinstance(t, dict) and t.get('brush') in mapping:
+                t['brush'] = mapping[t['brush']]
+    return mapping
+
+
+def adopt_file(path, mapping):
+    """The same renaming in the saved edits (maps/<map>.edits.json), so the next build and the page have it."""
+    import json
+    import atomicfile
+    path = Path(path)
+    if not mapping or not path.exists():
+        return
+    raw = json.loads(path.read_text(encoding='utf-8'))
+    for row in raw.get('surfaces') or []:
+        for t in row.get('targets') or []:
+            if isinstance(t, dict) and t.get('brush') in mapping:
+                t['brush'] = mapping[t['brush']]
+    atomicfile.write_json(path, raw)
+
+
+def adopted_lines(mapping):
+    if not mapping:
+        return []
+    return ['  EDIT face changes of %d block piece(s) now follow their block (%s)'
+            % (len(mapping), ', '.join('%s -> %s' % kv for kv in sorted(mapping.items())[:4])
+               + (' and %d more' % (len(mapping) - 4) if len(mapping) > 4 else ''))]

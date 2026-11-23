@@ -6,7 +6,7 @@ export function blockShapeKey(b) {
   // stretch with it, so they show only where they were built (14 Nov 2026, Gabby: "it stretches the texture with the
   // hole"); until the Rebuild the green box shows alone
   return JSON.stringify([b.tex, b.shape || 'box', b.verts, b.sides, b.hollow, b.top, !!b.align,
-    b.sign, !!b.mover, !!b.hole, b.water, !!b.portal, ...(b.fill ? [b.lo, b.hi, b.rot || null] : [])]);
+    b.sign, !!b.mover, !!b.hole, b.water, !!b.portal, !!b.climb, ...(b.fill ? [b.lo, b.hi, b.rot || null] : [])]);
 }
 export function drawingShapeKey(p) {
   const { name, pts = [], z, rot, ...shape } = p;

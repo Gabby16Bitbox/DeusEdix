@@ -40,7 +40,7 @@ def texture_ref(tex):
 
 
 def shape_of(b):
-    if b.get('mover') or b.get('water') or b.get('portal') or b.get('sign'):
+    if b.get('mover') or b.get('water') or b.get('portal') or b.get('climb') or b.get('sign'):
         return 'box'
     s = b.get('shape') or 'box'
     return s if s in SHAPES else 'box'
@@ -51,7 +51,7 @@ def verts_of(b):
     still moves, stretches and turns it); the brush is their convex hull, as UnrealEd's vertex editing of a brush
     that stays convex. None for a block without them, and for water, portals, moving blocks and signs."""
     v = b.get('verts')
-    if not isinstance(v, list) or len(v) < 4 or b.get('mover') or b.get('water') or b.get('portal') or b.get('sign'):
+    if not isinstance(v, list) or len(v) < 4 or b.get('mover') or b.get('water') or b.get('portal') or b.get('climb') or b.get('sign'):
         return None
     lo, hi = b['lo'], b['hi']
     pts = []

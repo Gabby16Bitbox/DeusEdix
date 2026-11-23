@@ -11,9 +11,9 @@ export function blockOptions(b) {
   return { sides: Math.round(num('sides', CYLINDER_SIDES, 3, 64)), hollow: num('hollow', 0, 0, 4096), top: num('top', 0, 0, 0.95), align: !!b.align };
 }
 
-// water, zone portals, moving blocks and signs are always boxes (as in blocks.py)
+// water, zone portals, climbable areas, moving blocks and signs are always boxes (as in blocks.py)
 export function blockShape(b) {
-  if (!b || b.mover || b.water || b.portal || b.sign) return 'box';
+  if (!b || b.mover || b.water || b.portal || b.climb || b.sign) return 'box';
   return BLOCK_SHAPES.some(([k]) => k === b.shape) ? b.shape : 'box';
 }
 // its name in the Hierarchy: the blocks made before shapes existed stay "Block"
@@ -174,13 +174,13 @@ function roundFaces(shape, size, o) {
 // the faces about the block's centre, in the game's axes (outward normals)
 // Edit vertices (vertex-edit.js): the block's own corners, each a share of its box (as blocks.py verts_of), or null
 export function blockVerts(b) {
-  if (!b || !Array.isArray(b.verts) || b.verts.length < 4 || b.mover || b.water || b.portal || b.sign) return null;
+  if (!b || !Array.isArray(b.verts) || b.verts.length < 4 || b.mover || b.water || b.portal || b.climb || b.sign) return null;
   return b.verts.every((v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)) ? b.verts : null;
 }
 // the corners the editor can move, in the block's own space (the game's axes, from its middle): its own ones, else
 // the shape's; null for a hollow shape (several pieces) and for water, portals, moving blocks and signs
 export function blockPoints(b) {
-  if (!b || b.mover || b.water || b.portal || b.sign) return null;
+  if (!b || b.mover || b.water || b.portal || b.climb || b.sign) return null;
   const size = [0, 1, 2].map((k) => Math.max(1, b.hi[k] - b.lo[k])), v = blockVerts(b);
   if (v) return v.map((f) => f.map((x, k) => (x - 0.5) * size[k]));
   const s = blockShape(b), o = blockOptions(b);

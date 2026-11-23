@@ -319,7 +319,7 @@ export function vocabulary(data) {
           : vocab.steps(l.do, ctx)) || S.nothing, once: l.once ? S.once : '' });
     },
     // the verb that undoes it ('' none), what an output or a verb takes
-    inverse: (v) => (entry('verb', v) || {}).inverse || '',
+    inverse: (v, port) => (v === 'input' ? String(own(data.inversePorts || {}, String(port || '')) || '') : (entry('verb', v) || {}).inverse || ''),
     args: (kind, id) => (entry(kind, id) || {}).args || [],
     // the disclosure level and the games of an output or a verb ('verb' | 'output'); one the catalogue does not
     // know is advanced

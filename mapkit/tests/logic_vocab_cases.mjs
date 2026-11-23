@@ -27,7 +27,7 @@ export const ACTOR = { other: 'Thing1', door: 'Door3', elevator: 'Lift1', keypad
   object: 'Button1', timer: 'Timer1', cutscene: 'Cut1', effectpoint: 'P1', script: 'Gen0' };
 // the families of 27 Oct, and those P4 added (5 Nov: crates, hackable devices) and P3 (the logic blocks), not in the 27 Oct sentences
 const OCT27 = Object.keys(ACTOR);
-export const FAMILIES = [...OCT27, 'crate', 'hackable', 'allof', 'gate', 'switchblock', 'phases', 'atleast', 'firstof', 'counterblock', 'logicblock'];   // P3 (7 Nov): the logic blocks (the Counter: slice 6)
+export const FAMILIES = [...OCT27, 'crate', 'hackable', 'allof', 'gate', 'switchblock', 'phases', 'atleast', 'firstof', 'counterblock', 'logicblock', 'climbarea'];   // P3 (7 Nov): the logic blocks (the Counter: slice 6); a climbable area turned on and off (23 Nov)
 // verbs whose "objects tagged X" sentence was "goe to floor", "goe and uses": not offered for tags (TAG_VERBS), worded
 // right in logic.json ('many') and checked on their own
 export const TAG_FIXED = ['floor', 'npcuse'];

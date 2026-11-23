@@ -134,8 +134,68 @@ def hole_mats(b):
     tex = b.get('tex') or 'ClenGreyCncrt_A'
     if b.get('sky'):
         sky = geom.Mat(SKY_TEX, flags=PF_FAKEBACKDROP)
-        return {'sides': sky if b.get('skySides') else tex, 'bottom': tex, 'top': sky}
+        return {'sides': sky if b.get('skySides') and sky_from(b) is None else tex, 'bottom': tex, 'top': sky}
     return geom.Mat(tex)
+
+
+def sky_from(b):
+    """The height over a hole's floor where its sides turn to sky ('skyFrom', with 'sky' and 'skySides': the fronts
+    of the buildings round a street below it, the sky above), or None: the whole of its sides."""
+    if not (b.get('hole') and b.get('sky') and b.get('skySides')):
+        return None
+    try:
+        h = float(b.get('skyFrom') or 0)
+    except (TypeError, ValueError):
+        return None
+    return h if 0 < h < b['hi'][2] - b['lo'][2] and math.isfinite(h) else None
+
+
+def hole_brushes(b, name):
+    """The brushes of a hole (blocks.brushes) in its materials (hole_mats). With 'skyFrom' its sides are cut at that
+    height: its texture below, the sky above. The parts above come after the brush's own faces, so every face keeps
+    its number (face changes, surfaces.py)."""
+    import blocks
+    out = blocks.brushes(b, hole_mats(b), name)
+    h = sky_from(b)
+    return out if h is None else [_sky_above(br, b['lo'][2] + h) for br in out]
+
+
+def _sky_above(br, z):
+    """br with its side faces cut at the height z: below, as they were; above, the sky."""
+    if br.wrap:                                    # its mapping round it as the whole faces have it, then cut
+        geom.wrap_vertical(br.faces, True)
+    sky = geom.Mat(SKY_TEX, flags=PF_FAKEBACKDROP)
+    faces, above = [], []
+    for f in br.faces:
+        zs = [p[2] for p in f.verts]
+        if abs(f.normal[2]) > 0.999 or max(zs) <= z + 0.01:
+            faces.append(f)                        # a top or a bottom, or a side all below
+        elif min(zs) >= z - 0.01:
+            faces.append(geom.Face(f.verts, sky, f.normal, f.u, f.v, f.origin))
+        else:
+            low, high = _cut(f.verts, z)
+            faces.append(geom.Face(low, f.mat, f.normal, f.u, f.v, f.origin))
+            above.append(geom.Face(high, sky, f.normal, f.u, f.v, f.origin))
+    return geom.Brush(faces + above, br.name)
+
+
+def _cut(verts, z):
+    """A convex polygon cut by the plane at the height z: (the part below, the part above), the same winding."""
+    low, high = [], []
+    n = len(verts)
+    for i in range(n):
+        a, c = verts[i], verts[(i + 1) % n]
+        da, dc = a[2] - z, c[2] - z
+        if da <= 0.01:
+            low.append(tuple(a))
+        if da >= -0.01:                            # a corner on the cut is in both
+            high.append(tuple(a))
+        if (da < -0.01 and dc > 0.01) or (da > 0.01 and dc < -0.01):
+            t = (z - a[2]) / (c[2] - a[2])
+            p = tuple(a[k] + (c[k] - a[k]) * t for k in range(3))
+            low.append(p)
+            high.append(p)
+    return low, high
 
 
 def actors(edits):

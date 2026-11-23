@@ -539,7 +539,7 @@ def holes(edits):
         if not b.get('hole') or b.get('mover') or zones.is_zone_box(b) or not all(b['hi'][k] > b['lo'][k] for k in range(3)):
             continue
         centre = [(b['lo'][k] + b['hi'][k]) / 2 for k in range(3)]
-        out += [geom.rotate_brush(br, centre, b.get('rot')) for br in blocks.brushes(b, zones.hole_mats(b), b.get('name', 'Hole'))]
+        out += [geom.rotate_brush(br, centre, b.get('rot')) for br in zones.hole_brushes(b, b.get('name', 'Hole'))]
     return out
 
 

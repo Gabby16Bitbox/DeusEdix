@@ -2858,10 +2858,10 @@ function menuFor(spec, surface = null) {
     if (a && isCharacter(a)) items.push({ label: 'Animation Studio…', off: locked, run: use(() => window.__studio?.open(a.cls)) });
     if (a && isCharacter(a)) items.push({ label: 'Pose here…', off: locked, run: use(() => mapPose.open(o)) });
     if (a?.cls === 'UCCutscene') items.push({ label: 'Edit cutscene…', off: locked, run: use(() => window.__cutscene?.open(a.name)) });
-    else if (a || (d?.box && !d.box.hole && !d.box.water && !d.box.portal))
+    else if (a || (d?.box && !d.box.hole && !d.box.water && !d.box.portal && !d.box.climb))
       items.push({ label: 'Animate movement…', off: locked, run: use(() => openAnim(o)) });
     // a door, a window, a sign put on a wall: a hole as big as it through the wall (openWallFor)
-    if (o && (a || isStruct(o) || (d?.box && !d.box.hole && !d.box.water && !d.box.portal)) && d?.kind !== 'light' && d?.kind !== 'logic')
+    if (o && (a || isStruct(o) || (d?.box && !d.box.hole && !d.box.water && !d.box.portal && !d.box.climb)) && d?.kind !== 'light' && d?.kind !== 'logic')
       items.push({ label: 'Open the wall for it', off: locked, run: use(() => openWallFor(o)) });
     if (d?.kind === 'light') items.push({ label: 'Light settings…', run: () => focusInspector(spec, '[data-inspector-section="Light"]') });
     if (a && (propSchema[a.cls] || []).some(f => f.kind === 'text'))
@@ -2886,7 +2886,7 @@ function menuFor(spec, surface = null) {
   const ofClass = !several && objOf(spec)?.userData?.actor;
   if (ofClass) items.push({ label: `Select all ${clsShown(ofClass.cls)}`, run: () => selectAllOfClass(ofClass.cls) });
   const referred = !several && objOf(spec);      // an object or a moving block: what points at it, what it points at
-  if (referred?.userData?.actor || referred?.userData?.box?.mover) items.push({ label: 'Find references', run: () => findReferences(referred) });
+  if (referred?.userData?.actor || lkObjBox(referred?.userData?.box)) items.push({ label: 'Find references', run: () => findReferences(referred) });
   if (surface?.under) items.push({ label: 'Select under cursor…', key: 'Ctrl+right click', run: surface.under });
   items.push({ label: 'Duplicate', key: 'Ctrl+D', off: locked, run: actOnSelection(duplicateSelected) });
   items.push({ label: 'Cut', key: menuKey('cut'), off: locked, run: actOnSelection(cutSelected) });
@@ -3404,8 +3404,8 @@ function makeBoxProxy(b) {
   const size = [b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]];
   const geo = blockGeometry(THREE, b);     // a cube, a wedge or a cylinder (block-shapes.js)
   const fill = isFill(b);                  // a Fill block: green, as a hole is red
-  const col = b.mover ? 0x5ad1ff : b.water ? 0x3a8cff : b.portal ? 0xc58cff : b.hole ? 0xff5a5a : fill ? 0x4cd964 : KIND_COLOR.box;
-  const g = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: b.portal ? 0.35 : b.water ? 0.12 : b.hole || fill ? 0.18 : 0.25, depthWrite: false }));
+  const col = b.mover ? 0x5ad1ff : b.water ? 0x3a8cff : b.portal ? 0xc58cff : b.climb ? 0xffb02e : b.hole ? 0xff5a5a : fill ? 0x4cd964 : KIND_COLOR.box;
+  const g = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: b.portal ? 0.35 : b.climb ? 0.3 : b.water ? 0.12 : b.hole || fill ? 0.18 : 0.25, depthWrite: false }));
   if (b.water) {                            // the surface of the water
     const below = b.water.below ?? 16, rel = 0.5 - below / Math.max(1, size[2]);
     const surf = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: { dirty: 0x5d6a3a, toxic: 0x5be04a, burning: 0xff7a1a }[b.water.kind] || 0x3a8cff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
@@ -3414,9 +3414,9 @@ function makeBoxProxy(b) {
     g.add(surf);
   }
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), b.hole || fill ? new THREE.LineDashedMaterial({ color: fill ? 0x7ee89a : 0xff8080, dashSize: 0.06, gapSize: 0.04 })
-    : new THREE.LineBasicMaterial({ color: 0xe8edf5 }));
+    : new THREE.LineBasicMaterial({ color: b.climb ? 0xffb02e : 0xe8edf5 }));
   if (b.hole || fill) edges.computeLineDistances();      // a hole: what it cuts away shows after the rebuild (a Fill: what it closes)
-  edges.visible = !!(b.hole || fill || b.water || b.portal); // ordinary blocks use the selection outline, not coplanar lines
+  edges.visible = !!(b.hole || fill || b.water || b.portal || b.climb); // ordinary blocks use the selection outline, not coplanar lines
   g.add(edges);
   g.scale.set(size[0], size[2], size[1]);
   g.position.copy(T([(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, (b.lo[2] + b.hi[2]) / 2]));
@@ -3456,7 +3456,7 @@ async function dressBlock(g) {
   if (!b) return;
   const baked = liveBlocks.canFollow(b) || builtBoxes.get(b.name) === boxSig(b);
   g.material.colorWrite = !baked;
-  if (b.hole || isFill(b) || b.water || b.portal || b.mover || b.sign || !b.tex || baked) {
+  if (b.hole || isFill(b) || b.water || b.portal || b.climb || b.mover || b.sign || !b.tex || baked) {
     if (g.userData.dressed) { g.material = g.userData.plain; delete g.userData.matBase; g.userData.dressed = false; }
     g.material.colorWrite = !baked;
     liveBlocks.sync(proxies.children);
@@ -3806,7 +3806,7 @@ const weatherPreview = createWeatherPreview({ THREE, scene, camera, wake, obstac
     weatherSolids = worldMeshes.filter(o => o.parent && visible(o) && !o.userData.sky);
     for (const p of proxies.children) {
       const b = p.userData.box || p.userData.drawn;
-      if (!b || b.hole || b.water || b.portal || !visible(p)) continue;
+      if (!b || b.hole || b.water || b.portal || b.climb || !visible(p)) continue;
       p.traverse(o => { if (o.isMesh && visible(o) && o.material?.colorWrite !== false && o.material?.opacity !== 0) weatherSolids.push(o); });
     }
   }
@@ -3956,7 +3956,7 @@ textureTransfer = createTextureTransfer({ canvas,
     const block = prop && prop.object.userData.box && (!hit || prop.distance < hit.distance - .1) ? prop.object : null;
     if (block) {
       const b = block.userData.box;
-      if (b.hole || b.water || b.portal || b.sign) { if (!quiet) status('Holes, water, zone portals and signs keep their own look: choose a wall, floor, ceiling or block.', 'warn'); return null; }
+      if (b.hole || b.water || b.portal || b.climb || b.sign) { if (!quiet) status('Holes, water, zone portals, climbable areas and signs keep their own look: choose a wall, floor, ceiling or block.', 'warn'); return null; }
       if (selectionLocked(block)) { if (!quiet) status('Unlock this block before changing its texture.', 'warn'); return null; }
       return { block, label: `${blockLabel(b)} ${b.name}` };
     }
@@ -4260,7 +4260,7 @@ function openWallFor(o) {
 // material most used there; or choose its texture in the Inspector beforehand"): a solid block (b.fill) shown green
 // as a hole is red, hidden once built; b.texAuto while its texture is the one around it, looked for again at every
 // Rebuild (fillAutoAll). isFill: still one (its Kind not changed in the Inspector).
-const isFill = (b) => !!(b && b.fill && b.solid && !b.hole && !b.mover && !b.water && !b.portal);
+const isFill = (b) => !!(b && b.fill && b.solid && !b.hole && !b.mover && !b.water && !b.portal && !b.climb);
 // a hole's floor (b.floor): 'around' (the floor round it), 'tex' (another texture, b.floor.tex), else 'same' (a hole
 // made before 14 Nov 2026 has none: all of its own texture, as it was built)
 const holeFloorOf = (b) => (b.floor === 'around' ? 'around' : b.floor && typeof b.floor === 'object' && b.floor.tex ? 'tex' : 'same');
@@ -4454,7 +4454,7 @@ function pick(e) {
     let o = null;
     if (hp && (!hw || hp.distance <= hw.distance + 4)) { o = hp.object; while (o.parent !== proxies) o = o.parent; }
     const at = hw || hp;
-    const who = o && (o.userData.actor || (o.userData.box && o.userData.box.mover ? lkActor(o.userData.box.name) : null));
+    const who = o && (o.userData.actor || (lkObjBox(o.userData.box) ? lkActor(o.userData.box.name) : null));
     lkPicked(who, at ? UE(at.point.clone().add(new THREE.Vector3(0, 40, 0))) : null);
     return;
   }
@@ -4673,7 +4673,7 @@ function lkFocusOf(p) {
   if (!p) return '';
   const d = p.userData;
   if (d.actor) return d.actor.name || '';
-  if (d.box && d.box.mover) return d.box.name;
+  if (lkObjBox(d.box)) return d.box.name;
   const m = isStruct(p) && /^paste~(.+)$/.exec(String(d.name || ''));
   const n = m ? 'UCPf' + m[1].replace(/\W/g, '') + 'A0' : '';
   return n && lkActor(n) ? n : '';
@@ -9607,7 +9607,7 @@ function searchValues(key) {
 }
 // Right click > Find references (Edit menu too), as Unity's Find References in Scene: the search becomes ref:<name>
 function findReferences(p = selected) {
-  const name = p?.userData.actor?.name || (p?.userData.box?.mover && p.userData.box.name);
+  const name = p?.userData.actor?.name || (lkObjBox(p?.userData.box) && p.userData.box.name);
   if (!name) { status('Select an object (or a moving block) first: Find references shows what points at it and what it points at.', 'warn'); return; }
   findInMap(searchToken('ref', name));
 }
@@ -9769,7 +9769,7 @@ function renderHierarchy() {
       if (e.target.closest('.hb')) return;
       if (r.tagName === 'SUMMARY' && !e.target.closest('.hl')) return;        // the arrow opens and closes
       e.preventDefault();
-      if (lkPicking) { lkPicked(p && (p.userData.actor || (p.userData.box && p.userData.box.mover ? lkActor(p.userData.box.name) : null)), null); return; }
+      if (lkPicking) { lkPicked(p && (p.userData.actor || (lkObjBox(p.userData.box) ? lkActor(p.userData.box.name) : null)), null); return; }
       if (p && p.parent) {
         if (e.ctrlKey) toggleMulti(p);
         else if (!(e.shiftKey && hierRangeTo(r.dataset.key))) { select(p); hierAnchor = r.dataset.key; }
@@ -10497,7 +10497,7 @@ function turnPlacing() {
 function placingName() {
   if (placing.prefab) return `Place ${placing.prefab.label}`;
   if (placing.route) return 'Add a patrol point';
-  if (placing.box) return `Add ${placing.sign ? 'a sign' : placing.water ? 'a pool' : placing.portal ? 'a zone portal' : placing.hole ? 'a hole' : 'a block'}`;
+  if (placing.box) return `Add ${placing.sign ? 'a sign' : placing.water ? 'a pool' : placing.portal ? 'a zone portal' : placing.climb ? 'a climbable area' : placing.hole ? 'a hole' : 'a block'}`;
   return `Place ${placing.mesh || itemLabel(placing)}`;
 }
 // what a click of the placing mode does at the surface found (r: placeOnRay). shift: keep placing copies (Shift+click);
@@ -10552,14 +10552,15 @@ function placeWith(r, { shift = false, quiet = false } = {}) {
       return ready.then(() => b.name); // the MCP result waits for the front texture
     }
     ready.catch((e2) => log('Sign: ' + e2.message, 'bad'));
-  } else if (placing.water || placing.portal) {
-    const b = placing.water ? waterBox(r) : portalBox(r);
-    if (!b) { dropUndo(); status(placing.water ? 'Click a floor for the pool.' : 'Click the floor inside a doorway (walls on both sides, a top).', 'warn'); return; }
+  } else if (placing.water || placing.portal || placing.climb) {
+    const b = placing.water ? waterBox(r) : placing.portal ? portalBox(r) : climbBox(r);
+    if (!b) { dropUndo(); status(placing.water ? 'Click a floor for the pool.' : placing.portal ? 'Click the floor inside a doorway (walls on both sides, a top).' : 'Click the wall JC should climb.', 'warn'); return; }
     edits.boxes.push(b);
     intoDefaultFolder(['b:' + b.name]);
     setDirty();
     select(makeBoxProxy(b));
     log(placing.water ? `Pool: after Rebuild the water is a zone of its own (JC swims in it). Resize it with ${menuKey('scale')}, choose the liquid in its panel.`
+      : placing.climb ? `Climbable area ${Math.round(b.hi[2] - b.lo[2])} high: after Rebuild JC climbs the wall inside the box as a ladder of the game, only inside it. Resize it with ${menuKey('scale')} to the ladder you put there.`
       : `Zone portal ${Math.round(Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1]))} x ${Math.round(b.hi[2] - b.lo[2])}: put one in every doorway of the room, then a Zone (Objects > Zones) inside it.`, 'ok');
   } else if (placing.hole) {
     const b = holeBox(r);
@@ -10868,7 +10869,7 @@ function openAnim(p) {
   if (!p) return;
   if (anim) closeAnim();
   if (p.userData.box && !p.userData.box.mover) {
-    if (p.userData.box.hole || p.userData.box.water || p.userData.box.portal) { log('Holes, water and portals cannot move: a solid or detail block can.', 'warn'); return; }
+    if (p.userData.box.hole || p.userData.box.water || p.userData.box.portal || p.userData.box.climb) { log('Holes, water, portals and climbable areas cannot move: a solid or detail block can.', 'warn'); return; }
     pushUndo(stepOf('Make', [p], 'a moving block'));
     p.userData.box.mover = true;              // a block that moves is a mover (a moving block)
     setDirty();
@@ -11174,7 +11175,7 @@ function portalBox(r) {
   else { lo[1] = h[1] - ny - 4; hi[1] = h[1] + py + 4; lo[0] = h[0] - 1; hi[0] = h[0] + 1; }
   return { name: nextName('UCEditBox'), lo: lo.map(r1), hi: hi.map(r1), tex: 'ClenGreyCncrt_A', solid: true, portal: true };
 }
-function boxKind(b) { return b.mover ? 'mover' : b.water ? 'water' : b.portal ? 'portal' : b.hole ? 'hole' : b.solid ? 'solid' : 'detail'; }
+function boxKind(b) { return b.mover ? 'mover' : b.water ? 'water' : b.portal ? 'portal' : b.climb ? 'climb' : b.hole ? 'hole' : b.solid ? 'solid' : 'detail'; }
 $('#addwater').onclick = () => {
   startPlacing({ box: true, water: true, size: [256, 256, 104] }, $('#addwater'));
   status('Click a floor: a pool of water 256 x 256, 96 deep, a zone of its own (Esc cancels)');
@@ -11182,6 +11183,26 @@ $('#addwater').onclick = () => {
 $('#addportal').onclick = () => {
   startPlacing({ box: true, portal: true, size: [8, 96, 128] }, $('#addportal'));
   status('Click the floor in the middle of a doorway: an invisible zone portal fills it (Esc cancels)');
+};
+// "+ Ladder": a climbable area (editor/climb.py). The game climbs a wall whose texture is in a "Ladder" group: at
+// Rebuild the walls inside the box get an invisible skin with the game's ladder texture, only inside the box
+function climbBox(r) {
+  const h = UE(r.hit), n = UE(r.n);
+  if (Math.abs(n[2]) > 0.7) return null;     // a wall
+  const sn = (v) => (snap ? Math.round(v / 8) * 8 : r1(v));
+  const across = Math.abs(n[0]) >= Math.abs(n[1]) ? 0 : 1, along = 1 - across;
+  const lo = [0, 0, 0], hi = [0, 0, 0];
+  lo[across] = r1(h[across] - 16); hi[across] = r1(h[across] + 16);     // through the wall's face
+  lo[along] = sn(h[along]) - 32; hi[along] = sn(h[along]) + 32;           // a ladder's width
+  // from the floor under the click (a ray down, just out of the wall), 256 high
+  const out = [h[0] + n[0] * 4, h[1] + n[1] * 4, h[2]];
+  const down = visibleHits(new THREE.Raycaster(T(out), T([0, 0, -1]).normalize(), 0.5, 3000).intersectObjects(worldMeshes, false))[0];
+  lo[2] = down ? r1(h[2] - down.distance) : sn(h[2] - 64); hi[2] = lo[2] + 256;
+  return { name: nextName('UCEditBox'), label: 'Climbable area', lo, hi, tex: 'ClenGreyCncrt_A', solid: true, climb: true };
+}
+$('#addclimb').onclick = () => {
+  startPlacing({ box: true, climb: true, size: [32, 64, 256] }, $('#addclimb'));
+  status('Click the wall to climb (where your ladder is): a climbable area 64 wide, 256 high goes across it (Esc cancels)');
 };
 // a hole where the click is: a doorway through a wall (standing on the floor below), a pit in a floor, an
 // opening in a ceiling. Its sides take the texture of the surface clicked.
@@ -13916,12 +13937,17 @@ function lkActor(name) {
   const a = all.find((x) => x.name === name && !edits.deleted[x.name])
     || all.find((x) => String(x.name).toLowerCase() === low && !edits.deleted[x.name]);
   if (a) return a;
-  const boxes = (edits.boxes || []).filter((x) => x && x.mover);              // a moving block: a mover in the game
+  // a moving block: a mover in the game; a climbable area: its UCClimbArea (editor/climb.py), turned on and off
+  const boxes = (edits.boxes || []).filter((x) => x && (x.mover || x.climb));     // as lkObjBox (tests read this alone)
   const b = boxes.find((x) => x.name === name) || boxes.find((x) => String(x.name).toLowerCase() === low);
   if (!b) return null;
-  if (!chainNow.DeusExMover) chainOf('DeusExMover');
-  return { name: b.name, cls: 'DeusExMover', box: true, loc: [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2) };
+  const cls = b.mover ? 'DeusExMover' : 'UCClimbArea';
+  if (!chainNow[cls]) chainOf(cls);
+  return { name: b.name, cls, box: true, loc: [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2) };
 }
+// a block that is an object of the game the rules use: a moving block (a mover), a climbable area (23 Nov 2026)
+function lkObjBox(b) { return !!(b && (b.mover || b.climb)); }
+const lkBoxNoun = (a) => (a.cls === 'UCClimbArea' ? 'climbable area' : 'moving block');
 const LK_KIND = { door: 'door', light: 'light', zone: 'zone', soundfx: 'sound effect', keypad: 'keypad', laser: 'laser', beam: 'beam',
   alarm: 'alarm', turret: 'turret', elevator: 'elevator', timer: 'timer', effectpoint: 'effect point', script: 'script' };
 function lkName(name) {
@@ -13940,15 +13966,15 @@ function lkName(name) {
   const copy = lkCopyLabel(name);
   if (copy) return copy;
   // its own name (the Inspector's, 12 Nov 2026: FamiliarName, a block's label) says it alone, unless another has it too
-  const boxOwn = (b) => String((b && b.label) || '').trim(), actorOwn = (x) => unquote(actorProp(x, 'FamiliarName') || '').trim();
+  const boxOwn = (b) => { const s = String((b && b.label) || '').trim(); return b && b.climb && /^climbable area$/i.test(s) ? '' : s; }, actorOwn = (x) => unquote(actorProp(x, 'FamiliarName') || '').trim();
   const own = a.box ? boxOwn((edits.boxes || []).find((b) => b.name === name)) : actorOwn(a), low = own.toLowerCase();
   if (own && !allActors().some((x) => x.name !== name && !edits.deleted[x.name] && actorOwn(x).toLowerCase() === low)
-    && !(edits.boxes || []).some((b) => b.name !== name && b.mover && boxOwn(b).toLowerCase() === low)) return own;
-  const l = own || (a.box ? 'moving block' : LK_KIND[lkCatOf(a)]) || hierLabel(a);
+    && !(edits.boxes || []).some((b) => b.name !== name && lkObjBox(b) && boxOwn(b).toLowerCase() === low)) return own;
+  const l = own || (a.box ? lkBoxNoun(a) : LK_KIND[lkCatOf(a)]) || hierLabel(a);
   // an object added in the editor (UCEdit5, UCEditBox2) has a name of no meaning: what it is, numbered among its kind
   // when there are several ("the All of these", "moving block 2"; 12 Nov 2026: sentences said "All of these UCEdit10")
   if (!own && /^UCEdit(Box)?\d+$/i.test(name)) {
-    const same = a.box ? (edits.boxes || []).filter((b) => b.mover && !boxOwn(b)).map((b) => b.name)
+    const same = a.box ? (edits.boxes || []).filter((b) => (a.cls === 'UCClimbArea' ? b.climb : b.mover) && !boxOwn(b)).map((b) => b.name)
       // among the ones called the same (13 Nov 2026: "Exit to 01_Navarre_Roof 2", the other teleporter an arrival)
       : allActors().filter((x) => x.cls === a.cls && !edits.deleted[x.name] && !actorOwn(x) && (LK_KIND[lkCatOf(x)] || hierLabel(x)) === l).map((x) => x.name);
     const k = same.sort((x, y) => x.localeCompare(y, 'en', { numeric: true })).indexOf(name);
@@ -14204,6 +14230,10 @@ async function lkFixLabels() {
   await Promise.all(list.flatMap((l) => [l.src, ...(l.do || []).map((x) => x.target)]).map((n) => lkActor(n)).filter(Boolean).map((x) => chainOf(x.cls)));
   const comp = [...new Set(list.filter((l) => l.when === 'option').map((l) => lkActor(l.src)).filter(Boolean).map((c) => c.cls))];
   await Promise.all(comp.map((c) => propSchema[c] ? null : api('/api/props?cls=' + encodeURIComponent(c)).then((r) => { propSchema[c] = r.fields || []; })));
+  // the sentences' words first (LK_WHEN, LK_VERBS): a map opened before them saved "When nothing triggers its event: ..."
+  // as every rule's label (23 Nov 2026, as logicWarm for the proposals)
+  lkVocabLoad();
+  if (lkVocabAsked) await lkVocabAsked;
   if (generation !== mapGeneration) return;
   for (const l of lkList()) l.label = lkSentence(l);
 }
@@ -14262,7 +14292,7 @@ async function lkPickList(opts, from) {
   const covered = r.width < 40 || r.height < 40 || document.elementFromPoint(mid[0], mid[1]) !== canvas;
   if (!logic && !covered) return;
   const all = allActors().filter((a) => !edits.deleted[a.name] && !String(a.name).startsWith('UCLink_'));
-  for (const b of edits.boxes || []) if (b && b.mover && b.name && !all.some((a) => a.name === b.name)) { const m = lkActor(b.name); if (m) all.push(m); }
+  for (const b of edits.boxes || []) if (lkObjBox(b) && b.name && !all.some((a) => a.name === b.name)) { const m = lkActor(b.name); if (m) all.push(m); }
   await Promise.all([...new Set(all.map((a) => a.cls))].map((cls) => chainOf(cls)));
   if (lkPicking !== opts) return;
   // a place (Walk / Run to, Move there at once...): where something of the map stands, the path nodes and starts first
@@ -15349,7 +15379,7 @@ function lgFilterText(g) {
 function lgNewId() { const used = new Set(lgGroups().map((g) => g.id)); let k = 1; while (used.has('G' + k)) k++; return 'G' + k; }
 const lgKey = (name) => (objOf('a:' + name) ? 'a:' + name : objOf('b:' + name) ? 'b:' + name : null);
 // the objects of the selection a group can hold: those with a name in the game (an object, a moving block)
-const lgSelNames = () => [...new Set(stateTargets(selKeys()).map((p) => p.userData.actor?.name || (p.userData.box?.mover ? p.userData.box.name : null)).filter(Boolean))];
+const lgSelNames = () => [...new Set(stateTargets(selKeys()).map((p) => p.userData.actor?.name || (lkObjBox(p.userData.box) ? p.userData.box.name : null)).filter(Boolean))];
 // the rules that use a group (a step on it, or started by any of it)
 const lgUses = (id) => lkList().filter((l) => l.group === id || [...(l.do || []), ...(l.else || [])].some((x) => x && x.group === id));
 // the members that can do a verb, as the game picks them (UCLink.TagKind): not the rule's own object
@@ -15528,7 +15558,7 @@ function lkNavOnly(a) {
 async function lgObjectsOf(family) {
   let all = allActors().filter((a) => !edits.deleted[a.name] && !String(a.name).startsWith('UCLink_'));
   // the moving blocks too: doors and lifts in the game (a rule opens them), named as the Hierarchy names them
-  for (const b of edits.boxes || []) if (b && b.mover && b.name && !all.some((a) => a.name === b.name)) { const m = lkActor(b.name); if (m) all.push(m); }
+  for (const b of edits.boxes || []) if (lkObjBox(b) && b.name && !all.some((a) => a.name === b.name)) { const m = lkActor(b.name); if (m) all.push(m); }
   await Promise.all([...new Set(all.map((a) => a.cls))].map((cls) => chainOf(cls)));
   all = all.filter((a) => !lkNavOnly(a));
   const any = !family || family === 'other';
@@ -18054,11 +18084,11 @@ function showDetails(live, view = null) {
       <div class="row"><label>Roll °</label>${num('broll', Math.round((b.rot?.[2] || 0)*360/YAW))}</div>
       <div class="row"><label>Width</label>${num('sx', b.hi[0] - b.lo[0])}</div><div class="row"><label>Depth</label>${num('sy', b.hi[1] - b.lo[1])}</div><div class="row"><label>Height</label>${num('sz', b.hi[2] - b.lo[2])}</div>
       </div></details>${inspectorSectionStart('block', 'Block settings', true)}
-      <div class="row"><label>Texture</label><input id="btex" list="texlist" value="${b.tex}"></div>
+      <div class="row" ${b.climb ? 'hidden' : ''}><label>Texture</label><input id="btex" list="texlist" value="${b.tex}"></div>
       ${isFill(b) ? `<div class="row"><label style="width:auto" title="At every Rebuild it takes the texture most used by the walls, floors and ceilings round it, laid as there. Choose a texture to keep that one instead"><input type="checkbox" id="bauto" ${b.texAuto ? 'checked' : ''}> texture of what is around it</label></div>
       <div class="hint" style="margin:0 0 4px">A Fill block (green): Rebuild closes the gap it covers${b.texAuto ? ', with the texture most used round it' : ''}, then it hides; select it in the Hierarchy to change it. It closes the holes built before it (Build order).</div>` : ''}
       ${Array.isArray(b.match) && b.match.length ? `<div class="hint">${b.matchOf === b.tex ? 'Fills an opening: its front' + (b.match.length > 1 ? ' and back continue the walls' : ' continues the wall') + ' round it, the texture laid as there (turned, it takes its own).' : 'Fills an opening, with a texture of its own now: give it ' + escapeHtml(b.matchOf || '') + ' again to continue the wall.'}</div>` : ''}
-      ${b.water || b.portal || b.mover || b.sign ? '' : `<div class="row"><label>Shape</label><select id="bshape" style="flex:1;min-width:0" title="A wedge is a ramp, high at its +X side: turn it with E. Resize a round one with R: an elliptic cylinder, an egg, a low dome">${BLOCK_SHAPES.map(([k, l]) => `<option value="${k}" ${k === blockShape(b) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
+      ${b.water || b.portal || b.climb || b.mover || b.sign ? '' : `<div class="row"><label>Shape</label><select id="bshape" style="flex:1;min-width:0" title="A wedge is a ramp, high at its +X side: turn it with E. Resize a round one with R: an elliptic cylinder, an egg, a low dome">${BLOCK_SHAPES.map(([k, l]) => `<option value="${k}" ${k === blockShape(b) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
       ${blockPoints(b) ? `<div class="row"><button id="bverts" title="Move the block's corners one by one (V), as UnrealEd's vertex editing: it stays a convex shape">Edit vertices</button>${b.verts ? '<button id="bvreset" title="Its own box and shape again, the corners as they were">Reset corners</button>' : ''}</div>` : ''}
       ${ROUND_SHAPES.includes(blockShape(b)) && !b.verts ? (() => { const o = blockOptions(b), s = blockShape(b); return `
       <div class="row"><label title="How many sides round (UnrealEd's Sides): more is rounder and heavier">Sides</label><input type="number" id="bsides" value="${o.sides}" min="3" max="64" step="1" style="width:70px"></div>
@@ -18069,17 +18099,19 @@ function showDetails(live, view = null) {
         <option value="solid" ${!b.hole && !b.mover && b.solid ? 'selected' : ''}>Solid block</option><option value="detail" ${!b.hole && !b.mover && !b.solid ? 'selected' : ''}>Detail block</option>
         <option value="hole" ${b.hole && !b.water ? 'selected' : ''}>Hole</option>
         <option value="mover" ${b.mover ? 'selected' : ''}>Moving block</option>
-        <option value="water" ${b.water ? 'selected' : ''}>Water</option><option value="portal" ${b.portal ? 'selected' : ''}>Zone portal</option></select></div>
+        <option value="water" ${b.water ? 'selected' : ''}>Water</option><option value="portal" ${b.portal ? 'selected' : ''}>Zone portal</option><option value="climb" ${b.climb ? 'selected' : ''}>Climbable area (ladder)</option></select></div>
       ${(() => { const o = buildOrder(b); return `<div class="row"><label title="Blocks are built in this order, as UnrealEd builds its brushes: a hole cuts the solid blocks built before it, a solid block fills the holes before it">Build order</label><span class="hint" style="margin:0 6px 0 0">${o.at} of ${o.of}</span><button id="bfirst" ${o.at === 1 ? 'disabled' : ''}>To first</button><button id="blast" ${o.at === o.of ? 'disabled' : ''}>To last</button></div>`; })()}
       ${b.water ? `<div class="row"><label>Liquid</label><select id="bliquid" style="flex:1;min-width:0">${Object.entries(LIQUIDS).map(([k, l]) => `<option value="${k}" ${k === (b.water.kind || 'water') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="row"><label title="Units under the top of the block">Surface</label><input type="number" id="bbelow" value="${b.water.below ?? 16}" step="4" style="width:70px"><span class="hint" style="margin:0">under the top</span></div>
         <div class="row"><label style="width:auto" title="Off: the water fills a basin the map already has (its block shows where)"><input type="checkbox" id="bcarve" ${b.hole ? 'checked' : ''}> cut a pool into the floor</label></div>
         <div class="row"><label>Place name</label><input type="text" id="bzname" value="${escapeHtml(b.water.name || '')}" placeholder="(optional)" style="flex:1;min-width:0"></div>
         <div class="hint" style="margin:0 0 4px">At Rebuild the water becomes a zone of its own (its surface is a zone portal): JC swims and dives; toxic water hurts (radiation), the burning liquid burns.</div>` : ''}
+      ${b.climb ? '<div class="hint" style="margin:0 0 4px">A ladder JC can climb: at Rebuild the walls inside this box can be climbed as the ladders of the game, only inside it (JC stops at its top and its sides). Put it across the wall, the size of the ladder you put there (a model, a piece, a texture): nothing shows in the game. The walls are the map as last built: a wall made in the same Rebuild needs one more.</div>' : ''}
+      ${b.climb ? `<div class="row"><label style="width:auto" title="Off at the start of the map: its walls cannot be climbed until a rule turns it on (Edit logic…: + Add a step, this climbable area, Turn it on). After Rebuild"><input type="checkbox" id="bclimboff" ${b.climbOff ? 'checked' : ''}> starts off</label><button id="bclimblogic" style="margin-left:auto" title="Its rules: what turns it on and off (when the player has an item, in a phase, after a lever...)">Edit logic…</button></div>` : ''}
       ${b.portal ? '<div class="hint" style="margin:0 0 4px">An invisible sheet that separates two zones (a doorway, a corridor). Close a room with portals in all its openings, then put a Zone of Objects &gt; Zones inside it: its light, fog, sound, damage and gravity are only there. Messages say after Rebuild if a zone leaks.</div>' : ''}
       ${b.hole && !b.water ? `<div class="row"><label style="width:auto" title="Its top shows the sky (the map gets a sky box if it has none)"><input type="checkbox" id="bsky" ${b.sky ? 'checked' : ''}> open to the sky</label>
         ${b.sky ? `<select id="bskyp" style="flex:1;min-width:0" title="The sky of the map (when it has no sky of its own); Map > Sky &amp; time of day makes one of yours">${(edits.level || {}).skyLook ? `<option value="mine" ${(edits.level || {}).sky === 'mine' ? 'selected' : ''}>Your sky (Map &gt; Sky &amp; time of day)</option>` : ''}${Object.entries(SKIES).map(([k, l]) => `<option value="${k}" ${k === ((edits.level || {}).sky || 'hongkong') ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>
-        ${b.sky ? `<div class="row"><label style="width:auto" title="Its sides show the sky too: an open street or a rooftop, where the walls of the box would be (as the game's outdoor maps). After Rebuild"><input type="checkbox" id="bskysides" ${b.skySides ? 'checked' : ''}> its sides too</label></div>` : ''}` : ''}
+        ${b.sky ? `<div class="row"><label style="width:auto" title="Its sides show the sky too: an open street or a rooftop, where the walls of the box would be (as the game's outdoor maps). After Rebuild"><input type="checkbox" id="bskysides" ${b.skySides ? 'checked' : ''}> its sides too</label>${b.skySides ? `<label style="width:auto;margin-left:8px" for="bskyfrom" title="How high over the hole's floor the sky starts: below it its sides keep the hole's texture (the fronts of the buildings round a street). Empty: all of its sides are sky. After Rebuild">from</label><input type="number" id="bskyfrom" min="0" step="16" value="${b.skyFrom || ''}" placeholder="its floor" style="width:70px"><span class="hint" style="margin:0 0 0 4px">up</span>` : ''}</div>` : ''}` : ''}
       ${b.hole && !b.water ? (() => { const f = holeFloorOf(b); return `<div class="row"><label title="The face at the bottom of the hole: the floor of a doorway, of a pit">Floor</label><select id="bfloor" style="flex:1;min-width:0">
         <option value="around" ${f === 'around' ? 'selected' : ''} title="The texture of the floor round it, laid as there (scale and alignment): looked for again at every Rebuild">Continues the floor around it</option>
         <option value="same" ${f === 'same' ? 'selected' : ''} title="The whole hole of its own texture">Same as its sides</option>
@@ -18142,7 +18174,7 @@ function showDetails(live, view = null) {
   if (d.actor) html += texSection(p);
   if (d.actor && d.actor.cls === 'UCCutscene')
     html += `<div class="row">${ib('bcut', 'cut', 'Edit cutscene...', 'Its camera keys, shots, subtitles and events on a timeline')}</div>`;
-  else if (d.actor || (d.kind === 'box' && !d.box.hole && !d.box.water && !d.box.portal))
+  else if (d.actor || (d.kind === 'box' && !d.box.hole && !d.box.water && !d.box.portal && !d.box.climb))
     html += `<div class="row">${ib('banim', 'anim', 'Animate...', 'Animate it: keys of its position, rotation and scale on a timeline (doors and elevators too)')}${(edits.motions || {})[d.actor ? d.actor.name : d.box.name] ? '<span class="hint" style="margin:0">has an animation</span>' : ''}</div>`;
     // a moving block as a door in one choice: it slides its own size away in 2 s (the keys are made, Animate changes them)
     if (d.box && d.box.mover) html += `<div class="row"><label title="Makes its animation at once: it moves its own size that way in 2 seconds. Then play it from an interaction (a lever, a button), or Animate to change it">Quick door</label><select id="bquick" style="flex:1;min-width:0"><option value="">choose how it opens...</option>
@@ -18159,6 +18191,7 @@ function showDetails(live, view = null) {
   if ($('#lkconnectarea')) $('#lkconnectarea').onclick = () => inspectorAction(p, () => connectAreaObject(p));
   if ($('#bstory')) $('#bstory').onclick = () => inspectorAction(p, () => window.__story && window.__story.openFor(d.actor.name));
   if ($('#banim')) $('#banim').onclick = () => inspectorAction(p, () => openAnim(p));
+  if ($('#bclimblogic')) $('#bclimblogic').onclick = () => inspectorAction(p, () => logicOpen(d.box.name, 'list'));
   if ($('#bquick')) $('#bquick').onchange = () => {
     const how = $('#bquick').value, b = d.box;
     if (!how || !b) return;
@@ -18212,8 +18245,12 @@ function showDetails(live, view = null) {
         }
         if (JSON.stringify(b.floor) !== was) setTimeout(() => { if (selected === p) showDetails(); });
       }
+      if (kind !== 'climb') { delete b.climb; delete b.climbOff; }
       if (kind === 'mover') {
         delete b.water; delete b.portal; delete b.hole; delete b.sky;
+      } else if (kind === 'climb') {
+        b.climb = true; b.solid = true; delete b.water; delete b.portal; delete b.hole; delete b.sky;
+        if ($('#bclimboff')) { if ($('#bclimboff').checked) b.climbOff = true; else delete b.climbOff; }
       } else if (kind === 'water') {
         b.water = b.water || { kind: 'water', below: b.hole ? 16 : 0 };
         if ($('#bliquid')) b.water.kind = $('#bliquid').value;
@@ -18228,6 +18265,8 @@ function showDetails(live, view = null) {
         if (kind === 'hole') b.hole = true; else delete b.hole;
         if (b.hole && $('#bsky')) { if ($('#bsky').checked) b.sky = true; else delete b.sky; } else if (!b.hole) delete b.sky;
         if (b.sky && $('#bskysides')) { if ($('#bskysides').checked) b.skySides = true; else delete b.skySides; }
+        if (!b.skySides) delete b.skyFrom;
+        else if ($('#bskyfrom')) { const h = Number($('#bskyfrom').value); if ($('#bskyfrom').value !== '' && h > 0 && Number.isFinite(h)) b.skyFrom = Math.round(h); else delete b.skyFrom; }
         if (b.sky && $('#bskyp')) { edits.level = edits.level || {}; edits.level.sky = $('#bskyp').value; }
       }
       if (wasKind !== boxKind(b) || wasHole !== !!b.hole || b.water || b.sky !== undefined || wasShape !== blockShape(b) || wasRound !== JSON.stringify(blockOptions(b))) { setDirty(); rebuildProxies(); select(proxies.children.find((q) => q.userData.box === b) || null); return; }

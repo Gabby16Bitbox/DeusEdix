@@ -57,8 +57,8 @@ def export(items, holes=()):
         kind = it.get('kind')
         if kind == 'box':
             b = it['box']
-            if b.get('mover') or b.get('water') or b.get('portal'):
-                skipped.append('%s: water, zone portals and moving blocks are made of several actors' % b.get('name'))
+            if b.get('mover') or b.get('water') or b.get('portal') or b.get('climb'):
+                skipped.append('%s: water, zone portals, climbable areas and moving blocks are made by the build' % b.get('name'))
                 continue
             centre = [(b['lo'][k] + b['hi'][k]) / 2 for k in range(3)]
             csg = 'CSG_Subtract' if b.get('hole') else 'CSG_Add'

@@ -451,7 +451,7 @@
     <input type="file" id="bimportfile" multiple accept=".glb,.gltf,.fbx,.obj,.mtl,.dae,.bin,.png,.jpg,.jpeg,.tga,.bmp,.webp,.wav,.mp3,.ogg,.oga,.flac,.m4a,.aac,.opus,.webm" style="display:none">
     <button id="bimport" style="display:none" title="Import a 3D model (glTF/GLB, FBX, OBJ, DAE) made in Blender, 3ds Max, Maya...">Import model...</button>
     <div class="bcreate">
-      <button id="bcreate" title="Add a block, a hole, water, a zone portal, a sign or a cutscene camera">+ Create ▾</button>
+      <button id="bcreate" title="Add a block, a hole, water, a zone portal, a ladder to climb, a sign or a cutscene camera">+ Create ▾</button>
       <div class="bmenu" id="bcreatemenu">
         <button id="addbox" title="A block: wall, platform... (B)">Block <small>B</small></button>
         <button id="addhole" title="A hole: a doorway through a wall, a pit in a floor, an opening in a ceiling (cuts through at Rebuild)">Hole</button>
@@ -464,6 +464,7 @@
         <button data-draw="roof" title="Draw a sloping roof: click the eave, then the ridge">Roof</button>
         <button id="addwater" title="Water: click a floor for a pool, a zone of its own (JC swims): clean, dirty, toxic or burning">Water</button>
         <button id="addportal" title="Zone portal: click the floor in a doorway; an invisible sheet fills it and closes the room into a zone of its own (for a Zone of Objects &gt; Zones: its light, fog, sound, damage, gravity)">Zone portal</button>
+        <button id="addclimb" title="Ladder (climbable area): click the wall where your ladder is; after Rebuild JC climbs the wall inside the box as a ladder of the game, only inside it (nothing shows in the game)">Ladder (climb)</button>
         <button id="addsign" title="A sign with your own text: click a wall (or a floor, for a sign standing on it)">Sign</button>
         <button id="addcut" title="A cutscene: a camera you fly along keys on a timeline (from the view you have now); a collision box or the Story plays it">Cutscene camera</button>
       </div>
@@ -550,7 +551,7 @@
     <tr><td>Animate... (selection panel)</td><td>keys of position, rotation and scale on a timeline (like Premiere's Motion): move the playhead, move the object with the gizmo or type values; ▶ plays it. Doors, elevators, moving blocks too. Interactions play it</td></tr>
     <tr><td>Objects &gt; Triggers &gt; Collision box</td><td>a box: JC walks in / walks out (Interactions); Solid: an invisible wall</td></tr>
     <tr><td>Models (browser tab)</td><td>every 3D model of the game, HDTP, other mods and your own: click one, then a floor or a wall. Import model...: a glTF/GLB, FBX, OBJ or DAE file becomes a model of your own</td></tr>
-    <tr><td>+ Water / + Portal</td><td>a pool (a zone of its own: JC swims; clean, dirty, toxic, burning) / an invisible sheet in a doorway that closes a room into a zone. Objects &gt; Zones: the zone's light, sound, damage, gravity; rain, snow. A hole open to the sky shows the sky (<i>its sides too</i>: its walls as well, an open street)</td></tr>
+    <tr><td>+ Water / + Portal</td><td>a pool (a zone of its own: JC swims; clean, dirty, toxic, burning) / an invisible sheet in a doorway that closes a room into a zone. Objects &gt; Zones: the zone's light, sound, damage, gravity; rain, snow. A hole open to the sky shows the sky (<i>its sides too</i>: its walls as well, an open street; <i>from</i> a height: building fronts below, sky above)</td></tr>
     <tr><td>Properties &gt; Interactions</td><td>when this happens (the player uses it, it has opened, the right code, JC walks in, killed...), then what happens (open a door, a guard attacks, a light goes off, a sound, a message, a goal...), each after its seconds. 🔗 Connect to...: click another object, the rule is made for you</td></tr>
     <tr><td>Green labels on the edge of the view</td><td>the other end of a rule is out of the view or far away: the label points to it, with its distance; click it to go there. <b>both</b> (in the rule) shows the two objects together</td></tr>
     <tr><td>Logic</td><td>every interaction of the map as sentences, editable; + When the map starts</td></tr>

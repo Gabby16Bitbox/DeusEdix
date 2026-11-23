@@ -740,7 +740,8 @@ def structures(map_name):
 
 EDITABLE_SKIP = ('Brush', 'LevelInfo', 'DeusExLevelInfo', 'ZoneInfo', 'SkyZoneInfo', 'Camera', 'InterpolationPoint',
                  'UCLink', 'UCLinkGroup', 'UCLightMemory', 'UCObjectTag', 'UCRule', 'UCRuleAlso',
-                 'UCLightFX', 'UCSpawner', 'UCHurtZone', 'UCViewFade', 'UCOrdersMemory')     # the interactions: made again from the edits at every build (links.py)
+                 'UCLightFX', 'UCSpawner', 'UCHurtZone', 'UCViewFade', 'UCOrdersMemory',     # the interactions: made again from the edits at every build (links.py)
+                 'UCClimbArea', 'UCClimbBlock')     # a climbable area turned on and off: its block makes them at every build (climb.py)
 
 
 def object_tags(map_name):
