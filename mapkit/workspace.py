@@ -487,7 +487,8 @@ GAME_FILES = ('DeusEdixNav.u', 'DeusEdixNav.dll')
 def game_files():
     """The glob patterns of the files DeusEdix puts into a game's System folder: GAME_FILES, then the launch copies of a
     Play of any project and of a mod's game (settings.launch_names)."""
-    return GAME_FILES + settings.launch_names(settings.LAUNCH_PLAY + '*') + settings.launch_names(settings.LAUNCH_MOD)
+    return (GAME_FILES + settings.launch_names(settings.LAUNCH_PLAY + '*') + settings.launch_names(settings.LAUNCH_MOD)
+            + settings.launch_names(settings.LAUNCH_MOD + '_*'))       # a mod's own, of its desktop shortcut (mods.own_inis)
 
 
 def _remove(path, say):
@@ -545,12 +546,22 @@ def _strip_ini(ini, say):
     return not any(OWN_SAVE.match(line) for line in stripped.splitlines())
 
 
+def _remove_mod_shortcuts(target, root, say):
+    """The desktop shortcuts of the game's installed mods (mods.shortcut), before their folders go."""
+    import mods
+    folders = root / mods.MODS_DIR
+    for folder in sorted(folders.iterdir()) if folders.is_dir() else []:
+        link = mods._recorded(folder) if folder.is_dir() and not _is_link(folder) else None
+        if link and link.is_file():
+            _remove(link, say)
+
+
 def remove_game_files(log=None):
     """The uninstaller's "everything DeusEdix put into the games", in each game of the Deus Ex folder: the installed
     projects' maps, packages and saves (DeusEdixProjects, DeusEdixMaps), the installed mods (DeusEdixMods), DeusEdixNav,
     Revision's launch copies of its ini files (a mod's, each project's Play's), DeusEdix's own lines and Play sections
-    in the inis, and, once those are out, its snapshot and backups of the inis. Run after project_game.deactivate_all,
-    which puts the games' own settings back. A running game is left as it is. -> (ok, lines)"""
+    in the inis, the installed mods' desktop shortcuts and own ini files, and, once those are out, its snapshot and
+    backups of the inis. Run after project_game.deactivate_all, which puts the games' own settings back. A running game is left as it is. -> (ok, lines)"""
     lines = []
     say = lambda *a: (lines.append(' '.join(str(x) for x in a)), _log(log, *a))
     ok = True
@@ -563,6 +574,7 @@ def remove_game_files(log=None):
             say('%s is running: what DeusEdix put into it was left there' % profile['short'])
             ok = False
             continue
+        _remove_mod_shortcuts(target, root, say)
         for name in GAME_FOLDERS:
             ok = _remove(root / name, say) and ok
         for pattern in game_files():

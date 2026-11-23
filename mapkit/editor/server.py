@@ -1471,6 +1471,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, mods.play(body.get('game'), body.get('id')))
         if path == '/api/mods/uninstall':
             return self._send(200, mods.uninstall(body.get('game'), body.get('id')))
+        if path == '/api/mods/shortcut':         # a desktop shortcut that starts the mod without DeusEdix
+            return self._send(200, mods.shortcut(body.get('game'), body.get('id')))
         if path == '/api/mods/start':
             return self._send(200, mods.set_start(body.get('game'), body.get('id'), body.get('start')))
         if path == '/api/mods/reveal':           # Explorer on an exported mod (only in the exports folder)

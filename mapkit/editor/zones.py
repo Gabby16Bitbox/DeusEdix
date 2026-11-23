@@ -9,7 +9,8 @@ damage, water...).
 - Zone portals ("+ Portal", a block with 'portal'): an invisible sheet across a doorway (Portal|Invisible|
   NotSolid|TwoSided, as the game's) that closes a room into a zone of its own, for a ZoneInfo of the palette.
 - Sky (a hole with 'sky'): its top face shows the sky (Marker_sky with FakeBackdrop, as 8000 faces of the game
-  do); a map without a sky gets a sky box far away (a closed room with sky textures and a SkyZoneInfo).
+  do), its sides too with 'skySides'; a map without a sky gets a sky box far away (a closed room with sky textures
+  and a SkyZoneInfo).
 - Clouds (Map > Sky & time of day, edits['level']['clouds']): a cloud layer in that sky box, for any sky, made
   as the game's levels make it (Wan Chai Street's ClenCloudBank_B): a sheet of the sky box, translucent and
   unlit, low over the SkyZoneInfo (its far edge a few degrees over the horizon), its texture moved by the
@@ -128,10 +129,12 @@ def brush_ops(b):
 
 
 def hole_mats(b):
-    """The faces of a hole: its texture, and the sky on top when it opens to the sky."""
+    """The faces of a hole: its texture, and the sky on top when it opens to the sky (on its sides too with
+    'skySides': an open street or a rooftop, the box's walls seen as the sky, as the game's outdoor maps do)."""
     tex = b.get('tex') or 'ClenGreyCncrt_A'
     if b.get('sky'):
-        return {'sides': tex, 'bottom': tex, 'top': geom.Mat(SKY_TEX, flags=PF_FAKEBACKDROP)}
+        sky = geom.Mat(SKY_TEX, flags=PF_FAKEBACKDROP)
+        return {'sides': sky if b.get('skySides') else tex, 'bottom': tex, 'top': sky}
     return geom.Mat(tex)
 
 

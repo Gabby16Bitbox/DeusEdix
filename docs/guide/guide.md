@@ -2304,7 +2304,9 @@ water. The editor makes them the way the game does.
   how it sounds).
 - **The sky**: a **hole** in a ceiling (+ Hole, click the ceiling) with **open to the sky** ticked shows
   the sky through it. A map with no sky of its own gets a sky box (Hong Kong at night, New York at night,
-  stars, sunset, clouds, bright clouds, orange haze: choose it in the hole's panel).
+  stars, sunset, clouds, bright clouds, orange haze: choose it in the hole's panel). Tick **its sides too** and its
+  walls show the sky as well, after Rebuild: an open street or a rooftop, where the walls of the box would be
+  (the game's outdoor maps hide them the same way, with building fronts lower down).
 - **Map > Sky & time of day**: **Day**, **Sunset** or **Night**. It paints a sky of your own (its
   colours or stars), or uses a picture of yours or one of the game's skies, and sets the light:
   a sun shining in through every hole open to the sky, on the side of the sun, and the ambient light
@@ -2416,6 +2418,10 @@ In the **Projects** window, **Mods** lists the mods installed in both games:
   mod with its own main menu (below) opens on it, one without opens the game's own menu, whose **New Game** begins
   the mod's **Starts on** map instead of Liberty Island. A mod exported before DeusEdix 0.1.75 still starts
   straight on its map, with the cheats on: export it again. In Revision a mod starts on its menu or its map.
+- **Shortcut** puts the mod on the desktop: a shortcut that starts its game on the mod the way **Play** does,
+  with no DeusEdix open (or installed). The mod gets ini files of its own, as big mods have: the settings and keys
+  the player changes in the mod's game stay in them, the game's own are not touched. Click it again to make it
+  anew from your game's settings as they are now (the mod's keys are kept). **Remove** takes the shortcut away too.
 
 ### Your own main menu
 

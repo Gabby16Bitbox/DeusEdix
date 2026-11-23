@@ -14,6 +14,8 @@ takes bare file names in its System folder, INI=DeusEdixMod.ini and USERINI=Deus
 takes paths, as the editor's Play does). Tried in Revision on 16 Oct 2026, USERINI= on 29 Oct 2026: before it, the mod's
 game wrote its map played last into the player's RevisionUser.ini. No editor sees a mod's game close: its copies go at
 the next start of an editor of that game (launch_copies, live.tidy_cut_short).
+A mod can also have a shortcut on the desktop (shortcut): the same start on ini files of the mod's own that stay
+(own_inis), so that it starts with no DeusEdix, the way the big mods start from theirs.
 """
 import io
 import json
@@ -308,6 +310,8 @@ def installed():
             m['gameName'] = settings.TARGETS[target]['name']
             m['installed'] = (folder / 'mod.json').stat().st_mtime
             m['missing'] = [r for r in m['requires'] if not _has_package(target, r)]
+            link = _recorded(folder)
+            m['shortcut'] = str(link) if link and link.is_file() else ''
             out.append(m)
     return sorted(out, key=lambda m: -m['installed'])
 
@@ -349,15 +353,13 @@ def install(source, replace=False):
         (tmp / 'mod.json').write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding='utf-8')
         (tmp / 'Save').mkdir()
         if dest.exists():
-            keep = dest / 'Save'                   # an update keeps the player's saved games
-            if keep.is_dir():
-                shutil.rmtree(tmp / 'Save')
-                shutil.move(str(keep), str(tmp / 'Save'))
+            _keep_player_files(dest, tmp)          # an update keeps the player's saved games and shortcut
             shutil.rmtree(dest)
         tmp.rename(dest)
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
+    _refresh_shortcut(target, manifest['id'])
     # DeusEdixNav, the package every DeusEdix mod's code uses: DeusEdix's own build, into the game's System folder
     # (the only place the engine finds its DLL); a mod file never carries a DLL
     import kit
@@ -501,15 +503,29 @@ def _import_classic(z, names, raw, filename, game, replace):
             (stage / 'mod.json').write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding='utf-8')
             (stage / 'Save').mkdir()
             if dest.exists():
-                if (dest / 'Save').is_dir():
-                    shutil.rmtree(stage / 'Save')
-                    shutil.move(str(dest / 'Save'), str(stage / 'Save'))
+                _keep_player_files(dest, stage)
                 shutil.rmtree(dest)
             stage.rename(dest)
         except Exception:
             shutil.rmtree(stage, ignore_errors=True)
             raise
+        _refresh_shortcut(chosen, mod_id)
     return dict(manifest=manifest, replaced=old is not None, kind='classic', skipped=sorted(set(skipped)))
+
+
+def _keep_player_files(dest, stage):
+    """An update of an installed mod (`dest`) staged in `stage`: what is the player's moves over, the saved games
+    (Save), the mod's own ini files and its desktop shortcut's record (LAUNCH_DIR, SHORTCUT)."""
+    for name in ('Save', LAUNCH_DIR, SHORTCUT):
+        old = dest / name
+        if not old.exists():
+            continue
+        new = stage / name
+        if new.is_dir():
+            shutil.rmtree(new)
+        elif new.exists():
+            new.unlink()
+        shutil.move(str(old), str(new))
 
 
 def set_start(target, mod_id, start):
@@ -520,6 +536,7 @@ def set_start(target, mod_id, start):
         raise ValueError('That map is not part of the mod.')
     m['start'] = start
     (folder / 'mod.json').write_text(json.dumps(check_manifest(m), indent=1, ensure_ascii=False), encoding='utf-8')
+    _refresh_shortcut(target, mod_id)        # its shortcut's ini names the start map
     return dict(ok=True)
 
 
@@ -537,6 +554,7 @@ def uninstall(target, mod_id):
     folder = _folder(target, mod_id)
     if _running(target):
         raise ValueError('Close %s before removing a mod.' % settings.TARGETS[target]['short'])
+    remove_shortcut(target, folder)
     shutil.rmtree(folder)
     return dict(ok=True)
 
@@ -551,12 +569,13 @@ def cover(target, mod_id):
 
 # ------------------------------------------------------------------ play
 
-def launch_ini(target, mod_id):
+def launch_ini(target, mod_id, inis=None):
     """The game's own ini files, read now, as copies for the mod's game (settings.launch_inis): the ini with the mod's
     folder first and the mod's save folder, in the player's own window mode (a mod is played, not tested: only the
     editor's launches are always in a window, live.WINDOWED), the user ini as the player has it (or, when it is
-    missing, as the game would make it); the player's files are never written. Returns the words for the command line
-    (INI=, USERINI=)."""
+    missing, as the game would make it); the player's files are never written. With `inis`, the mod's own ini files
+    of its desktop shortcut (own_inis): its user ini, once made, is kept (the keys the player set in the mod's game).
+    Returns the words for the command line (INI=, USERINI=)."""
     import project_game
     folder = _folder(target, mod_id)
     profile = settings.TARGETS[target]
@@ -576,8 +595,12 @@ def launch_ini(target, mod_id):
         # the game's own menu, its New Game beginning the mod's first map (UCMenuRoot, UCNewGame, UCModStart)
         text = project_game.menu_ini(text, m['package'] + '.UCMenuRoot', '')
         text = project_game.ini_put(text, m['package'] + '.UCModStart', 'StartMap', start['new_game'])
-    inis = project_game.write_launch_inis(settings.launch_inis(settings.LAUNCH_MOD, folder, target), text,
-                                          system / profile['user_ini'], target)
+    user = system / profile['user_ini']
+    if inis is None:
+        inis = settings.launch_inis(settings.LAUNCH_MOD, folder, target)
+    elif inis[1].is_file():
+        user = inis[1]
+    inis = project_game.write_launch_inis(inis, text, user, target)
     return project_game.launch_args(inis, system)
 
 
@@ -664,3 +687,134 @@ def launch_copies(target):
         return sorted(settings.launch_inis(settings.LAUNCH_MOD, root, target))       # the folder is not in their path
     folders = [p for p in root.iterdir() if p.is_dir()] if root and root.is_dir() else []
     return sorted({path for folder in folders for path in settings.launch_inis(settings.LAUNCH_MOD, folder, target)})
+
+
+# ------------------------------------------------------------------ the desktop shortcut (a mod started without DeusEdix)
+
+SHORTCUT = 'shortcut.json'      # in the mod's folder: where its desktop shortcut is, for an update and a removal
+LAUNCH_DIR = 'Launch'           # the original game's: the mod's own ini files, in the mod's folder
+ICON = 'icon.ico'               # made from the mod's cover
+
+
+def own_inis(target, folder, mod_id):
+    """The mod's own ini files, the ones its desktop shortcut starts the game on (shortcut): the original game's in the
+    mod's folder (Launch, under the game's own names); Revision's in its System folder (Revision takes nothing else,
+    settings.launch_inis), by a name of the mod's own, DeusEdixMod_<id>.ini and DeusEdixMod_<id>User.ini. Unlike a
+    Play's copies they stay: the mod's game saves its settings and keys into them, as a big mod's own ini files."""
+    profile = settings.TARGETS[target]
+    if profile['launch_in_system']:
+        return tuple(settings.system_folder(target) / name
+                     for name in settings.launch_names('%s_%s' % (settings.LAUNCH_MOD, mod_id)))
+    return folder / LAUNCH_DIR / profile['ini'], folder / LAUNCH_DIR / profile['user_ini']
+
+
+def _recorded(folder):
+    """The desktop shortcut the mod's folder names (SHORTCUT): a .lnk path, or None."""
+    try:
+        path = Path(json.loads((folder / SHORTCUT).read_text(encoding='utf-8')).get('path', ''))
+    except (OSError, ValueError, AttributeError):
+        return None
+    return path if path.suffix.lower() == '.lnk' and path.is_absolute() else None
+
+
+def _link_name(name, mod_id):
+    """The shortcut's file name: the mod's name without the characters Windows refuses in one."""
+    text = re.sub(r'[<>:"/\|?*\x00-\x1f]', '', name).strip(' .')
+    return (text or mod_id)[:80] + '.lnk'
+
+
+def _icon(folder, target):
+    """The shortcut's icon: the mod's cover made an icon (square, centred) in its folder, else the game's program."""
+    for name in ('cover.png', 'cover.jpg'):
+        if (folder / name).is_file():
+            try:
+                from PIL import Image
+                with Image.open(folder / name) as im:
+                    im = im.convert('RGBA')
+                    side = min(im.size)
+                    im = im.crop(((im.width - side) // 2, (im.height - side) // 2,
+                                  (im.width - side) // 2 + side, (im.height - side) // 2 + side))
+                    im.resize((256, 256), Image.LANCZOS).save(folder / ICON, sizes=[(256, 256), (48, 48), (32, 32), (16, 16)])
+                return str(folder / ICON) + ',0'
+            except Exception:
+                break
+    return str(settings.system_folder(target) / settings.TARGETS[target]['exe']) + ',0'
+
+
+_MAKE_LINK = r'''
+$ErrorActionPreference = 'Stop'
+$desk = if ($env:DXM_DESK) { $env:DXM_DESK } else { [Environment]::GetFolderPath('Desktop') }
+$path = Join-Path $desk $env:DXM_NAME
+$shell = New-Object -ComObject WScript.Shell
+if ((Test-Path -LiteralPath $path) -and $path -ne $env:DXM_MINE) {
+  $old = $shell.CreateShortcut($path)
+  if (-not $old.Arguments.Contains($env:DXM_MARK)) { [Console]::Out.Write('TAKEN ' + $path); exit 3 }
+}
+$s = $shell.CreateShortcut($path)
+$s.TargetPath = $env:DXM_TARGET
+$s.Arguments = $env:DXM_ARGS
+$s.WorkingDirectory = $env:DXM_CWD
+$s.IconLocation = $env:DXM_ICON
+$s.Description = $env:DXM_DESC
+$s.Save()
+[Console]::Out.Write($path)
+'''
+
+
+def shortcut(target, mod_id):
+    """A shortcut on the desktop that starts the mod's game the way Play does (mods.start_of: its own menu, the game's
+    menu with the mod's New Game, or its map), on the mod's own ini files (own_inis), with no DeusEdix: the way the
+    big mods start, from their own shortcut. Made again when it is there (the player's ini read again, the mod's user
+    ini kept). Steam's copy starts through Steam (settings.game_command), with the player's own launch options.
+    -> dict(ok, path)"""
+    folder = _folder(target, mod_id)
+    m = check_manifest(json.loads((folder / 'mod.json').read_text(encoding='utf-8')))
+    if _running(target):
+        raise ValueError('Close %s before making the shortcut.' % settings.TARGETS[target]['short'])
+    start = start_of(target, folder, m, prepare=True)
+    inis = own_inis(target, folder, mod_id)
+    argv, cwd = settings.game_command([start['word']] + launch_ini(target, mod_id, inis), target=target)
+    mine = _recorded(folder)
+    import os
+    env = dict(os.environ, DXM_NAME=_link_name(m['name'], mod_id), DXM_MINE=str(mine or ''),
+               DXM_MARK=inis[0].name + ',', DXM_TARGET=argv[0], DXM_ARGS=subprocess.list2cmdline(argv[1:]),
+               DXM_CWD=cwd or str(Path(argv[0]).parent), DXM_ICON=_icon(folder, target),
+               DXM_DESC='%s for %s' % (m['name'], settings.TARGETS[target]['name']))
+    r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', _MAKE_LINK],
+                       capture_output=True, text=True, env=env, creationflags=subprocess.CREATE_NO_WINDOW, timeout=60)
+    out = r.stdout.strip()
+    if r.returncode == 3 and out.startswith('TAKEN '):
+        raise ValueError('There is already a "%s" on your desktop: rename it, then make the shortcut again.'
+                         % Path(out[6:]).stem)
+    if r.returncode or not out.lower().endswith('.lnk'):
+        raise ValueError('The shortcut was not made: %s' % ((r.stderr or out).strip()[:300] or 'PowerShell failed.'))
+    if mine and str(mine).lower() != out.lower():
+        mine.unlink(missing_ok=True)           # the mod's name changed: its old shortcut goes
+    (folder / SHORTCUT).write_text(json.dumps(dict(path=out, created=time.strftime('%Y-%m-%d %H:%M')), indent=1),
+                                   encoding='utf-8')
+    return dict(ok=True, path=out, name=Path(out).stem)
+
+
+def _refresh_shortcut(target, mod_id):
+    """The mod's desktop shortcut made again after its update or a new start map, when it has one; never fails."""
+    try:
+        folder = _folder(target, mod_id)
+        if _recorded(folder):
+            shortcut(target, mod_id)
+    except Exception:
+        pass
+
+
+def remove_shortcut(target, folder):
+    """The mod's desktop shortcut and own ini files (own_inis) taken away, as it is removed. -> the paths removed"""
+    gone = []
+    link = _recorded(folder)
+    paths = ([link] if link else []) + list(own_inis(target, folder, folder.name)) + [folder / SHORTCUT]
+    for path in paths:
+        try:
+            if path.is_file():
+                path.unlink()
+                gone.append(path)
+        except OSError:
+            pass
+    return gone

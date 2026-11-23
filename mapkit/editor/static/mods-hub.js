@@ -1,8 +1,9 @@
 // Projects > Mods: the mods installed in both games (mods.py), with Play and Remove, and Install mod...
-// (a .dxmod file chosen or dropped on the page). A mod is a finished project made with File > Export mod...
+// (a .dxmod file chosen or dropped on the page), and Shortcut: one on the desktop that starts the mod without DeusEdix. A mod is a finished project made with File > Export mod...
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5-7-4.5Z"/></svg>';
 const TRASH = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>';
+const LINK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h10v7H3zM6 13h4M8 10.5V13M6.5 8.5 9.5 5.5M7 5.5h2.5V8"/></svg>';
 const BOX = '<svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 9 14 4l10 5v11l-10 5-10-5V9Zm0 0 10 5 10-5M14 14v11"/></svg>';
 
 async function call(path, body) {
@@ -31,6 +32,7 @@ export function mountMods(section) {
           ${m.description ? `<p>${esc(m.description)}</p>` : ''}${missing}
           ${m.maps.length > 1 ? `<label class="mods-start">Starts on <select title="The map the game opens">${m.maps.map((x) => `<option ${x === m.start ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>` : ''}</div>
         <div class="mods-actions"><button type="button" class="mods-play" ${m.missing?.length ? 'disabled' : ''} title="Start ${esc(m.gameName)} on ${esc(m.start)}">${PLAY}<span>Play</span></button>
+          <button type="button" class="mods-shortcut${m.shortcut ? ' made' : ''}" title="${m.shortcut ? `Its shortcut is on the desktop: click to make it again (with your game's settings as they are now)` : `Put a shortcut on the desktop: it starts ${esc(m.gameName)} on this mod, without DeusEdix`}">${LINK}<span>Shortcut</span></button>
           <button type="button" class="mods-remove icon" title="Remove this mod (its saved games too)" aria-label="Remove ${esc(m.name)}">${TRASH}</button></div></article>`;
     }).join('') : '<p class="projects-empty">No mods installed yet. Install a .dxmod file, or make one from your campaign with File &gt; Export mod…</p>';
     for (const b of section.querySelectorAll('button')) b.disabled = busy || (b.classList.contains('mods-play') && b.closest('.mods-card')?.querySelector('.mods-warn'));
@@ -74,8 +76,13 @@ export function mountMods(section) {
       try { await call('/api/mods/play', { game: m.game, id: m.id }); status(`${m.name} is starting in ${m.gameName}.`, 'ok'); }
       catch (err) { status(err.message, 'bad'); }
       finally { busy = false; render(); }
+    } else if (e.target.closest('.mods-shortcut')) {
+      busy = true; render(); status(`Making the shortcut of ${m.name}…`);
+      try { const j = await call('/api/mods/shortcut', { game: m.game, id: m.id }); status(`"${j.name}" is on your desktop: it starts ${m.name} without DeusEdix.`, 'ok'); }
+      catch (err) { status(err.message, 'bad'); }
+      finally { busy = false; await refresh(); }
     } else if (e.target.closest('.mods-remove')) {
-      if (!confirm(`Remove ${m.name}? Its saved games are removed too.`)) return;
+      if (!confirm(`Remove ${m.name}? Its saved games${m.shortcut ? ' and its desktop shortcut' : ''} are removed too.`)) return;
       busy = true; render();
       try { await call('/api/mods/uninstall', { game: m.game, id: m.id }); status(`${m.name} removed.`, 'ok'); }
       catch (err) { status(err.message, 'bad'); }

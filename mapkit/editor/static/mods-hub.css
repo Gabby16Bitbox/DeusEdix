@@ -23,4 +23,5 @@
 #projecthub .mods-actions button.icon:hover:not(:disabled) { color:var(--bad); background:var(--hover, #22344c); }
 #projecthub .mods-actions svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linejoin:round; stroke-linecap:round; }
 #projecthub .mods-play svg { fill:currentColor; stroke:none; }
+#projecthub .mods-shortcut.made svg { color:var(--ok, #6fcf97); }
 #projecthub.mods-drop { outline:2px dashed var(--acc); outline-offset:-8px; }
