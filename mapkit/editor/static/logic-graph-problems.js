@@ -6,7 +6,7 @@ import { verbKey } from './logic-vocab.js';
 import { conditionProblem, kindOf, CONDITION_KINDS, MAX_CONDITIONS } from './conditions.js';
 import { negate, FLOW } from './action-list.js';
 import { usesValue } from './logic-numbers.js';
-import { laterFields, present, actorOf, thingId, ruleId, pieceId, PIECE_KINDS, storyId, signalHub, isSetGroup, SET_WHENS } from './logic-graph-model.js';
+import { laterFields, present, actorOf, thingId, ruleId, pieceId, PIECE_KINDS, storyId, signalHub, isSetGroup, SET_WHENS, stateKey } from './logic-graph-model.js';
 
 // an object that is gone by the name the rules gave it, its name in the map after it ("Gate (UCEdit14)"; 13 Nov 2026:
 // "UCEdit14 is not in the map any more" for the Gate just deleted)
@@ -66,7 +66,27 @@ export function logicProblems(ix, { game = '' } = {}) {
   pieceProblems(ix, add);
   signalProblems(ix, add);
   phaseSetProblems(ix, add);
+  atLeastProblems(ix, add);
   return out;
+}
+
+// An At least N takes its states as they are at its first look and says Reached or Lost only when they change after it
+// (UCBAtLeast.Started): when every state it counts is set only on other maps, a rule on its Reached or Lost never
+// runs here (26 Nov 2026, Blackout Protocol: the yard's "Professional" note, both states set in the plant). Its own
+// state, or the states, read in a condition when the map starts, say it.
+function atLeastProblems(ix, add) {
+  for (const r of ix.rules) for (const c of r.causes) {
+    const a = c.src ? actorOf(ix, c.src) : null;
+    if (!a || a.cls !== 'UCBAtLeast' || !Array.isArray(a.states) || !a.states.length) continue;
+    if (!['output:Reached', 'output:Lost'].includes(String(c.key))) continue;
+    const node = thingId(c.src);
+    const here = a.states.filter((n) => { const s = ix.states.get(stateKey(n)); return s && s.setters.some((u) => u.node !== node); });
+    const away = a.states.filter((n) => { const s = ix.states.get(stateKey(n)); return s && s.elsewhere.some((u) => u.kind === 'write'); });
+    if (here.length || !away.length) continue;
+    add('warn', 'atleast-elsewhere', `${ix.ctx.name(c.src)} counts ${words(a.states)}, set only on other maps: it takes them as they are when `
+      + `the map starts and says "${c.key === 'output:Lost' ? 'no longer enough hold' : 'enough of them hold'}" only when they change here, so this rule never runs. `
+      + 'Read its state (or the states) in a condition of a rule when the map starts instead.', { node: r.node, rule: r.id });
+  }
 }
 
 // A Phases block keeps its phase in the game's flags by number (UCBPhases: <StateName> 1, 2, 3...), so another map's
@@ -274,6 +294,12 @@ function actionProblems(ix, r, act, add, game) {
     else if (isSetGroup(g) && ix.vocab.acts(x.verb) !== 'character') add('warn', 'set-not-character', `The group "${g.name || g.id}" holds characters only: "${ix.vocab.verbLabel(x.verb)}" reaches none of them.`, at);
   }
   if (own(NO_NAME, x.verb) && !String(x.a || '').trim()) add('error', 'no-name', NO_NAME[x.verb], at);
+  // a character class goes to the game as Package.Class: any other text was left out and nobody came, while the
+  // sentence said "2 × MJ12 Troop" (26 Nov 2026, Blackout Protocol: "MJ12Troop")
+  for (const arg of (verb.args || []).filter((g) => g.type === 'pawnclass')) {
+    const v = String(x[arg.id] ?? '').trim();
+    if (v && !/^\w+\.\w+$/.test(v)) add('error', 'class-package', `"${ix.vocab.verbLabel(x.verb)}" takes the class as Package.Class (e.g. DeusEx.MJ12Troop), not "${v}": in the game nobody comes.`, at);
+  }
   // a body animation: one chosen, and one the character's model has (UCAnimSet.PlayBody plays nothing else; the page
   // gives the model's animations as actors[name].anims). An Animation Studio one ("own") is put on its model first.
   if (x.verb === 'body' && x.target && present(ix, x.target)) {

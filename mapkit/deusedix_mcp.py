@@ -106,7 +106,9 @@ TOOLS = {
     'set_properties': ('set', 30, 'Set properties of an object as the Inspector does ({"LightBrightness": "200"}); '
                        'null puts one back to the map\'s own value. Values in Unreal\'s text form. A block takes tex, '
                        'solid, mover (true: a moving block) and door (a door that slides open its own size in 2 s: up, '
-                       'down, +x, -x, +y, -y; play it from a rule with the verb anim); a drawn piece its settings (as draw: tex, height, thick...); '
+                       'down, +x, -x, +y, -y; play it from a rule with the verb anim), label (the name the rules show), '
+                       'climb (true: a climbable area, its walls a ladder after rebuild) and climbOff (true: it starts off, '
+                       'a rule turns it on); a drawn piece its settings (as draw: tex, height, thick...); '
                        'a library door (paste~N) opens, into and meets, as place_door.',
                        schema({'name': {'type': 'string'}, 'props': OBJ}, ['name', 'props'])),
     'delete_objects': ('delete', 30, 'Delete objects (Ctrl+Z brings them back). When the editor asks to confirm '
@@ -170,7 +172,8 @@ TOOLS = {
     'logic_try': ('logic_try', 60, 'Play the open map\'s rules in the editor\'s simulator (as Logic > Try it, no game): fire is '
                   'what happens, in order ({thing, output (a "when" of logic_offer), port, option}; with no thing: {output: '
                   '"keypress", key}, {output: "signal", signal}, {output: "ended", dialogue}, {output: "heard", infolink}, '
-                  'or a cause of the world: back, loaded, goaldone with goal, noise with noise, appears with what); then seconds pass. '
+                  'or a cause of the world: back, loaded, goaldone with goal, noise with noise, appears with what; {wait: seconds} '
+                  'between two of them lets time pass, a timer run out); then seconds pass. '
                   "from: the name of a start to begin from (the project's Play scenarios: their states, the player's "
                   'items, credits and skills); start: states on top of it ({flags: {Name: true}, counters, items, credits, jc: '
                   '[x, y, z] where the player stands, for the condition "near a point"}). '

@@ -739,6 +739,6 @@
   "story": {"stop": "stand", "hide": "leave", "show": "appear"},
   "about_until": "A rule that holds 'while' (P3) is undone by the paired happening of the same object: an output's 'until' (its 'while' words say the lasting state), a script's port by untilPorts (a trailing * keeps the rest of the name: Enter_Alarm, Leave_Alarm), a condition by its opposite.",
   "untilPorts": {"Reached": "Lost", "Enter_*": "Leave_*"},
-  "about_inversePorts": "The input of a block or a script that undoes a step on another (links.py undo_of: a rule that holds while, when it stops): a climbable area turned Off is turned On again.",
-  "inversePorts": {"On": "Off", "Off": "On"}
+  "about_inversePorts": "The input of a block or a script that undoes a step on another (links.py undo_of: a rule that holds while, when it stops): a climbable area turned Off is turned On again, a gate opened is closed again.",
+  "inversePorts": {"On": "Off", "Off": "On", "Open": "Close", "Close": "Open"}
 }

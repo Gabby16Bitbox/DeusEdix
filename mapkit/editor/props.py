@@ -450,6 +450,26 @@ def echo_gains_hidden(cls, values, log=print):
     return keys if keys and openal_gain(cls, log) else []
 
 
+def block_strings(cls, values):
+    """An added object's values for its T3D block, the strings quoted. The T3D import reads a string without quotes only
+    up to a comma (UStrProperty::ImportText delimited): an added Phases block with Phases Infiltrate, Sabotage, Blackout,
+    Escape got the phase Infiltrate alone in the game and refused GoTo_Sabotage (26 Nov 2026, Blackout Protocol), an
+    At least N its States after the first. UC_PROP (the map's own objects) takes the whole text, the block needs the
+    quotes the Inspector does not store. Its strings: the class defaults' StrProperty types (cached_defaults), else the
+    Inspector's string fields; a value quoted already is kept, quotes inside become ' (as convert.py does)."""
+    d = cached_defaults()
+    types = ((d or {}).get('classes', {}).get(str(cls or '').split('.')[-1]) or {}).get('types') if d else None
+    shown = {f[2] for f in FIELDS if f[4] == 'string'}
+    out = {}
+    for key, value in (values or {}).items():
+        text = str(value)
+        is_str = (types.get(base(key)) == 'StrProperty') if types else base(key) in shown
+        if is_str and isinstance(value, str) and not (len(text) >= 2 and text[0] == text[-1] == '"'):
+            value = '"%s"' % text.replace('\n', ' ').replace('"', "'")
+        out[key] = value
+    return out
+
+
 def echo_gains_line(name, cls, keys):
     """The build report's line for echo gains left out (an EDIT skipped: one of the report's warnings)."""
     idx = sorted(int(k[5:-1]) for k in keys)

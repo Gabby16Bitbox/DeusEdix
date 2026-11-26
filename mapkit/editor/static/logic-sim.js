@@ -74,7 +74,9 @@ const AUG_ONE_LEVEL = new Set(['augdatalink', 'augiff', 'auglight']);
 const FLOAT_PROPS = new Set(['groundspeed', 'baseaccuracy', 'surpriseperiod', 'lockstrength', 'doorstrength', 'drawscale', 'scaleglow']);
 // the logic blocks (P3: UCBlock's subclasses, placed in the map like a script) and what each is called here
 const BLOCKS = [['UCBAllOf', 'allof'], ['UCBGate', 'gate'], ['UCBSwitch', 'switch'], ['UCBPhases', 'phases'],
-  ['UCBAtLeast', 'atleast'], ['UCBFirstOf', 'firstof'], ['UCBCounter', 'counter']];
+  ['UCBAtLeast', 'atleast'], ['UCBFirstOf', 'firstof'], ['UCBCounter', 'counter'],
+  // a climbable area (UCClimbArea extends UCBlock; 26 Nov 2026: Try it said "Service ladder has no input On")
+  ['UCClimbArea', 'climb']];
 // UCBlock.FlagName: a block's flag or phase name (anything but an ASCII letter, a digit or _ becomes _, a leading
 // digit gets X_, 60 at most); a list "a, b, c" (UCBlock.Item)
 function flagName(text) {
@@ -406,7 +408,9 @@ function newRun(S) {
   const game = {
     flag: (n) => !!st.flags.get(n), counter: (n) => st.counters.get(n) || 0, skill: (n) => st.skills.get(n) ?? 0,
     get value() { return came; },                         // Value in a condition's number (CameWith)
-    carries: (cls) => st.items.some((i) => low(i) === low(cls)),
+    // a NanoKey: the keyring (UCEditorStory.HasItem), the key of an ID or any; another item by its class name
+    carries: (cls, keyId = '') => (isNanoKey(cls) ? (keyId ? !!st.keyring && Object.hasOwn(st.keyring, low(keyId)) : !!st.keyring && Object.keys(st.keyring).length > 0)
+      : st.items.some((i) => low(i) === low(cls) || low(String(i).split('.').pop()) === low(String(cls).split('.').pop()))),
     alive: (n) => present(n) && !(isa(n, 'Pawn') && st.dead.has(n)),     // UCEditorStory.Dead: gone, or a pawn with no health
     get credits() { return st.credits; },
     get player() { return st.jc; },                       // where the player is (near a point: UCEditorStory.Near)
@@ -815,6 +819,15 @@ function newRun(S) {
       default: return leadsTo(verb, T, a, [a, b, c]);
     }
   }
+  // an item of the map picked up: a NanoKey goes on the keyring under its Key ID (DeusExPlayer.PickupNanoKey), another
+  // thing is carried (26 Nov 2026: "while the player carries NanoKey" never held in Try it after picking the key up)
+  function pickedUp(thing) {
+    const a = actorOf(thing);
+    if (!a || !isa(thing, 'Inventory')) return;
+    if (isa(thing, 'NanoKey')) { if (a.keyId && !keyIdError(a.keyId)) giveItem('DeusEx.NanoKey', a.keyId, a.keyDescription || ''); return; }
+    const cls = a.cls || a.chain[0];
+    if (cls && !game.carries(cls)) st.items.push(cls);
+  }
   function giveItem(cls, id, description) {
     if (isNanoKey(cls)) {
       const error = keyIdError(id);
@@ -1013,7 +1026,7 @@ function newRun(S) {
   const settingOf = (n) => actorOf(n)?.block || {};
   function blockOf(n) {
     if (!blocks.has(low(n))) blocks.set(low(n), { ticked: [], done: false, need: 0, closed: !!settingOf(n).closed, next: 0,
-      now: 0, holding: 0, enough: false, over: false, clock: 0, count: 0, atGoal: false });
+      now: 0, holding: 0, enough: false, over: false, clock: 0, count: 0, atGoal: false, off: !!settingOf(n).off });
     return blocks.get(low(n));
   }
   const value = (n, text) => write('', 'value', map, nameOf(n), text);
@@ -1030,6 +1043,7 @@ function newRun(S) {
       b.need = int(settingOf(n).need) > 0 ? int(settingOf(n).need) : Math.max(1, rulesCalling(n, 'Add'));
       value(n, `${b.ticked.length}/${b.need}`);
     } else if (kind === 'gate') value(n, b.closed ? 'closed' : 'open');
+    else if (kind === 'climb') value(n, b.off ? 'off' : 'on');
     else if (kind === 'phases') {                    // UCBPhases.Started: the phase the flags say, else the first
       const k = st.counters.get(phaseRoot(n)) || 0, count = phasesOf(n).length;
       if (count) mirror(n, k >= 1 && k <= count ? k : 1);
@@ -1165,6 +1179,10 @@ function newRun(S) {
       b.closed = low(input) === 'toggle' ? !b.closed : low(input) === 'close';
       return value(n, b.closed ? 'closed' : 'open');
     }
+    if (kind === 'climb' && has(['On', 'Off', 'Toggle'])) {   // UCClimbArea.Input: its walls can be climbed, or not
+      b.off = low(input) === 'toggle' ? !b.off : low(input) === 'off';
+      return value(n, b.off ? 'off' : 'on');
+    }
     if (kind === 'switch' && has(['Next', 'Reset'])) {
       if (low(input) === 'reset') { b.next = 0; return value(n, 'next 1'); }
       let way;
@@ -1258,7 +1276,13 @@ function newRun(S) {
     const thing = nameOf(h.thing), by = h.by ?? setOffBy(SET_OFF_BY[e.hears], thing) ?? S.player;
     for (const [part, into] of CHANGES[h.output] || []) { if (into) st[part].set(thing, true); else st[part].delete(thing); }
     if (h.output === 'arrived' && sent.has(thing)) st.at.set(thing, sent.get(thing));
-    if (h.output === 'near') st.jc = placeOf(thing) && [...placeOf(thing)];
+    if (h.output === 'picked') pickedUp(thing);
+    if (h.output === 'near') {
+      // coming near again: the player walked away in between, so its rules see them come (26 Nov 2026, Blackout
+      // Protocol: a second "near" on a door the player had not left did nothing)
+      rules.forEach((r, i) => { if (r.when === 'near' && low(r.source) === low(thing) && rs[i].polled) rs[i].was = false; });
+      st.jc = placeOf(thing) && [...placeOf(thing)];
+    }
     if (e.hears === 'timer' && timers.has(low(thing))) Object.assign(timers.get(low(thing)), { running: false, paused: false, left: 0 });
     drop(h.output, thing);
     if (CHANGES[h.output]?.some(([part]) => part === 'dead')) fates(thing, h.output);

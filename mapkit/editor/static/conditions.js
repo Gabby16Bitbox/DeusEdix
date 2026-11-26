@@ -1,4 +1,4 @@
-import { itemOptionsHtml } from './item-options.js';
+import { itemOptionsHtml, isNanoKey, keyIdError } from './item-options.js';
 // The conditions of a rule (Interactions) and of a Story event: one model for both, the page's side of
 // conditions.py (editor/LOGIC.md, "Conditions"). A state keeps the Story's {flag, is}; the other kinds say what they
 // are: {type: 'item', item, has}, {type: 'alive', actor, is}, {type: 'skill', skill, level},
@@ -86,7 +86,8 @@ export function conditionText(c, names = {}) {
   const actor = names.actor || ((n) => n), item = names.item || ((cls) => String(cls).split('.').pop());
   switch (kindOf(c)) {
     case 'flag': return names.state ? names.state({ ...c, is: yesOf(c, 'is') }) : `${c.flag || '?'} is ${yesOf(c, 'is') ? 'Yes' : 'No'}`;
-    case 'item': return `the player ${yesOf(c, 'has') ? 'carries' : 'does not carry'} ${c.item ? item(c.item) : '?'}`;
+    case 'item': return isNanoKey(c.item) ? `the player ${yesOf(c, 'has') ? 'has' : 'does not have'} ${c.keyId ? `the key ${c.keyId}` : 'any key'} on the keyring`
+      : `the player ${yesOf(c, 'has') ? 'carries' : 'does not carry'} ${c.item ? item(c.item) : '?'}`;
     case 'alive': return `${c.actor ? actor(c.actor) : '?'} is ${yesOf(c, 'is') ? 'alive' : 'not alive'}`;
     case 'skill': return `the player's ${skillName(c.skill)} skill is at least ${(LEVELS.find((l) => l[0] === +c.level) || [0, '?'])[1]}`;
     case 'counter': return `the counter ${c.counter || '?'} is ${opText(c.op)} ${valueText(c.value)}`;
@@ -166,7 +167,7 @@ export function conditionProblem(c) {
   if (VALUED.has(kindOf(c)) && formulaProblem(c.value)) return 'the formula: ' + formulaProblem(c.value);
   switch (kindOf(c)) {
     case 'flag': return c.flag ? '' : 'choose the state';
-    case 'item': return /^\w+\.\w+$/.test(c.item || '') ? '' : 'choose the item';
+    case 'item': return !/^\w+\.\w+$/.test(c.item || '') ? 'choose the item' : String(c.keyId || '').trim() ? keyIdError(c.keyId) : '';
     case 'alive': return /^\w+$/.test(c.actor || '') ? '' : 'choose the character';
     case 'counter': return String(c.counter || '').trim() ? '' : 'name the counter';
     case 'near': return !Array.isArray(c.at) || c.at.length !== 3 || c.at.some((v) => !Number.isFinite(+v)) ? 'choose the point'
@@ -200,7 +201,7 @@ export function conditionHolds(c, game) {
   const yes = (key) => yesOf(c, key);
   switch (kindOf(c)) {
     case 'flag': return !!(game.flag && game.flag(c.flag)) === yes('is');
-    case 'item': return !!(game.carries && game.carries(c.item)) === yes('has');
+    case 'item': return !!(game.carries && game.carries(c.item, String(c.keyId || '').trim())) === yes('has');
     case 'alive': return !!(game.alive && game.alive(c.actor)) === yes('is');
     case 'skill': return whole(game.skill ? game.skill(c.skill) : 0) >= whole(c.level);
     case 'counter': return compare(game.counter ? game.counter(c.counter) : 0, c.op, valueOf(c, game));
@@ -236,7 +237,9 @@ function rowFields(c, ctx) {
   }
   switch (kindOf(c)) {
     case 'flag': return '<div class="cond-state" style="flex:1;min-width:0"></div>';
-    case 'item': return `${yesNo('has', 'The player carries', 'The player does not carry')}<select data-cf="item" style="flex:1;min-width:0">${itemOptionsHtml(ctx.items, c.item)}</select>`;
+    // a NanoKey: on the keyring (the game destroys the one picked up), the one of a Key ID or any key
+    case 'item': return `${yesNo('has', 'The player carries', 'The player does not carry')}<select data-cf="item" style="flex:1;min-width:0">${itemOptionsHtml(ctx.items, c.item, { configureKey: true })}</select>`
+      + (isNanoKey(c.item) ? `<input type="text" data-cf="keyId" value="${esc(c.keyId || '')}" placeholder="Key ID (any key)" maxlength="63" title="The Key ID of the NanoKey on the player's keyring; empty: any key" style="width:120px">` : '');
     case 'alive': return `<select data-cf="actor" style="flex:1;min-width:0"><option value="">(choose the character)</option>${options((ctx.characters || []).map((a) => [a.name, a.label]), c.actor)}${
       c.actor && !(ctx.characters || []).some((a) => a.name === c.actor) ? `<option selected value="${esc(c.actor)}">${esc(c.actor)}</option>` : ''}</select>${dropper('character', 'Pick the character in the 3D view (eyedropper)')}${yesNo('is', 'is alive', 'is not alive')}`;
     case 'skill': return `<select data-cf="skill" style="flex:1;min-width:0">${options(SKILLS, c.skill)}</select><span class="hint" style="margin:0">at least</span><select data-cf="level">${options(LEVELS, c.level)}</select>`;

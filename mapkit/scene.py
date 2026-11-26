@@ -706,6 +706,7 @@ class Scene:
                 del props[key]
             if hidden:
                 report.append(_editor_props().echo_gains_line(a['name'], a['cls'], hidden))
+            props = _editor_props().block_strings(a['cls'], props)   # unquoted, the T3D import stops at a comma or space
             if str(a['cls']).endswith('UCCutscene'):  # its keys, lines and options (editor/cutscenes.py)
                 import sys as _sys
                 _sys.path.insert(0, str(Path(__file__).resolve().parent / 'editor'))

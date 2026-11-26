@@ -1662,7 +1662,7 @@ A rule reads top to bottom, numbered like a recipe:
   killed or knocked out). Its steps can act on *whoever set it off*: who made the noise, who appeared. These are
   rules of their own, never an **Or when...**.
 - **Check**: conditions, all of which must hold when it happens, or it does nothing that time (it is not used up,
-  even with *once*): a state (a flag) is yes or no, the player carries an item, a character is alive, the player's
+  even with *once*): a state (a flag) is yes or no, the player carries an item (a NanoKey: a key on the keyring, the one of its Key ID or any), a character is alive, the player's
   skill or credits, a counter compared with a number (or another counter, or a formula), the player is (or is not) within a distance of a point, the
   player's health, energy or skill points to spend, an augmentation (has it, has it turned on, has it at a level or
   more), the player is in water or in a zone, the player carries so many things of a kind (a kind counts every

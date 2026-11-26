@@ -506,6 +506,23 @@ def rebuild(script, options=None, watch=None):
                                 watch.settle if watch is not None else lambda: False)
 
 
+def older_installed(map_name):
+    """The lines of an Install for the project's other maps rebuilt since they were installed: Install takes the map
+    shown, the others go into the game as they were installed last (26 Nov 2026, Blackout Protocol: the yard rebuilt
+    went on playing its older copy, and the Install said "installed map 05_Blackout_Yard.dx")."""
+    out = []
+    for f in sorted((PROJECT / 'maps').glob('*.dx')):
+        built = data.OUT / f.name
+        try:
+            newer = f.stem.lower() != map_name.lower() and built.is_file() and built.stat().st_mtime > f.stat().st_mtime + 1
+        except OSError:
+            newer = False
+        if newer:
+            out.append('%s was rebuilt after it was installed: the game keeps its older copy until it is opened and '
+                       'installed too.' % f.stem)
+    return out
+
+
 def install_map(script):
     """Install button: the last rebuild into maps\\ and the game (install.ps1). (ok, lines)."""
     map_name = map_of(script)
@@ -517,6 +534,7 @@ def install_map(script):
             return False, pre
     else:
         shutil.copy2(data.OUT / (map_name + '.dx'), PROJECT / 'maps' / (map_name + '.dx'))
+    pre += older_installed(map_name)
     if settings.STANDALONE:
         import workspace
         # the map's dialogues and events as the Story saved them, compiled when they changed, as Play does

@@ -71,6 +71,10 @@ var bool  bDone, bPolled, bWas, bHurry;
 var bool  bViaUnTrigger;      // When=code on a keypad that toggles door locks: heard by its UnTriggerEvent
 var DeusExMover PendingDoor;  // a door that triggered opened/destroyed: which one it was is known a tick later
 var Actor PendingBy;
+var Actor ExitOf;             // a level exit whose touch this link took (HookExit): the player walking in is watched
+var Actor ExitWho;            // who walked into it, sent on at ExitAt
+var float ExitAt;
+var bool  bExitIn;            // the player was in it at the last look: once each time they walk in
 var int   HeardValue;           // When=output: the number the output came with (UCScript.OutputValue), for Value
 var int   Step;
 var float Waited, Delay;
@@ -167,6 +171,11 @@ function Hook()
 		Report("hook", Source $ "|target");
 		return;
 	}
+	if (When == 'any' && IsLevelExit(A))              // it sends the player on, never its Event: its touch is ours
+	{
+		HookExit(A);
+		return;
+	}
 	K = Keypad(A);
 	if (When == 'code' && K != None && K.bToggleLock)  // its Event names the doors its code unlocks: keep it
 	{
@@ -220,6 +229,68 @@ function bool AimsItsEvent(Actor A)
 		|| A.IsA('PhysicsTrigger') || A.IsA('SkinColourTrigger') || A.IsA('TriggerTrigger') || A.IsA('UnlitTrigger'))
 		return True;
 	return A.IsA('MoreTriggers') && When != 'leave';
+}
+
+// A teleporter to another map (its URL has a # or a /) or a map exit sends the player on and never its Event
+// (Teleporter.Touch, MapExit.LoadMap): "it triggers its event" never came (26 Nov 2026, Blackout Protocol's exit).
+// The link takes its touch: the exit's collision goes, the link watches the player walk into it (WatchExit, a touch's
+// sizes), sets off the links' Tag (the exit's rules) and a quarter second later calls the exit's Touch (LeaveBy): the
+// game sends the player on as it did. Steps with a longer delay do not run (the map is gone).
+function bool IsLevelExit(Actor A)
+{
+	local Teleporter T;
+
+	if (!A.bCollideActors)
+		return False;                   // a map exit only an event sets off (or one another link took)
+	T = Teleporter(A);
+	if (T != None)
+		return InStr(T.URL, "#") >= 0 || InStr(T.URL, "/") >= 0;
+	return A.IsA('MapExit');
+}
+
+function HookExit(Actor A)
+{
+	A.SetCollision(False, A.bBlockActors, A.bBlockPlayers);
+	ExitOf = A;
+	Enable('Tick');
+}
+
+function WatchExit()
+{
+	local Pawn P;
+	local Actor X;
+	local vector d;
+	local bool bIn;
+
+	if (ExitOf == None || ExitOf.bDeleteMe)
+		return;
+	P = GetPlayerPawn();
+	if (P == None)
+		return;
+	d = P.Location - ExitOf.Location;
+	bIn = Abs(d.Z) <= ExitOf.CollisionHeight + P.CollisionHeight
+		&& d.X * d.X + d.Y * d.Y <= Square(ExitOf.CollisionRadius + P.CollisionRadius);
+	if (bIn && !bExitIn && ExitWho == None)
+	{
+		ExitWho = P;
+		ExitAt = Level.TimeSeconds + 0.25;
+		foreach AllActors(class'Actor', X, Tag)
+			X.Trigger(ExitOf, P);       // the rules on the exit (every link of it shares the Tag)
+	}
+	bExitIn = bIn;
+	if (ExitWho != None && Level.TimeSeconds >= ExitAt)
+		LeaveBy();
+}
+
+// The exit's own touch, a moment after its rules: the game sends the player on as it did (Teleporter.Touch, MapExit).
+function LeaveBy()
+{
+	local Actor W;
+
+	W = ExitWho;
+	ExitWho = None;
+	if (W != None && !W.bDeleteMe && ExitOf != None && !ExitOf.bDeleteMe)
+		ExitOf.Touch(W);
 }
 
 // A keypad that toggles door locks fires no event, but untriggers its UnTriggerEvent list on the right code
@@ -328,11 +399,14 @@ event Tick(float DeltaTime)
 
 	M = PendingDoor;
 	PendingDoor = None;
-	Disable('Tick');
+	if (ExitOf == None)
+		Disable('Tick');                // (a level exit's link watches it every tick)
 	if (M != None && (When == 'destroyed') == M.bDestroyed)
 		RunRule(PendingBy);
 	if (bPawnPending)
 		PawnTold();
+	if (ExitOf != None)
+		WatchExit();
 }
 
 // a character's death event, a tick later: killed, or knocked out (bStunned; gone already: killed)

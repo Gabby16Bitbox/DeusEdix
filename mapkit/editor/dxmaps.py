@@ -679,6 +679,7 @@ def build(map_name, log=print, options=None, watch=None):
                 del props_a[key]
             if hidden:
                 lines.append(props.echo_gains_line(a['name'], a['cls'], hidden))
+            props_a = props.block_strings(a['cls'], props_a)     # a string unquoted stops at a comma in the T3D import
             if str(a['cls']).endswith('UCCutscene'):     # its keys, lines and options (editor/cutscenes.py)
                 props_a.update(cutscenes.props(edits, a['name']))
             blocks.append(Scene._block(a['cls'], tuple(a['loc']), a['name'], tuple(int(v) for v in a.get('rot', (0, 0, 0))), '',

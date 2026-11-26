@@ -29,7 +29,7 @@ class InstallStory(unittest.TestCase):
                    'data': types.SimpleNamespace(OUT=root / 'out'), 'story': story, 'run_ps': self.run_ps,
                    'is_dx': lambda script: False, 'map_of': lambda script: '01_Room'}
         tree = ast.parse(SOURCE.read_text(encoding='utf-8-sig'))
-        fn = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'install_map'],
+        fn = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in ('install_map', 'older_installed')],
                         type_ignores=[])
         exec(compile(fn, str(SOURCE), 'exec'), self.ns)
         import sys

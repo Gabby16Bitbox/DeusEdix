@@ -28,7 +28,7 @@ FIXTURE = ({'id': str, 'title': str, 'behaviour': str, 'derivedFrom': list, 'ass
 SOURCE = ({'file': str, 'lines': list, 'has': str}, {})
 WORLD = ({'player': str, 'actors': list}, {})
 ACTOR = ({'name': str, 'chain': list}, {'at': list, 'tag': str, 'absent': str, 'seconds': NUMBER, 'ports': dict,
-                                         'script': dict})
+                                         'script': dict, 'keyId': str})   # keyId: a NanoKey's Key ID
 SCRIPT = ({}, {'input': dict, 'started': list, 'loading': list})
 STATE = ({}, {'flags': dict, 'counters': dict, 'items': list, 'credits': int, 'skills': dict, 'dead': list,
               'owned': list, 'jc': list})

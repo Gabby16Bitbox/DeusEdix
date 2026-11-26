@@ -33,7 +33,7 @@ import { vocabulary, goalTexts } from './logic-vocab.js';
 import { lineText, saidLine } from './logic-try.js';
 import { boxesOf, makeBox, BOX } from './logic-boxes.js';
 import { nextInstanceId, versionKey, fillSlots } from './logic-patterns.js';
-import { WORLD_CAUSES, GAME_WORLD } from './logic-rule-ui.js';
+import { WORLD_CAUSES, GAME_WORLD, PAWN_CLASSES } from './logic-rule-ui.js';
 import { canOtherwise, syncOtherwise } from './action-list.js';
 
 // (the Timer too: 13 Nov 2026, the graph's menu placed one and a proposal could not)
@@ -55,7 +55,10 @@ export function applyOps(edits, ops, ctx) {
   const errors = [], refs = {}, added = [], changed = new Set(), removed = [], groups = [], blocks = [], instances = [], boxes = [];
   const logic = () => (next.logic && typeof next.logic === 'object' ? next.logic : (next.logic = {}));
   const groupList = () => (Array.isArray(logic().groups) ? logic().groups : (logic().groups = []));
-  const madeBlocks = new Map();                       // a block of the proposal: name -> its class
+  // a block of the proposal: name -> {cls, props} (its props give a Phases block's Go to / enters / leaves per phase,
+  // a Switch's or a First of's ways: 26 Nov 2026, Blackout Protocol, rules of a Phases block made in the same proposal
+  // were refused, "cannot input:GoTo_Sabotage")
+  const madeBlocks = new Map();
   const has = (name) => madeBlocks.has(name) || !!ctx.exists(name);
   if (!Array.isArray(ops) || !ops.length) return { edits: next, added, changed: [], removed, groups, blocks, instances, boxes, refs, errors: ['ops: a list of operations.'] };
 
@@ -78,8 +81,9 @@ export function applyOps(edits, ops, ctx) {
     const list = groupList();
     return list.find((x) => x.id === g) || list.find((x) => low(x.name) === low(g)) || null;
   };
-  const outputsOf = (name) => (madeBlocks.has(name) ? ctx.blockIo?.(madeBlocks.get(name))?.outputs ?? null : ctx.outputsOf(name));
-  const inputsOf = (name) => (madeBlocks.has(name) ? ctx.blockIo?.(madeBlocks.get(name))?.inputs ?? null : ctx.inputsOf(name));
+  const madeIo = (name) => { const m = madeBlocks.get(name); return ctx.blockIo?.(m.cls, m.props, name); };
+  const outputsOf = (name) => (madeBlocks.has(name) ? madeIo(name)?.outputs ?? null : ctx.outputsOf(name));
+  const inputsOf = (name) => (madeBlocks.has(name) ? madeIo(name)?.inputs ?? null : ctx.inputsOf(name));
   const whenKey = (c) => (c.when === 'output' ? 'output:' + (c.port || '') : c.when);
   const free = new Set(ctx.free || []);
 
@@ -115,6 +119,16 @@ export function applyOps(edits, ops, ctx) {
       if (arg.type !== 'choice' || !Array.isArray(arg.choices) || val === undefined || val === null || val === '') continue;
       const ok = arg.choices.map((c) => String(Array.isArray(c) ? c[0] : c));
       if (!ok.includes(String(val))) throw new Error(`${where}: "${x.verb}" ${arg.id} (${arg.label}) is one of ${ok.map((c) => `"${c}"`).join(', ')}, not "${val}"`);
+    }
+    // a character class as Package.Class: "MJ12Troop" went into the game as no class and nobody came (26 Nov 2026,
+    // Blackout Protocol); the short name of one the page offers is taken as it
+    for (const arg of v.args || []) {
+      const val = x[arg.id];
+      if (arg.type !== 'pawnclass' || val === undefined || val === null || String(val).trim() === '') continue;
+      const s = String(val).trim(), known = PAWN_CLASSES.find((c) => c.split('.')[1].toLowerCase() === s.toLowerCase());
+      if (/^\w+\.\w+$/.test(s)) x[arg.id] = s;
+      else if (known) x[arg.id] = known;
+      else throw new Error(`${where}: "${x.verb}" ${arg.id} (${arg.label}) is a class as Package.Class (e.g. DeusEx.MJ12Troop), not "${s}"`);
     }
     if (x.group) {
       const g = groupOf(x.group);
@@ -221,7 +235,7 @@ export function applyOps(edits, ops, ctx) {
         const name = o.name || ctx.newName(o.cls, taken);
         const props = Object.fromEntries(Object.entries(o.props || {}).map(([key, v]) => [key, String(v)]));
         next.added.push({ name, cls: o.cls, loc: o.at.map(Math.round), rot: [0, 0, 0], props });
-        madeBlocks.set(name, o.cls);
+        madeBlocks.set(name, { cls: o.cls, props });
         blocks.push(name);
         if (o.ref) refs[o.ref] = name;
       } else if (o.op === 'make_group') {
@@ -263,7 +277,7 @@ export function applyOps(edits, ops, ctx) {
           const name = ctx.newName(x.cls, taken);
           const e = { name, cls: x.cls, loc: base.map((v, i) => v + ((x.at || [])[i] || 0)), rot: [0, 0, 0], props: { ...(x.props || {}) } };
           next.added.push(e);
-          madeBlocks.set(name, x.cls);
+          madeBlocks.set(name, e);
           made.push(e);
           slots[x.slot] = name;
         }
@@ -379,8 +393,18 @@ export function simulate(t, fires = [], seconds = 5, start = {}) {
   };
   const outputs = c.outputs || t.catalog.outputs || {};
   for (const f0 of fires) {
+    // {wait: seconds}: time passes before the next happening (a timer runs out, a clock): 26 Nov 2026, Blackout Protocol
+    if (f0 && typeof f0 === 'object' && Object.keys(f0).length === 1 && 'wait' in f0) {
+      let stopped = false;
+      for (let left = Math.max(0.1, Math.min(600, +f0.wait || 0)); left > 1e-6 && !stopped; left -= 0.5) {
+        talkThrough();
+        const r = session.run(Math.min(0.5, left));
+        if (r && r.stopped) { stops.push(r.stopped.text); stopped = true; }
+      }
+      continue;
+    }
     const f = happeningOf(f0, outputs);
-    if (!f) return { error: 'Each happening is {thing, output, port?, option?}; with no thing: {output: "keypress", key}, {output: "signal", signal}, {output: "ended", dialogue}, {output: "heard", infolink}, {output: "gametag", gameTag}, or a cause of the world (back, loaded, goaldone with goal, noise with noise, appears with what).' };
+    if (!f) return { error: 'Each happening is {thing, output, port?, option?}; with no thing: {output: "keypress", key}, {output: "signal", signal}, {output: "ended", dialogue}, {output: "heard", infolink}, {output: "gametag", gameTag}, or a cause of the world (back, loaded, goaldone with goal, noise with noise, appears with what); {wait: seconds} lets time pass.' };
     session.fire(f);
     talkThrough();
     const r = session.step(1);

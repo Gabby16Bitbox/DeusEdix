@@ -286,6 +286,12 @@ const OPS = {
   set({ name, props }) {
     const k = needEditable(), a = k.allActors().find((x) => x.name === name);
     if (!a) return setPiece(k, name, props);
+    // "label" names a block (setPiece); on an object the game has no such property: it was saved and did nothing
+    // (26 Nov 2026, Blackout Protocol: a switch "labelled" kept its old name)
+    const labelKey = Object.keys(props || {}).find((key) => key.toLowerCase() === 'label');
+    if (labelKey && props[labelKey] !== null && !(OPS.object({ name }).classes || []).some((c) => /^UC(Link|Rule|RuleAlso)$/.test(c)))
+      throw new Error(`${name} has no property label: the name an object shows in the editor and the game is FamiliarName`
+        + " (a character's BindName is the name its conversations and the rules know it by).");
     for (const [key, v] of Object.entries(props)) { if (v === null) k.unsetProp(a, key); else k.setProp(a, key, String(v)); }
     k.rebuildProxies();
     const p = k.proxyOf(name);
@@ -548,13 +554,18 @@ function setPiece(k, name, props) {
   const ed = E(), b = (ed.edits.boxes || []).find((x) => x.name === name), d = (ed.edits.drawn || []).find((x) => x.name === name);
   if (!b && !d) throw new Error(`${name}: nothing of that name in the map (find_objects gives the names).`);
   // a block also takes mover (a moving block, as the Inspector's Kind) and door (the Inspector's Quick door: how it
-  // slides open, its own size in 2 s; 13 Nov 2026, Deep Ops: the assistant could not make a door at all)
-  const allowed = b ? ['tex', 'solid', 'mover', 'door'] : [...Object.keys(DRAW_DEFAULTS[d.kind] || {}), 'closed'];
+  // slides open, its own size in 2 s; 13 Nov 2026, Deep Ops: the assistant could not make a door at all); its label
+  // (the name the rules show) and climb / climbOff (the Inspector's Kind "Climbable area" and its "starts off"; 26 Nov
+  // 2026, Blackout Protocol: the assistant could name no block and make no ladder)
+  const allowed = b ? ['tex', 'solid', 'mover', 'door', 'label', 'climb', 'climbOff'] : [...Object.keys(DRAW_DEFAULTS[d.kind] || {}), 'closed'];
   const unknown = Object.keys(props).filter((key) => !allowed.includes(key));
   if (unknown.length) throw new Error(`Not fields of ${name}: ${unknown.join(', ')} (it has: ${allowed.join(', ')}${b ? '; its size and place: move_object' : ''}).`);
   const SLIDES = ['up', 'down', '+x', '-x', '+y', '-y'];
   if (b && props.door != null && !SLIDES.includes(props.door)) throw new Error(`door is how it slides open: ${SLIDES.join(', ')}.`);
   if (b && (b.hole || b.water || b.portal || b.climb) && (props.mover || props.door)) throw new Error(`${name}: holes, water, portals and climbable areas cannot move; a solid or detail block can.`);
+  if (b && props.climb && (b.mover || b.hole || b.water || b.portal)) throw new Error(`${name}: a moving block, a hole, water or a portal cannot be a climbable area; a solid block can.`);
+  if (b && props.climbOff != null && !(props.climb || (b.climb && props.climb !== false))) throw new Error(`${name}: climbOff (it starts off) is for a climbable area: give climb true too.`);
+  if (b && props.label != null && typeof props.label !== 'string') throw new Error('label is a text (null or "": none).');
   k.pushUndo(`Assistant: change ${name}`);
   for (const [key, v] of Object.entries(props)) {
     if (b && key === 'door') {
@@ -563,6 +574,12 @@ function setPiece(k, name, props) {
       const off = { up: [0, 0, size[2]], down: [0, 0, -size[2]], '+x': [size[0], 0, 0], '-x': [-size[0], 0, 0], '+y': [0, size[1], 0], '-y': [0, -size[1], 0] }[v];
       b.mover = true; b.solid = true; delete b.sky;
       (ed.edits.motions ||= {})[name] = { pos: [{ t: 0, v: [0, 0, 0], e: 1 }, { t: 2, v: off, e: 1 }], rot: [], scale: [], mode: 'once', autoplay: false };
+    } else if (b && key === 'climb') {               // as the Inspector's Kind "Climbable area (ladder)"
+      if (v) { b.climb = true; b.solid = true; delete b.water; delete b.portal; delete b.hole; delete b.sky; } else { delete b.climb; delete b.climbOff; }
+    } else if (b && key === 'climbOff') {
+      if (v) b.climbOff = true; else delete b.climbOff;
+    } else if (b && key === 'label') {
+      if (v && v.trim()) b.label = v.trim(); else delete b.label;
     } else if (b && key === 'mover') {
       if (v) { b.mover = true; b.solid = true; delete b.sky; } else { delete b.mover; if (ed.edits.motions) delete ed.edits.motions[name]; }
     } else if (v === null) delete (b || d)[key]; else (b || d)[key] = v;

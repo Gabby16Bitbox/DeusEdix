@@ -4,7 +4,7 @@
   "behaviour": "A script whose Input() does not handle the name passes it to UCScript.Input, which writes noinput (a renamed port); an input on an object that is no script fails with \"noscript\".",
   "derivedFrom": [
     {"file": "UCScript.uc", "lines": [60, 63], "has": "function Input(string InputName, string Args, Actor Caller)"},
-    {"file": "UCLink.uc", "lines": [976, 979], "has": "else if (verb == \"input\" && UCScript(T) != None)"}
+    {"file": "UCLink.uc", "lines": [1050, 1053], "has": "else if (verb == \"input\" && UCScript(T) != None)"}
   ],
   "assumes": ["A9"],
   "map": "LogicFixtures",

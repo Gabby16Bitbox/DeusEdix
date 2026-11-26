@@ -5731,10 +5731,17 @@ function logicWorld(input, compiled) {
   const owners = ((input.story || {}).dialogues || []).filter((d) => d && d.id && !d.disabled && d.owner).map((d) => d.owner);
   // and the characters of the groups of a kind or a faction the rules use (P9: logic-sim.js, the game rules' sets)
   const exLinks = expandInstances(edits).links || [];          // (their classes' chains: logicInput loaded them)
-  for (const n of new Set([...logicNames(exLinks), ...tagged, ...owners, ...lgSetNames(exLinks)])) {
+  // and the blocks that keep a state the rules may read though no rule names them (26 Nov 2026, Blackout Protocol: an
+  // At least N read only through its state "Professional" was not in Try it, so the state stayed No)
+  const keepers = allActors().filter((a) => !edits.deleted[a.name] && ['UCBAtLeast', 'UCBPhases', 'UCBCounter'].includes(a.cls)).map((a) => a.name);
+  for (const n of new Set([...logicNames(exLinks), ...tagged, ...owners, ...lgSetNames(exLinks), ...keepers])) {
     const a = lkActor(n);
     if (!a) continue;
-    const w = { name: n, chain: chainNow[a.cls] || [a.cls], at: a.loc, tag: scriptingTagOf(a) };
+    const w = { name: n, cls: a.cls, chain: chainNow[a.cls] || [a.cls], at: a.loc, tag: scriptingTagOf(a) };
+    if (w.chain.includes('NanoKey')) {        // picked up: on the keyring under its Key ID (logic-sim.js pickedUp)
+      w.keyId = String(actorProp(a, 'KeyID') ?? '').replace(/^"|"$/g, '');
+      w.keyDescription = String(actorProp(a, 'Description') ?? '').replace(/^"|"$/g, '');
+    }
     if (isCharacter(a)) w.alliance = factionOf(a);
     if (w.chain.includes('UCTimer')) {
       w.seconds = +(actorProp(a, 'Seconds') ?? 0) || 0;
@@ -5746,7 +5753,8 @@ function logicWorld(input, compiled) {
       w.block = { need: text('Need'), again: yes(actorProp(a, 'bAgain')), closed: yes(actorProp(a, 'bClosed')),
         choices: text('NumWays') || '2', mode: text('Mode') || 'In turn', weights: text('Weights'),
         phases: phaseList(actorProp(a, 'Phases')).map((p) => p.id), statename: text('StateName'), states: text('States'),
-        timelimit: text('TimeLimit'), clockatstart: yes(actorProp(a, 'bClockAtStart')), goal: text('ReachedAt') };
+        timelimit: text('TimeLimit'), clockatstart: yes(actorProp(a, 'bClockAtStart')), goal: text('ReachedAt'),
+        off: !!a.climbOff || yes(actorProp(a, 'bOff')) };   // a climbable area that starts off (UCClimbArea: its block's climbOff)
     }
     const io = lkIo(a), port = (side) => io[side + 's'].filter((k) => k.startsWith(side + ':'))
       .map((k) => ({ id: k.slice(side.length + 1), label: (io.labels || {})[k] || k.slice(side.length + 1),
@@ -5800,7 +5808,9 @@ function logicLabels(names) {
     // Gabby: the graph called it "Moving block", or UCPfp2A0)
     const copy = lkCopyLabel(n);
     // a class name as words: "UNATCO Troop", "MJ12 Troop" (the Hierarchy's label is the class when nothing names it)
-    const l = (copy || (q ? objectLabel(q)[0] : a ? hierLabel(a) : '')) || n;
+    // (a block built is an actor of the map too: its block's own label first, as lkName)
+    const boxNamed = (edits.boxes || []).find((b) => b.name === n && lkObjBox(b) && String(b.label || '').trim());
+    const l = (copy || (boxNamed ? blockLabel(boxNamed) : '') || (q ? objectLabel(q)[0] : a ? hierLabel(a) : '')) || n;
     // a name given in the Hierarchy (F2: edits.editorNames) as it was typed (14 Nov 2026: "ZoneDance" shown as
     // "Zone Dance" in the graph, "ZoneDance" in the rule's own sentence)
     const given = String(((edits && edits.editorNames) || {})[n] || '').trim();
@@ -5830,6 +5840,8 @@ async function logicInput() {
   const found = names.map((n) => [n, lkActor(n)]).filter(([, a]) => a);
   const sets = Object.fromEntries(lgGroups().filter(lgSet).map((g) => [g.id, lgSetMembers(lgSet(g))]));
   await Promise.all([...new Set(found.map(([, a]) => a.cls))].map((cls) => chainOf(cls)));
+  // the blocks keeping a state no rule names (logicWorld keepers: Try it starts them as scripts, by their chain)
+  await Promise.all(['UCBAtLeast', 'UCBPhases', 'UCBCounter'].filter((c) => !chainNow[c] && allActors().some((a) => a.cls === c)).map((c) => chainOf(c)));
   const actors = {}, friendly = logicLabels(found.map(([n]) => n));
   for (const [n, a] of found) {
     const io = lkIo(a), family = io.family;
@@ -5840,6 +5852,9 @@ async function logicInput() {
       labels: io.labels || {}, ...(io.carries ? { carries: io.carries } : {}) };      // outputs with a number (P8 5b)
     if (family === 'computer') actors[n].options = lkOptions(a).map((o) => structShown(new Map(o.pairs).get('Text') || ''));
     if (a.cls === 'UCBPhases') Object.assign(actors[n], lkPhaseSet(a));          // its phases (P3: rules kept to some)
+    // the states an At least N counts ("!Name": while No), for the checks (logic-graph-problems.js atLeastProblems)
+    if (a.cls === 'UCBAtLeast') actors[n].states = String(actorProp(a, 'States') ?? '').replace(/^"|"$/g, '').split(',')
+      .map((x) => x.trim().replace(/^!\s*/, '')).filter(Boolean);
   }
   // the animations of the characters a rule plays a body animation on (14 Nov 2026: one its model lacks, say Dance
   // given to a man, played nothing in the game and nothing said so; logic-graph-problems.js 'no-such-anim')
@@ -10438,6 +10453,9 @@ async function doorRoom(entry) {
 }
 // where something being placed stands: on the first surface `ray` meets (on a floor, under a ceiling, against a wall)
 function placeOnRay(ray) {
+  // blocks just made stand where they are for the ray even when the 3D view is not drawn (the window hidden, the
+  // assistant placing): a key put on a new ledge fell through it to the floor (26 Nov 2026, Blackout Protocol)
+  proxies.updateMatrixWorld();
   const hits = ray.intersectObjects(worldMeshes, false)
     .concat(ray.intersectObjects(pendingSurfaces(), true).filter((h) => h.object.isMesh && h.face))
     .sort((a, b) => a.distance - b.distance);
@@ -13943,7 +13961,7 @@ function lkActor(name) {
   if (!b) return null;
   const cls = b.mover ? 'DeusExMover' : 'UCClimbArea';
   if (!chainNow[cls]) chainOf(cls);
-  return { name: b.name, cls, box: true, loc: [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2) };
+  return { name: b.name, cls, box: true, loc: [0, 1, 2].map((k) => (b.lo[k] + b.hi[k]) / 2), ...(b.climbOff ? { climbOff: true } : {}) };
 }
 // a block that is an object of the game the rules use: a moving block (a mover), a climbable area (23 Nov 2026)
 function lkObjBox(b) { return !!(b && (b.mover || b.climb)); }
@@ -13967,7 +13985,10 @@ function lkName(name) {
   if (copy) return copy;
   // its own name (the Inspector's, 12 Nov 2026: FamiliarName, a block's label) says it alone, unless another has it too
   const boxOwn = (b) => { const s = String((b && b.label) || '').trim(); return b && b.climb && /^climbable area$/i.test(s) ? '' : s; }, actorOwn = (x) => unquote(actorProp(x, 'FamiliarName') || '').trim();
-  const own = a.box ? boxOwn((edits.boxes || []).find((b) => b.name === name)) : actorOwn(a), low = own.toLowerCase();
+  // (a block once built is an actor of the map too, with no FamiliarName: its block's label still names it; 26 Nov 2026,
+  // Blackout Protocol: after a Rebuild the rules said "play the animation of door 2" for the Control door)
+  const ownBox = (edits.boxes || []).find((b) => b.name === name && lkObjBox(b));
+  const own = ownBox ? boxOwn(ownBox) || (a.box ? '' : actorOwn(a)) : actorOwn(a), low = own.toLowerCase();
   if (own && !allActors().some((x) => x.name !== name && !edits.deleted[x.name] && actorOwn(x).toLowerCase() === low)
     && !(edits.boxes || []).some((b) => b.name !== name && lkObjBox(b) && boxOwn(b).toLowerCase() === low)) return own;
   const l = own || (a.box ? lkBoxNoun(a) : LK_KIND[lkCatOf(a)]) || hierLabel(a);
@@ -15947,7 +15968,9 @@ function logicProposeCtx() {
     exists: (n) => !!lkActor(n),
     outputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? outs(a) : null; },
     inputsOf: (n) => { const a = lkActor(n); return a && ioNow[a.cls] ? lkInputsOf(a).concat(edits.motions?.[n] ? ANIM_VERBS : []) : null; },
-    blockIo: (cls) => (ioNow[cls] ? { outputs: ioNow[cls].outputs, inputs: ioNow[cls].inputs } : null),
+    // a block the proposal makes: its ports from its own props, as the Logic window's (blockPorts)
+    blockIo: (cls, props, name) => { if (!ioNow[cls]) return null; const io = blockPorts({ name: name || '', cls, props: props || {} }, ioNow[cls]);
+      return { outputs: io.outputs, inputs: io.inputs }; },
     verbs: logicVocab.inputs, outputs: logicVocab.outputs, free: logicVocab.free,
     where: (n) => (n && lkActor(n) ? lkWhere(n) : [0, 0, 0]),
     newName: (cls, taken) => { const m = /^(.*?)(\d+)$/.exec(nextName('UCEdit')); let i = +m[2]; while (taken(m[1] + i)) i++; return m[1] + i; },

@@ -995,8 +995,8 @@ function bool Holds(string c)
 	P = Plr();
 	if (kind == "flag")
 		return GetF(StringToName(Field(c, 1))) == (Field(c, 2) != "0");
-	if (kind == "item")
-		return HasItem(Field(c, 1)) == (Field(c, 2) != "0");
+	if (kind == "item")                                     // item|DeusEx.NanoKey|1|EastCage: a key of the keyring
+		return HasItem(Field(c, 1), Field(c, 3)) == (Field(c, 2) != "0");
 	if (kind == "alive")                                    // alive: not killed, not knocked out (Dead)
 		return !Dead(StringToName(Field(c, 1))) == (Field(c, 2) != "0");
 	if (kind == "skill")
@@ -1242,14 +1242,24 @@ function int ItemsOf(DeusExPlayer P, string className)
 	return n;
 }
 
-function bool HasItem(string className)
+// a NanoKey picked up goes on the keyring and is destroyed (DeusExPlayer.PickupNanoKey): the keyring has it, the one of
+// keyId or (no keyId) any key (26 Nov 2026: "while the player carries NanoKey" was never true)
+function bool HasItem(string className, optional string keyId)
 {
 	local DeusExPlayer P;
 	local class<Inventory> cls;
 
 	P = Plr();
 	cls = class<Inventory>(DynamicLoadObject(className, class'Class', True));
-	return P != None && cls != None && P.FindInventoryType(cls) != None;
+	if (P == None || cls == None)
+		return False;
+	if (ClassIsChildOf(cls, class'NanoKey'))
+	{
+		if (keyId != "")
+			return P.KeyRing != None && P.KeyRing.HasKey(StringToName(keyId));
+		return P.KeyList != None;
+	}
+	return P.FindInventoryType(cls) != None;
 }
 
 // filled by the generated class

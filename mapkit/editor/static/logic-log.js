@@ -77,7 +77,7 @@ export function decodeCondition(text) {
   const num = (s) => (String(s).startsWith('=') ? formulaText(s) : +s);      // a formula of counters (P9 slice 5): its text
   switch (f[0]) {
     case 'flag': return { flag: f[1], is: f[2] !== '0' };
-    case 'item': return { type: 'item', item: f[1], has: f[2] !== '0' };
+    case 'item': return { type: 'item', item: f[1], has: f[2] !== '0', ...(f[3] ? { keyId: f[3] } : {}) };
     case 'alive': return { type: 'alive', actor: f[1], is: f[2] !== '0' };
     case 'skill': return { type: 'skill', skill: f[1], level: +f[2] };
     case 'count': return { type: 'counter', counter: f[1], op: f[2], value: num(f[3]) };

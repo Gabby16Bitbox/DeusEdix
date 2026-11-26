@@ -1,0 +1,92 @@
+{
+  "id": "condition_nanokey",
+  "title": "Condition: a NanoKey of a Key ID on the keyring",
+  "behaviour": "A NanoKey picked up goes on the keyring and the pickup is destroyed (DeusExPlayer.PickupNanoKey): the condition reads the keyring, the key of its Key ID (26 Nov 2026, Blackout Protocol: it read the inventory and never held).",
+  "derivedFrom": [
+    {"file": "UCEditorStory.uc", "lines": [998, 999], "has": "if (kind == \"item\")"},
+    {"file": "UCEditorStory.uc", "lines": [1247, 1263], "has": "function bool HasItem(string className, optional string keyId)"}
+  ],
+  "assumes": [],
+  "map": "LogicFixtures",
+  "frame": 0.1,
+  "until": 2.5,
+  "edits": {
+    "links": [
+      {
+        "id": "L1",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if JC has the key EastCage: the message Key ready",
+        "requires": [{"type": "item", "item": "DeusEx.NanoKey", "has": true, "keyId": "EastCage"}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "Key ready"}]
+      },
+      {
+        "id": "L2",
+        "src": "Button1",
+        "when": "used",
+        "once": false,
+        "label": "When JC uses Button1, only if JC does not have the key EastCage: the message No key",
+        "requires": [{"type": "item", "item": "DeusEx.NanoKey", "has": false, "keyId": "EastCage"}],
+        "do": [{"id": "a1", "verb": "message", "target": "", "delay": 0, "a": "No key"}]
+      }
+    ]
+  },
+  "world": {
+    "player": "JCDentonMale0",
+    "actors": [
+      {"name": "Button1", "chain": ["Button1", "DeusExDecoration", "Decoration", "Actor"], "at": [0, 0, 0]},
+      {"name": "NanoKey0", "chain": ["NanoKey", "DeusExPickup", "Pickup", "Inventory", "Actor"], "at": [64, 0, 0], "keyId": "EastCage"}
+    ]
+  },
+  "start": {"items": []},
+  "inputs": [
+    {"t": 1.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}},
+    {"t": 1.5, "fire": {"thing": "NanoKey0", "output": "picked", "by": "JCDentonMale0"}},
+    {"t": 2.0, "fire": {"thing": "Button1", "output": "used", "by": "JCDentonMale0"}}
+  ],
+  "expected": [
+    {"t": 1.0, "line": "skip|LogicFixtures|L1|cond|item|DeusEx.NanoKey|1|EastCage"},
+    {
+      "t": 1.0,
+      "line": "fire|LogicFixtures|L2|Button1|used|JCDentonMale0|When JC uses Button1, only if JC does not have the key EastCage: the message No key"
+    },
+    {"t": 1.1, "line": "act|LogicFixtures|L2|message||No key"},
+    {
+      "t": 2.0,
+      "line": "fire|LogicFixtures|L1|Button1|used|JCDentonMale0|When JC uses Button1, only if JC has the key EastCage: the message Key ready"
+    },
+    {"t": 2.0, "line": "skip|LogicFixtures|L2|cond|item|DeusEx.NanoKey|0|EastCage"},
+    {"t": 2.1, "line": "act|LogicFixtures|L1|message||Key ready"}
+  ],
+  "compiled": [
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L1",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L1\"",
+        "Label": "\"When JC uses Button1, only if JC has the key EastCage: the message Key ready\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"item|DeusEx.NanoKey|1|EastCage\"",
+        "Act(0)": "\"0|message||Key ready||\""
+      }
+    },
+    {
+      "cls": "UCLink",
+      "name": "UCLink_L2",
+      "loc": [0.0, 0.0, 0.0],
+      "props": {
+        "Tag": "UCL_Button1",
+        "When": "used",
+        "Rule": "\"L2\"",
+        "Label": "\"When JC uses Button1, only if JC does not have the key EastCage: the message No key\"",
+        "Source": "\"Button1\"",
+        "Cond(0)": "\"item|DeusEx.NanoKey|0|EastCage\"",
+        "Act(0)": "\"0|message||No key||\""
+      }
+    }
+  ]
+}

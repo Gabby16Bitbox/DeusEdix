@@ -3,7 +3,8 @@
 A condition is a dict. A state keeps the Story's own shape; the other kinds say what they are:
 
     {'flag': 'Crypt_Generator', 'is': True}                       a state (flag) is true / false
-    {'type': 'item', 'item': 'DeusEx.Multitool', 'has': True}     JC carries / does not carry an object
+    {'type': 'item', 'item': 'DeusEx.Multitool', 'has': True}     JC carries / does not carry an object; a NanoKey:
+                                                                  the keyring has it ('keyId': 'EastCage', or any key)
     {'type': 'alive', 'actor': 'Guard1', 'is': True}              a character is alive (not killed, not knocked out)
     {'type': 'skill', 'skill': 'SkillLockpicking', 'level': 2}    JC's skill is at least: 1 trained ... 3 master
     {'type': 'counter', 'counter': 'Levers', 'op': '>=', 'value': 3}
@@ -36,6 +37,7 @@ OPS = ('<', '<=', '==', '!=', '>=', '>')
 MAX_CONDITIONS = 8                    # a rule's: UCLink.Cond[8] (the Story compiles its own, without a limit)
 _NAME = re.compile(r'\w+', re.ASCII)  # the map's own names: what the game writes in a map (latin-1 text, ASCII names)
 _CLASS = re.compile(r'\w+\.\w+', re.ASCII)
+_KEY = re.compile(r'(?!none$)[A-Za-z0-9_]{1,63}', re.ASCII | re.IGNORECASE)
 
 
 def ident(s, fallback='X'):
@@ -131,6 +133,8 @@ def check(conditions, kinds=KINDS, limit=None):
         elif k == 'item':
             if not isinstance(c.get('item'), str) or not _CLASS.fullmatch(c['item']):
                 raise ValueError('An item condition needs a class like DeusEx.Multitool.')
+            if str(c.get('keyId') or '').strip() and not _KEY.fullmatch(str(c['keyId']).strip()):
+                raise ValueError('A Key ID is 1 to 63 letters, digits or underscores, like EastCage.')
         elif k == 'alive':
             _named(c, 'actor', 'An alive condition')
         elif k == 'skill':
@@ -191,7 +195,8 @@ def encode(c):
     if k == 'flag':
         return 'flag|%s|%s' % (name_of(c['flag']), _yes(c, 'is'))
     if k == 'item':
-        return 'item|%s|%s' % (c['item'], _yes(c, 'has'))
+        key = str(c.get('keyId') or '').strip()             # a NanoKey's: item|DeusEx.NanoKey|1|EastCage
+        return 'item|%s|%s' % (c['item'], _yes(c, 'has')) + ('|' + key if key else '')
     if k == 'alive':
         return 'alive|%s|%s' % (c['actor'], _yes(c, 'is'))
     if k == 'skill':

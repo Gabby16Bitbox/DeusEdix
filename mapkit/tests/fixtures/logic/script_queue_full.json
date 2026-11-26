@@ -5,7 +5,7 @@
   "derivedFrom": [
     {"file": "UCScript.uc", "lines": [62, 85], "has": "final function Output(string OutputName)"},
     {"file": "UCScript.uc", "lines": [323, 334], "has": "final function StartScript()"},
-    {"file": "UCLink.uc", "lines": [381, 384], "has": "if (IsInState('Running'))"}
+    {"file": "UCLink.uc", "lines": [455, 458], "has": "if (IsInState('Running'))"}
   ],
   "assumes": ["A1", "A6", "A9"],
   "map": "LogicFixtures",
